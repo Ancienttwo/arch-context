@@ -1405,6 +1405,19 @@ setInterval(() => undefined, 1 << 30);
       expect((await docs("apply")).ok).toBe(true);
       expect(readText(join(root, "AGENTS.md"))).toBe(projected.agents);
 
+      // A v1 marker and a reordered v2 marker are the node's region, stale until apply rewrites the canonical bytes (#572 R3-F2, G3-F1).
+      const v2 = 'rendererVersion="archcontext.agent-context-renderer/v2"';
+      const [, idAttribute] = / (id="[^"]+") rendererVersion=/.exec(projected.agents)!;
+      for (const stale of [
+        projected.agents.replace(v2, `sourceDigest="sha256:${"1".repeat(64)}" rendererVersion="archcontext.agent-context-renderer/v1"`),
+        projected.agents.replace(`${idAttribute} ${v2}`, `${v2} ${idAttribute}`)
+      ]) {
+        writeFileSync(join(root, "AGENTS.md"), stale, "utf8");
+        expect(((await docs("drift")).data as any).drift.diffs).toContainEqual(expect.objectContaining({ path: "AGENTS.md", reasonCode: "projection-generated-region-stale" }));
+        expect((await docs("apply")).ok).toBe(true);
+        expect(readText(join(root, "AGENTS.md"))).toBe(projected.agents);
+      }
+
       // The manifest records agent-context rows, so the projection is the one writer of these paths.
       const refused = await daemon.agentContextProjection(root, { action: "apply", approved: true });
       expect(refused).toMatchObject({ ok: false, error: { reasonCode: "agent-context-owned-by-projection" } });

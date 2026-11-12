@@ -2813,7 +2813,7 @@ function agentContextRegionDrift(expected: ArchitectureDocumentationProjectionFi
   const base = { path: expected.path, targetId: target.targetId, expectedDigest: expected.generatedBodyDigest };
   if (region === undefined) return { ...base, reasonCode: "projection-generated-region-missing" };
   const actualDigest = agentContextRegionBodyDigest(existing.body, region, target.scope.id);
-  if (actualDigest !== agentContextMarkerOutputDigest(region.startMarker)) return { ...base, reasonCode: "projection-generated-region-manually-edited", actualDigest };
+  if (actualDigest !== region.outputDigest) return { ...base, reasonCode: "projection-generated-region-manually-edited", actualDigest };
   if (region.startMarker !== target.generatedRegion.startMarker) return { ...base, reasonCode: "projection-generated-region-stale", actualDigest };
   return undefined;
 }
@@ -3169,87 +3169,76 @@ export function agentContextTextOutsideRegions(body: string, nodeIds: readonly s
   return text;
 }
 
-function agentContextMarkerOutputDigest(startMarker: string): string | undefined {
-  return /\boutputDigest="([^"]+)"/.exec(startMarker)?.[1];
-}
-
 /** The digest of a region's body as its marker records it: `digestJson({ id, body })`. */
 function agentContextRegionBodyDigest(body: string, region: { contentStart: number; contentEnd: number }, nodeId: string): string {
   return digestJson({ id: nodeId, body: `${body.slice(region.contentStart, region.contentEnd).trimEnd()}\n` } as unknown as Json);
 }
 
-/**
- * Every agent-context marker in the file is well-formed and paired before any one node's region is
- * read: each BEGIN carries `id`, `rendererVersion` and a SHA-256 `outputDigest` (a v1 marker may also
- * carry `sourceDigest`, so it reads as stale) and is closed by the END of that id before the next
- * marker, and no id has two regions. A stray, id-less, unpaired or incomplete marker of any node
- * therefore fails closed instead of reading as a missing region or surviving a rewrite.
- */
-function assertAgentContextMarkers(body: string): void {
-  const marker = /<!-- (BEGIN|END) ARCHCONTEXT AGENT CONTEXT/g;
-  const seen = new Set<string>();
-  let open: string | undefined;
-  for (let match = marker.exec(body); match !== null; match = marker.exec(body)) {
-    const rest = body.slice(match.index);
-    if (match[1] === "BEGIN") {
-      const id = agentContextBeginMarkerId(rest);
-      if (open !== undefined) throw new Error(`agent-context-marker-overlap: ${open}`);
-      if (seen.has(id)) throw new Error(`agent-context-marker-duplicate: ${id}`);
-      seen.add(id);
-      open = id;
-    } else {
-      const id = /^<!-- END ARCHCONTEXT AGENT CONTEXT id="([^"]+)" -->/.exec(rest)?.[1];
-      if (id === undefined || id !== open) throw new Error(`agent-context-marker-malformed: ${id ?? "an END marker names no id"}`);
-      open = undefined;
-    }
-  }
-  if (open !== undefined) throw new Error(`agent-context-marker-malformed: ${open}`);
-}
-
-const AGENT_CONTEXT_MARKER_ATTRIBUTES = new Set(["id", "sourceDigest", "rendererVersion", "outputDigest"]);
-
-/** The id of the BEGIN marker at the start of `text`; throws unless its required attributes are present and well-formed. */
-function agentContextBeginMarkerId(text: string): string {
-  const marker = /^<!-- BEGIN ARCHCONTEXT AGENT CONTEXT((?: [A-Za-z]+="[^"]*")*) -->/.exec(text);
-  const attributes = new Map([...(marker?.[1] ?? "").matchAll(/ ([A-Za-z]+)="([^"]*)"/g)].map((entry) => [entry[1]!, entry[2]!]));
-  const id = attributes.get("id");
-  if (marker === null || !id || !attributes.get("rendererVersion") || !/^sha256:[a-f0-9]{64}$/.test(attributes.get("outputDigest") ?? "")
-    || [...attributes.keys()].some((key) => !AGENT_CONTEXT_MARKER_ATTRIBUTES.has(key))) {
-    throw new Error(`agent-context-marker-malformed: ${id ?? "a BEGIN marker names no id"}`);
-  }
-  return id;
-}
-
-function findAgentContextRegion(body: string, nodeId: string): {
+interface AgentContextRegion {
   start: number;
   end: number;
   contentStart: number;
   contentEnd: number;
   startMarker: string;
-} | undefined {
-  assertAgentContextMarkers(body);
-  const startPattern = new RegExp(`<!-- BEGIN ARCHCONTEXT AGENT CONTEXT id="${escapeRegExp(nodeId)}"[^>]*-->`);
-  const startMatch = startPattern.exec(body);
-  const endMarker = agentContextEndMarker(nodeId);
-  if (!startMatch || startMatch.index === undefined) {
-    if (body.includes(endMarker) || body.includes(`${AGENT_CONTEXT_BEGIN_PREFIX} id="${nodeId}"`)) throw new Error(`agent-context-marker-malformed: ${nodeId}`);
-    return undefined;
+  outputDigest: string;
+}
+
+const AGENT_CONTEXT_MARKER_ATTRIBUTES = new Set(["id", "sourceDigest", "rendererVersion", "outputDigest"]);
+
+/**
+ * The one agent-context marker parser: lookup, merge, drift and the human-text comparison all read
+ * regions through it. The whole file is parsed before any one node's region is used: each BEGIN
+ * carries `id`, `rendererVersion` and a SHA-256 `outputDigest` in any order (a v1 marker may also
+ * carry `sourceDigest`, so it reads as stale) and is closed by the END of that id before the next
+ * marker, and no id has two regions. A stray, id-less, unpaired, incomplete or overlapping marker of
+ * any node fails closed instead of reading as a missing region or surviving a rewrite.
+ */
+function parseAgentContextRegions(body: string): Map<string, AgentContextRegion> {
+  const marker = /<!-- (BEGIN|END) ARCHCONTEXT AGENT CONTEXT/g;
+  const regions = new Map<string, AgentContextRegion>();
+  let open: { id: string; start: number; contentStart: number; startMarker: string; outputDigest: string } | undefined;
+  for (let match = marker.exec(body); match !== null; match = marker.exec(body)) {
+    const rest = body.slice(match.index);
+    if (match[1] === "BEGIN") {
+      const begin = agentContextBeginMarker(rest);
+      if (open !== undefined) throw new Error(`agent-context-marker-overlap: ${open.id}`);
+      if (regions.has(begin.id)) throw new Error(`agent-context-marker-duplicate: ${begin.id}`);
+      const afterMarker = match.index + begin.marker.length;
+      open = { id: begin.id, start: match.index, contentStart: afterMarker + (body[afterMarker] === "\n" ? 1 : 0), startMarker: begin.marker, outputDigest: begin.outputDigest };
+    } else {
+      const end = /^<!-- END ARCHCONTEXT AGENT CONTEXT id="([^"]+)" -->/.exec(rest);
+      if (end === null || open === undefined || end[1] !== open.id) throw new Error(`agent-context-marker-malformed: ${end?.[1] ?? "an END marker names no id"}`);
+      const markerEnd = match.index + end[0].length;
+      regions.set(open.id, {
+        start: open.start,
+        end: markerEnd + (body[markerEnd] === "\n" ? 1 : 0),
+        contentStart: open.contentStart,
+        contentEnd: match.index,
+        startMarker: open.startMarker,
+        outputDigest: open.outputDigest
+      });
+      open = undefined;
+    }
   }
-  if (startPattern.test(body.slice(startMatch.index + startMatch[0].length))) throw new Error(`agent-context-marker-duplicate: ${nodeId}`);
-  const endIndex = body.indexOf(endMarker, startMatch.index + startMatch[0].length);
-  if (endIndex < 0 || body.indexOf(endMarker) !== endIndex || body.indexOf(endMarker, endIndex + endMarker.length) >= 0) throw new Error(`agent-context-marker-malformed: ${nodeId}`);
-  const interior = body.slice(startMatch.index + startMatch[0].length, endIndex);
-  if (interior.includes(AGENT_CONTEXT_BEGIN_PREFIX) || interior.includes(AGENT_CONTEXT_END_PREFIX)) throw new Error(`agent-context-marker-overlap: ${nodeId}`);
-  const regionEnd = endIndex + endMarker.length + (body[endIndex + endMarker.length] === "\n" ? 1 : 0);
-  const afterMarker = startMatch.index + startMatch[0].length;
-  const contentStart = afterMarker + (body[afterMarker] === "\n" ? 1 : 0);
-  return {
-    start: startMatch.index,
-    end: regionEnd,
-    contentStart,
-    contentEnd: endIndex,
-    startMarker: startMatch[0]
-  };
+  if (open !== undefined) throw new Error(`agent-context-marker-malformed: ${open.id}`);
+  return regions;
+}
+
+/** The BEGIN marker at the start of `text`; throws unless its required attributes are present and well-formed. */
+function agentContextBeginMarker(text: string): { id: string; marker: string; outputDigest: string } {
+  const marker = /^<!-- BEGIN ARCHCONTEXT AGENT CONTEXT((?: [A-Za-z]+="[^"]*")*) -->/.exec(text);
+  const attributes = new Map([...(marker?.[1] ?? "").matchAll(/ ([A-Za-z]+)="([^"]*)"/g)].map((entry) => [entry[1]!, entry[2]!]));
+  const id = attributes.get("id");
+  const outputDigest = attributes.get("outputDigest") ?? "";
+  if (marker === null || !id || !attributes.get("rendererVersion") || !/^sha256:[a-f0-9]{64}$/.test(outputDigest)
+    || [...attributes.keys()].some((key) => !AGENT_CONTEXT_MARKER_ATTRIBUTES.has(key))) {
+    throw new Error(`agent-context-marker-malformed: ${id ?? "a BEGIN marker names no id"}`);
+  }
+  return { id, marker: marker[0], outputDigest };
+}
+
+function findAgentContextRegion(body: string, nodeId: string): AgentContextRegion | undefined {
+  return parseAgentContextRegions(body).get(nodeId);
 }
 
 // --- Path Ownership Resolution (ADR-0043 tie-break, parent-chain amendment) ---
