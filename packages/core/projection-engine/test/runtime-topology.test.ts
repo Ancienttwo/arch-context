@@ -158,8 +158,7 @@ const DEFAULT_PROJECTIONS = [
   "- [Mermaid](diagrams/architecture.mmd)",
   "- [Structurizr JSON](diagrams/architecture.structurizr.json)",
   "- [LikeC4](diagrams/architecture.likec4)",
-  "- [Decision index](decisions/index.md)",
-  "- [Architecture changelog](changelog.md)"
+  "- [Decision index](decisions/index.md)"
 ].join("\n");
 
 describe("runtime topology view (ADR-0049)", () => {
@@ -210,7 +209,6 @@ describe("runtime topology view (ADR-0049)", () => {
   test("a model without topology nodes keeps its target set and index", () => {
     const plan = render(withoutTopology);
     expect(plan.targets.map((target) => target.type).sort()).toEqual([
-      "architecture-changelog",
       "architecture-index",
       "decision-index",
       "diagram-likec4",
@@ -258,7 +256,7 @@ describe("runtime topology view (ADR-0049)", () => {
       "shop/CLAUDE.md"
     ]);
     // The whole-model views repo-harness/v1 retired stay off the target set.
-    for (const type of ["architecture-index", "architecture-changelog", "decision-index", "diagram-mermaid", "diagram-likec4", "diagram-structurizr"]) {
+    for (const type of ["architecture-index", "decision-index", "diagram-mermaid", "diagram-likec4", "diagram-structurizr"]) {
       expect(topologyLayout.targets.some((target) => target.type === type)).toBe(false);
     }
   });

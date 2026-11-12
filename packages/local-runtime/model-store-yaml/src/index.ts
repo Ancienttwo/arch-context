@@ -99,14 +99,6 @@ export function createDefaultProjectionTargetManifest(): Json {
         format: "markdown"
       },
       {
-        id: "projection_rule.architecture.changelog",
-        targetType: "architecture-changelog",
-        scope: { kind: "changelog" },
-        pathTemplate: "docs/architecture/changelog.md",
-        ownership: "mixed",
-        format: "markdown"
-      },
-      {
         id: "projection_rule.diagram.mermaid",
         targetType: "diagram-mermaid",
         scope: { kind: "diagram", id: "architecture" },

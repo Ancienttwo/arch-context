@@ -35,8 +35,6 @@
     ]
   },
   "targets": {
-    "projection_target.architecture.changelog":
-      {"type":"architecture-changelog","scope":{"kind":"changelog"},"path":"docs/architecture/changelog.md","ownership":"mixed","format":"markdown","outputDigest":"sha256:1f723aeb74466aae7d607eeab8c438a830c36f49a48e6622f868a8151afabea6"},
     "projection_target.architecture.index":
       {"type":"architecture-index","scope":{"kind":"repository"},"path":"docs/architecture/index.md","ownership":"mixed","format":"markdown","outputDigest":"sha256:64f1a29733be5033316aa99f657bfeb543df2fca99a2ba8b4103be22d46eeb57"},
     "projection_target.decision.index":

@@ -96,8 +96,7 @@ describe("@archcontext/surfaces/renderer", () => {
       provenance: projectionProvenance,
       model,
       sourceDigest,
-      decisions: [{ id: "ADR-0001-test", title: "Use Local Runtime", path: "docs/adr/ADR-0001-test.md", status: "Accepted" }],
-      timeline: [{ eventId: "architecture_event.test", timestamp: "2026-06-26T00:00:00.000Z", title: "Added payment module", affectedSubjects: ["module.payment"] }]
+      decisions: [{ id: "ADR-0001-test", title: "Use Local Runtime", path: "docs/adr/ADR-0001-test.md", status: "Accepted" }]
     });
     const second = renderArchitectureDocumentationProjection({
       sourceScaleSignals,
@@ -106,8 +105,7 @@ describe("@archcontext/surfaces/renderer", () => {
       provenance: projectionProvenance,
       model: { nodes: [...model.nodes].reverse(), relations: [...model.relations].reverse() },
       sourceDigest,
-      decisions: [{ id: "ADR-0001-test", title: "Use Local Runtime", path: "docs/adr/ADR-0001-test.md", status: "Accepted" }],
-      timeline: [{ eventId: "architecture_event.test", timestamp: "2026-06-26T00:00:00.000Z", title: "Added payment module", affectedSubjects: ["module.payment"] }]
+      decisions: [{ id: "ADR-0001-test", title: "Use Local Runtime", path: "docs/adr/ADR-0001-test.md", status: "Accepted" }]
     });
 
     expect(first.projectionDigest).toBe(second.projectionDigest);
@@ -116,7 +114,6 @@ describe("@archcontext/surfaces/renderer", () => {
     expect(posix.normalize(posix.join(dirname(index.path), adrLink))).toBe("docs/adr/ADR-0001-test.md");
     expect(first.rendererVersion).toBe(ARCHITECTURE_DOCS_RENDERER_VERSION);
     expect(first.targets.map((target) => target.type).sort()).toEqual([
-      "architecture-changelog",
       "architecture-index",
       "decision-index",
       "diagram-likec4",

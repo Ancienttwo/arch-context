@@ -241,7 +241,6 @@
             "entity-summary",
             "relation-summary",
             "decision-index",
-            "architecture-changelog",
             "diagram-mermaid",
             "diagram-structurizr",
             "diagram-likec4",
@@ -264,8 +263,7 @@
                 "entity",
                 "relation",
                 "decision",
-                "diagram",
-                "changelog"
+                "diagram"
               ]
             },
             "id": {
