@@ -96,7 +96,7 @@ async function projectedOrigin(daemon: Awaited<ReturnType<typeof startDaemon>>) 
     source: { include: ["app/**"] },
     extensions: { contractFiles: { agents: "app/AGENTS.md", claude: "app/CLAUDE.md" } }
   }), "utf8");
-  // A relation and a flow keep the capability's P1/P2 proofs resolvable, so a source change is stamp-only.
+  // A relation and a flow keep the capability's P1/P2 proofs resolvable, so a source change renders no differently.
   mkdirSync(join(dev, ".archcontext/model/relations"), { recursive: true });
   writeFileSync(join(dev, ".archcontext/model/relations/relation.app-journal.yaml"), stableYaml({
     schemaVersion: "archcontext.relation/v1",
@@ -173,21 +173,69 @@ test("a committed model and generated history do not create history drift in che
   }
 }, TEST_TIMEOUT_MS);
 
-test("projection publish pushes a generated-only commit for a stamp-only source change, then is a no-op; publish-status reports it", async () => {
+test("projection publish ends up-to-date for a source-only change and pushes a generated-only commit when the base drifts from its projection; publish-status reports it", async () => {
   const daemon = await startDaemon();
   const fixture = await projectedOrigin(daemon);
   try {
-    // A source change inside the declared footprint moves only the projection stamps.
+    // With the writer-owned history committed, the base differs from a fixed point only in source.
+    writeFileSync(join(fixture.dev, "docs/architecture/history.md"), renderHistoryMarkdown(readArchitectureHistory(fixture.dev)));
+    git(fixture.dev, "add", "docs/architecture/history.md");
+    git(fixture.dev, "commit", "-q", "-m", "commit generated history");
+    // A source change inside the declared footprint renders no document differently.
     writeFileSync(join(fixture.dev, "app/src/index.ts"), "export const app = 2;\n", "utf8");
     git(fixture.dev, "commit", "-q", "-am", "change app source");
     git(fixture.dev, "push", "-q", "origin", "main");
-    const baseSha = git(fixture.dev, "rev-parse", "HEAD");
+    const sourceSha = git(fixture.dev, "rev-parse", "HEAD");
 
     const history = await runCli("history", ["--format", "mermaid", "--limit", "1", "--json"], fixture.dev);
-    expect(history).toMatchObject({ ok: true, data: { schemaVersion: "archcontext.architecture-history-mermaid/v1", head: baseSha, limit: 1 } });
+    expect(history).toMatchObject({ ok: true, data: { schemaVersion: "archcontext.architecture-history-mermaid/v1", head: sourceSha, limit: 1 } });
     expect(await runCli("history", ["--limit", "1001", "--json"], fixture.dev)).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID" } });
     expect(await runCli("history", ["--offset", "1.5", "--json"], fixture.dev)).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID" } });
     expect(await runCli("history", ["--ref", "", "--json"], fixture.dev)).toMatchObject({ ok: false, error: { reasonCode: "native-context-ref-unsafe" } });
+
+    const upToDate = dataOf<ProjectionPublishRunV1>(
+      await runCli("projection", ["publish", "--publisher", "none", "--json"], fixture.clone, { runtimeClient: daemon }),
+      "projection.publish",
+      RUN_SCHEMA
+    );
+    expect(upToDate).toMatchObject({ result: "up-to-date", baseSha: sourceSha, pushed: false, publishedCommit: null, projectionStatus: "noop", files: [] });
+    expect(git(fixture.origin, "for-each-ref", "refs/heads/archctx/")).toBe("");
+    // The writer worked in its own worktree; the clone the operator runs from is untouched.
+    expect(git(fixture.clone, "status", "--porcelain")).toBe("");
+
+    const noop = dataOf<ProjectionPublishRunV1>(
+      await runCli("projection", ["publish", "--publisher", "none"], fixture.clone, { runtimeClient: daemon }),
+      "projection.publish",
+      RUN_SCHEMA
+    );
+    expect(noop).toMatchObject({ result: "already-processed", baseSha: sourceSha, pushed: false, publishedCommit: null });
+
+    const status = dataOf<ProjectionPublishStatusV1>(
+      await runCli("projection", ["publish-status", "--json"], fixture.clone, { runtimeClient: daemon }),
+      "projection.publish-status",
+      STATUS_SCHEMA
+    );
+    expect(status).toMatchObject({
+      remote: "origin",
+      base: "main",
+      branch: "archctx/projection",
+      worktreePath: projectionWriterPaths(fixture.clone, "origin", "main").worktree,
+      running: null,
+      lastProcessedSha: sourceSha,
+      lastSuccessfulSha: sourceSha,
+      lastRun: { result: "already-processed" }
+    });
+
+    // A base whose committed output no longer matches its render is published as one generated-only commit.
+    const committedManifest = JSON.parse(readFileSync(join(fixture.dev, "docs/architecture/.projection-manifest.json"), "utf8"));
+    const generatedRow = Object.values(committedManifest.targets as Record<string, { path: string; ownership: string }>).find((row) => row.ownership === "generated");
+    if (!generatedRow) throw new Error("the fixture manifest has no whole-file generated target");
+    git(fixture.dev, "rm", "-q", generatedRow.path);
+    git(fixture.dev, "commit", "-q", "-m", "delete a generated document");
+    git(fixture.dev, "push", "-q", "origin", "main");
+    const baseSha = git(fixture.dev, "rev-parse", "HEAD");
+    git(fixture.clone, "fetch", "-q", "origin");
+    git(fixture.clone, "checkout", "-q", "--detach", "origin/main");
 
     const published = dataOf<ProjectionPublishRunV1>(
       await runCli("projection", ["publish", "--publisher", "none", "--json"], fixture.clone, { runtimeClient: daemon }),
@@ -203,8 +251,6 @@ test("projection publish pushes a generated-only commit for a stamp-only source 
     expect(touched).toEqual(published.files);
     expect(touched.every((path) => path.startsWith("docs/architecture/"))).toBe(true);
     expect(git(fixture.origin, "rev-parse", "refs/heads/main")).toBe(baseSha);
-    // The writer worked in its own worktree; the clone the operator runs from is untouched.
-    expect(git(fixture.clone, "status", "--porcelain")).toBe("");
 
     const again = dataOf<ProjectionPublishRunV1>(
       await runCli("projection", ["publish", "--publisher", "none"], fixture.clone, { runtimeClient: daemon }),
@@ -213,22 +259,6 @@ test("projection publish pushes a generated-only commit for a stamp-only source 
     );
     expect(again).toMatchObject({ result: "already-processed", baseSha, pushed: false, publishedCommit: tip });
     expect(git(fixture.origin, "rev-parse", "refs/heads/archctx/projection")).toBe(tip);
-
-    const status = dataOf<ProjectionPublishStatusV1>(
-      await runCli("projection", ["publish-status", "--json"], fixture.clone, { runtimeClient: daemon }),
-      "projection.publish-status",
-      STATUS_SCHEMA
-    );
-    expect(status).toMatchObject({
-      remote: "origin",
-      base: "main",
-      branch: "archctx/projection",
-      worktreePath: projectionWriterPaths(fixture.clone, "origin", "main").worktree,
-      running: null,
-      lastProcessedSha: baseSha,
-      lastSuccessfulSha: baseSha,
-      lastRun: { result: "already-processed" }
-    });
 
     // verify-pr on the writer's own branch: generated-only and render-equivalent.
     git(fixture.clone, "fetch", "-q", "origin", "+refs/heads/archctx/projection:refs/remotes/origin/archctx/projection");

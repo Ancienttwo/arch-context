@@ -32,7 +32,7 @@ renders; see "Downstream CI" for what that does and does not prove. Design: `doc
 | `result` | Meaning | Envelope |
 |---|---|---|
 | `published` | The rolling branch carries this base tip's projection; `pushed` says whether this run moved it. | ok |
-| `up-to-date` | The base tip's committed projection is already current. Nothing is pushed; an open rolling PR stays open. | ok |
+| `up-to-date` | The base tip's committed projection is already current, including after a source change that renders no differently (ADR-0056). Nothing is pushed; an open rolling PR stays open. | ok |
 | `already-processed` | This base tip was already published or up to date. | ok |
 | `human-action-required` | The apply needs a human decision (`humanActions[]`). Nothing is pushed. | ok |
 | `busy` | Another writer holds the lock (`holderPid`). | ok |

@@ -2,38 +2,36 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { architectureDocsProjectionManifestIssues, architectureSourceStampsDigest } from "@archcontext/contracts";
 import {
   ARCHITECTURE_DOCS_LAYOUT_VERSION,
   ARCHITECTURE_DOCS_RENDERER_VERSION,
   REPO_HARNESS_PROJECTION_PROFILE,
   architectureDocumentationSourceTreeDigest,
   architectureDocumentationProjectionProvenance,
-  architectureProjectionStampedNodeIds,
-  evaluateArchitectureProjectionFreshness,
-  evaluateArchitectureProjectionSnapshotFreshness,
-  loadArchitectureProjectionManifestStamps,
+  architectureProjectionFootprintOwners,
+  architectureProjectionFreshnessWithoutBaseline,
   loadCapabilitySourceFootprintDigests,
   ProjectionFootprintUncoveredError,
   loadCapabilitySourceScaleSignals,
+  readCommittedArchitectureDocsProjectionManifest,
   renderArchitectureDocumentationProjection,
-  type ArchitectureProjectionManifestStampReadback,
+  type ArchitectureDocumentationExistingFile,
   type ArchitectureProjectionProfile,
-  type CapabilitySourceFootprintDigest,
   type NativeModel
 } from "../src/index";
 import { fixtureSourceFiles } from "./fixture-source-files";
 
 const sourceDigest = "sha256:2222222222222222222222222222222222222222222222222222222222222222";
-const docsDigest = `sha256:${"a".repeat(64)}`;
-const reviewDigest = `sha256:${"b".repeat(64)}`;
-const movedDigest = `sha256:${"c".repeat(64)}`;
-const provenance = architectureDocumentationProjectionProvenance({
-  sourceTreeDigest: sourceDigest,
-  modelDigest: sourceDigest,
-  rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION, layoutVersion: ARCHITECTURE_DOCS_LAYOUT_VERSION,
-  generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.2" }
-});
+const provenance = provenanceFor(sourceDigest);
+
+function provenanceFor(modelDigest: string) {
+  return architectureDocumentationProjectionProvenance({
+    sourceTreeDigest: sourceDigest,
+    modelDigest,
+    rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION, layoutVersion: ARCHITECTURE_DOCS_LAYOUT_VERSION,
+    generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.2" }
+  });
+}
 
 const model: NativeModel = {
   nodes: [
@@ -62,21 +60,6 @@ const model: NativeModel = {
   ],
   relations: []
 };
-
-const currentFootprints: CapabilitySourceFootprintDigest[] = [
-  { nodeId: "capability.docs.projection", digest: docsDigest, fileCount: 3 },
-  { nodeId: "capability.review.gate", digest: reviewDigest, fileCount: 2 }
-];
-
-function stamped(stamps: Record<string, string>): ArchitectureProjectionManifestStampReadback {
-  return {
-    status: "present",
-    nodes: model.nodes.flatMap((node) => stamps[node.id] === undefined ? [] : [{ nodeId: node.id, sourceFootprintDigest: stamps[node.id]! }]),
-    sourceTreeDigest: architectureSourceStampsDigest(stamps)
-  };
-}
-
-const freshStamps = { "capability.docs.projection": docsDigest, "capability.review.gate": reviewDigest };
 
 function withRepository(files: Record<string, string>, run: (root: string) => void): void {
   const root = mkdtempSync(join(tmpdir(), "archctx-source-footprint-"));
@@ -120,7 +103,7 @@ describe("capability source footprint digests", () => {
     });
   });
 
-  test("a stamp is one content digest per declared node and moves only with covered bytes or paths", () => {
+  test("a footprint digest is one content digest per declared node and moves only with covered bytes or paths", () => {
     withRepository({
       "packages/core/projection-engine/src/index.ts": "export const engine = 1;\n",
       "packages/core/projection-engine/test/engine.test.ts": "test('engine');\n",
@@ -145,7 +128,7 @@ describe("capability source footprint digests", () => {
       writeFileSync(join(root, "packages/core/projection-engine/CLAUDE.md"), "# agent context\n");
       expect(footprintDigest(root, "capability.docs.projection")).toBe(initial);
 
-      // Bytes, additions and renames inside the footprint each move it — and only this node's stamp.
+      // Bytes, additions and renames inside the footprint each move it — and only this node's digest.
       writeFileSync(join(root, "packages/core/projection-engine/src/index.ts"), "export const engine = 2;\n");
       const edited = footprintDigest(root, "capability.docs.projection");
       expect(edited).not.toBe(initial);
@@ -160,7 +143,7 @@ describe("capability source footprint digests", () => {
 });
 
 test("a CRLF checkout measures the same footprint as an LF one", () => {
-  // `core.autocrlf` checkouts (Windows) must not make a node look stale against an LF stamp.
+  // `core.autocrlf` checkouts (Windows) must measure the runtime source tree digest an LF clone measures.
   withRepository({ "packages/core/review-engine/src/index.ts": "export const review = 1;\nexport const gate = 2;\n" }, (lf) => {
     withRepository({ "packages/core/review-engine/src/index.ts": "export const review = 1;\r\nexport const gate = 2;\r\n" }, (crlf) => {
       expect(footprintDigest(crlf, "capability.review.gate")).toBe(footprintDigest(lf, "capability.review.gate"));
@@ -172,311 +155,28 @@ test("a CRLF checkout measures the same footprint as an LF one", () => {
   });
 });
 
-describe("architecture projection freshness", () => {
-  test("stamps that match the current footprints are fresh", () => {
-    const evaluation = evaluateArchitectureProjectionFreshness({ model, manifest: stamped(freshStamps), sourceFootprints: currentFootprints });
-    expect(evaluation).toEqual({
-      schemaVersion: "archcontext.projection-freshness/v2",
-      ok: true,
-      reasonCodes: [],
-      detail: "no declared capability source changed since its documentation was verified",
-      staleNodes: []
-    });
-  });
-
-  test("a node whose footprint digest moved is stale, with both digests reported", () => {
-    const evaluation = evaluateArchitectureProjectionFreshness({
-      model,
-      manifest: stamped(freshStamps),
-      sourceFootprints: [currentFootprints[0]!, { ...currentFootprints[1]!, digest: movedDigest }]
-    });
-    expect(evaluation.ok).toBe(false);
-    expect(evaluation.reasonCodes).toEqual(["projection-source-changed-since-stamp"]);
-    expect(evaluation.staleNodes).toEqual([{
-      nodeId: "capability.review.gate",
-      stampedDigest: reviewDigest,
-      currentDigest: movedDigest
-    }]);
-    expect(evaluation.detail).toContain("capability.review.gate");
-  });
-
-  test("nodeIds probes only the named stamped nodes, and only they need a measured footprint (#327)", () => {
-    const moved = [currentFootprints[0]!, { ...currentFootprints[1]!, digest: movedDigest }];
-    const scoped = evaluateArchitectureProjectionFreshness({ model, manifest: stamped(freshStamps), sourceFootprints: moved, nodeIds: ["capability.review.gate"] });
-    expect(scoped.reasonCodes).toEqual(["projection-source-changed-since-stamp"]);
-    expect(scoped.staleNodes).toEqual([{ nodeId: "capability.review.gate", stampedDigest: reviewDigest, currentDigest: movedDigest }]);
-    // The other node's footprint is neither measured nor probed.
-    const other = evaluateArchitectureProjectionFreshness({ model, manifest: stamped(freshStamps), sourceFootprints: [currentFootprints[0]!], nodeIds: ["capability.docs.projection"] });
-    expect(other).toMatchObject({ ok: true, reasonCodes: [], staleNodes: [] });
-    expect(evaluateArchitectureProjectionFreshness({ model, manifest: stamped(freshStamps), sourceFootprints: [], nodeIds: [] }))
-      .toMatchObject({ ok: true, reasonCodes: [], staleNodes: [] });
-    // A named node must still have its footprint measured.
-    expect(() => evaluateArchitectureProjectionFreshness({ model, manifest: stamped(freshStamps), sourceFootprints: [currentFootprints[0]!], nodeIds: ["capability.review.gate"] }))
-      .toThrow("architecture-projection-freshness-footprint-unmeasured: capability.review.gate");
-  });
-
-  test("overlapping footprints both report stale; ownership ambiguity never drops the signal", () => {
-    const evaluation = evaluateArchitectureProjectionFreshness({
-      model,
-      manifest: stamped(freshStamps),
-      sourceFootprints: currentFootprints.map((entry) => ({ ...entry, digest: movedDigest }))
-    });
-    expect(evaluation.staleNodes.map((node) => node.nodeId)).toEqual(["capability.docs.projection", "capability.review.gate"]);
-  });
-
-  test("a missing, legacy commit, or malformed stamp fails closed", () => {
-    const missing = evaluateArchitectureProjectionFreshness({
-      model,
-      manifest: stamped({ "capability.review.gate": reviewDigest }),
-      sourceFootprints: currentFootprints
-    });
-    expect(missing.ok).toBe(false);
-    expect(missing.reasonCodes).toEqual(["projection-source-stamp-missing"]);
-    expect(missing.detail).toContain("capability.docs.projection");
-  });
-
-  test("a missing or unreadable manifest is reported, never treated as fresh", () => {
-    expect(evaluateArchitectureProjectionFreshness({ model, manifest: { status: "manifest-missing" }, sourceFootprints: currentFootprints }).reasonCodes)
-      .toEqual(["projection-manifest-missing"]);
-    expect(evaluateArchitectureProjectionFreshness({ model, manifest: { status: "manifest-unreadable", reason: "bad" }, sourceFootprints: currentFootprints }).reasonCodes)
-      .toEqual(["projection-manifest-unreadable"]);
-  });
-
-  test("an unmeasured declared node is a caller error, not a fresh result", () => {
-    expect(() => evaluateArchitectureProjectionFreshness({ model, manifest: stamped(freshStamps), sourceFootprints: [currentFootprints[0]!] }))
-      .toThrow("architecture-projection-freshness-footprint-unmeasured: capability.review.gate");
-  });
-
-  test("dirty source is stale through the source tree digest the committed stamps imply", () => {
-    const manifest = stamped(freshStamps);
-    const committedTree = architectureSourceStampsDigest(freshStamps);
-    const fresh = evaluateArchitectureProjectionSnapshotFreshness({
-      model,
-      manifest,
-      sourceFootprints: currentFootprints,
-      currentSourceTreeDigest: committedTree
-    });
-    expect(fresh.ok).toBe(true);
-
-    const dirtySource = evaluateArchitectureProjectionSnapshotFreshness({
-      model,
-      manifest,
-      sourceFootprints: currentFootprints,
-      currentSourceTreeDigest: `sha256:${"9".repeat(64)}`
-    });
-    expect(dirtySource.ok).toBe(false);
-    expect(dirtySource.reasonCodes).toEqual(["projection-source-tree-digest-mismatch"]);
-
-    // No manifest: nothing to compare the tree with, and no second reason invented for it.
-    expect(evaluateArchitectureProjectionSnapshotFreshness({
-      model,
-      manifest: { status: "manifest-missing" },
-      sourceFootprints: currentFootprints,
-      currentSourceTreeDigest: committedTree
-    }).reasonCodes).toEqual(["projection-manifest-missing"]);
-  });
-
-  test("a superseded manifest is read for its schemaVersion only and refused (#327)", () => {
-    const root = mkdtempSync(join(tmpdir(), "archctx-freshness-superseded-"));
-    try {
-      mkdirSync(join(root, "docs/architecture"), { recursive: true });
-      for (const schemaVersion of ["archcontext.architecture-docs-projection-manifest/v1", "archcontext.architecture-docs-projection-manifest/v2"]) {
-        // Stamps a v2 reader would have found are present, and are still never read.
-        writeFileSync(join(root, "docs/architecture/.projection-manifest.json"), `${JSON.stringify({
-          schemaVersion,
-          provenance,
-          targets: Object.entries(freshStamps).map(([nodeId, sourceFootprintDigest]) => ({ type: "entity-summary", scope: { kind: "entity", id: nodeId }, sourceFootprintDigest }))
-        }, null, 2)}\n`);
-        expect(() => loadArchitectureProjectionManifestStamps(root)).toThrow(`projection-manifest-upgrade-required: docs/architecture/.projection-manifest.json is ${schemaVersion}`);
-      }
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
-});
-
-describe("projection manifest source-footprint stamps", () => {
-  const renderInput = {
-    model,
-    sourceDigest,
-    provenance,
-    sourceScaleSignals: [
-      {
-        nodeId: "capability.docs.projection",
-        fileCount: 1,
-        lineCount: 10,
-        includePatterns: ["packages/core/projection-engine/**"],
-        excludePatterns: ["packages/core/projection-engine/test/**"]
-      },
-      {
-        nodeId: "capability.review.gate",
-        fileCount: 1,
-        lineCount: 10,
-        includePatterns: ["packages/core/review-engine/**"],
-        excludePatterns: []
-      }
-    ],
-    importGraphs: [],
-    selectorEvidence: []
+test("scale signals subtract projection-owned paths, so an apply cannot move its own scale (ADR-0056 §6)", () => {
+  const sourceModel: NativeModel = {
+    nodes: [{ id: "capability.docs.runtime", kind: "capability", name: "Docs Runtime", source: { include: ["packages/docs-runtime/**", "docs/architecture/**"] } }],
+    relations: []
   };
-
-  test("the rendered manifest stamps each declared node's footprint and records no commit", () => {
-    const plan = renderArchitectureDocumentationProjection({ ...renderInput, sourceFootprints: currentFootprints });
-    const manifest = JSON.parse(plan.manifest.body);
-    expect(manifest).not.toHaveProperty("provenance");
-    for (const field of ["baseHeadSha", "worktreeDigest", "verifiedAgainst", "sourceFootprintDigest"]) expect(plan.manifest.body).not.toContain(field);
-    const rows = Object.values(manifest.targets) as { type: string; scope: { id?: string }; sourceStamps?: Record<string, string> }[];
-    const stamps = Object.fromEntries(rows
-      .filter((target) => target.type === "entity-summary")
-      .map((target) => [target.scope.id, target.sourceStamps]));
-    expect(stamps).toEqual({
-      "capability.docs.projection": { "capability.docs.projection": docsDigest },
-      "capability.review.gate": { "capability.review.gate": reviewDigest },
-      "module.no-source": undefined
-    });
-    expect(rows.filter((target) => target.type !== "entity-summary").every((target) => target.sourceStamps === undefined)).toBe(true);
-  });
-
-  test("the manifest publishes the scale buckets each module document prints, under the contract (#264)", () => {
-    const plan = renderArchitectureDocumentationProjection({
-      ...renderInput,
-      sourceScaleSignals: [{ ...renderInput.sourceScaleSignals[0]!, fileCount: 0, lineCount: 537 }, { ...renderInput.sourceScaleSignals[1]!, fileCount: 12, lineCount: 172_275 }],
-      sourceFootprints: currentFootprints
-    });
-    const manifest = JSON.parse(plan.manifest.body);
-    expect(architectureDocsProjectionManifestIssues(manifest)).toEqual([]);
-    const scales = Object.fromEntries((Object.values(manifest.targets) as { type: string; scope: { id: string }; scale?: unknown }[])
-      .filter((target) => target.type === "entity-summary")
-      .map((target) => [target.scope.id, target.scale]));
-    expect(scales).toEqual({
-      "capability.docs.projection": { fileCountBucket: { lower: 0, upper: 1 }, lineCountBucket: { lower: 500, upper: 1000 } },
-      "capability.review.gate": { fileCountBucket: { lower: 10, upper: 20 }, lineCountBucket: { lower: 100_000, upper: 200_000 } },
-      "module.no-source": undefined
-    });
-    // The rendered Markdown prints the same buckets.
-    const body = (nodeId: string) => plan.files.find((file) => file.target.type === "entity-summary" && file.target.scope.id === nodeId)!.body;
-    expect(body("capability.docs.projection")).toContain("- 規模量級:`0` 個文件 / `500–1000` 行");
-    expect(body("capability.review.gate")).toContain("- 規模量級:`10–20` 個文件 / `100k–200k` 行");
-  });
-
-  test("an unchanged footprint re-renders a byte-identical manifest; a moved one changes only its stamp", () => {
-    const first = renderArchitectureDocumentationProjection({ ...renderInput, sourceFootprints: currentFootprints });
-    const existingFiles = [...first.files.map((file) => ({ path: file.path, body: file.body })), first.manifest];
-    const again = renderArchitectureDocumentationProjection({ ...renderInput, existingFiles, sourceFootprints: currentFootprints });
-    expect(again.drift.diffs).toEqual([]);
-    expect(again.manifest.body).toBe(first.manifest.body);
-
-    const moved = renderArchitectureDocumentationProjection({
-      ...renderInput,
-      existingFiles,
-      sourceFootprints: [currentFootprints[0]!, { ...currentFootprints[1]!, digest: movedDigest }]
-    });
-    expect(moved.drift.diffs.map((diff) => diff.path)).toEqual(["docs/architecture/.projection-manifest.json"]);
-    expect(moved.files.map((file) => file.body)).toEqual(first.files.map((file) => file.body));
-  });
-
-  test("a committed v1 manifest from renderer v4 is refused, and the docs apply re-baseline rewrites every marked document and the manifest (#327)", () => {
-    const current = renderArchitectureDocumentationProjection({ ...renderInput, sourceFootprints: currentFootprints });
-    const manifestPath = current.manifest.path;
-    const v4Renderer = "archcontext.docs-renderer/v4";
-    // The shape a 0.6.3 install committed: manifest v1 with a semantic baseline. Only its
-    // schemaVersion is read, so a baseline that would classify a rename is never consulted.
-    const v1Manifest = {
-      schemaVersion: "archcontext.architecture-docs-projection-manifest/v1",
-      rendererVersion: v4Renderer,
-      semanticBaseline: { semanticState: { capabilities: [{ capabilityId: "capability.docs.projection", facets: { names: movedDigest } }] } },
-      targets: []
-    };
-    const v4Documents = current.files.map((file) => ({ path: file.path, body: file.body.replaceAll(ARCHITECTURE_DOCS_RENDERER_VERSION, v4Renderer) }));
-    const upgradeFrom = (manifest: unknown, rebaselineSupersededManifest?: boolean) => renderArchitectureDocumentationProjection({
-      ...renderInput,
-      sourceFootprints: currentFootprints,
-      existingFiles: [...v4Documents, { path: manifestPath, body: `${JSON.stringify(manifest, null, 2)}\n` }],
-      ...(rebaselineSupersededManifest ? { rebaselineSupersededManifest } : {})
-    });
-    expect(() => upgradeFrom(v1Manifest)).toThrow("projection-manifest-upgrade-required");
-
-    const upgraded = upgradeFrom(v1Manifest, true);
-    // Classified exactly as a first projection with no manifest at all: the old baseline is not read.
-    const noManifest = renderArchitectureDocumentationProjection({ ...renderInput, sourceFootprints: currentFootprints, existingFiles: v4Documents });
-    expect(upgraded.majorChange).toEqual(noManifest.majorChange);
-    expect(upgraded.majorChange.reasonCodes).not.toContain("node-renamed");
-    // A whole-file output records no renderer version in its bytes, so only marked documents move.
-    expect([...new Set(upgraded.drift.diffs.map((diff) => diff.path))].sort())
-      .toEqual([...current.files.filter((file) => file.target.ownership === "mixed").map((file) => file.path), manifestPath].sort());
-    expect(JSON.parse(upgraded.manifest.body).schemaVersion).toBe("archcontext.architecture-docs-projection-manifest/v3");
-    expect(upgraded.manifest.body).toBe(current.manifest.body);
-  });
-
-  test("a declared node without a measured footprint is refused, never stamped with a guess", () => {
-    expect(() => renderArchitectureDocumentationProjection({ ...renderInput, sourceFootprints: [currentFootprints[0]!] }))
-      .toThrow("architecture-docs-projection-source-footprint-missing: capability.review.gate");
-  });
-
-  test("readback round-trips the manifest and separates missing from unreadable", () => {
-    const root = mkdtempSync(join(tmpdir(), "archctx-freshness-"));
-    try {
-      expect(loadArchitectureProjectionManifestStamps(root)).toEqual({ status: "manifest-missing" });
-
-      mkdirSync(join(root, "docs/architecture"), { recursive: true });
-      writeFileSync(join(root, "docs/architecture/.projection-manifest.json"), "{ not json");
-      expect(loadArchitectureProjectionManifestStamps(root).status).toBe("manifest-unreadable");
-
-      const plan = renderArchitectureDocumentationProjection({ ...renderInput, sourceFootprints: currentFootprints });
-      writeFileSync(join(root, "docs/architecture/.projection-manifest.json"), plan.manifest.body);
-      expect(loadArchitectureProjectionManifestStamps(root)).toEqual({
-        status: "present",
-        nodes: [
-          { nodeId: "capability.docs.projection", sourceFootprintDigest: docsDigest },
-          { nodeId: "capability.review.gate", sourceFootprintDigest: reviewDigest }
-        ],
-        sourceTreeDigest: architectureSourceStampsDigest(freshStamps)
-      });
-      expect(loadArchitectureProjectionManifestStamps(root)).toMatchObject({ sourceTreeDigest: plan.architectureDigests.sourceTreeDigest });
-
-      // A current-format manifest that breaks its contract is unreadable, never a set of absent stamps.
-      writeFileSync(join(root, "docs/architecture/.projection-manifest.json"), plan.manifest.body.replace(docsDigest, "7415329"));
-      expect(loadArchitectureProjectionManifestStamps(root).status).toBe("manifest-unreadable");
-      writeFileSync(join(root, "docs/architecture/.projection-manifest.json"), `${JSON.stringify({ schemaVersion: "x" })}\n`);
-      expect(loadArchitectureProjectionManifestStamps(root).status).toBe("manifest-unreadable");
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
+  withRepository({ "packages/docs-runtime/src/index.ts": "export const version = 1;\n", "docs/architecture/index.md": "# projection\n\nbody\n" }, (root) => {
+    expect(loadCapabilitySourceScaleSignals(root, sourceModel, fixtureSourceFiles(root)).map(({ nodeId, fileCount, lineCount }) => ({ nodeId, fileCount, lineCount })))
+      .toEqual([{ nodeId: "capability.docs.runtime", fileCount: 1, lineCount: 1 }]);
   });
 });
 
-describe("profile-scoped freshness (#290)", () => {
-  // One capability with two members that declare their own footprint. The component's footprint
-  // is inside the capability's footprint; the tooling module's footprint is outside it.
+describe("render-equivalent projection freshness (ADR-0056 §1)", () => {
+  // One capability with two members that declare their own footprint; under repo-harness/v1 only the
+  // capability has a document, and it prints every footprint's scale.
   const capabilityId = "capability.app.core";
   const componentId = "component.app.core.engine";
   const toolingId = "module.app.tooling";
   const memberModel: NativeModel = {
     nodes: [
-      {
-        id: capabilityId,
-        kind: "capability",
-        name: "App Core",
-        status: "active",
-        source: { include: ["packages/app/**/src/**"] },
-        extensions: { contractFiles: { agents: "packages/app/AGENTS.md", claude: "packages/app/CLAUDE.md" } }
-      },
-      {
-        id: componentId,
-        kind: "component",
-        name: "Engine",
-        status: "active",
-        parent: capabilityId,
-        source: { include: ["packages/app/engine/src/**"] }
-      },
-      {
-        id: toolingId,
-        kind: "module",
-        name: "Tooling",
-        status: "active",
-        parent: capabilityId,
-        source: { include: ["scripts/**"] }
-      }
+      { id: capabilityId, kind: "capability", name: "App Core", status: "active", source: { include: ["packages/app/**/src/**"] }, extensions: { contractFiles: { agents: "packages/app/AGENTS.md", claude: "packages/app/CLAUDE.md" } } },
+      { id: componentId, kind: "component", name: "Engine", status: "active", parent: capabilityId, source: { include: ["packages/app/engine/src/**"] } },
+      { id: toolingId, kind: "module", name: "Tooling", status: "active", parent: capabilityId, source: { include: ["scripts/**"] } }
     ],
     relations: []
   };
@@ -486,170 +186,146 @@ describe("profile-scoped freshness (#290)", () => {
     "scripts/release.ts": "export const release = 1;\n"
   };
 
-  /** Renders the projection from the current tree and writes it, as `docs apply` does. */
-  function applyProjection(root: string, profile: ArchitectureProjectionProfile) {
-    const sourceFiles = fixtureSourceFiles(root);
-    const plan = renderArchitectureDocumentationProjection({
-      model: memberModel,
-      profile,
+  function render(root: string, options: { profile?: ArchitectureProjectionProfile; model?: NativeModel; modelDigest?: string; existingFiles?: ArchitectureDocumentationExistingFile[] } = {}) {
+    const renderedModel = options.model ?? memberModel;
+    return renderArchitectureDocumentationProjection({
+      model: renderedModel,
+      profile: options.profile ?? REPO_HARNESS_PROJECTION_PROFILE,
       sourceDigest,
-      provenance: architectureDocumentationProjectionProvenance({
-        sourceTreeDigest: architectureDocumentationSourceTreeDigest(root, memberModel, sourceFiles),
-        modelDigest: sourceDigest,
-        rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION, layoutVersion: ARCHITECTURE_DOCS_LAYOUT_VERSION,
-        generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.2" }
-      }),
-      sourceFootprints: loadCapabilitySourceFootprintDigests(root, memberModel, sourceFiles),
-      sourceScaleSignals: loadCapabilitySourceScaleSignals(root, memberModel, sourceFiles),
+      provenance: provenanceFor(options.modelDigest ?? sourceDigest),
+      sourceScaleSignals: loadCapabilitySourceScaleSignals(root, renderedModel, fixtureSourceFiles(root)),
       importGraphs: [],
-      selectorEvidence: []
-    });
-    for (const file of [...plan.files, plan.manifest]) {
-      mkdirSync(dirname(join(root, file.path)), { recursive: true });
-      writeFileSync(join(root, file.path), file.body);
-    }
-    return plan;
-  }
-
-  /** The `check` answer: committed stamps and provenance against the tree measured now. */
-  function checkFreshness(root: string, profile?: ArchitectureProjectionProfile) {
-    const sourceFiles = fixtureSourceFiles(root);
-    return evaluateArchitectureProjectionSnapshotFreshness({
-      model: memberModel,
-      ...(profile ? { profile } : {}),
-      manifest: loadArchitectureProjectionManifestStamps(root),
-      sourceFootprints: loadCapabilitySourceFootprintDigests(root, memberModel, sourceFiles),
-      currentSourceTreeDigest: architectureDocumentationSourceTreeDigest(root, memberModel, sourceFiles)
+      selectorEvidence: [],
+      ...(options.existingFiles ? { existingFiles: options.existingFiles } : {})
     });
   }
 
-  /** Every stamp the manifest rows record, by node, and the target row each one sits on. */
-  function manifestStamps(plan: ReturnType<typeof applyProjection>): Record<string, unknown> {
-    return Object.assign({}, ...(Object.values(JSON.parse(plan.manifest.body).targets) as { sourceStamps?: Record<string, string> }[])
-      .map((target) => target.sourceStamps ?? {}));
-  }
-  function stampRows(plan: ReturnType<typeof applyProjection>): Record<string, string[]> {
-    return Object.fromEntries(Object.entries(JSON.parse(plan.manifest.body).targets as Record<string, { sourceStamps?: Record<string, string> }>)
-      .filter(([, target]) => target.sourceStamps !== undefined)
-      .map(([targetId, target]) => [targetId, Object.keys(target.sourceStamps!)]));
+  function committed(plan: ReturnType<typeof render>): ArchitectureDocumentationExistingFile[] {
+    return [...plan.files, plan.manifest].map(({ path, body }) => ({ path, body }));
   }
 
-  test("every declared footprint is stamped, on its nearest ancestor-or-self with a document (#327)", () => {
-    expect(architectureProjectionStampedNodeIds(memberModel)).toEqual([capabilityId, componentId, toolingId]);
-    expect(architectureProjectionStampedNodeIds(memberModel, "default")).toEqual([capabilityId, componentId, toolingId]);
-    expect(architectureProjectionStampedNodeIds(memberModel, REPO_HARNESS_PROJECTION_PROFILE)).toEqual([capabilityId, componentId, toolingId]);
-    // The no-source module of the default fixture has a document but no footprint, so no stamp.
-    expect(architectureProjectionStampedNodeIds(model)).toEqual(["capability.docs.projection", "capability.review.gate"]);
-  });
-
-  test("repo-harness/v1: fresh right after apply, although members declare footprints without a document", () => {
+  test("a source edit that renders nothing new is fresh and leaves the manifest and every document byte-identical", () => {
     withRepository(memberFiles, (root) => {
-      const plan = applyProjection(root, REPO_HARNESS_PROJECTION_PROFILE);
-      // The renderer stamps exactly the set the freshness check probes, all on the capability's row.
-      const stamps = manifestStamps(plan);
-      expect(Object.keys(stamps).sort()).toEqual(architectureProjectionStampedNodeIds(memberModel, REPO_HARNESS_PROJECTION_PROFILE));
-      expect(stampRows(plan)).toEqual({ "projection_target.entity.capability-app-core": [capabilityId, componentId, toolingId] });
-      for (const nodeId of [capabilityId, componentId, toolingId]) expect(stamps[nodeId]).toMatch(/^sha256:[a-f0-9]{64}$/);
-
-      expect(checkFreshness(root, REPO_HARNESS_PROJECTION_PROFILE)).toEqual({
-        schemaVersion: "archcontext.projection-freshness/v2",
+      const applied = render(root);
+      writeFileSync(join(root, "scripts/release.ts"), "export const release = 2;\n");
+      const next = render(root, { existingFiles: committed(applied) });
+      expect(next.freshness).toEqual({
+        schemaVersion: "archcontext.projection-freshness/v3",
         ok: true,
         reasonCodes: [],
-        detail: "no declared capability source changed since its documentation was verified",
-        staleNodes: []
+        detail: "every target renders the output its committed row records",
+        staleTargets: []
       });
-      // Every declared footprint is stamped under either profile, so the freshness answer does not
-      // depend on which profile reads it.
-      expect(checkFreshness(root).ok).toBe(true);
+      expect(next.drift.ok).toBe(true);
+      expect(committed(next)).toEqual(committed(applied));
     });
   });
 
-  test("repo-harness/v1: a change in the stamped capability's footprint names the capability stale", () => {
+  test("a target that renders another output is stale, with both digests", () => {
     withRepository(memberFiles, (root) => {
-      applyProjection(root, REPO_HARNESS_PROJECTION_PROFILE);
-      writeFileSync(join(root, "packages/app/api/src/index.ts"), "export const api = 2;\n");
-      const stale = checkFreshness(root, REPO_HARNESS_PROJECTION_PROFILE);
-      expect(stale.ok).toBe(false);
-      expect(stale.reasonCodes).toEqual(["projection-source-changed-since-stamp", "projection-source-tree-digest-mismatch"]);
-      expect(stale.staleNodes.map((node) => node.nodeId)).toEqual([capabilityId]);
+      const applied = render(root);
+      // Two more engine files move the component into the next file bucket, which the capability's component table prints.
+      writeFileSync(join(root, "packages/app/engine/src/a.ts"), "export const a = 1;\n");
+      writeFileSync(join(root, "packages/app/engine/src/b.ts"), "export const b = 1;\n");
+      const next = render(root, { existingFiles: committed(applied) });
+      const targetId = "projection_target.entity.capability-app-core";
+      expect(next.freshness.reasonCodes).toEqual(["projection-output-changed"]);
+      expect<unknown>(next.freshness.staleTargets).toEqual([{
+        targetId,
+        path: applied.renderedTargets[targetId]!.path,
+        committedOutputDigest: applied.renderedTargets[targetId]!.outputDigest,
+        renderedOutputDigest: next.renderedTargets[targetId]!.outputDigest
+      }]);
+      // Freshness that is not ok implies drift that is not ok.
+      expect(next.drift.ok).toBe(false);
     });
   });
 
-  test("repo-harness/v1: a change in a member footprint inside the capability footprint names both footprints stale", () => {
+  test("a target on one side only is stale with a null digest on the other", () => {
     withRepository(memberFiles, (root) => {
-      applyProjection(root, REPO_HARNESS_PROJECTION_PROFILE);
-      writeFileSync(join(root, "packages/app/engine/src/index.ts"), "export const engine = 2;\n");
-      const stale = checkFreshness(root, REPO_HARNESS_PROJECTION_PROFILE);
-      expect(stale.ok).toBe(false);
-      expect(stale.reasonCodes).toEqual(["projection-source-changed-since-stamp", "projection-source-tree-digest-mismatch"]);
-      expect(stale.staleNodes.map((node) => node.nodeId)).toEqual([capabilityId, componentId]);
+      const applied = render(root, { profile: "default" });
+      const withoutTooling: NativeModel = { ...memberModel, nodes: memberModel.nodes.filter((node) => node.id !== toolingId) };
+      const next = render(root, { profile: "default", model: withoutTooling, existingFiles: committed(applied) });
+      const removed = next.freshness.staleTargets.find((target) => target.targetId === "projection_target.entity.module-app-tooling");
+      expect<unknown>(removed).toEqual({
+        targetId: "projection_target.entity.module-app-tooling",
+        path: applied.renderedTargets["projection_target.entity.module-app-tooling"]!.path,
+        committedOutputDigest: applied.renderedTargets["projection_target.entity.module-app-tooling"]!.outputDigest,
+        renderedOutputDigest: null
+      });
     });
   });
 
-  test("repo-harness/v1: a change in a member footprint outside the capability's own footprint names the member (#327)", () => {
+  test("equal outputs under a manifest the render would write differently report projection-manifest-changed", () => {
     withRepository(memberFiles, (root) => {
-      applyProjection(root, REPO_HARNESS_PROJECTION_PROFILE);
-      writeFileSync(join(root, "scripts/release.ts"), "export const release = 2;\n");
-      // The member's footprint is stamped on the capability's row, so the member is named.
-      const stale = checkFreshness(root, REPO_HARNESS_PROJECTION_PROFILE);
-      expect(stale.ok).toBe(false);
-      expect(stale.reasonCodes).toEqual(["projection-source-changed-since-stamp", "projection-source-tree-digest-mismatch"]);
-      expect(stale.staleNodes.map((node) => node.nodeId)).toEqual([toolingId]);
-
-      // Re-projecting re-verifies the tree.
-      applyProjection(root, REPO_HARNESS_PROJECTION_PROFILE);
-      expect(checkFreshness(root, REPO_HARNESS_PROJECTION_PROFILE).ok).toBe(true);
+      const applied = render(root);
+      // A model edit no document prints moves only semanticBaseline.modelDigest.
+      const next = render(root, { modelDigest: `sha256:${"9".repeat(64)}`, existingFiles: committed(applied) });
+      expect(next.freshness).toMatchObject({ ok: false, reasonCodes: ["projection-manifest-changed"], staleTargets: [] });
     });
   });
 
-  test("default profile: every node that declares a footprint is stamped and probed, as before", () => {
+  test("without a current-format manifest, freshness says why and compares nothing", () => {
+    expect(architectureProjectionFreshnessWithoutBaseline(undefined)).toMatchObject({ ok: false, reasonCodes: ["projection-manifest-missing"], staleTargets: [] });
+    expect(architectureProjectionFreshnessWithoutBaseline("{ not json")).toMatchObject({ ok: false, reasonCodes: ["projection-manifest-unreadable"], staleTargets: [] });
     withRepository(memberFiles, (root) => {
-      const plan = applyProjection(root, "default");
-      const stamps = manifestStamps(plan);
-      expect(Object.keys(stamps).sort()).toEqual([capabilityId, componentId, toolingId]);
-      for (const nodeId of [capabilityId, componentId, toolingId]) expect(stamps[nodeId]).toMatch(/^sha256:[a-f0-9]{64}$/);
-      expect(checkFreshness(root, "default").ok).toBe(true);
-      // An omitted profile is the default profile.
-      expect(checkFreshness(root).ok).toBe(true);
+      expect(render(root).freshness.reasonCodes).toEqual(["projection-manifest-missing"]);
+      expect(readCommittedArchitectureDocsProjectionManifest("{ not json")).toBeUndefined();
+    });
+  });
 
-      writeFileSync(join(root, "scripts/release.ts"), "export const release = 2;\n");
-      const stale = checkFreshness(root);
-      expect(stale.reasonCodes).toEqual(["projection-source-changed-since-stamp", "projection-source-tree-digest-mismatch"]);
-      expect(stale.staleNodes.map((node) => node.nodeId)).toEqual([toolingId]);
+  test("a superseded manifest is read for its schemaVersion only and refused (#327, ADR-0056 §11)", () => {
+    for (const version of ["v1", "v2", "v3"]) {
+      const schemaVersion = `archcontext.architecture-docs-projection-manifest/${version}`;
+      expect(() => readCommittedArchitectureDocsProjectionManifest(`${JSON.stringify({ schemaVersion, targets: {} }, null, 2)}\n`))
+        .toThrow(`projection-manifest-upgrade-required: docs/architecture/.projection-manifest.json is ${schemaVersion}`);
+    }
+  });
+
+  test("a committed v3 manifest is refused, and the docs apply re-baseline writes v4 as a first projection would (ADR-0056 §11)", () => {
+    withRepository(memberFiles, (root) => {
+      const current = render(root);
+      const v3Manifest = { ...JSON.parse(current.manifest.body), schemaVersion: "archcontext.architecture-docs-projection-manifest/v3" };
+      const documents = current.files.map(({ path, body }) => ({ path, body }));
+      const existingFiles = [...documents, { path: current.manifest.path, body: `${JSON.stringify(v3Manifest, null, 2)}\n` }];
+      expect(() => render(root, { existingFiles })).toThrow("projection-manifest-upgrade-required");
+      const upgraded = renderArchitectureDocumentationProjection({
+        model: memberModel,
+        profile: REPO_HARNESS_PROJECTION_PROFILE,
+        sourceDigest,
+        provenance,
+        sourceScaleSignals: loadCapabilitySourceScaleSignals(root, memberModel, fixtureSourceFiles(root)),
+        importGraphs: [],
+        selectorEvidence: [],
+        existingFiles,
+        rebaselineSupersededManifest: true
+      });
+      expect(JSON.parse(upgraded.manifest.body).schemaVersion).toBe("archcontext.architecture-docs-projection-manifest/v4");
+      expect(upgraded.manifest.body).toBe(current.manifest.body);
+      expect(upgraded.drift.diffs.map((diff) => diff.path)).toEqual([current.manifest.path]);
     });
   });
 
   test("a declared footprint that no entity-summary target documents is refused with projection-footprint-uncovered (#327)", () => {
-    // A tooling module outside the capability: under repo-harness/v1 only capabilities have a
-    // document, so neither the module nor an ancestor can carry its stamp.
+    // Under repo-harness/v1 only capabilities have a document, so a tooling module outside the
+    // capability has no node or ancestor to document its footprint.
     const orphanModel: NativeModel = {
       ...memberModel,
       nodes: memberModel.nodes.map((node) => node.id === toolingId ? { ...node, parent: undefined } : node)
     };
-    expect(() => architectureProjectionStampedNodeIds(orphanModel, REPO_HARNESS_PROJECTION_PROFILE))
+    expect(() => architectureProjectionFootprintOwners(orphanModel, REPO_HARNESS_PROJECTION_PROFILE))
       .toThrow(`projection-footprint-uncovered: ${toolingId} declare source.include, but neither the node nor an ancestor has an entity-summary target under profile repo-harness/v1`);
     withRepository(memberFiles, (root) => {
-      const sourceFiles = fixtureSourceFiles(root);
       let thrown: unknown;
       try {
-        renderArchitectureDocumentationProjection({
-          model: orphanModel,
-          profile: REPO_HARNESS_PROJECTION_PROFILE,
-          sourceDigest,
-          provenance,
-          sourceFootprints: loadCapabilitySourceFootprintDigests(root, orphanModel, sourceFiles),
-          sourceScaleSignals: loadCapabilitySourceScaleSignals(root, orphanModel, sourceFiles),
-          importGraphs: [],
-          selectorEvidence: []
-        });
+        render(root, { model: orphanModel });
       } catch (error) {
         thrown = error;
       }
       expect(thrown).toBeInstanceOf(ProjectionFootprintUncoveredError);
-      expect((thrown as ProjectionFootprintUncoveredError).reasonCode).toBe("projection-footprint-uncovered");
       expect((thrown as ProjectionFootprintUncoveredError).nodeIds).toEqual([toolingId]);
     });
     // Under the default profile every node has a document, so the same model is covered.
-    expect(architectureProjectionStampedNodeIds(orphanModel, "default")).toEqual([capabilityId, componentId, toolingId]);
+    expect([...architectureProjectionFootprintOwners(orphanModel, "default").keys()]).toEqual([capabilityId, componentId, toolingId]);
   });
 });

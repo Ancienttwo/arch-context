@@ -14,7 +14,6 @@ import {
   type ArchitectureDocumentationProjectionPlan,
   type ArchitectureSelectorEvidenceV1,
   type CapabilityImportGraph,
-  type CapabilitySourceFootprintDigest,
   type CapabilitySourceScaleSignal,
   type NativeModel
 } from "../src/index";
@@ -28,9 +27,6 @@ function regionMarkers(target: ProjectionTargetV1): { startMarker: string; endMa
 }
 
 const sourceDigest = "sha256:1111111111111111111111111111111111111111111111111111111111111111";
-/** The docs capability's footprint digest the seeded documents are stamped with, and a moved one. */
-const stampDigest = `sha256:${"5".repeat(64)}`;
-const movedStampDigest = `sha256:${"6".repeat(64)}`;
 const provenance = architectureDocumentationProjectionProvenance({
   sourceTreeDigest: sourceDigest,
   modelDigest: sourceDigest,
@@ -161,20 +157,11 @@ const selectorEvidence: ArchitectureSelectorEvidenceV1[] = [
   }
 ];
 
-/**
- * Default footprint measurement: the docs capability's footprint digest the seeded documents are
- * stamped with. Tests that move the footprint pass their own.
- */
-const sourceFootprints: CapabilitySourceFootprintDigest[] = [
-  { nodeId: "capability.docs.projection", digest: stampDigest, fileCount: 1 }
-];
-
 function render(overrides: Partial<Parameters<typeof renderArchitectureDocumentationProjection>[0]> = {}): ArchitectureDocumentationProjectionPlan {
   return renderArchitectureDocumentationProjection({
     model,
     sourceDigest,
     provenance,
-    sourceFootprints,
     sourceScaleSignals: scaleSignals,
     importGraphs,
     selectorEvidence,
@@ -199,12 +186,11 @@ function flowchartLabels(body: string): Map<string, string> {
   return out;
 }
 
-/** No document body or marker carries the stamp: it lives only in the projection manifest. */
+/** No document body or marker carries provenance: the projection manifest is where it lives. */
 function expectNoProvenanceInBody(body: string): void {
   expect(body).not.toContain("Verified against");
   expect(body).not.toContain("verifiedAgainst");
   expect(body).not.toContain("sourceFootprintDigest");
-  for (const digest of [stampDigest, movedStampDigest]) expect(body).not.toContain(digest);
 }
 
 function entityFile(plan: ArchitectureDocumentationProjectionPlan, nodeId: string) {
@@ -352,10 +338,10 @@ describe("entity-summary capability documentation projection", () => {
     expect(plan.rejected).toContainEqual(expect.objectContaining({ path, reasonCode: "projection-adoption-required" }));
   });
 
-  test("re-rendering with an unchanged footprint is a fixed point: the stamp holds and drift stays clean", () => {
+  test("re-rendering unchanged inputs is a fixed point: drift stays clean and the projection is fresh", () => {
     const first = render();
     const existingFiles = [...first.files.map(({ path, body }) => ({ path, body })), first.manifest];
-    // HEAD is not a render input at all; only the footprint content is, and it did not move.
+    // HEAD is not a render input at all.
     const again = render({ existingFiles });
 
     expect(again.drift.ok).toBe(true);
@@ -365,9 +351,7 @@ describe("entity-summary capability documentation projection", () => {
       expect(again.files.find((entry) => entry.path === file.path)?.body).toBe(file.body);
     }
     expect(again.manifest.body).toBe(first.manifest.body);
-    // The manifest names the footprint the document was verified against — and the document itself
-    // names nothing.
-    expect(entityFile(again, "capability.docs.projection").sourceFootprintDigest).toBe(stampDigest);
+    expect(again.freshness.ok).toBe(true);
     expectNoProvenanceInBody(entityFile(again, "capability.docs.projection").body);
   });
 
@@ -375,17 +359,17 @@ describe("entity-summary capability documentation projection", () => {
     const first = render();
     const committed = JSON.parse(first.manifest.body);
     expect(Object.keys(committed)).toEqual(["schemaVersion", "rendererVersion", "profile", "layoutVersion", "generatedFrom", "semanticBaseline", "targets"]);
-    expect(committed.schemaVersion).toBe("archcontext.architecture-docs-projection-manifest/v3");
+    expect(committed.schemaVersion).toBe("archcontext.architecture-docs-projection-manifest/v4");
     expect(committed.generatedFrom).toEqual({ codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.2" });
     expect(Object.keys(committed.semanticBaseline)).toEqual(["modelDigest", "capabilities"]);
-    for (const field of ["provenance", "sourceDigest", "projectionDigest", "receiptDigest", "targetCount", "fileCount", "projectionInputDigest", "sourceTreeDigest", "codeGraphDigest", "indexedWorktreeDigest"]) {
+    for (const field of ["provenance", "sourceDigest", "projectionDigest", "receiptDigest", "targetCount", "fileCount", "projectionInputDigest", "sourceTreeDigest", "codeGraphDigest", "indexedWorktreeDigest", "sourceStamps", "scale", "sourceFootprintDigest"]) {
       expect(first.manifest.body).not.toContain(`"${field}"`);
     }
 
-    // A v1 or v2 manifest is read for its schemaVersion only and refused; `docs apply` re-baselines
-    // it once, as if no manifest existed, and the rewritten manifest is a fixed point.
+    // A v1, v2 or v3 manifest is read for its schemaVersion only and refused; `docs apply`
+    // re-baselines it once, as if no manifest existed, and the rewritten manifest is a fixed point.
     const docs = first.files.map(({ path, body }) => ({ path, body }));
-    for (const schemaVersion of ["archcontext.architecture-docs-projection-manifest/v1", "archcontext.architecture-docs-projection-manifest/v2"]) {
+    for (const schemaVersion of ["archcontext.architecture-docs-projection-manifest/v1", "archcontext.architecture-docs-projection-manifest/v2", "archcontext.architecture-docs-projection-manifest/v3"]) {
       const superseded = { path: first.manifest.path, body: `${JSON.stringify({ schemaVersion, semanticBaseline: { anything: true } }, null, 2)}\n` };
       expect(() => render({ existingFiles: [...docs, superseded] })).toThrow(`projection-manifest-upgrade-required: docs/architecture/.projection-manifest.json is ${schemaVersion}`);
       const rebaselined = render({ existingFiles: [...docs, superseded], rebaselineSupersededManifest: true });
@@ -396,8 +380,8 @@ describe("entity-summary capability documentation projection", () => {
       expect(again.drift.ok).toBe(true);
     }
 
-    // A source change moves the stamps, a model change moves the model anchor; both drift, and the
-    // runtime provenance alone moves nothing committed.
+    // A model change moves the model anchor and drifts; the runtime provenance alone moves nothing
+    // committed.
     const existingFiles = [...docs, first.manifest];
     const reproject = (overrides: Partial<typeof provenance>) => {
       const { schemaVersion: _schemaVersion, projectionInputDigest: _projectionInputDigest, ...payload } = provenance;
@@ -405,8 +389,6 @@ describe("entity-summary capability documentation projection", () => {
     };
     const runtimeOnly = render({ existingFiles, provenance: reproject({ sourceTreeDigest: `sha256:${"e".repeat(64)}` }) });
     expect(runtimeOnly.drift.ok).toBe(true);
-    const sourceDrift = render({ existingFiles, sourceFootprints: [{ nodeId: "capability.docs.projection", digest: movedStampDigest, fileCount: 1 }] });
-    expect(sourceDrift.drift.diffs.map((diff) => diff.reasonCode)).toEqual(["projection-manifest-stale"]);
     const modelChanged = reproject({ modelDigest: `sha256:${"0".repeat(64)}` });
     const modelDrift = render({ existingFiles, provenance: modelChanged });
     expect(modelDrift.drift.ok).toBe(false);
@@ -425,8 +407,7 @@ describe("entity-summary capability documentation projection", () => {
     expect(capability(e1).selectorEvidenceDigest).not.toBe(capability(e0).selectorEvidenceDigest);
     expect(e1.proofEvidence).toEqual({
       rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION,
-      selectorEvidenceDigests: { "capability.docs.projection": cited(selectorEvidence) },
-      sourceStamps: { "capability.docs.projection": stampDigest }
+      selectorEvidenceDigests: { "capability.docs.projection": cited(selectorEvidence) }
     });
     expect(e1.manifest.body).not.toContain("\"evidence\"");
     // Evidence for a selector no flow of the capability cites is not part of its proof.
@@ -507,44 +488,30 @@ describe("entity-summary capability documentation projection", () => {
     expect(digestOf([entry, { ...entry, sinkId: "sink.uncited" }])).toBe(baseline);
   });
 
-  test("a covered source change re-stamps in the manifest and leaves the document byte-identical", () => {
-    // An edit inside the capability's footprint that changes nothing the document asserts still
-    // moves the footprint digest, so the re-render re-stamps: the stamp records that this render read
-    // the current footprint. That re-stamp must not rewrite the document — for a capability covering
-    // `tests/**` that would be a stamp-only commit every time anyone touches a test. So the stamp
-    // advances in the manifest and the `.md` does not move.
+  test("a covered source change that moves no rendered assertion leaves every document and the manifest byte-identical", () => {
+    // An edit inside the capability's footprint that changes nothing the document asserts (here one
+    // more line, inside its bucket) renders the same outputs, so nothing committed moves and the
+    // projection stays fresh (ADR-0056 §1). For a capability covering `tests/**` anything else
+    // would be a commit every time anyone touches a test.
     const first = render();
     const existingFiles = [...first.files.map(({ path, body }) => ({ path, body })), first.manifest];
-    const reverified = render({
-      existingFiles,
-      sourceFootprints: [{ nodeId: "capability.docs.projection", digest: movedStampDigest, fileCount: 1 }]
-    });
+    const edited = render({ existingFiles, sourceScaleSignals: [{ ...scaleSignals[0], lineCount: 1201 }] });
 
     const before = entityFile(first, "capability.docs.projection");
-    const after = entityFile(reverified, "capability.docs.projection");
-    expect(after.sourceFootprintDigest).toBe(movedStampDigest);
-    // Byte-identical, marker attributes included: the stamp is not a body input at all.
+    const after = entityFile(edited, "capability.docs.projection");
+    // Byte-identical, marker attributes included.
     expect(after.body).toBe(before.body);
     expect(regionMarkers(after.target).startMarker).toBe(regionMarkers(before.target).startMarker);
-    // The manifest is the one file that moved, and it moved because the stamp did: exactly the
-    // capability's target row line.
-    expect(reverified.drift.diffs).toEqual([expect.objectContaining({
-      path: "docs/architecture/.projection-manifest.json",
-      reasonCode: "projection-manifest-stale"
-    })]);
-    expect(reverified.manifest.body).toContain(movedStampDigest);
-    const firstLines = first.manifest.body.split("\n");
-    const changedLines = reverified.manifest.body.split("\n").filter((line, index) => line !== firstLines[index]);
-    expect(changedLines).toHaveLength(1);
-    expect(changedLines[0]).toContain(`"sourceStamps":{"capability.docs.projection":"${movedStampDigest}"}`);
-    // The node that declares no source carries no stamp: nothing can change under it.
-    expect(entityFile(reverified, "module.no-source").sourceFootprintDigest).toBeUndefined();
+    expect(edited.files.map(({ path, body }) => ({ path, body }))).toEqual(first.files.map(({ path, body }) => ({ path, body })));
+    expect(edited.manifest.body).toBe(first.manifest.body);
+    expect(edited.drift.diffs).toEqual([]);
+    expect(edited.freshness.ok).toBe(true);
+    expect(edited.freshness.staleTargets).toEqual([]);
   });
 
-  test("the first render stamps the measured footprint, and a footprint that changes the body re-renders it", () => {
+  test("no marker carries provenance, and a scale change that moves the body re-renders it", () => {
     const first = render();
-    expect(entityFile(first, "capability.docs.projection").sourceFootprintDigest).toBe(stampDigest);
-    // No marker carries the stamp — not on an entity target, not anywhere. Whole-file outputs carry
+    // No marker carries provenance — not on an entity target, not anywhere. Whole-file outputs carry
     // no marker at all.
     for (const file of first.files) {
       if (file.target.ownership === "generated") {
@@ -552,20 +519,16 @@ describe("entity-summary capability documentation projection", () => {
         continue;
       }
       expect(regionMarkers(file.target).startMarker).not.toContain("verifiedAgainst=");
-      expect(regionMarkers(file.target).startMarker).not.toContain(stampDigest);
     }
-    // Non-entity targets carry no stamp at all: they assert nothing about a footprint.
-    expect(first.files.find((file) => file.path === "docs/architecture/index.md")!.sourceFootprintDigest).toBeUndefined();
 
     // Here the footprint grows across a bucket boundary (3 files → 6), which is a rendered assertion
-    // moving, so the body genuinely changes and the node re-stamps with it.
+    // moving, so the body genuinely changes and its target is the one stale target.
     const changed = render({
       existingFiles: [...first.files.map(({ path, body }) => ({ path, body })), first.manifest],
-      sourceScaleSignals: [{ ...scaleSignals[0], fileCount: 6 }],
-      sourceFootprints: [{ nodeId: "capability.docs.projection", digest: movedStampDigest, fileCount: 6 }]
+      sourceScaleSignals: [{ ...scaleSignals[0], fileCount: 6 }]
     });
-    expect(entityFile(changed, "capability.docs.projection").sourceFootprintDigest).toBe(movedStampDigest);
     expect(entityFile(changed, "capability.docs.projection").body).toContain("- 規模量級:`5–10` 個文件");
+    expect(changed.freshness.staleTargets.map((target) => target.path)).toEqual([entityFile(first, "capability.docs.projection").path]);
   });
 
   test("a footprint that grows within its bucket moves nothing a reader or a diff can see", () => {
@@ -602,8 +565,8 @@ describe("entity-summary capability documentation projection", () => {
     expect(() => label(1.5, 0)).toThrow("architecture-docs-projection-scale-signal-not-a-count");
   });
 
-  test("an unreadable prior manifest never reaches the new stamp; a corrupted current-format one is refused", () => {
-    // The stamp is measured, never read back from the previous manifest, so nothing an unreadable
+  test("an unreadable prior manifest never reaches the next one; a corrupted current-format one is refused", () => {
+    // Every row is rendered, never read back from the previous manifest, so nothing an unreadable
     // prior manifest carries can launder into the next one.
     const first = render();
     const seeded = entityFile(first, "capability.docs.projection");
@@ -611,13 +574,13 @@ describe("entity-summary capability documentation projection", () => {
     for (const body of ["{ not json", "{}\n"]) {
       const replan = render({ existingFiles: [...documents, { path: first.manifest.path, body }] });
       const reprojected = entityFile(replan, "capability.docs.projection");
-      expect(reprojected.sourceFootprintDigest).toBe(stampDigest);
       expect(reprojected.body).toBe(seeded.body);
       expect(replan.manifest.body).toBe(first.manifest.body);
     }
+    const outputDigest = `"outputDigest":"${seeded.target.outputDigest}"`;
     for (const body of [
-      first.manifest.body.replaceAll(`"capability.docs.projection":"${stampDigest}"`, '"capability.docs.projection":"not-a-stamp"'),
-      first.manifest.body.replaceAll(`"sourceStamps":{"capability.docs.projection":"${stampDigest}"}`, '"verifiedAgainst":{"branch":"main","commit":"7415329"}')
+      first.manifest.body.replaceAll(outputDigest, '"outputDigest":"not-a-digest"'),
+      first.manifest.body.replaceAll(outputDigest, `${outputDigest},"verifiedAgainst":{"branch":"main","commit":"7415329"}`)
     ]) {
       expect(body).not.toBe(first.manifest.body);
       expect(() => render({ existingFiles: [...documents, { path: first.manifest.path, body }] })).toThrow("projection-manifest-invalid");
@@ -686,12 +649,6 @@ describe("entity-summary capability documentation projection", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
-  });
-
-  test("fails closed when a node declares source.include but carries no footprint digest", () => {
-    expect(() => render({ sourceFootprints: [] })).toThrow("architecture-docs-projection-source-footprint-missing: capability.docs.projection");
-    expect(() => render({ sourceFootprints: [{ nodeId: "capability.docs.projection", digest: "7415329", fileCount: 1 }] }))
-      .toThrow("architecture-docs-projection-source-footprint-missing: capability.docs.projection");
   });
 
   test("fails closed when a node declares source.include but carries no measured scale signal", () => {
@@ -808,33 +765,26 @@ describe("node-scoped sticky key", () => {
     excludePatterns: []
   } satisfies CapabilitySourceScaleSignal;
 
-  const footprintB = `sha256:${"7".repeat(64)}`;
-  const twoFootprints: CapabilitySourceFootprintDigest[] = [...sourceFootprints, { nodeId: nodeB, digest: footprintB, fileCount: 515 }];
-
-  test("an unrelated commit and a sibling node's re-measurement leave the untouched node byte-identical and stamped", () => {
+  test("an unrelated commit and a sibling node's re-measurement leave both documents and the manifest byte-identical", () => {
     const nodeA = "capability.docs.projection";
-    const run1 = render({ model: twoFootprintModel, sourceScaleSignals: [...scaleSignals, scaleSignalB], sourceFootprints: twoFootprints });
+    const run1 = render({ model: twoFootprintModel, sourceScaleSignals: [...scaleSignals, scaleSignalB] });
     const existingFiles = [...run1.files.map(({ path, body }) => ({ path, body })), run1.manifest];
 
     // An unrelated commit moved the whole tree (new global digest), and sibling B's footprint
-    // changed. Node A's own footprint digest is identical.
-    const movedB = `sha256:${"8".repeat(64)}`;
+    // changed. Node A's own footprint is identical.
     const run2 = render({
       model: twoFootprintModel,
       sourceDigest: "sha256:4444444444444444444444444444444444444444444444444444444444444444",
       existingFiles,
-      sourceScaleSignals: [...scaleSignals, { ...scaleSignalB, fileCount: 517 }],
-      sourceFootprints: [sourceFootprints[0]!, { nodeId: nodeB, digest: movedB, fileCount: 517 }]
+      sourceScaleSignals: [...scaleSignals, { ...scaleSignalB, fileCount: 517 }]
     });
 
-    // A is byte-identical and keeps the footprint it was verified against.
+    // A is byte-identical. B grew inside its bucket (515 → 517 files), so its document is
+    // byte-identical too, and with every output unchanged the manifest holds and the projection is fresh.
     expect(entityFile(run2, nodeA).body).toBe(entityFile(run1, nodeA).body);
-    expect(entityFile(run2, nodeA).sourceFootprintDigest).toBe(stampDigest);
-    // B re-stamped with its new footprint. It grew inside its bucket (515 → 517 files), so the stamp
-    // is the only thing that moved and B's document is byte-identical too — the isolation being
-    // asserted is per-node stamp lifetime, not per-node rewriting.
-    expect(entityFile(run2, nodeB).sourceFootprintDigest).toBe(movedB);
     expect(entityFile(run2, nodeB).body).toBe(entityFile(run1, nodeB).body);
+    expect(run2.manifest.body).toBe(run1.manifest.body);
+    expect(run2.freshness.ok).toBe(true);
     expect(entityFile(run2, nodeB).body).toContain("- 規模量級:`500–1000` 個文件");
     expectNoProvenanceInBody(entityFile(run2, nodeB).body);
   });
@@ -862,14 +812,9 @@ describe("node-scoped sticky key", () => {
       );
       expect(file.body).not.toBe(legacyFiles.find((entry) => entry.path === file.path)!.body);
     }
-    // Every legacy region is intact, so it awaits re-render — stale, never accused of a manual
-    // edit — and every entity summary with a footprint is stamped with its current digest.
+    // Every legacy region is intact, so it awaits re-render — stale, never accused of a manual edit.
     expect([...new Set(upgraded.drift.diffs.map((diff) => diff.reasonCode))].sort()).toEqual(["projection-generated-region-stale"]);
     expect(upgraded.drift.diffs.map((diff) => diff.path).sort()).toEqual(mixedFiles.map((file) => file.path).sort());
-    for (const file of current.files.filter((entry) => entry.target.type === "entity-summary")) {
-      expect(upgraded.files.find((entry) => entry.path === file.path)?.sourceFootprintDigest)
-        .toBe(file.target.scope.id === "capability.docs.projection" ? stampDigest : undefined);
-    }
   });
 });
 
@@ -890,7 +835,7 @@ describe("canonical body digest sticky key", () => {
     flows: model.flows
   };
 
-  test("a model-level status flip re-renders the body while the footprint stamp stays put", () => {
+  test("a model-level status flip re-renders the body", () => {
     const run1 = render();
     const existingFiles = [...run1.files.map(({ path, body }) => ({ path, body })), run1.manifest];
 
@@ -898,9 +843,6 @@ describe("canonical body digest sticky key", () => {
     // summary is reworded, and a contract file is added. The footprint is unchanged.
     const run2 = render({ model: statusFlippedModel, existingFiles });
 
-    // The rendered body moved; the stamp still names the footprint this render read, which is the
-    // same content run 1 read.
-    expect(entityFile(run2, nodeA).sourceFootprintDigest).toBe(stampDigest);
     expect(entityFile(run2, nodeA).body).toContain("> **狀態**:`deprecated`");
     expect(entityFile(run2, nodeA).body).toContain("packages/core/projection-engine/AGENTS.md");
     expectNoProvenanceInBody(entityFile(run2, nodeA).body);
@@ -924,8 +866,6 @@ describe("canonical body digest sticky key", () => {
     for (const file of run2.files) {
       expect(run3.files.find((entry) => entry.path === file.path)?.body).toBe(file.body);
     }
-    expect(entityFile(run3, nodeA).sourceFootprintDigest).toBe(stampDigest);
-    expect(entityFile(run3, "module.no-source").sourceFootprintDigest).toBeUndefined();
     expectNoProvenanceInBody(entityFile(run3, nodeA).body);
 
     // And the settle completes on the next apply: re-projecting run 3's output with identical
@@ -1048,7 +988,7 @@ describe("state-machine capability section (#511)", () => {
 
   test("initial deadlocks and finding statuses use report state and tracking, without code digests", () => {
     const machine = structuredClone(checkoutMachine);
-    machine.events = [{ id: "wait", label: "Wait", source: { kind: "code", path: "src/wait.ts", confirmedDigest: stampDigest }, steps: [
+    machine.events = [{ id: "wait", label: "Wait", source: { kind: "code", path: "src/wait.ts", confirmedDigest: `sha256:${"5".repeat(64)}` }, steps: [
       { when: { order: ["open"], payment: ["unpaid"] }, then: { order: "open" } }
     ] }];
     machine.rules[0] = { id: "initial-state-forbidden", label: "Initial state forbidden", never: { order: ["open"], payment: ["unpaid"] }, finding: { tracking: "https://example.test/issues/1" } };

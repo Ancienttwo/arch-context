@@ -11,7 +11,7 @@ import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
 import { ArchctxRuntimeRpcServer, createRuntimeRpcClientFromConnectionFile, createStartedDaemon } from "@archcontext/local-runtime/runtime-daemon";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
-import { PROJECTION_FILE_PREVIEW_MAX_BYTES, projectionApplyReadbackRequestFromReceipt, projectionApplyReceiptInvariantIssues, projectionApplyRecoveryDetailsBytes, type ProjectionApplyReceiptV1, architectureRefreshSignalInvariantIssues, digestJson, projectionResultInvariantIssues, stableYaml, validateJsonSchema, type ProjectionRequestV1, type ProjectionResultV2 } from "@archcontext/contracts";
+import { PROJECTION_FILE_PREVIEW_MAX_BYTES, projectionApplyReadbackRequestFromReceipt, projectionApplyReceiptInvariantIssues, projectionApplyRecoveryDetailsBytes, type ProjectionApplyReceiptV1, architectureRefreshSignalInvariantIssues, digestJson, projectionResultInvariantIssues, stableYaml, validateJsonSchema, type ProjectionRequestV1, type ProjectionResultV3 } from "@archcontext/contracts";
 import { runCli } from "../src/main";
 import { preparedFixture } from "./prepared-fixture";
 
@@ -147,9 +147,9 @@ function manifestTargetPath(root: string, scopeId: string): string {
   return target.path;
 }
 
-function projectionResult(envelope: { ok: boolean; data?: unknown }): ProjectionResultV2 {
+function projectionResult(envelope: { ok: boolean; data?: unknown }): ProjectionResultV3 {
   expect(envelope.ok, JSON.stringify(envelope)).toBe(true);
-  const result = envelope.data as unknown as ProjectionResultV2;
+  const result = envelope.data as unknown as ProjectionResultV3;
   expect(projectionResultInvariantIssues(result)).toEqual([]);
   expect(validateJsonSchema(RESULT_SCHEMA, result as any).issues).toEqual([]);
   return result;
@@ -555,7 +555,7 @@ test("a replay proves the committed outputs and writes reverted ones again under
     expect(docsAfterFirst).not.toEqual(docsBefore);
     const { acceptObservedMajorChange: _flag, ...withoutFlag } = original;
     const readbackRequest = { ...withoutFlag, acceptedChange: first.applyReceipt!.acceptedChange };
-    const committedBody = (result: ProjectionResultV2) => {
+    const committedBody = (result: ProjectionResultV3) => {
       const { replayed: _replayed, written: _written, ...body } = result;
       return body;
     };
@@ -946,7 +946,7 @@ for (const lineEnding of ["lf", "crlf"] as const) {
       expect(checked.changes).toEqual(planned.changes);
       for (const entry of planned.changes!) {
         expect(entry, entry.path).toMatchObject(v5Paths.includes(entry.path)
-          ? { classification: "output-change", plannedAction: "update", stampChanged: false, semanticChanged: false, proofChanged: false, reasonCodes: ["file-bytes-changed"] }
+          ? { classification: "output-change", plannedAction: "update", semanticChanged: false, proofChanged: false, reasonCodes: ["file-bytes-changed"] }
           : { classification: "unchanged", plannedAction: "none" });
       }
       expect(planned.changes!.filter((entry) => entry.plannedAction !== "none").map((entry) => entry.path)).toEqual(v5Paths);

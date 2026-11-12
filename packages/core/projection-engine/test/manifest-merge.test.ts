@@ -9,12 +9,10 @@ import {
   REPO_HARNESS_PROJECTION_PROFILE,
   architectureDocumentationProjectionProvenance,
   loadArchitectureDocumentationFiles,
-  loadArchitectureProjectionManifestStamps,
   projectionOwnedWriteBody,
   renderArchitectureDocumentationProjection,
   type ArchitectureDocumentationExistingFile,
   type ArchitectureDocumentationProjectionPlan,
-  type CapabilitySourceFootprintDigest,
   type CapabilitySourceScaleSignal,
   type NativeModel,
   type NativeNode
@@ -72,18 +70,15 @@ const model: NativeModel = {
 };
 
 const stamp = (fill: string) => `sha256:${fill.repeat(64)}`;
-const baseFootprints: Record<string, string> = { [billing.id]: stamp("a"), [checkout.id]: stamp("b"), [ledger.id]: stamp("c"), [cart.id]: stamp("d") };
 const baseScale: Record<string, number> = { [billing.id]: 12, [checkout.id]: 30, [ledger.id]: 3, [cart.id]: 7 };
 
 function render(input: {
-  footprints?: Record<string, string>;
   fileCounts?: Record<string, number>;
   model?: NativeModel;
   modelDigest?: string;
   existingFiles?: ArchitectureDocumentationExistingFile[];
   rebaselineSupersededManifest?: boolean;
 }): ArchitectureDocumentationProjectionPlan {
-  const footprints = input.footprints ?? baseFootprints;
   const fileCounts = input.fileCounts ?? baseScale;
   const nodes = (input.model ?? model).nodes;
   return renderArchitectureDocumentationProjection({
@@ -91,7 +86,6 @@ function render(input: {
     profile: REPO_HARNESS_PROJECTION_PROFILE,
     sourceDigest: `sha256:${"1".repeat(64)}`,
     provenance: provenance(input.modelDigest),
-    sourceFootprints: Object.entries(footprints).map(([nodeId, digest]): CapabilitySourceFootprintDigest => ({ nodeId, digest, fileCount: fileCounts[nodeId]! })),
     sourceScaleSignals: nodes.map((node): CapabilitySourceScaleSignal => ({
       nodeId: node.id,
       fileCount: fileCounts[node.id]!,
@@ -130,7 +124,7 @@ test("compatible manifest floors survive rendering without changing no-floor out
 test("future manifests are refused instead of being treated as absent", () => {
   const baseline = render({});
   const manifest = JSON.parse(baseline.manifest.body);
-  manifest.schemaVersion = "archcontext.architecture-docs-projection-manifest/v4";
+  manifest.schemaVersion = "archcontext.architecture-docs-projection-manifest/v5";
   for (const rebaselineSupersededManifest of [false, true]) expect(() => render({ rebaselineSupersededManifest, existingFiles: existing(baseline).map(file => file.path === baseline.manifest.path ? { ...file, body: JSON.stringify(manifest) } : file) })).toThrow("Projection manifest incompatible.");
 });
 
@@ -160,47 +154,43 @@ function changedLineNumbers(before: string, after: string): number[] {
   return right.flatMap((line, index) => line === left[index] ? [] : [index]);
 }
 
-describe("manifest v3 merges (#327 finding 4)", () => {
+describe("manifest v4 merges (#327 finding 4)", () => {
   const base = render({});
   const baseTree = tree(base);
   const baseManifest = base.manifest.body;
 
-  test("source changes in two capabilities rewrite disjoint, separated manifest lines and merge cleanly", () => {
-    // Branch A: a source change under billing's component. Branch B: one under checkout itself.
-    const branchA = render({ footprints: { ...baseFootprints, [ledger.id]: stamp("e") }, existingFiles: existing(base) });
-    const branchB = render({ footprints: { ...baseFootprints, [checkout.id]: stamp("f") }, existingFiles: existing(base) });
-    for (const branch of [branchA, branchB]) {
-      expect(branch.drift.diffs.map((diff) => diff.path)).toEqual([base.manifest.path]);
-    }
+  test("output changes in two capabilities rewrite disjoint, separated manifest lines and merge cleanly", () => {
+    // Branch A: billing's component crosses a scale bucket. Branch B: checkout itself does.
+    const branchA = render({ fileCounts: { ...baseScale, [ledger.id]: 6 }, existingFiles: existing(base) });
+    const branchB = render({ fileCounts: { ...baseScale, [checkout.id]: 60 }, existingFiles: existing(base) });
     const linesA = changedLineNumbers(baseManifest, branchA.manifest.body);
     const linesB = changedLineNumbers(baseManifest, branchB.manifest.body);
     expect(linesA).toHaveLength(1);
     expect(linesB).toHaveLength(1);
-    expect(branchA.manifest.body.split("\n")[linesA[0]!]).toContain(`"${ledger.id}":"${stamp("e")}"`);
-    expect(branchB.manifest.body.split("\n")[linesB[0]!]).toContain(`"${checkout.id}":"${stamp("f")}"`);
+    expect(branchA.manifest.body.split("\n")[linesA[0]!]).toContain("docs/architecture/modules/example/billing.md");
+    expect(branchB.manifest.body.split("\n")[linesB[0]!]).toContain("docs/architecture/modules/example/checkout.md");
     // The rows are adjacent records, yet an unchanged line (the next row's key) separates them.
     expect(Math.abs(linesA[0]! - linesB[0]!)).toBe(2);
 
     const { merged, conflicts } = mergeFile(branchA.manifest.body, baseManifest, branchB.manifest.body);
     expect(conflicts).toBe(0);
     // The merge is exactly what a projection of the merged tree writes, so it is already fresh.
-    const both = render({ footprints: { ...baseFootprints, [ledger.id]: stamp("e"), [checkout.id]: stamp("f") }, existingFiles: existing(base) });
+    const both = render({ fileCounts: { ...baseScale, [ledger.id]: 6, [checkout.id]: 60 }, existingFiles: existing(base) });
     expect(merged).toBe(both.manifest.body);
-    const replayed = render({
-      footprints: { ...baseFootprints, [ledger.id]: stamp("e"), [checkout.id]: stamp("f") },
-      existingFiles: [...existing(base).filter((file) => file.path !== base.manifest.path), { path: base.manifest.path, body: merged }]
-    });
-    expect(replayed.drift.ok).toBe(true);
+  });
+
+  test("a source change that renders no differently leaves the manifest and every document byte-identical (ADR-0056)", () => {
+    // 12 -> 11 files (480 -> 440 lines) stays inside billing's buckets, so no document prints anything new.
+    const edited = render({ fileCounts: { ...baseScale, [billing.id]: 11 }, existingFiles: existing(base) });
+    expect(edited.drift).toMatchObject({ ok: true, diffs: [] });
+    expect(edited.freshness).toMatchObject({ ok: true, reasonCodes: [], staleTargets: [] });
+    expect(tree(edited)).toEqual(baseTree);
   });
 
   test("a footprint that crosses a scale bucket in each capability rewrites only that capability's document and row", () => {
-    const branchA = render({ fileCounts: { ...baseScale, [billing.id]: 25 }, footprints: { ...baseFootprints, [billing.id]: stamp("e") }, existingFiles: existing(base) });
-    const branchB = render({ fileCounts: { ...baseScale, [cart.id]: 60 }, footprints: { ...baseFootprints, [cart.id]: stamp("f") }, existingFiles: existing(base) });
-    const both = render({
-      fileCounts: { ...baseScale, [billing.id]: 25, [cart.id]: 60 },
-      footprints: { ...baseFootprints, [billing.id]: stamp("e"), [cart.id]: stamp("f") },
-      existingFiles: existing(base)
-    });
+    const branchA = render({ fileCounts: { ...baseScale, [billing.id]: 25 }, existingFiles: existing(base) });
+    const branchB = render({ fileCounts: { ...baseScale, [cart.id]: 60 }, existingFiles: existing(base) });
+    const both = render({ fileCounts: { ...baseScale, [billing.id]: 25, [cart.id]: 60 }, existingFiles: existing(base) });
     const treeA = tree(branchA);
     const treeB = tree(branchB);
     for (const [path, baseBody] of baseTree) {
@@ -227,7 +217,7 @@ describe("manifest v3 merges (#327 finding 4)", () => {
     expect(conflicted).toEqual([`    "modelDigest": "${stamp("7")}",`, `    "modelDigest": "${stamp("8")}",`]);
   });
 
-  test("a CRLF checkout of the v3 manifest reads, stamps and re-renders as the LF manifest", () => {
+  test("a CRLF checkout of the v4 manifest reads and re-renders as the LF manifest", () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-manifest-crlf-"));
     try {
       for (const [path, body] of baseTree) {
@@ -243,12 +233,6 @@ describe("manifest v3 merges (#327 finding 4)", () => {
       expect(reprojected.manifest.body).toBe(baseManifest);
       // An apply on this checkout rewrites CRLF bytes, so Git sees no line-ending churn.
       expect(projectionOwnedWriteBody(reprojected.manifest.body, manifest.onDisk)).toBe(readFileSync(join(root, base.manifest.path), "utf8"));
-      const stamps = loadArchitectureProjectionManifestStamps(root);
-      expect(stamps).toEqual({
-        status: "present",
-        nodes: Object.keys(baseFootprints).sort().map((nodeId) => ({ nodeId, sourceFootprintDigest: baseFootprints[nodeId] })),
-        sourceTreeDigest: base.architectureDigests.sourceTreeDigest
-      });
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

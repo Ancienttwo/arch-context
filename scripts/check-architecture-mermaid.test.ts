@@ -109,7 +109,6 @@ test("generated topology, layered and capability diagrams pass the syntax check"
       layoutVersion: ARCHITECTURE_DOCS_LAYOUT_VERSION,
       generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.2" }
     }),
-    sourceFootprints: [],
     sourceScaleSignals: [],
     importGraphs: [],
     selectorEvidence: []
@@ -160,7 +159,7 @@ test("rendered flat, parallel and formerly colliding statechart IDs parse with p
   const plan = renderArchitectureDocumentationProjection({
     model, stateMachines, sourceDigest: digest,
     provenance: architectureDocumentationProjectionProvenance({ sourceTreeDigest: digest, modelDigest: digest, rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION, layoutVersion: ARCHITECTURE_DOCS_LAYOUT_VERSION, generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.2" } }),
-    sourceFootprints: [], sourceScaleSignals: [], importGraphs: [], selectorEvidence: []
+    sourceScaleSignals: [], importGraphs: [], selectorEvidence: []
   });
   const capability = plan.files.find((file) => file.target.type === "entity-summary")!;
   const blocks = extractMermaidBlocks(capability.body).filter((block: { body: string }) => block.body.startsWith("stateDiagram-v2"));

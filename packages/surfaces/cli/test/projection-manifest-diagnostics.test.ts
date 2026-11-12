@@ -9,9 +9,10 @@ import { runCli } from "../src/main";
 /** The issue #427 shape: a superseded manifest with counts but no `targets` array. */
 const SUPERSEDED = [
   "archcontext.architecture-docs-projection-manifest/v1",
-  "archcontext.architecture-docs-projection-manifest/v2"
+  "archcontext.architecture-docs-projection-manifest/v2",
+  "archcontext.architecture-docs-projection-manifest/v3"
 ] as const;
-const SUPPORTED = "archcontext.architecture-docs-projection-manifest/v3";
+const SUPPORTED = "archcontext.architecture-docs-projection-manifest/v4";
 const MANIFEST_DIRECTORY = "docs/architecture";
 const MIGRATION_DETAILS = {
   manifestPath: "docs/architecture/.projection-manifest.json",
@@ -47,7 +48,7 @@ async function freshness(root: string): Promise<CliResult> {
   return await runCli("projection", ["freshness", "--json"], root) as unknown as CliResult;
 }
 
-test("a v1 or v2 manifest with targetCount/fileCount but no targets returns structured upgrade diagnostics without writes", async () => {
+test("a v1, v2 or v3 manifest with targetCount/fileCount but no targets returns structured upgrade diagnostics without writes", async () => {
   for (const foundSchemaVersion of SUPERSEDED) {
     const root = fixture();
     try {
@@ -84,7 +85,7 @@ test("a v1 or v2 manifest with targetCount/fileCount but no targets returns stru
   }
 });
 
-test("a malformed v3 manifest keeps the distinct invalid-contract refusal, never the upgrade hint", async () => {
+test("a malformed v4 manifest keeps the distinct invalid-contract refusal, never the upgrade hint", async () => {
   for (const body of [
     { schemaVersion: SUPPORTED, targetCount: 9, fileCount: 27 },
     { schemaVersion: SUPPORTED, targets: [] }
@@ -102,7 +103,7 @@ test("a malformed v3 manifest keeps the distinct invalid-contract refusal, never
         action: "rebuild-plan",
         details: {}
       });
-      // No upgrade facts: a v3 that fails its contract is a different repair, not a migration.
+      // No upgrade facts: a v4 that fails its contract is a different repair, not a migration.
       for (const key of ["manifestPath", "foundSchemaVersion", "supportedSchemaVersion", "upgradeCommand", "migrationGuide"]) {
         expect(result.error.details).not.toHaveProperty(key);
       }

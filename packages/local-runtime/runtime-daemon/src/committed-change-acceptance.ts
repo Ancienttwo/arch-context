@@ -6,7 +6,7 @@ import { parseJsonOrStableYaml } from "@archcontext/core/architecture-domain";
 import type { AcceptedCommittedChangeJournalV2, AcceptedCommittedChangePayloadV2, ArchitectureLedgerScope } from "@archcontext/core/architecture-ledger";
 import { assertPathHasNoSymlinkSegments, type ChangeSetDraft } from "@archcontext/core/changeset-engine";
 import { classifyArchitectureMajorChange, loadNativeModelFromModelFiles, parseArchitectureDocsProjectionManifest, type ArchitectureMajorChangeClassificationV1, type NativeModel } from "@archcontext/core/projection-engine";
-import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, architectureDocsProjectionManifestProofEvidence, architectureDocsProjectionManifestSemanticState, digestJson, type AcceptedArchitectureChangeReferenceV1, type ArchitectureEventV1, type ArchitectureProjectionProofEvidenceV1, type ArchitectureSemanticStateV1, type Json } from "@archcontext/contracts";
+import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, architectureDocsProjectionManifestProofEvidence, architectureDocsProjectionManifestSemanticState, digestJson, type AcceptedArchitectureChangeReferenceV1, type ArchitectureEventV1, type ArchitectureProjectionProofEvidenceV2, type ArchitectureSemanticStateV1, type Json } from "@archcontext/contracts";
 import { CHANGESET_MODEL_TRANSITION_SCHEMA_VERSION, type ChangeSetModelTransitionV1, type CommittedChangeSetForTaskSession, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 
 /** Exactly the files `loadNativeModelFromArchContext` reads: direct YAML children of these directories. */
@@ -302,14 +302,15 @@ export function labelAcceptedNodeSets(input: {
 }
 
 /** The recorded inputs, besides the model, that each capability's flow proof is computed from. */
-export type ProofEvidenceDigests = ArchitectureProjectionProofEvidenceV1;
+export type ProofEvidenceDigests = ArchitectureProjectionProofEvidenceV2;
 
 /**
  * A capability whose semantic fingerprint held while its flow proof moved is explained by the
  * model (which the chain binds) only when that capability's other proof inputs are the ones the
- * baseline was rendered from: the footprint stamps of its baseline members, the digest of the
- * selector evidence its flows cite, and the renderer version. A journaled flow rewrite does not
- * explain an evidence change, and an evidence change in one capability never blocks another's.
+ * baseline was rendered from: the digest of the selector evidence its flows cite, and the renderer
+ * version. That digest covers every non-model input the proof reads (ADR-0056 §5), so no source
+ * edit it leaves unchanged can have moved the proof. A journaled flow rewrite does not explain an
+ * evidence change, and an evidence change in one capability never blocks another's.
  */
 export function assertProofChangesExplained(input: {
   base: ArchitectureSemanticStateV1;
@@ -326,8 +327,7 @@ export function assertProofChangesExplained(input: {
     const baselineSelector = input.baselineEvidence.selectorEvidenceDigests[id];
     const evidenceUnchanged = input.baselineEvidence.rendererVersion === input.currentEvidence.rendererVersion
       && baselineSelector !== undefined
-      && baselineSelector === input.currentEvidence.selectorEvidenceDigests[id]
-      && before.memberNodeIds.every((nodeId) => input.baselineEvidence.sourceStamps[nodeId] === input.currentEvidence.sourceStamps[nodeId]);
+      && baselineSelector === input.currentEvidence.selectorEvidenceDigests[id];
     if (!evidenceUnchanged) {
       throw new FailureError("AC_PRECONDITION_FAILED", "accepted-committed-change-proof-change-unexplained", {capabilityId:id});
     }
@@ -399,7 +399,7 @@ export function planCommittedChangeAcceptance(root: string, input: {
     semanticState: ArchitectureSemanticStateV1;
     architectureDigests: { modelDigest: string };
   };
-  /** Freshly measured (never sticky) per-capability selector-evidence digests, footprint stamps and renderer version. */
+  /** Freshly measured (never sticky) per-capability selector-evidence digests and renderer version. */
   currentEvidence: ProofEvidenceDigests;
   projectionWorktreeDigest: string;
   scope: ArchitectureLedgerScope;

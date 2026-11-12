@@ -112,14 +112,12 @@ const model: NativeModel = {
 };
 const proven = [renderer.evidence];
 const unproven = [{ ...renderer.evidence, matched: false, callSites: [] }];
-const baseFootprints = { [RENDERER]: stamp("a"), [CATALOG]: stamp("b") };
 const baseCounts = { [RENDERER]: 12, [CATALOG]: 30 };
 
 interface RenderInput {
   model?: NativeModel;
   profile?: ArchitectureProjectionProfile;
   evidence?: ArchitectureSelectorEvidenceV1[];
-  footprints?: Record<string, string>;
   counts?: Record<string, number>;
   existing?: Map<string, string> | ArchitectureDocumentationExistingFile[];
   isolate?: boolean;
@@ -127,7 +125,6 @@ interface RenderInput {
 
 function render(input: RenderInput = {}): ArchitectureDocumentationProjectionPlan {
   const current = input.model ?? model;
-  const footprints = input.footprints ?? baseFootprints;
   const counts = input.counts ?? baseCounts;
   const declared = current.nodes.filter((node) => ((node.source as { include?: string[] } | undefined)?.include ?? []).length > 0);
   const existing = input.existing instanceof Map ? [...input.existing].map(([path, body]) => ({ path, body })) : input.existing ?? [];
@@ -142,7 +139,6 @@ function render(input: RenderInput = {}): ArchitectureDocumentationProjectionPla
       layoutVersion: ARCHITECTURE_DOCS_LAYOUT_VERSION,
       generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.2" }
     }),
-    sourceFootprints: declared.map((node) => ({ nodeId: node.id, digest: footprints[node.id]!, fileCount: counts[node.id]! })),
     sourceScaleSignals: declared.map((node) => ({
       nodeId: node.id,
       fileCount: counts[node.id]!,
@@ -207,7 +203,7 @@ describe("Phase 1 capability isolation (#327 finding 3)", () => {
   });
 
   test("one unprovable capability blocks only its own targets; an unrelated stale capability is applied", () => {
-    const moved = { evidence: unproven, footprints: { [RENDERER]: stamp("c"), [CATALOG]: stamp("d") }, counts: { ...baseCounts, [CATALOG]: 60 }, existing: baseTree };
+    const moved = { evidence: unproven, counts: { ...baseCounts, [CATALOG]: 60 }, existing: baseTree };
     const partial = render({ ...moved, isolate: true });
     expect(partial.majorChange).toMatchObject({ mode: "human-action-required", reasonCodes: ["verified-flow-proof-changed"], affectedNodeIds: [RENDERER] });
     expect(partial.isolation).toEqual({
@@ -222,10 +218,10 @@ describe("Phase 1 capability isolation (#327 finding 3)", () => {
     expect(partial.drift.diffs.map((diff) => diff.path).sort()).toEqual([catalogTarget.path, MANIFEST].sort());
 
     // The blocked capability's row and baseline entry keep their committed bytes; the applied
-    // capability's row carries its new stamp and scale.
+    // capability's row records the output its new scale re-rendered.
     expect(rowLines(partial.manifest.body, rendererTarget.targetId)).toEqual(rowLines(baseManifest, rendererTarget.targetId));
     expect(capabilityLines(partial.manifest.body, RENDERER)).toEqual(capabilityLines(baseManifest, RENDERER));
-    expect(rowLines(partial.manifest.body, catalogTarget.targetId)[1]).toContain(stamp("d"));
+    expect(rowLines(partial.manifest.body, catalogTarget.targetId)[1]).toContain(partial.files.find((file) => file.path === catalogTarget.path)!.generatedBodyDigest);
     expect(rowLines(partial.manifest.body, catalogTarget.targetId)).not.toEqual(rowLines(baseManifest, catalogTarget.targetId));
     // Deterministic: the same inputs render the same partial manifest and outputs.
     const again = render({ ...moved, isolate: true });
@@ -249,19 +245,20 @@ describe("Phase 1 capability isolation (#327 finding 3)", () => {
     expect(after.refreshSignals.map((signal) => signal.mode)).toEqual(["human-action-required"]);
     expect(after.drift.diffs.map((diff) => diff.path).sort()).toEqual([rendererTarget.path, MANIFEST].sort());
 
-    // Fixing the flow leaves only the blocked capability's carried stamp to refresh: no major change.
+    // Fixing the flow leaves nothing to refresh: the carried row already records the output the
+    // proven flow renders, so there is no major change and the projection is fresh.
     const fixed = render({ ...moved, evidence: proven, existing: afterTree, isolate: true });
     expect(fixed.isolation).toBeUndefined();
     expect(fixed.majorChange.mode).toBe("none");
-    expect(fixed.drift.diffs.map((diff) => diff.path)).toEqual([MANIFEST]);
-    expect(rowLines(fixed.manifest.body, rendererTarget.targetId)[1]).toContain(stamp("c"));
+    expect(fixed.drift.diffs).toEqual([]);
+    expect(fixed.freshness.ok).toBe(true);
   });
 
   test("a flow proof that moved without an accepted change is carried forward the same way, even when it now holds", () => {
     // The baseline was written while the flow was unprovable; the flow now holds, which is a proof
     // change nobody accepted yet.
     const unprovenTree = apply(new Map(), render({ evidence: unproven }));
-    const plan = render({ evidence: proven, counts: { ...baseCounts, [CATALOG]: 60 }, footprints: { ...baseFootprints, [CATALOG]: stamp("d") }, existing: unprovenTree, isolate: true });
+    const plan = render({ evidence: proven, counts: { ...baseCounts, [CATALOG]: 60 }, existing: unprovenTree, isolate: true });
     expect(plan.majorChange).toMatchObject({ mode: "human-action-required", reasonCodes: ["verified-flow-proof-changed"] });
     expect(plan.isolation?.blockedTargets).toEqual([
       { targetId: rendererTarget.targetId, path: rendererTarget.path, capabilityIds: [RENDERER], reasonCodes: ["verified-flow-proof-changed"] }
@@ -271,7 +268,7 @@ describe("Phase 1 capability isolation (#327 finding 3)", () => {
 
   test("a blocked capability whose semantic fingerprint changed blocks the whole run", () => {
     const edited: NativeModel = { ...model, nodes: model.nodes.map((node) => node.id === RENDERER ? { ...node, summary: "Renders and validates." } : node) };
-    const plan = render({ model: edited, evidence: unproven, counts: { ...baseCounts, [CATALOG]: 60 }, footprints: { ...baseFootprints, [CATALOG]: stamp("d") }, existing: baseTree, isolate: true });
+    const plan = render({ model: edited, evidence: unproven, counts: { ...baseCounts, [CATALOG]: 60 }, existing: baseTree, isolate: true });
     expect(plan.majorChange.mode).toBe("human-action-required");
     expect(plan.majorChange.reasonCodes).toContain("responsibility-changed");
     expect(plan.isolation).toBeUndefined();
@@ -280,7 +277,7 @@ describe("Phase 1 capability isolation (#327 finding 3)", () => {
   });
 
   test("global failures and documents that cannot be carried forward block the whole run", () => {
-    const stale = { evidence: unproven, counts: { ...baseCounts, [CATALOG]: 60 }, footprints: { ...baseFootprints, [CATALOG]: stamp("d") }, isolate: true };
+    const stale = { evidence: unproven, counts: { ...baseCounts, [CATALOG]: 60 }, isolate: true };
     const withFile = (path: string, body: string) => new Map([...baseTree, [path, body]]);
 
     // A superseded or invalid committed manifest is refused before any classification.
@@ -330,11 +327,10 @@ describe("Phase 1 capability isolation (#327 finding 3)", () => {
       relations: [...outer.relations, selfRelation(inner), selfRelation(clean)],
       flows: [...outer.flows, notApplicableFlow(inner.id, "inner"), notApplicableFlow(clean.id, "clean")]
     };
-    const footprints = { [OUTER]: stamp("a"), [inner.id]: stamp("b"), [clean.id]: stamp("e") };
     const counts = { [OUTER]: 12, [inner.id]: 4, [clean.id]: 30 };
-    const first = render({ model: nested, profile: "default", evidence: [outer.evidence], footprints, counts });
+    const first = render({ model: nested, profile: "default", evidence: [outer.evidence], counts });
     const firstTree = apply(new Map(), first);
-    const settled = render({ model: nested, profile: "default", evidence: [outer.evidence], footprints, counts, existing: firstTree });
+    const settled = render({ model: nested, profile: "default", evidence: [outer.evidence], counts, existing: firstTree });
     expect(settled.drift.ok).toBe(true);
     expect(settled.majorChange.mode).toBe("none");
 
@@ -342,7 +338,6 @@ describe("Phase 1 capability isolation (#327 finding 3)", () => {
       model: nested,
       profile: "default",
       evidence: [{ ...outer.evidence, matched: false, callSites: [] }],
-      footprints: { ...footprints, [clean.id]: stamp("f") },
       counts: { ...counts, [clean.id]: 60 },
       existing: firstTree,
       isolate: true
@@ -368,8 +363,8 @@ describe("Phase 1 capability isolation (#327 finding 3)", () => {
         writeFileSync(join(root, path), body.replaceAll("\n", "\r\n"));
       }
       const loaded = loadArchitectureDocumentationFiles(root, model, REPO_HARNESS_PROJECTION_PROFILE);
-      const lf = render({ evidence: unproven, counts: { ...baseCounts, [CATALOG]: 60 }, footprints: { ...baseFootprints, [CATALOG]: stamp("d") }, existing: baseTree, isolate: true });
-      const crlf = render({ evidence: unproven, counts: { ...baseCounts, [CATALOG]: 60 }, footprints: { ...baseFootprints, [CATALOG]: stamp("d") }, existing: loaded, isolate: true });
+      const lf = render({ evidence: unproven, counts: { ...baseCounts, [CATALOG]: 60 }, existing: baseTree, isolate: true });
+      const crlf = render({ evidence: unproven, counts: { ...baseCounts, [CATALOG]: 60 }, existing: loaded, isolate: true });
       expect(crlf.isolation).toEqual(lf.isolation!);
       expect(crlf.manifest.body).toBe(lf.manifest.body);
       expect(crlf.files.map((file) => [file.path, file.body])).toEqual(lf.files.map((file) => [file.path, file.body]));

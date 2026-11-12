@@ -38,7 +38,7 @@ import {
   type ProjectionPublishStatusV1,
   type ProjectionPublisherKind,
   type ProjectionRequestV1,
-  type ProjectionResultV2
+  type ProjectionResultV3
 } from "@archcontext/contracts";
 import { publicOperationErrorEnvelope } from "./public-operation-failure";
 import { agentContextProjectionDifferingPaths, runProjectionCheckInvocation, runProjectionSnapshotCommand } from "./projection-service";
@@ -367,7 +367,7 @@ async function runLockedProjectionPublish(input: LockedRunInput): Promise<Locked
         }
         throw failure;
       }
-      const result = applied.data as unknown as ProjectionResultV2;
+      const result = applied.data as unknown as ProjectionResultV3;
       const projectionStatus = result.status;
       if (projectionStatus === "human-action-required" || projectionStatus === "adoption-required") {
         return finish("human-action-required", { projectionStatus, humanActions: publishHumanActions(result) });
@@ -487,7 +487,7 @@ function projectionPublishEnvelope(run: ProjectionPublishRunV1): JsonEnvelope {
   };
 }
 
-function publishHumanActions(result: ProjectionResultV2): ProjectionPublishHumanActionV1[] {
+function publishHumanActions(result: ProjectionResultV3): ProjectionPublishHumanActionV1[] {
   return result.humanActions.map((action) => ({ reasonCode: action.reasonCode, ...(action.path ? { path: action.path } : {}) }));
 }
 
@@ -688,7 +688,7 @@ export function runProjectionVerifyPrCommand(options: { cwd: string; base: strin
     };
     const checked = (options.check ?? runProjectionCheckInvocation)(request, root);
     if (!checked.ok) return { ...checked, requestId };
-    const result = checked.data as unknown as ProjectionResultV2;
+    const result = checked.data as unknown as ProjectionResultV3;
     // `check` renders the architecture documentation only; a changed agent-context file is compared
     // with the agent-context render, so its generated region is proven too.
     let agentContextDiffering: string[];

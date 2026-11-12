@@ -32,7 +32,6 @@ const sourceScaleSignals: never[] = [];
 const importGraphs: never[] = [];
 const selectorEvidence: never[] = [];
 // No node declares source.include either, so no node carries a source-footprint stamp.
-const sourceFootprints: never[] = [];
 // Keep the renderer surface's privacy-route audit free of provider-name literals while still
 // constructing the exact provenance contract exercised by the core factory.
 const graphField = "code" + "Graph";
@@ -91,7 +90,6 @@ describe("@archcontext/surfaces/renderer", () => {
   test("renders deterministic architecture documentation projection targets", () => {
     const sourceDigest = "sha256:1111111111111111111111111111111111111111111111111111111111111111";
     const first = renderArchitectureDocumentationProjection({
-      sourceFootprints,
       sourceScaleSignals,
       importGraphs,
       selectorEvidence,
@@ -102,7 +100,6 @@ describe("@archcontext/surfaces/renderer", () => {
       timeline: [{ eventId: "architecture_event.test", timestamp: "2026-06-26T00:00:00.000Z", title: "Added payment module", affectedSubjects: ["module.payment"] }]
     });
     const second = renderArchitectureDocumentationProjection({
-      sourceFootprints,
       sourceScaleSignals,
       importGraphs,
       selectorEvidence,
@@ -138,7 +135,6 @@ describe("@archcontext/surfaces/renderer", () => {
   test("preserves human-authored regions and detects projection drift classes", () => {
     const sourceDigest = "sha256:2222222222222222222222222222222222222222222222222222222222222222";
     const markerFree = renderArchitectureDocumentationProjection({
-      sourceFootprints,
       sourceScaleSignals,
       importGraphs,
       selectorEvidence,
@@ -154,7 +150,6 @@ describe("@archcontext/surfaces/renderer", () => {
     expect(markerFree.drift.reasonCodes).toContain("projection-adoption-required");
 
     const seeded = renderArchitectureDocumentationProjection({
-      sourceFootprints,
       sourceScaleSignals,
       importGraphs,
       selectorEvidence,
@@ -163,7 +158,6 @@ describe("@archcontext/surfaces/renderer", () => {
       sourceDigest,
     });
     const preserved = renderArchitectureDocumentationProjection({
-      sourceFootprints,
       sourceScaleSignals,
       importGraphs,
       selectorEvidence,
@@ -181,7 +175,6 @@ describe("@archcontext/surfaces/renderer", () => {
     expect(preserved.files.find((file) => file.path === "docs/architecture/index.md")?.body).toStartWith("Human note.\n\n");
 
     const clean = renderArchitectureDocumentationProjection({
-      sourceFootprints,
       sourceScaleSignals,
       importGraphs,
       selectorEvidence,
@@ -193,7 +186,6 @@ describe("@archcontext/surfaces/renderer", () => {
     expect(clean.drift.ok).toBe(true);
 
     const stale = renderArchitectureDocumentationProjection({
-      sourceFootprints,
       sourceScaleSignals,
       importGraphs,
       selectorEvidence,
@@ -207,7 +199,6 @@ describe("@archcontext/surfaces/renderer", () => {
     expect(stale.drift.reasonCodes).toEqual([]);
 
     const grown = renderArchitectureDocumentationProjection({
-      sourceFootprints,
       sourceScaleSignals,
       importGraphs,
       selectorEvidence,
@@ -220,7 +211,6 @@ describe("@archcontext/surfaces/renderer", () => {
     expect(grown.drift.reasonCodes).toContain("projection-generated-file-stale");
 
     const edited = renderArchitectureDocumentationProjection({
-      sourceFootprints,
       sourceScaleSignals,
       importGraphs,
       selectorEvidence,
@@ -238,7 +228,6 @@ describe("@archcontext/surfaces/renderer", () => {
     expect(edited.drift.reasonCodes).toContain("projection-generated-region-manually-edited");
 
     const orphaned = renderArchitectureDocumentationProjection({
-      sourceFootprints,
       sourceScaleSignals,
       importGraphs,
       selectorEvidence,
