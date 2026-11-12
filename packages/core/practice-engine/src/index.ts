@@ -1,6 +1,7 @@
 import { digestJson, type EffectivePracticeAssetV1, type NormalizedCodeContext, type PracticeEvidenceBinding, type PracticeEvidenceStrength, type PracticeEvidenceV1, type PracticeGuidanceResultV1, type PracticeMatchReason, type PracticeMatchV1, type PracticeProfileV1 } from "@archcontext/contracts";
 import { isArchitectureDirectionViolationSubject, isArchitectureDirectionalEdgeViolationSubject, parseArchitectureDirectionViolationSubject, type ArchitectureDirectionViolationKind } from "@archcontext/core/architecture-domain";
 import type { ArchitecturePressure } from "@archcontext/core/pressure-engine";
+import { matchesGlob } from "@archcontext/core/projection-engine";
 import { InMemoryLexicalRetriever, type RetrievalDocument } from "@archcontext/core/retrieval";
 export * from "./check-registry";
 export * from "./enforcement";
@@ -621,17 +622,7 @@ function canonicalCycle(path: string[]): string {
 }
 
 function globMatches(glob: string, path: string): boolean {
-  if (glob === "**/*") return true;
-  if (glob.endsWith("/**")) return path.startsWith(glob.slice(0, -3));
-  if (glob.startsWith("**/*")) return path.endsWith(glob.slice(4));
-  if (glob.includes("*")) {
-    const escaped = glob
-      .replace(/[.+?^${}()|[\]\\]/g, "\\$&")
-      .replace(/\*\*/g, "\0")
-      .replace(/\*/g, "[^/]*")
-      .replace(/\0/g, ".*");
-    return new RegExp(`^${escaped}$`).test(path);
-  }
+  if (glob.includes("*")) return matchesGlob(path, glob);
   return path === glob || path.startsWith(`${glob}/`);
 }
 
