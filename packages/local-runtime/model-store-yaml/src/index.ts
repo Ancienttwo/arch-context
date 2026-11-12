@@ -4,7 +4,7 @@ import { REVIEW_FAIL_ON_CATEGORIES, digestJson, runtimeTopologyModelIssues, stab
 import { manifestDecisionDiagnostics, parseJsonOrStableYaml, readDependencyConstraints, readReviewPolicy, validateAdrAppliesTo } from "@archcontext/core/architecture-domain";
 export * from "./architecture-history";
 import { assertPathHasNoSymlinkSegments, writeFileWithoutFollowingSymlinks } from "@archcontext/core/changeset-engine";
-import { isStateMachineModelPath, stateMachinesFromModelFiles } from "@archcontext/core/state-machine-engine";
+import { isStateMachineModelPath, STATE_MACHINES_MODEL_DIRECTORY, stateMachinesFromModelFiles } from "@archcontext/core/state-machine-engine";
 import nodeSchema from "../../../../schemas/repo/architecture-node.schema.json";
 export * from "./native-context";
 export { IMPACT_LIMITS, readRefImpact, type RefImpactOptions } from "./ref-impact";
@@ -327,6 +327,11 @@ export class YamlModelStore implements ModelStorePort {
           if (isStateMachineModelPath(file.path)) {
             stateMachineFiles.push({ path: file.path, value });
             continue;
+          }
+          // The loader reads only direct children, so a model file in a subdirectory would be a
+          // machine nothing checks. Parse and schemaVersion failures keep their generic errors.
+          if (file.path.startsWith(`${STATE_MACHINES_MODEL_DIRECTORY}/`) && file.schemaVersion.startsWith("archcontext.")) {
+            errors.push(`${file.path}: state-machine-path-nested: a state machine must be a direct child of ${STATE_MACHINES_MODEL_DIRECTORY}/`);
           }
         } catch (error) {
           errors.push(`${file.path}: invalid model YAML: ${error instanceof Error ? error.message : String(error)}`);
