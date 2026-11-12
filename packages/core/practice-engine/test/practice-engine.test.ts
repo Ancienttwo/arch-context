@@ -523,6 +523,84 @@ describe("@archcontext/core/practice-engine", () => {
     expect(match(testOnlyContext).matches.map((item) => item.practiceId)).not.toContain("compatibility.single-owner");
   });
 
+  test("path globs keep directory boundaries and fixture wildcards for scope, symbols, evidence and checkpoints (#569)", () => {
+    const catalog = loadPracticeCatalog({ root: workspaceRoot });
+    const base = catalog.effectiveAssets.find((candidate) => candidate.asset.id === "compatibility.single-owner")!;
+    const practiceId = "test.glob-scope";
+    const checkpoint = `practice:${practiceId}@${base.asset.revision}`;
+    const assetEntry = (pathGlobs: string[], negativePathGlobs: string[]) => derivedPracticeEntry(base, {
+      ...base.asset,
+      id: practiceId,
+      title: "Glob scope",
+      summary: "Glob scope regression practice",
+      category: "test",
+      tags: ["glob-scope"],
+      appliesTo: { ...base.asset.appliesTo, repositoryKinds: [], pathGlobs, nodeKinds: ["module"], negativePathGlobs },
+      triggers: { candidateTerms: ["glob-scope"], pressureSignals: [], structuralPredicates: [] },
+      evidencePolicy: { ...base.asset.evidencePolicy, minimumStrengthForRecommendation: "observed", minimumStrengthForCheckpoint: "observed" },
+      enforcement: { default: "advisory", promotableTo: "checkpoint", repoOptInRequired: true }
+    });
+    // Each subject is a symbol plus explicit evidence bound to the practice; `evidenceOnly` drops the
+    // symbol so only the evidence selector path decides exclusion.
+    const run = (pathGlobs: string[], negativePathGlobs: string[], subjects: Array<{ path: string; evidenceOnly?: boolean }>) => {
+      const codeContext: NormalizedCodeContext = {
+        task: "apply glob-scope practice",
+        symbols: subjects.filter((subject) => !subject.evidenceOnly).map((subject) => ({ id: `symbol:${subject.path}`, name: "service", kind: "module", path: subject.path })),
+        edges: [],
+        evidence: subjects.map((subject) => ({
+          id: `evidence:${subject.path}`,
+          selector: subject.evidenceOnly ? { path: subject.path } : { path: subject.path, symbolId: `symbol:${subject.path}` },
+          summary: "observed glob-scope applicability",
+          confidence: "observed" as const,
+          practiceBindings: [practiceBinding(practiceId, "unit-test", subject.path)],
+          snapshot: { repositoryId: "repo.test", headSha: "abc", worktreeDigest: `sha256:${"5".repeat(64)}` }
+        })),
+        digest: `sha256:${"5".repeat(64)}`
+      };
+      const pressure = detectArchitecturePressure({
+        task: codeContext.task,
+        symbols: codeContext.symbols.map((symbol) => `${symbol.id} ${symbol.name} ${symbol.kind} ${symbol.path}`),
+        files: subjects.map((subject) => subject.path),
+        observedEvidence: codeContext.evidence
+      });
+      const guidance = matchPracticesForTask({
+        task: codeContext.task,
+        catalog: { catalogDigest: catalog.catalogDigest, overlayDigest: catalog.overlayDigest, effectiveAssets: [assetEntry(pathGlobs, negativePathGlobs)] },
+        codeContext,
+        pressure,
+        maxMatches: 3
+      });
+      const match = guidance.matches.find((item) => item.practiceId === practiceId);
+      return {
+        enforcement: match?.enforcement,
+        subjects: (match?.evidence ?? []).filter((evidence) => evidence.kind !== "task-text").map((evidence) => evidence.subject).sort(),
+        requiredCheckpoints: guidance.requiredCheckpoints
+      };
+    };
+    const kept = (...subjects: string[]) => ({ enforcement: "checkpoint" as const, subjects: subjects.sort(), requiredCheckpoints: [checkpoint] });
+    const dropped = { enforcement: undefined, subjects: [], requiredCheckpoints: [] };
+
+    const cases: Array<{ name: string; pathGlobs: string[]; negativePathGlobs: string[]; subjects: Array<{ path: string; evidenceOnly?: boolean }>; expected: ReturnType<typeof run> }> = [
+      { name: "test/** excludes test/worker.ts", pathGlobs: ["**/*"], negativePathGlobs: ["test/**"], subjects: [{ path: "test/worker.ts" }], expected: dropped },
+      { name: "test/** does not exclude testing/worker.ts", pathGlobs: ["**/*"], negativePathGlobs: ["test/**"], subjects: [{ path: "testing/worker.ts" }], expected: kept("testing/worker.ts") },
+      { name: "src/** admits src/x.ts", pathGlobs: ["src/**"], negativePathGlobs: [], subjects: [{ path: "src/x.ts" }], expected: kept("src/x.ts") },
+      { name: "src/** does not admit src-old/x.ts", pathGlobs: ["src/**"], negativePathGlobs: [], subjects: [{ path: "src-old/x.ts" }], expected: dropped },
+      { name: "**/*.fixture.* excludes a root-level fixture", pathGlobs: ["**/*"], negativePathGlobs: ["**/*.fixture.*"], subjects: [{ path: "api.fixture.ts" }], expected: dropped },
+      { name: "**/*.fixture.* excludes a nested fixture", pathGlobs: ["**/*"], negativePathGlobs: ["**/*.fixture.*"], subjects: [{ path: "src/api.fixture.ts" }], expected: dropped },
+      { name: "**/*.fixture.* keeps the same-named non-fixture", pathGlobs: ["**/*"], negativePathGlobs: ["**/*.fixture.*"], subjects: [{ path: "src/api.ts" }], expected: kept("src/api.ts") },
+      {
+        name: "mixed subjects drop excluded symbols and explicit evidence per path",
+        pathGlobs: ["src/**", "testing/**"],
+        negativePathGlobs: ["test/**", "**/*.fixture.*"],
+        subjects: [{ path: "src/api.ts" }, { path: "src/api.fixture.ts" }, { path: "api.fixture.ts", evidenceOnly: true }, { path: "test/worker.ts", evidenceOnly: true }, { path: "testing/worker.ts", evidenceOnly: true }],
+        expected: kept("src/api.ts", "testing/worker.ts")
+      }
+    ];
+
+    expect(cases.map(({ name, pathGlobs, negativePathGlobs, subjects }) => ({ name, ...run(pathGlobs, negativePathGlobs, subjects) })))
+      .toEqual(cases.map(({ name, expected }) => ({ name, ...expected })));
+  });
+
   test("plain import edges do not prove declared layer violations during recommendation", () => {
     const catalog = loadPracticeCatalog({ root: workspaceRoot });
     const asset = catalog.effectiveAssets.find((candidate) => candidate.asset.id === "modularity.respect-dependency-direction")!;
