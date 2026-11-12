@@ -12,6 +12,12 @@ A machine is one file, `.archcontext/model/state-machines/<id>.yaml`, with
 `capabilityId` of the capability whose code it describes. Write and change it through a
 ChangeSet (`archctx plan` and `archctx apply`), like every other model file.
 
+The file must be a direct child of `.archcontext/model/state-machines/`. The loader and
+`archctx state-machines check` do not read subdirectories. `archctx validate` therefore
+rejects a model file in a subdirectory, for example `state-machines/sub/order.yaml`, with
+`<path>: state-machine-path-nested`, and `archctx complete` fails on that error. To fix it,
+move the file up to `state-machines/`.
+
 - **Regions.** A region is one finite variable: an `id`, a `label`, an `initial` state and its
   `states`. Mark a state `terminal: true` when the code never leaves it. Give the region a
   `source` (`{ kind: code, path, symbol? }`) that names the code that stores it.

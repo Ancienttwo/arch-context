@@ -953,7 +953,7 @@ function cliHelpEnvelope(command: string, args: string[]): JsonEnvelope {
   case "state-machines":
     return okEnvelope("state-machines", {
       command: "archctx state-machines check [--json]",
-      description: "Check every state machine declared under .archcontext/model/state-machines/: each never and final rule, unreachable states, dead steps and deadlocks, and the code anchor of every region and event source.",
+      description: "Check every state machine declared as a direct child of .archcontext/model/state-machines/ (archctx validate rejects a model file in a subdirectory): each never and final rule, unreachable states, dead steps and deadlocks, and the code anchor of every region and event source.",
       result: "Each broken rule carries its shortest path from the initial state; each holding rule lists the guards that protect it. A rule with a finding reports finding-open or finding-resolved. Each anchor reports its status against the current file.",
       writes: "None. Reads the model and the files that a source names; starts no daemon or task session. An anchor that names a symbol reads the CodeGraph index read-only and reports unchecked when no index is available."
     });

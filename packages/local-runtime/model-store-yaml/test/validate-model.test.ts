@@ -172,15 +172,26 @@ describe("YamlModelStore state machines (#510)", () => {
       .toEqual([`${path}: $.rules[0].final: expected at most 1 properties`]);
   });
 
-  test("a YAML file in a subdirectory is not a state machine, as for the loader", async () => {
-    const root = modelRoot();
-    try {
-      mkdirSync(join(root, ".archcontext/model/state-machines/sub"), { recursive: true });
-      writeFileSync(join(root, ".archcontext/model/state-machines/sub/nested.yaml"), "schemaVersion: archcontext.state-machine/v1\n", "utf8");
-      expect(await validate(root)).toMatchObject({ valid: true, errors: [] });
-      expect(loadStateMachinesFromArchContext(root, [])).toEqual([]);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
+  test("a model YAML file in a subdirectory fails validation next to a direct-child machine, and the loader still skips it (#571)", async () => {
+    const nested = (name: string) => `.archcontext/model/state-machines/${name}`;
+    const misplaced = (name: string) => `${nested(name)}: state-machine-path-nested: a state machine must be a direct child of .archcontext/model/state-machines/`;
+    const cases: Array<{ name: string; body: string; errors: string[] }> = [
+      { name: "sub/x.yaml", body: stableYaml({ ...machine(), id: "state-machine.checkout.nested" }), errors: [misplaced("sub/x.yaml")] },
+      { name: "sub/deeper/y.yml", body: "schemaVersion: archcontext.state-machine/v1\n", errors: [misplaced("sub/deeper/y.yml")] },
+      { name: "sub/no-version.yaml", body: "id: state-machine.nested\n", errors: [`${nested("sub/no-version.yaml")}: missing schemaVersion`] },
+      { name: "sub/broken.yaml", body: "schemaVersion: [\n", errors: [expect.stringMatching(/^\.archcontext\/model\/state-machines\/sub\/broken\.yaml: invalid model YAML: /) as unknown as string] }
+    ];
+    for (const { name, body, errors } of cases) {
+      const root = modelRoot();
+      try {
+        mkdirSync(join(root, nested(name), ".."), { recursive: true });
+        writeFileSync(join(root, path), stableYaml(machine()), "utf8");
+        writeFileSync(join(root, nested(name)), body, "utf8");
+        expect({ name, ...(await validate(root)) }).toMatchObject({ name, valid: false, errors });
+        expect(loadStateMachinesFromArchContext(root, [{ id: "capability.architecture.context", kind: "capability" }]).map((entry) => entry.id)).toEqual([machine().id]);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
     }
   });
 
