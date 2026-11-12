@@ -106,7 +106,8 @@ still fails existing model validation; an adopted but invalid model reports `inv
 without publishing a clean debt report. A mismatched task HEAD skips debt judgment and names
 `architectureDebtChecksSkipped: stale-context` in review extensions.
 
-Projection freshness remains separate, using S3's single evaluator unchanged. A source stamp
-alone never creates a debt item, though the existing freshness gate can independently block.
+Projection freshness remains separate, using S3's single evaluator unchanged. A source edit that
+renders no differently never creates a debt item, though the existing freshness gate can
+independently block.
 The advertised `architecture-debt-v1` covers the reader, checkpoint attachment and completion
 judgment. Renderer/protocol floors remain separate RFC work; this flag does not close #328.
