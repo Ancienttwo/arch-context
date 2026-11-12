@@ -51,24 +51,39 @@ any ADR promises changelog content.
    `schemas/runtime/projection-manifest.schema.json:230` and
    `schemas/runtime/projection-target.schema.json:16`. The renderer and the timeline input go with
    it.
-3. `docs/architecture/changelog.md` joins the `default` profile's `retiredTargetPaths`
-   (`layout.ts:165`, empty for `default` today). The existing orphan rule decides its fate
-   (`index.ts:2699-2709`, `orphanHoldsOnlyIntactGeneratedRegion` at `index.ts:2794`):
-   - a changelog that holds only its intact generated region is deleted;
-   - a changelog with any human text is `human-review`: the apply refuses with
-     `projection-orphan-review-required`, and a human removes the file.
+3. `docs/architecture/changelog.md` is retired only by the ADR-0056 §11 re-baseline: the
+   operator-invoked `archctx docs apply --approved` on a superseded manifest, which fails closed.
+   The path joins the `default` profile's `retiredTargetPaths` (`layout.ts:165`, empty for
+   `default` today) for that run.
 
-   Today a retired path is read only when a current-format committed manifest records it
+   No ordinary run can find the file. Once the target leaves the layout, the path is outside the
+   expected paths and the orphan roots (`modules/` and `relations/`, `layout.ts:166`), and a
+   retired path is read back only when a current-format committed manifest records it
    (`layout.ts:221-227`). Every `default` repository reaches 0.14.0 with a v3 manifest, which the
-   ADR-0056 §11 re-baseline treats as absent, so adding the path alone leaves the file unread and
-   unmanaged. Slice E therefore reads a `default` retired path that exists on disk whatever the
-   manifest records, and keeps `changelog.md` in the managed Markdown paths (`index.ts:2848-2853`)
-   so the marker scan finds its region.
+   re-baseline treats as absent.
+
+   - **Loading.** The inputs are loaded before the re-baseline option takes effect: the option is
+     set at `packages/local-runtime/runtime-daemon/src/projection-service.ts:38` and reaches only
+     the render, while the existing files are loaded at `projection-service.ts:245` through
+     `loadArchitectureDocumentationInputs` (`index.ts:1071`). Slice E passes the migration context
+     to that loading boundary. The boundary reads the retired path from disk only when the command
+     is the approved apply and the committed manifest is superseded.
+   - **Disposition.** The re-baseline deletes the changelog only when the whole file is its one
+     generated region, the region digests to its marker's `outputDigest`, and the region body is
+     the empty-state render ("No accepted architecture ledger events selected for this
+     projection."). Anything else is `human-review`, reported once in the re-baseline's result:
+     human text, a missing or unparseable marker, or a digest mismatch. The apply then refuses with
+     `projection-orphan-review-required`, and a human removes the file. Today's orphan rule
+     (`index.ts:2699-2709`) skips a file in which it finds no generated region, so slice E adds
+     this classification rather than reusing that rule.
+   - **After the re-baseline.** The v4 manifest is the only authority. It records no changelog row,
+     so a file created at that path later is not projection-owned, and no run reads, deletes or
+     reports it.
 
 ## Consequences
 
-- A `default` repository's next apply deletes its placeholder changelog and drops the index link.
-  A changelog that a human edited stops the apply until someone reviews and removes it.
+- The 0.14.0 re-baseline of a `default` repository deletes its placeholder changelog and drops the
+  index link. Any other changelog stops the re-baseline until a human reviews and removes it.
 - Removing the target type is a breaking change to `@archcontext/contracts` and the runtime
   schemas. A manifest or target file that names `architecture-changelog` no longer validates. The
   0.14.0 release notes list the break.
