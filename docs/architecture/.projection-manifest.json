@@ -83,6 +83,8 @@
     ]
   },
   "targets": {
+    "projection_target.architecture.history":
+      {"type":"architecture-history","scope":{"kind":"repository"},"path":"docs/architecture/history.md","ownership":"generated","format":"markdown","outputDigest":"sha256:f38ffacaa0ec3b67a6b87e4210a2e5fb4d587728160161e1919ff3657f6902bc"},
     "projection_target.entity.capability-architecture-context":
       {"type":"entity-summary","scope":{"kind":"entity","id":"capability.architecture.context","entityKind":"capability"},"path":"docs/architecture/modules/architecture/context.md","ownership":"mixed","format":"markdown","outputDigest":"sha256:5eafe6d7180df4a6df8371594c077e66e0eab7acfe2d5fb868c160f4144b899b"}
   }
