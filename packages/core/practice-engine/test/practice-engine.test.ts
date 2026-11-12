@@ -536,23 +536,27 @@ describe("@archcontext/core/practice-engine", () => {
       category: "test",
       tags: ["glob-scope"],
       appliesTo: { ...base.asset.appliesTo, repositoryKinds: [], pathGlobs, nodeKinds: ["module"], negativePathGlobs },
-      triggers: { candidateTerms: ["glob-scope"], pressureSignals: [], structuralPredicates: [] },
+      triggers: { candidateTerms: ["glob-scope"], pressureSignals: [], structuralPredicates: ["governed-element-created", "import-edge-added"] },
       evidencePolicy: { ...base.asset.evidencePolicy, minimumStrengthForRecommendation: "observed", minimumStrengthForCheckpoint: "observed" },
       enforcement: { default: "advisory", promotableTo: "checkpoint", repoOptInRequired: true }
     });
-    // Each subject is a symbol plus explicit evidence bound to the practice; `evidenceOnly` drops the
-    // symbol so only the evidence selector path decides exclusion.
-    const run = (pathGlobs: string[], negativePathGlobs: string[], subjects: Array<{ path: string; evidenceOnly?: boolean }>) => {
+    // Symbols surface only through the symbol predicate (`governed-element-created`, subject = symbol id)
+    // and the import-edge predicate, so a symbol the negative globs fail to drop shows up as its own
+    // evidence. Evidence items carry only a selector path and a practice binding (subject = path), so
+    // the evidence path filter is observed on its own.
+    const sym = (path: string) => `symbol:${path}`;
+    type Subjects = { symbols?: string[]; evidence?: string[]; imports?: Array<[string, string]> };
+    const run = (pathGlobs: string[], negativePathGlobs: string[], { symbols = [], evidence = [], imports = [] }: Subjects) => {
       const codeContext: NormalizedCodeContext = {
         task: "apply glob-scope practice",
-        symbols: subjects.filter((subject) => !subject.evidenceOnly).map((subject) => ({ id: `symbol:${subject.path}`, name: "service", kind: "module", path: subject.path })),
-        edges: [],
-        evidence: subjects.map((subject) => ({
-          id: `evidence:${subject.path}`,
-          selector: subject.evidenceOnly ? { path: subject.path } : { path: subject.path, symbolId: `symbol:${subject.path}` },
+        symbols: symbols.map((path) => ({ id: sym(path), name: "service", kind: "module", path })),
+        edges: imports.map(([source, target]) => ({ source: sym(source), target: sym(target), kind: "imports", confidence: "high" as const })),
+        evidence: evidence.map((path) => ({
+          id: `evidence:${path}`,
+          selector: { path },
           summary: "observed glob-scope applicability",
           confidence: "observed" as const,
-          practiceBindings: [practiceBinding(practiceId, "unit-test", subject.path)],
+          practiceBindings: [practiceBinding(practiceId, "unit-test", path)],
           snapshot: { repositoryId: "repo.test", headSha: "abc", worktreeDigest: `sha256:${"5".repeat(64)}` }
         })),
         digest: `sha256:${"5".repeat(64)}`
@@ -560,7 +564,7 @@ describe("@archcontext/core/practice-engine", () => {
       const pressure = detectArchitecturePressure({
         task: codeContext.task,
         symbols: codeContext.symbols.map((symbol) => `${symbol.id} ${symbol.name} ${symbol.kind} ${symbol.path}`),
-        files: subjects.map((subject) => subject.path),
+        files: [...symbols, ...evidence],
         observedEvidence: codeContext.evidence
       });
       const guidance = matchPracticesForTask({
@@ -580,19 +584,26 @@ describe("@archcontext/core/practice-engine", () => {
     const kept = (...subjects: string[]) => ({ enforcement: "checkpoint" as const, subjects: subjects.sort(), requiredCheckpoints: [checkpoint] });
     const dropped = { enforcement: undefined, subjects: [], requiredCheckpoints: [] };
 
-    const cases: Array<{ name: string; pathGlobs: string[]; negativePathGlobs: string[]; subjects: Array<{ path: string; evidenceOnly?: boolean }>; expected: ReturnType<typeof run> }> = [
-      { name: "test/** excludes test/worker.ts", pathGlobs: ["**/*"], negativePathGlobs: ["test/**"], subjects: [{ path: "test/worker.ts" }], expected: dropped },
-      { name: "test/** does not exclude testing/worker.ts", pathGlobs: ["**/*"], negativePathGlobs: ["test/**"], subjects: [{ path: "testing/worker.ts" }], expected: kept("testing/worker.ts") },
-      { name: "src/** admits src/x.ts", pathGlobs: ["src/**"], negativePathGlobs: [], subjects: [{ path: "src/x.ts" }], expected: kept("src/x.ts") },
-      { name: "src/** does not admit src-old/x.ts", pathGlobs: ["src/**"], negativePathGlobs: [], subjects: [{ path: "src-old/x.ts" }], expected: dropped },
-      { name: "**/*.fixture.* excludes a root-level fixture", pathGlobs: ["**/*"], negativePathGlobs: ["**/*.fixture.*"], subjects: [{ path: "api.fixture.ts" }], expected: dropped },
-      { name: "**/*.fixture.* excludes a nested fixture", pathGlobs: ["**/*"], negativePathGlobs: ["**/*.fixture.*"], subjects: [{ path: "src/api.fixture.ts" }], expected: dropped },
-      { name: "**/*.fixture.* keeps the same-named non-fixture", pathGlobs: ["**/*"], negativePathGlobs: ["**/*.fixture.*"], subjects: [{ path: "src/api.ts" }], expected: kept("src/api.ts") },
+    const negative = ["test/**", "**/*.fixture.*"];
+    const cases: Array<{ name: string; pathGlobs: string[]; negativePathGlobs: string[]; subjects: Subjects; expected: ReturnType<typeof run> }> = [
+      { name: "src/** admits src/x.ts", pathGlobs: ["src/**"], negativePathGlobs: [], subjects: { symbols: ["src/x.ts"] }, expected: kept(sym("src/x.ts")) },
+      { name: "src/** does not admit src-old/x.ts", pathGlobs: ["src/**"], negativePathGlobs: [], subjects: { symbols: ["src-old/x.ts"] }, expected: dropped },
+      { name: "**/*.fixture.* drops a root-level fixture symbol", pathGlobs: ["**/*"], negativePathGlobs: negative, subjects: { symbols: ["api.fixture.ts"] }, expected: dropped },
       {
-        name: "mixed subjects drop excluded symbols and explicit evidence per path",
-        pathGlobs: ["src/**", "testing/**"],
-        negativePathGlobs: ["test/**", "**/*.fixture.*"],
-        subjects: [{ path: "src/api.ts" }, { path: "src/api.fixture.ts" }, { path: "api.fixture.ts", evidenceOnly: true }, { path: "test/worker.ts", evidenceOnly: true }, { path: "testing/worker.ts", evidenceOnly: true }],
+        name: "symbols: excluded test/** and fixture symbols and their imports drop next to eligible ones",
+        pathGlobs: ["**/*"],
+        negativePathGlobs: negative,
+        subjects: {
+          symbols: ["src/api.ts", "src/api.fixture.ts", "test/worker.ts", "testing/worker.ts"],
+          imports: [["src/api.ts", "src/api.fixture.ts"], ["src/api.ts", "test/worker.ts"], ["src/api.ts", "testing/worker.ts"]]
+        },
+        expected: kept(sym("src/api.ts"), sym("testing/worker.ts"), `${sym("src/api.ts")}->${sym("testing/worker.ts")}`)
+      },
+      {
+        name: "evidence: explicit evidence on excluded paths drops next to eligible paths",
+        pathGlobs: ["**/*"],
+        negativePathGlobs: negative,
+        subjects: { evidence: ["src/api.ts", "src/api.fixture.ts", "api.fixture.ts", "test/worker.ts", "testing/worker.ts"] },
         expected: kept("src/api.ts", "testing/worker.ts")
       }
     ];
