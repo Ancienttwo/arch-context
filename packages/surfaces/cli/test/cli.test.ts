@@ -569,7 +569,7 @@ test("repo-harness/v1 apply keeps and reports a hand-modified whole-model file (
   }
 }, CLI_DOCS_TEST_TIMEOUT_MS);
 
-test("the default re-baseline deletes a placeholder-only changelog and refuses one with human text (ADR-0057)", async () => {
+test("a 0.13.0 default tree re-baselines: a placeholder-only changelog is deleted, one with human text refuses (ADR-0057)", async () => {
   const root = mkdtempSync(join(tmpdir(), "archctx-cli-540-changelog-"));
   writeFileSync(join(root, "README.md"), "# projection fixture\n", "utf8");
   initializeArchContextModel(root, "Retired Changelog App");
@@ -581,49 +581,56 @@ test("the default re-baseline deletes a placeholder-only changelog and refuses o
   });
   const cli = (command: string, args: string[]) => runCli(command, args, root, { runtimeClient: daemon });
   const manifestPath = join(root, "docs/architecture/.projection-manifest.json");
+  const indexPath = join(root, "docs/architecture/index.md");
   const changelogPath = join(root, "docs/architecture/changelog.md");
-  // The bytes 0.13.x committed for every default projection: no production caller passed a timeline.
-  const placeholder = [
-    '<!-- BEGIN ARCHCONTEXT:generated target="projection_target.architecture.changelog" rendererVersion="archcontext.docs-renderer/v6" outputDigest="sha256:1f723aeb74466aae7d607eeab8c438a830c36f49a48e6622f868a8151afabea6" -->',
-    "# Architecture Changelog",
-    "",
-    "- No accepted architecture ledger events selected for this projection.",
-    '<!-- END ARCHCONTEXT:generated target="projection_target.architecture.changelog" -->',
+  const changelogId = "projection_target.architecture.changelog";
+  const region = (targetId: string, body: string) => [
+    `<!-- BEGIN ARCHCONTEXT:generated target="${targetId}" rendererVersion="archcontext.docs-renderer/v6" outputDigest="${digestJson({ targetId, body })}" -->`,
+    body.trimEnd(),
+    `<!-- END ARCHCONTEXT:generated target="${targetId}" -->`,
     ""
   ].join("\n");
+  // Every 0.13.0 default projection committed this: no production caller passed a timeline.
+  const placeholder = region(changelogId, "# Architecture Changelog\n\n- No accepted architecture ledger events selected for this projection.\n");
   const humanText = `${placeholder}\n## Notes\n\nMigrated the payment ledger in Q3.\n`;
-  // An intact region that lists an event is not the placeholder either.
-  const entryBody = "# Architecture Changelog\n\n- 2026-06-26T00:00:00.000Z — Added payment module\n";
-  const withEntry = [
-    `<!-- BEGIN ARCHCONTEXT:generated target="projection_target.architecture.changelog" rendererVersion="archcontext.docs-renderer/v6" outputDigest="${digestJson({ targetId: "projection_target.architecture.changelog", body: entryBody })}" -->`,
-    entryBody.trimEnd(),
-    '<!-- END ARCHCONTEXT:generated target="projection_target.architecture.changelog" -->',
-    ""
-  ].join("\n");
+  const withEntry = region(changelogId, "# Architecture Changelog\n\n- 2026-06-26T00:00:00.000Z — Added payment module\n");
   try {
-    seedProjectionProtocolFixture(root);
+    git(root, "init");
+    commitProjectionFixture(root, "model");
     expect((await cli("docs", ["apply", "--profile", "default", "--approved"])).ok).toBe(true);
     const projected = readFileSync(manifestPath, "utf8");
-    // The 0.13.x tree: a v3 manifest, which the re-baseline reads for its schemaVersion only.
-    const supersede = (changelog: string) => {
-      writeFileSync(manifestPath, `${JSON.stringify({ ...JSON.parse(projected), schemaVersion: "archcontext.architecture-docs-projection-manifest/v3" }, null, 2)}\n`, "utf8");
+    const indexBody = /-->\n([\s\S]*)\n<!-- END/.exec(readFileSync(indexPath, "utf8"))![1]!;
+    // A 0.13.0 default tree differs from this release's only by the changelog, the index link to it
+    // and a v3 manifest that records both. On an initialized model this derivation reproduces, byte
+    // for byte, what the 0.13.0 release's own `docs apply --profile default` writes.
+    const index013 = region("projection_target.architecture.index", `${indexBody}\n- [Architecture changelog](changelog.md)\n`);
+    const manifest013 = projected
+      .replace("projection-manifest/v4", "projection-manifest/v3")
+      .replace(/("projection_target\.architecture\.index":\n.*"outputDigest":")sha256:[a-f0-9]{64}/, `$1${/outputDigest="([^"]+)"/.exec(index013)![1]}`)
+      .replace('    "projection_target.architecture.index":', `    "${changelogId}":\n      {"type":"architecture-changelog","scope":{"kind":"changelog"},"path":"docs/architecture/changelog.md","ownership":"mixed","format":"markdown","outputDigest":"sha256:1f723aeb74466aae7d607eeab8c438a830c36f49a48e6622f868a8151afabea6"},\n    "projection_target.architecture.index":`);
+    expect(placeholder).toContain("sha256:1f723aeb74466aae7d607eeab8c438a830c36f49a48e6622f868a8151afabea6");
+    const tree013 = (changelog: string) => {
+      writeFileSync(manifestPath, manifest013, "utf8");
+      writeFileSync(indexPath, index013, "utf8");
       writeFileSync(changelogPath, changelog, "utf8");
-      commitProjectionFixture(root, "the 0.13.x projection");
+      commitProjectionFixture(root, "the 0.13.0 projection");
     };
 
     // Human text around the region, an event entry, or a changelog with no marker is left for a human.
     for (const changelog of [humanText, withEntry, "# Changelog\n\nWritten by hand.\n"]) {
-      supersede(changelog);
+      tree013(changelog);
       const refused = await cli("docs", ["apply", "--profile", "default", "--approved"]);
       expect((refused as any).error).toMatchObject({ reasonCode: "projection-orphan-review-required", details: { issueCount: 1 } });
       expect(readFileSync(changelogPath, "utf8")).toBe(changelog);
+      expect(readFileSync(manifestPath, "utf8")).toBe(manifest013);
     }
 
-    supersede(placeholder);
+    tree013(placeholder);
     const applied = await cli("docs", ["apply", "--profile", "default", "--approved"]);
     expect(applied.ok, JSON.stringify(applied)).toBe(true);
     expect(existsSync(changelogPath)).toBe(false);
     expect(readFileSync(manifestPath, "utf8")).toBe(projected);
+    expect(readFileSync(indexPath, "utf8")).not.toContain("changelog.md");
     commitProjectionFixture(root, "re-baseline");
 
     // After the re-baseline the v4 manifest is the only authority: a file at that path is not owned.
