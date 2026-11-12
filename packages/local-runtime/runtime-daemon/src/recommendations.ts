@@ -102,6 +102,8 @@ interface RecommendationsContext {
   clock(): string;
   architectureLedgerScope(root: string): Promise<ArchitectureLedgerScope>;
   architectureLedgerGitScope(root: string): Promise<ArchitectureLedgerScope>;
+  /** `architectureLedgerGitScope` plus the Git-visible files its `worktreeDigest` was computed over. */
+  refactorScanGitScope(root: string): Promise<{ scope: ArchitectureLedgerScope; sourceFiles: readonly string[] }>;
   assertFreshWorktree(root: string, expectedWorktreeDigest: string | undefined, command: string): void;
   shortDigest(digest: string): string;
   appendArchitectureEventsWithFeed(root: string, input: ArchitectureLedgerAppendInput): Promise<ArchitectureLedgerAppendResult>;
@@ -747,7 +749,7 @@ export class RecommendationsService {
     }
     | { ok: false; code: ArchContextErrorCode; message: string; reasonCode?: string; details?: Record<string, Json>; action?: string; severity?: "notice" | "warning" | "error" | "critical"; retryable?: boolean }
   > {
-    const gitScope = await this.context.architectureLedgerGitScope(repositoryRoot);
+    const { scope: gitScope, sourceFiles } = await this.context.refactorScanGitScope(repositoryRoot);
     const storageScope = await this.context.localStore.resolveArchitectureLedgerScope(gitScope);
     const replay = await this.context.localStore.replayArchitectureLedger({ ...storageScope, mode: "genesis" });
     const artifacts = recommendationArtifactsFromEvents(replay.events);
@@ -767,6 +769,7 @@ export class RecommendationsService {
         request,
         repository: gitScope.repository,
         worktree: gitScope.worktree,
+        sourceFiles,
         previousRecommendations: artifacts.recommendations,
         decisions: planningDecisions,
         catalogDigest: refactorClassifierRulesetDigest(RECOMMENDATION_SCHEDULER_ENGINE_VERSION)
@@ -1033,7 +1036,7 @@ export class RecommendationsService {
           return publicOperationErrorEnvelope("refactor.verify", error);
         }
       }
-      const gitScope = await this.context.architectureLedgerGitScope(repositoryRoot);
+      const { scope: gitScope, sourceFiles } = await this.context.refactorScanGitScope(repositoryRoot);
       if (input.expectedHeadSha !== undefined && input.expectedHeadSha !== gitScope.worktree.headSha) {
         return publicFailureEnvelope("refactor.verify", "AC_REFACTOR_STALE", "refactor-head-mismatch", {recommendationId: input.recommendationId, expectedHeadSha: input.expectedHeadSha, actualHeadSha: gitScope.worktree.headSha});
       }
@@ -1087,6 +1090,7 @@ export class RecommendationsService {
           request: repositoryRefactorRequest(importNodeLimit),
           repository: gitScope.repository,
           worktree: gitScope.worktree,
+          sourceFiles,
           previousRecommendations: artifacts.recommendations,
           decisions,
           catalogDigest: refactorClassifierRulesetDigest(RECOMMENDATION_SCHEDULER_ENGINE_VERSION)

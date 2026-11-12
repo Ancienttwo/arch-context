@@ -7,7 +7,6 @@ import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { CODEGRAPH_IMPORT_NODE_READ_LIMIT, repositoryImportPairs } from "../src/index";
 
 const WORKTREE_DIGEST = `sha256:${"a".repeat(64)}`;
-const gitVisibleFiles = (root: string) => new Set(listGitVisibleFiles(root));
 
 interface FakeIndexOptions {
   /** Extra import nodes beyond the seven named ones, to exceed one fixed-size read. */
@@ -88,7 +87,7 @@ describe("repository-wide import pairs", () => {
   test("locates a repeated specifier at its first reported import line, and omits an unreported one", () => {
     const { root, binary } = seedWorkspace({ withLines: true });
     try {
-      const result = repositoryImportPairs(root, binary, 100, WORKTREE_DIGEST, gitVisibleFiles(root));
+      const result = repositoryImportPairs(root, binary, 100, WORKTREE_DIGEST, listGitVisibleFiles(root));
       expect(result.pairs.find((pair) => pair.specifier === "./render")).toEqual({
         from: "packages/docs/src/main.ts",
         specifier: "./render",
@@ -104,7 +103,7 @@ describe("repository-wide import pairs", () => {
   test("keeps every unresolved specifier as its own record with the specifier retained", () => {
     const { root, binary, log } = seedWorkspace();
     try {
-      const result = repositoryImportPairs(root, binary, 100, WORKTREE_DIGEST, gitVisibleFiles(root));
+      const result = repositoryImportPairs(root, binary, 100, WORKTREE_DIGEST, listGitVisibleFiles(root));
 
       expect(result.truncated).toBe(false);
       // Bare and dangling specifiers stay as `to: null` because a module snapshot has to report
@@ -132,7 +131,7 @@ describe("repository-wide import pairs", () => {
   test("binds the edges to the measured worktree only when the index reports itself clean", () => {
     const clean = seedWorkspace();
     try {
-      expect(repositoryImportPairs(clean.root, clean.binary, 100, WORKTREE_DIGEST, gitVisibleFiles(clean.root))).toMatchObject({
+      expect(repositoryImportPairs(clean.root, clean.binary, 100, WORKTREE_DIGEST, listGitVisibleFiles(clean.root))).toMatchObject({
         availability: "ready",
         indexedWorktreeDigest: WORKTREE_DIGEST
       });
@@ -143,7 +142,7 @@ describe("repository-wide import pairs", () => {
     // An index with pending source changes describes some other tree; it attests to nothing.
     const stale = seedWorkspace({ pending: 3 });
     try {
-      expect(repositoryImportPairs(stale.root, stale.binary, 100, WORKTREE_DIGEST, gitVisibleFiles(stale.root))).toMatchObject({
+      expect(repositoryImportPairs(stale.root, stale.binary, 100, WORKTREE_DIGEST, listGitVisibleFiles(stale.root))).toMatchObject({
         availability: "unavailable",
         indexedWorktreeDigest: null
       });
@@ -156,7 +155,7 @@ describe("repository-wide import pairs", () => {
     const { root, binary } = seedWorkspace();
     try {
       rmdirSync(join(root, ".codegraph"));
-      expect(repositoryImportPairs(root, binary, 100, WORKTREE_DIGEST, gitVisibleFiles(root))).toEqual({
+      expect(repositoryImportPairs(root, binary, 100, WORKTREE_DIGEST, listGitVisibleFiles(root))).toEqual({
         pairs: [],
         truncated: true,
         availability: "unavailable",
@@ -174,7 +173,7 @@ describe("repository-wide import pairs", () => {
     for (const reportCount of [true, false]) {
       const { root, binary } = seedWorkspace({ reportCount });
       try {
-        const result = repositoryImportPairs(root, binary, 3, WORKTREE_DIGEST, gitVisibleFiles(root));
+        const result = repositoryImportPairs(root, binary, 3, WORKTREE_DIGEST, listGitVisibleFiles(root));
         expect(result.importNodeLimitExceeded).toBe(true);
         // The index is complete; only the configured limit cut the read.
         expect(result.truncated).toBe(false);
@@ -195,7 +194,7 @@ describe("repository-wide import pairs", () => {
     // 5007 import nodes: more than the former fixed 5000-node read.
     const { root, binary, log } = seedWorkspace({ reportCount: true, generated: 5000 });
     try {
-      const result = repositoryImportPairs(root, binary, CODEGRAPH_IMPORT_NODE_READ_LIMIT, WORKTREE_DIGEST, gitVisibleFiles(root));
+      const result = repositoryImportPairs(root, binary, CODEGRAPH_IMPORT_NODE_READ_LIMIT, WORKTREE_DIGEST, listGitVisibleFiles(root));
       expect(result.truncated).toBe(false);
       expect(result.importNodeLimitExceeded).toBe(false);
       expect(result.importNodeCount).toBe(5007);
@@ -213,7 +212,7 @@ describe("repository-wide import pairs", () => {
   test("a read shorter than the reported population is real truncation, not a limit", () => {
     const { root, binary } = seedWorkspace({ reportCount: true, queryShortBy: 2 });
     try {
-      const result = repositoryImportPairs(root, binary, 100, WORKTREE_DIGEST, gitVisibleFiles(root));
+      const result = repositoryImportPairs(root, binary, 100, WORKTREE_DIGEST, listGitVisibleFiles(root));
       expect(result.truncated).toBe(true);
       expect(result.importNodeLimitExceeded).toBe(false);
       expect(result.importNodeCount).toBe(7);
@@ -226,7 +225,7 @@ describe("repository-wide import pairs", () => {
     // The status reports 7 import nodes, the cap is 3, and the reply has only 2 nodes.
     const { root, binary } = seedWorkspace({ reportCount: true, queryShortBy: 5 });
     try {
-      const result = repositoryImportPairs(root, binary, 3, WORKTREE_DIGEST, gitVisibleFiles(root));
+      const result = repositoryImportPairs(root, binary, 3, WORKTREE_DIGEST, listGitVisibleFiles(root));
       expect(result.importNodeLimitExceeded).toBe(true);
       expect(result.truncated).toBe(true);
       expect(result.importNodeCount).toBe(7);
@@ -239,7 +238,7 @@ describe("repository-wide import pairs", () => {
     // A CodeGraph that names the kind differently must not turn every scan into a one-node read.
     const { root, binary, log } = seedWorkspace({ reportCount: true, countKey: "imports" });
     try {
-      const result = repositoryImportPairs(root, binary, 100, WORKTREE_DIGEST, gitVisibleFiles(root));
+      const result = repositoryImportPairs(root, binary, 100, WORKTREE_DIGEST, listGitVisibleFiles(root));
       expect(result.truncated).toBe(false);
       expect(result.importNodeLimitExceeded).toBe(false);
       expect(result.importNodeCount).toBe(7);
@@ -254,7 +253,7 @@ describe("repository-wide import pairs", () => {
   test("rejects a limit that is not a positive integer", () => {
     const { root, binary } = seedWorkspace();
     try {
-      expect(() => repositoryImportPairs(root, binary, 0, WORKTREE_DIGEST, gitVisibleFiles(root))).toThrow("positive integer");
+      expect(() => repositoryImportPairs(root, binary, 0, WORKTREE_DIGEST, listGitVisibleFiles(root))).toThrow("positive integer");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -263,8 +262,8 @@ describe("repository-wide import pairs", () => {
   test("two runs over the same workspace return the same ordered pairs", () => {
     const { root, binary } = seedWorkspace();
     try {
-      expect(JSON.stringify(repositoryImportPairs(root, binary, 100, WORKTREE_DIGEST, gitVisibleFiles(root))))
-        .toBe(JSON.stringify(repositoryImportPairs(root, binary, 100, WORKTREE_DIGEST, gitVisibleFiles(root))));
+      expect(JSON.stringify(repositoryImportPairs(root, binary, 100, WORKTREE_DIGEST, listGitVisibleFiles(root))))
+        .toBe(JSON.stringify(repositoryImportPairs(root, binary, 100, WORKTREE_DIGEST, listGitVisibleFiles(root))));
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

@@ -39,7 +39,7 @@ import {
   codeGraphIndexAvailable,
   repositoryImportPairs
 } from "@archcontext/local-runtime/codegraph-adapter";
-import { listGitVisibleFiles, normalizePackageExports, readHeadCommitterDate, readTrackedSourceFiles, readTrackedTreeEntries, readWorkspacePackages } from "@archcontext/local-runtime/git-adapter";
+import { normalizePackageExports, readHeadCommitterDate, readTrackedSourceFiles, readTrackedTreeEntries, readWorkspacePackages } from "@archcontext/local-runtime/git-adapter";
 import { listModelFiles } from "@archcontext/local-runtime/model-store-yaml";
 import type { RefactorDecisionSetV1 } from "./refactor-decisions";
 import { planRefactorRunWithRecording, previousRecommendationsFromAuthority, type RefactorRunRecordingV1 } from "./refactor-recording";
@@ -82,6 +82,8 @@ export interface RefactorScanInputV1 {
   request: RefactorRequestV1;
   repository: ArchitectureRepositoryIdentityV1;
   worktree: ArchitectureWorktreeIdentityV1;
+  /** The Git-visible files (`listGitVisibleFiles`) that `worktree.worktreeDigest` was computed over. */
+  sourceFiles: readonly string[];
   /**
    * Ledger-latest recommendations, so the proposed set already reflects what is open. A scan
    * never writes them; `refactor record` re-plans against the same ledger under its own clock.
@@ -167,7 +169,7 @@ export function runRefactorScan(input: RefactorScanInputV1): RefactorScanResultV
   // to run over exactly the file set the snapshot measured, or a `scopePath` it calls unowned may
   // simply be a file the snapshot never saw.
   const trackedFiles = readTrackedSourceFiles(input.root);
-  const codeFacts = readCodeFacts(input.root, input.worktree.worktreeDigest, edgeLimit);
+  const codeFacts = readCodeFacts(input.root, input.worktree.worktreeDigest, input.sourceFiles, edgeLimit);
 
   const { snapshot, structure } = measureModuleStatistics({
     model,
@@ -252,6 +254,8 @@ export interface ReviewDependencyConstraintInputV1 {
   root: string;
   /** The digest the review attests to; import facts count only when the index attested to it too. */
   worktreeDigest: string;
+  /** The Git-visible files (`listGitVisibleFiles`) that `worktreeDigest` was computed over. */
+  sourceFiles: readonly string[];
   /** Model files as the model store port returned them, so ledger read mode is honored. */
   modelFiles: readonly { path: string; body: string }[];
   edgeLimit?: number;
@@ -274,6 +278,7 @@ export function evaluateReviewDependencyConstraints(input: ReviewDependencyConst
 export function evaluateWorktreeDependencyConstraints(input: {
   root: string;
   worktreeDigest: string;
+  sourceFiles: readonly string[];
   nodes: NativeNode[];
   constraints: DependencyConstraintV1[];
   edgeLimit?: number;
@@ -293,7 +298,7 @@ export function evaluateWorktreeDependencyConstraints(input: {
   const edgeLimit = input.edgeLimit ?? CODEGRAPH_IMPORT_NODE_READ_LIMIT;
   let imports: ReturnType<typeof repositoryImportPairs>;
   try {
-    imports = repositoryImportPairs(input.root, CODEGRAPH_BINARY, edgeLimit, input.worktreeDigest, new Set(listGitVisibleFiles(input.root)));
+    imports = repositoryImportPairs(input.root, CODEGRAPH_BINARY, edgeLimit, input.worktreeDigest, input.sourceFiles);
   } catch {
     imports = {
       pairs: [],
@@ -501,9 +506,9 @@ interface RefactorScanCodeFactsV1 {
  * observed this tree, so no version and no binary are reported: the empty strings say "no
  * attestation", and the snapshot builder independently degrades that to `coverage: unknown`.
  */
-function readCodeFacts(root: string, worktreeDigest: string, edgeLimit: number): RefactorScanCodeFactsV1 {
+function readCodeFacts(root: string, worktreeDigest: string, sourceFiles: readonly string[], edgeLimit: number): RefactorScanCodeFactsV1 {
   const indexed = codeGraphIndexAvailable(root);
-  const imports = repositoryImportPairs(root, CODEGRAPH_BINARY, edgeLimit, worktreeDigest, new Set(listGitVisibleFiles(root)));
+  const imports = repositoryImportPairs(root, CODEGRAPH_BINARY, edgeLimit, worktreeDigest, sourceFiles);
   const attestation = indexed ? attestCodeGraphBinary(root) : { version: "", binaryDigest: "" };
   return {
     pairs: imports.pairs,
