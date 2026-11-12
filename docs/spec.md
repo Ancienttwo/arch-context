@@ -379,7 +379,8 @@ retain the complete existing version-upgrade authority when negotiation is refus
 
 The stateless read adoption covers resolve, docs anchors, flows check, deps, checkpoint and
 freshness. Flows check may sync CodeGraph, and read-only SQLite access for anchors/checkpoint may
-create WAL/cache files. Freshness uses its accepted non-rendering stamp path. Checkpoint measures
+create WAL/cache files. Freshness runs the same projection build as check and may sync CodeGraph
+(ADR-0056). Checkpoint measures
 ownership and anchors; deps, flows and practices remain deferred to complete. Existing status,
 context, prepare and management paths may still use the runtime, with prepare/practices checkpoint
 as explicit writers. This scope does not claim that apply is the daemon's sole operation.

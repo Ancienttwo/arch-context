@@ -86,14 +86,15 @@ export interface CompleteTaskProjectionDriftInput {
  * produced, and stays free of the projection renderer's filesystem module graph.
  */
 export interface CompleteTaskProjectionFreshnessInput {
-  schemaVersion: "archcontext.projection-freshness/v2";
+  schemaVersion: "archcontext.projection-freshness/v3";
   ok: boolean;
   reasonCodes: string[];
   detail: string;
-  staleNodes: {
-    nodeId: string;
-    stampedDigest: string;
-    currentDigest: string;
+  staleTargets: {
+    targetId: string;
+    path: string;
+    committedOutputDigest: string | null;
+    renderedOutputDigest: string | null;
   }[];
 }
 
@@ -376,7 +377,7 @@ function reviewProjectionFreshness(projectionFreshness: CompleteTaskProjectionFr
     id: "stale-context",
     type: "stale-context",
     severity: "error",
-    message: `Architecture documentation projection is stale against the current source (${projectionFreshness.reasonCodes.join(",") || "unknown"}): ${projectionFreshness.detail}`
+    message: `Architecture documentation projection would render differently (${projectionFreshness.reasonCodes.join(",") || "unknown"}): ${projectionFreshness.detail}`
   }];
 }
 

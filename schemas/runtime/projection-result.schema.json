@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://archcontext.dev/schemas/runtime/projection-result.schema.json",
-  "title": "ProjectionResultV2",
+  "title": "ProjectionResultV3",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "requestId", "status", "inputSnapshot", "outputSnapshot", "affectedNodeIds", "files", "humanActions", "refreshSignals", "receiptDigest"],
   "properties": {
-    "schemaVersion": { "const": "archcontext.projection-result/v2" },
+    "schemaVersion": { "const": "archcontext.projection-result/v3" },
     "requestId": { "type": "string", "pattern": "^[a-zA-Z0-9_.:-]+$", "minLength": 1 },
     "status": { "enum": ["adoption-required", "applied", "applied-partial", "applied-reconcile-required", "blocked", "human-action-required", "noop", "permanent-failure", "planned", "planned-partial", "retryable-failure"] },
     "inputSnapshot": { "$ref": "#/$defs/snapshot" },
@@ -176,10 +176,9 @@
     "digestSet": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["modelDigest", "sourceTreeDigest", "flowProofDigest", "projectionDigest"],
+      "required": ["modelDigest", "flowProofDigest", "projectionDigest"],
       "properties": {
         "modelDigest": { "$ref": "#/$defs/digest" },
-        "sourceTreeDigest": { "$ref": "#/$defs/digest" },
         "flowProofDigest": { "$ref": "#/$defs/digest" },
         "projectionDigest": { "$ref": "#/$defs/digest" }
       }
@@ -213,7 +212,7 @@
       "additionalProperties": false,
       "required": ["schemaVersion", "signalId", "idempotencyKey", "mode", "repository", "worktree", "cause", "reasonCodes", "affectedNodeIds", "refreshTargets", "baseDigests", "resultingDigests", "projectionReceiptDigest"],
       "properties": {
-        "schemaVersion": { "const": "archcontext.architecture-refresh-signal/v1" },
+        "schemaVersion": { "const": "archcontext.architecture-refresh-signal/v2" },
         "signalId": { "$ref": "#/$defs/digest" },
         "idempotencyKey": { "$ref": "#/$defs/digest" },
         "mode": { "enum": ["human-action-required", "refresh-required"] },
@@ -260,25 +259,26 @@
     "freshness": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Present on check results only. Canonical wire orders and the ok/reasonCodes/staleNodes coupling are enforced by projectionResultInvariantIssues.",
-      "required": ["ok", "reasonCodes", "staleNodes"],
+      "description": "Present on check results only: render-equivalent freshness (ADR-0056 §1). Canonical wire orders and the ok/reasonCodes/staleTargets coupling are enforced by projectionResultInvariantIssues.",
+      "required": ["ok", "reasonCodes", "staleTargets"],
       "properties": {
         "ok": { "type": "boolean" },
         "reasonCodes": {
           "type": "array",
           "uniqueItems": true,
-          "items": { "enum": ["projection-manifest-missing", "projection-manifest-unreadable", "projection-source-changed-since-stamp", "projection-source-stamp-missing", "projection-source-tree-digest-mismatch"] }
+          "items": { "enum": ["projection-manifest-changed", "projection-manifest-missing", "projection-manifest-unreadable", "projection-output-changed"] }
         },
-        "staleNodes": {
+        "staleTargets": {
           "type": "array",
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["nodeId", "stampedDigest", "currentDigest"],
+            "required": ["targetId", "path", "committedOutputDigest", "renderedOutputDigest"],
             "properties": {
-              "nodeId": { "type": "string", "minLength": 1 },
-              "stampedDigest": { "$ref": "#/$defs/digest" },
-              "currentDigest": { "$ref": "#/$defs/digest" }
+              "targetId": { "type": "string", "minLength": 1 },
+              "path": { "type": "string", "minLength": 1 },
+              "committedOutputDigest": { "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] },
+              "renderedOutputDigest": { "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] }
             }
           }
         }
@@ -317,8 +317,8 @@
     "targetChange": {
       "type": "object",
       "additionalProperties": false,
-      "description": "How one target changes since the committed projection and what this run's write does to its file (#327). null is an unknown comparison. classification follows blocked > proof-change (a known proof change) > baseline-missing > semantic-change > output-change > stamp-only > unchanged.",
-      "required": ["targetId", "path", "affectedCapabilityIds", "stampChanged", "outputChanged", "semanticChanged", "proofChanged", "plannedAction", "classification", "reasonCodes"],
+      "description": "How one target changes since the committed projection and what this run's write does to its file (#327). null is an unknown comparison. classification follows blocked > proof-change (a known proof change) > baseline-missing > semantic-change > output-change > unchanged.",
+      "required": ["targetId", "path", "affectedCapabilityIds", "outputChanged", "semanticChanged", "proofChanged", "plannedAction", "classification", "reasonCodes"],
       "properties": {
         "targetId": { "type": "string", "minLength": 1 },
         "path": {
@@ -327,16 +327,15 @@
           "not": { "anyOf": [{ "pattern": "^/" }, { "pattern": "\\\\" }, { "pattern": "(^|/)\\.\\.(/|$)" }] }
         },
         "affectedCapabilityIds": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
-        "stampChanged": { "type": ["boolean", "null"] },
         "outputChanged": { "type": "boolean" },
         "semanticChanged": { "type": ["boolean", "null"] },
         "proofChanged": { "type": ["boolean", "null"] },
         "plannedAction": { "enum": ["create", "delete", "none", "update"] },
-        "classification": { "enum": ["baseline-missing", "blocked", "output-change", "proof-change", "semantic-change", "stamp-only", "unchanged"] },
+        "classification": { "enum": ["baseline-missing", "blocked", "output-change", "proof-change", "semantic-change", "unchanged"] },
         "reasonCodes": {
           "type": "array",
           "uniqueItems": true,
-          "items": { "enum": ["adoption-required", "ambiguous-ownership", "baseline-missing", "file-bytes-changed", "flow-proof-changed", "model-digest-changed", "orphan-review-required", "rendered-output-changed", "selector-evidence-changed", "semantic-fingerprint-changed", "source-stamp-changed", "target-added", "target-removed", "target-row-missing", "unprovable-required-flow", "verified-flow-proof-changed"] }
+          "items": { "enum": ["adoption-required", "ambiguous-ownership", "baseline-missing", "file-bytes-changed", "flow-proof-changed", "model-digest-changed", "orphan-review-required", "rendered-output-changed", "selector-evidence-changed", "semantic-fingerprint-changed", "target-added", "target-removed", "target-row-missing", "unprovable-required-flow", "verified-flow-proof-changed"] }
         }
       },
       "allOf": [
@@ -345,8 +344,8 @@
           "then": { "properties": { "plannedAction": { "const": "none" } } }
         },
         {
-          "if": { "properties": { "classification": { "enum": ["stamp-only", "unchanged"] } }, "required": ["classification"] },
-          "then": { "properties": { "plannedAction": { "const": "none" }, "outputChanged": { "const": false }, "stampChanged": { "type": "boolean" }, "semanticChanged": { "const": false }, "proofChanged": { "const": false } } }
+          "if": { "properties": { "classification": { "const": "unchanged" } }, "required": ["classification"] },
+          "then": { "properties": { "plannedAction": { "const": "none" }, "outputChanged": { "const": false }, "semanticChanged": { "const": false }, "proofChanged": { "const": false } } }
         },
         {
           "if": { "properties": { "classification": { "const": "unchanged" } }, "required": ["classification"] },

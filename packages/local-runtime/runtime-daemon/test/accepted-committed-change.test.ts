@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { digestJson, serializeArchitectureDocsProjectionManifest, stableYaml, validateJsonSchema, type Json } from "@archcontext/contracts";
-import type { ArchitectureFlowV1, ArchitectureSemanticStateV1 } from "@archcontext/contracts";
+import type { ArchitectureFlowV1, ArchitectureProjectionProofEvidenceV2, ArchitectureSemanticStateV1 } from "@archcontext/contracts";
 import { architectureDocumentationProjectionWorktreeDigest, compileArchitectureSemanticState, ARCHITECTURE_DOCS_RENDERER_VERSION, compileSemanticCapabilityDiagrams, loadNativeModelFromArchContext, loadNativeModelFromModelFiles, type ArchitectureMajorChangeClassificationV1, type ArchitectureSelectorEvidenceV1, type NativeModel, type SemanticArchitectureNode, type SemanticArchitectureRelation } from "@archcontext/core/projection-engine";
 import type { ArchitectureLedgerScope } from "@archcontext/core/architecture-ledger";
 import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
@@ -128,20 +128,17 @@ describe("committed change acceptance helpers", () => {
     }
   });
 
-  test("a proof-only change is accepted only when that capability's member stamps, selector evidence and renderer are unchanged", () => {
+  test("a proof-only change is accepted only when that capability's selector evidence and renderer are unchanged (ADR-0056 §5)", () => {
     const base = state(capability("capability.a", ["capability.a", "component.a"], digest("5"), digest("6")));
     const proofOnly = state(capability("capability.a", ["capability.a", "component.a"], digest("5"), digest("9")));
     const evidence = {
       rendererVersion: "renderer-v1",
-      selectorEvidenceDigests: { "capability.a": digest("b") },
-      sourceStamps: { "capability.a": digest("a"), "component.a": digest("c") }
+      selectorEvidenceDigests: { "capability.a": digest("b") }
     };
     expect(() => assertProofChangesExplained({ base, resulting: proofOnly, baselineEvidence: evidence, currentEvidence: structuredClone(evidence) })).not.toThrow();
-    // A member source change, a selector evidence change or a compiler (renderer) change between
-    // baseline and acceptance is not credited to the journals.
-    for (const currentEvidence of [
-      { ...evidence, sourceStamps: { ...evidence.sourceStamps, "component.a": digest("d") } },
-      { ...evidence, sourceStamps: { "capability.a": digest("a") } },
+    // A selector evidence change or a compiler (renderer) change between baseline and acceptance is
+    // not credited to the journals.
+    for (const currentEvidence of <ArchitectureProjectionProofEvidenceV2[]>[
       { ...evidence, selectorEvidenceDigests: { "capability.a": digest("c") } },
       { ...evidence, selectorEvidenceDigests: {} },
       { ...evidence, rendererVersion: "renderer-v2" }
@@ -161,16 +158,11 @@ describe("committed change acceptance helpers", () => {
     const aProofOnly = state(capability("capability.a", ["capability.a"], digest("5"), digest("9")), capability("capability.b", ["capability.b"], digest("5"), digest("6")));
     const evidence = {
       rendererVersion: "renderer-v1",
-      selectorEvidenceDigests: { "capability.a": digest("a"), "capability.b": digest("b") },
-      sourceStamps: { "capability.a": digest("a"), "capability.b": digest("b") }
+      selectorEvidenceDigests: { "capability.a": digest("a"), "capability.b": digest("b") }
     };
-    const bMoved = {
-      ...evidence,
-      selectorEvidenceDigests: { ...evidence.selectorEvidenceDigests, "capability.b": digest("c") },
-      sourceStamps: { ...evidence.sourceStamps, "capability.b": digest("c") }
-    };
+    const bMoved = { ...evidence, selectorEvidenceDigests: { ...evidence.selectorEvidenceDigests, "capability.b": digest("c") } };
     expect(() => assertProofChangesExplained({ base, resulting: aProofOnly, baselineEvidence: evidence, currentEvidence: bMoved })).not.toThrow();
-    const aMoved = { ...evidence, sourceStamps: { ...evidence.sourceStamps, "capability.a": digest("c") } };
+    const aMoved = { ...evidence, selectorEvidenceDigests: { ...evidence.selectorEvidenceDigests, "capability.a": digest("c") } };
     expect(() => assertProofChangesExplained({ base, resulting: aProofOnly, baselineEvidence: evidence, currentEvidence: aMoved }))
       .toThrow(/proof-change-unexplained/);
   });
@@ -179,7 +171,7 @@ describe("committed change acceptance helpers", () => {
     const cap = (flowProofFingerprint: string, semanticFingerprint = digest("5")) => capability("capability.a", ["capability.a"], semanticFingerprint, flowProofFingerprint);
     const facets = Object.fromEntries(["constraints", "entrypoints", "interfaces", "lifecycle", "names", "ownership", "placement", "relations", "responsibilities", "riskBoundaries"].map((facet) => [facet, digest("f")]));
     const manifest = (selectorEvidenceDigest: string) => serializeArchitectureDocsProjectionManifest({
-      schemaVersion: "archcontext.architecture-docs-projection-manifest/v3",
+      schemaVersion: "archcontext.architecture-docs-projection-manifest/v4",
       rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION,
       profile: "repo-harness/v1",
       layoutVersion: "archcontext.docs-layout/v1",
@@ -188,12 +180,11 @@ describe("committed change acceptance helpers", () => {
       targets: {
         "projection_target.entity.capability-a": {
           type: "entity-summary", scope: { kind: "entity", id: "capability.a", entityKind: "capability" }, path: "docs/architecture/modules/a/a.md",
-          ownership: "mixed", format: "markdown", outputDigest: digest("e"),
-          sourceStamps: { "capability.a": digest("a") }, scale: { fileCountBucket: { lower: 1, upper: 2 }, lineCountBucket: { lower: 1, upper: 2 } }
+          ownership: "mixed", format: "markdown", outputDigest: digest("e")
         }
       }
     });
-    const e0 = { rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION, selectorEvidenceDigests: { "capability.a": digest("0") }, sourceStamps: { "capability.a": digest("a") } };
+    const e0 = { rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION, selectorEvidenceDigests: { "capability.a": digest("0") } };
     const rebaselinedOnE1 = projectionManifestBaseline(manifest(digest("1")));
     expect(rebaselinedOnE1.modelDigest).toBe(digest("d"));
     expect(rebaselinedOnE1.evidence).toEqual({ ...e0, selectorEvidenceDigests: { "capability.a": digest("1") } });
@@ -258,7 +249,7 @@ describe("committed change acceptance helpers", () => {
     expect(resultA!.proofStatus).toEqual({ p1: "proven", p2: "proven" });
     expect(resultA!.semanticFingerprint).toBe(baseA!.semanticFingerprint);
     expect(resultA!.flowProofFingerprint).not.toBe(baseA!.flowProofFingerprint);
-    const recorded = { rendererVersion: "renderer-v1", selectorEvidenceDigests: { "capability.a": digest("b"), "capability.b": digest("b") }, sourceStamps: {} };
+    const recorded = { rendererVersion: "renderer-v1", selectorEvidenceDigests: { "capability.a": digest("b"), "capability.b": digest("b") } };
     expect(() => assertProofChangesExplained({ base, resulting, baselineEvidence: recorded, currentEvidence: structuredClone(recorded) })).not.toThrow();
     expect(() => assertProofChangesExplained({ base, resulting, baselineEvidence: recorded, currentEvidence: { ...recorded, selectorEvidenceDigests: { ...recorded.selectorEvidenceDigests, "capability.a": digest("c") } } }))
       .toThrow(/proof-change-unexplained/);
@@ -532,7 +523,7 @@ test("planCommittedChangeAcceptance refuses a stale model that no longer matches
     };
     const facets = Object.fromEntries(["constraints", "entrypoints", "interfaces", "lifecycle", "names", "ownership", "placement", "relations", "responsibilities", "riskBoundaries"].map((facet) => [facet, digest("f")]));
     const manifestBody = serializeArchitectureDocsProjectionManifest({
-      schemaVersion: "archcontext.architecture-docs-projection-manifest/v3",
+      schemaVersion: "archcontext.architecture-docs-projection-manifest/v4",
       rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION,
       profile: "repo-harness/v1",
       layoutVersion: "archcontext.docs-layout/v1",
@@ -575,7 +566,7 @@ test("planCommittedChangeAcceptance refuses a stale model that no longer matches
         semanticState,
         architectureDigests: { modelDigest: digest("d") }
       },
-      currentEvidence: { rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION, selectorEvidenceDigests: { [CAPABILITY_A]: digest("b") }, sourceStamps: {} },
+      currentEvidence: { rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION, selectorEvidenceDigests: { [CAPABILITY_A]: digest("b") } },
       projectionWorktreeDigest: digest("wt"),
       scope
     })).toThrow(/accepted-committed-change-model-snapshot-mismatch/);
@@ -1039,7 +1030,7 @@ describe("committed change acceptance v2", () => {
     });
   }, TIMEOUT * 2);
 
-  test("a proof-only model change is accepted while evidence holds, and refused once source evidence moved", async () => {
+  test("a proof-only model change is accepted while evidence holds, also after a source edit the proof never reads (ADR-0056 §5)", async () => {
     const toModule = (root: string) => editNode(root, "component.child", { kind: "module" });
     await withFixture(async (fixture) => {
       const kind = await change(fixture, "changeset.kind", [toModule(fixture.root)]);
@@ -1049,12 +1040,11 @@ describe("committed change acceptance v2", () => {
     }, { capabilityASource: true });
     await withFixture(async (fixture) => {
       const kind = await change(fixture, "changeset.kind", [toModule(fixture.root)]);
+      // A member source edit leaves the selector evidence digest and the renderer unchanged, so the
+      // journaled model still explains the proof change; member stamps no longer take part.
       writeFileSync(join(fixture.root, "README.md"), "# acceptance fixture, source changed\n", "utf8");
-      await expectRefused(fixture, [kind], /proof-change-unexplained/, {capabilityId:CAPABILITY_A});
-      // A journaled rewrite of the capability's flow no longer explains an evidence change.
-      const flowPath = ".archcontext/model/flows/flow.hook-adapters.yaml";
-      const flowRewrite = await change(fixture, "changeset.flow-noop", [noopRewrite(fixture.root, flowPath)]);
-      await expectRefused(fixture, [kind, flowRewrite], /proof-change-unexplained/, {capabilityId:CAPABILITY_A});
+      const { approved } = await accept(fixture, [kind]);
+      expect(approved.ok, JSON.stringify(approved)).toBe(true);
     }, { capabilityASource: true });
   }, TIMEOUT * 2);
 
@@ -1076,7 +1066,7 @@ describe("committed change acceptance v2", () => {
         details: {
           manifestPath: "docs/architecture/.projection-manifest.json",
           foundSchemaVersion: "archcontext.architecture-docs-projection-manifest/v2",
-          supportedSchemaVersion: "archcontext.architecture-docs-projection-manifest/v3",
+          supportedSchemaVersion: "archcontext.architecture-docs-projection-manifest/v4",
           upgradeCommand: "archctx docs apply --approved --profile <default|repo-harness/v1>",
           migrationGuide: "docs/runbooks/architecture-documentation-projections.md"
         }

@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import { relative, resolve } from "node:path";
-import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION, architectureDocsProjectionManifestIssues, isRepoRelativePosixPath, isRuntimeTopologyNodeKind, stableId, type ArchitectureDocsProjectionManifestV3, type Json, type ProjectionTargetV1 } from "@archcontext/contracts";
+import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION, architectureDocsProjectionManifestIssues, isRepoRelativePosixPath, isRuntimeTopologyNodeKind, stableId, type ArchitectureDocsProjectionManifestV4, type Json, type ProjectionTargetV1 } from "@archcontext/contracts";
 export { sourceIncludeAnchors as repoHarnessIncludeAnchors } from "./source-globs";
 
 export const REPO_HARNESS_PROJECTION_PROFILE = "repo-harness/v1" as const;
@@ -252,7 +252,7 @@ const OUTPUT_DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/;
  * records nothing. No current-format manifest records nothing either; the render reads and refuses
  * the manifest itself.
  */
-function committedProjectionOutputs(manifest: ArchitectureDocsProjectionManifestV3 | undefined): CommittedProjectionOutput[] {
+function committedProjectionOutputs(manifest: ArchitectureDocsProjectionManifestV4 | undefined): CommittedProjectionOutput[] {
   if (manifest === undefined) return [];
   const outputs: CommittedProjectionOutput[] = [];
   for (const [targetId, row] of Object.entries(manifest.targets)) {
@@ -264,7 +264,7 @@ function committedProjectionOutputs(manifest: ArchitectureDocsProjectionManifest
 }
 
 /** The `generated` (whole-file) rows of `committedProjectionOutputs`. */
-export function committedGeneratedOutputs(manifest: ArchitectureDocsProjectionManifestV3 | undefined): CommittedGeneratedOutput[] {
+export function committedGeneratedOutputs(manifest: ArchitectureDocsProjectionManifestV4 | undefined): CommittedGeneratedOutput[] {
   return committedProjectionOutputs(manifest)
     .filter((output) => output.ownership === "generated")
     .map(({ targetId, path, outputDigest }) => ({ targetId, path, outputDigest }));
@@ -275,7 +275,7 @@ export function committedGeneratedOutputs(manifest: ArchitectureDocsProjectionMa
  * files a layout reads; the render parses the manifest strictly and refuses a superseded or
  * invalid one.
  */
-function currentFormatManifest(body: string): ArchitectureDocsProjectionManifestV3 | undefined {
+function currentFormatManifest(body: string): ArchitectureDocsProjectionManifestV4 | undefined {
   let parsed: unknown;
   try {
     parsed = JSON.parse(body);
@@ -284,7 +284,7 @@ function currentFormatManifest(body: string): ArchitectureDocsProjectionManifest
   }
   const record = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : undefined;
   if (record?.schemaVersion !== ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION) return undefined;
-  return architectureDocsProjectionManifestIssues(parsed).length === 0 ? parsed as ArchitectureDocsProjectionManifestV3 : undefined;
+  return architectureDocsProjectionManifestIssues(parsed).length === 0 ? parsed as ArchitectureDocsProjectionManifestV4 : undefined;
 }
 
 /**

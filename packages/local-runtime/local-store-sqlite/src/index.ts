@@ -53,7 +53,7 @@ import {
   type ArchitectureBookFtsMatchKind
 } from "@archcontext/core/architecture-ledger";
 import type { ChangeOperationKind, ChangeSetDraft, ChangeSetJournalFile, ChangeSetJournalPort } from "@archcontext/core/changeset-engine";
-import { architectureEventHash, architectureSnapshotDigest, canonicalProjectionReadPlanV1, digestJson, EXPLORER_VIEW_INPUT_REQUIREMENTS, projectionApplyReceiptInvariantIssues, projectionApplyRecoveryProofReceiptInvariantIssues, validateJsonSchema, type AgentJobV1, type ArchitectureAffectedSubjectV1, type ArchitectureChangeFeedBatchV1, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type ArchitectureSnapshotV2, type AuthorityCursorV1, type EvidenceBindingV1, type EvidenceItemV2, type EvidenceStateAtCursorV1, type ExplorerProjectionCachePolicyV1, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExternalDocumentationCacheEntry, type ExternalDocumentationProvider, type Json, type LocalStorePort, type ProjectionApplyReceiptV1, type ProjectionApplyRecoveryProofV1, type ProjectionReadPlanV1, type ProjectionReadSetV1, type RepositorySnapshot } from "@archcontext/contracts";
+import { architectureEventHash, architectureSnapshotDigest, canonicalProjectionReadPlanV1, digestJson, EXPLORER_VIEW_INPUT_REQUIREMENTS, projectionApplyReceiptInvariantIssues, projectionApplyRecoveryProofReceiptInvariantIssues, validateJsonSchema, type AgentJobV1, type ArchitectureAffectedSubjectV1, type ArchitectureChangeFeedBatchV1, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type ArchitectureSnapshotV2, type AuthorityCursorV1, type EvidenceBindingV1, type EvidenceItemV2, type EvidenceStateAtCursorV1, type ExplorerProjectionCachePolicyV1, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExternalDocumentationCacheEntry, type ExternalDocumentationProvider, type Json, type LocalStorePort, type ProjectionApplyReceiptV1, type ProjectionApplyRecoveryProofV2, type ProjectionReadPlanV1, type ProjectionReadSetV1, type RepositorySnapshot } from "@archcontext/contracts";
 import explorerProjectionV2Schema from "../../../../schemas/runtime/explorer-projection-v2.schema.json";
 
 const runtimeRequire = createRequire(import.meta.url);
@@ -1500,7 +1500,7 @@ export interface RuntimeLocalStore extends LocalStorePort, ChangeSetJournalPort 
    */
   readLatestCommittedChangeSetFile(root: string, path: string): Promise<(CommittedChangeSetForTaskSessionFile & { journalId: string; projectionOwned: boolean }) | undefined>;
   readArchitectureEvent(input: ArchitectureLedgerScope & { eventId: string }): Promise<ArchitectureEventV1 | undefined>;
-  consumeProjectionApplyReceiptRecovery(proof: ProjectionApplyRecoveryProofV1): Promise<ProjectionApplyReceiptRecoveryConsumption | undefined>;
+  consumeProjectionApplyReceiptRecovery(proof: ProjectionApplyRecoveryProofV2): Promise<ProjectionApplyReceiptRecoveryConsumption | undefined>;
   appendArchitectureEvents(input: ArchitectureLedgerAppendInput): Promise<ArchitectureLedgerAppendResult>;
   appendArchitectureEventsAndCommitChangeSet(
     journalId: string,
@@ -1612,12 +1612,12 @@ export function assertChangeSetModelTransition(value: unknown, label = "changese
 export interface ProjectionApplyReceiptInspection {
   receipt: ProjectionApplyReceiptV1;
   deliveryStatus: "pending" | "delivered";
-  recoveryProof?: ProjectionApplyRecoveryProofV1;
+  recoveryProof?: ProjectionApplyRecoveryProofV2;
 }
 
 export interface ProjectionApplyReceiptRecoveryConsumption {
   receipt: ProjectionApplyReceiptV1;
-  proof: ProjectionApplyRecoveryProofV1;
+  proof: ProjectionApplyRecoveryProofV2;
   refreshSignalsDelivered: boolean;
 }
 
@@ -2388,7 +2388,7 @@ export class SqliteLocalStore implements RuntimeLocalStore {
   }
 
 
-  async consumeProjectionApplyReceiptRecovery(proof: ProjectionApplyRecoveryProofV1): Promise<ProjectionApplyReceiptRecoveryConsumption | undefined> {
+  async consumeProjectionApplyReceiptRecovery(proof: ProjectionApplyRecoveryProofV2): Promise<ProjectionApplyReceiptRecoveryConsumption | undefined> {
     const db = await this.database();
     db.exec("BEGIN IMMEDIATE");
     try {
@@ -2417,7 +2417,7 @@ export class SqliteLocalStore implements RuntimeLocalStore {
           refreshSignalsDelivered: false
         };
       }
-      const deliveredProof: ProjectionApplyRecoveryProofV1 = { ...proof, deliveryStatus: "delivered" };
+      const deliveredProof: ProjectionApplyRecoveryProofV2 = { ...proof, deliveryStatus: "delivered" };
       const updatedAt = nowIso();
       const update = db.prepare(
         `UPDATE projection_apply_receipts
@@ -7809,10 +7809,10 @@ function parseProjectionApplyReceipt(raw: string): ProjectionApplyReceiptV1 {
   return receipt;
 }
 
-function parseProjectionApplyRecoveryProof(raw: string, receipt: ProjectionApplyReceiptV1): ProjectionApplyRecoveryProofV1 {
-  let proof: ProjectionApplyRecoveryProofV1;
+function parseProjectionApplyRecoveryProof(raw: string, receipt: ProjectionApplyReceiptV1): ProjectionApplyRecoveryProofV2 {
+  let proof: ProjectionApplyRecoveryProofV2;
   try {
-    proof = JSON.parse(raw) as ProjectionApplyRecoveryProofV1;
+    proof = JSON.parse(raw) as ProjectionApplyRecoveryProofV2;
   } catch (error) {
     throw new Error(`projection-apply-recovery-proof-invalid-json: ${error instanceof Error ? error.message : String(error)}`);
   }

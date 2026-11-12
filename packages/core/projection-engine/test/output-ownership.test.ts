@@ -42,7 +42,6 @@ function render(existingFiles: { path: string; body: string }[], renderModel: Na
     model: renderModel,
     provenance,
     sourceDigest,
-    sourceFootprints: [],
     sourceScaleSignals: [],
     importGraphs: [],
     selectorEvidence: [],

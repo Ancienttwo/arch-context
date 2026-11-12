@@ -6,7 +6,6 @@ import { LocalEgressPolicyError } from "@archcontext/local-runtime/egress-admiss
 import { GitVisibleFilesUnavailableError } from "@archcontext/local-runtime/git-adapter";
 import { ExplorerProjectionCompileError } from "./explorer-projection";
 import { ChangeSetRecoveryUnresolvedError } from "./changeset-recovery-error";
-import { ProjectionFreshnessChangedPathError } from "./projection-freshness";
 
 const surfaceId = (value: string): string => typeof value === "string" && /^[a-zA-Z0-9_.:-]{1,128}$/.test(value) ? value : "public.operation";
 function own(error: object, field: string): unknown {
@@ -44,7 +43,6 @@ export function publicOperationFailure(error: unknown): FailureError<FailureCode
     else if (error instanceof ProjectionManifestUpgradeRequiredError) failure = knownFailure("AC_PRECONDITION_FAILED", own(error, "reasonCode") as string, own(error, "details"));
     else if (error instanceof ProjectionPreconditionError) failure = knownFailure("AC_PRECONDITION_FAILED", own(error, "reasonCode") as string);
     else if (error instanceof ProjectionCodeFactsUnavailableError) failure = knownFailure(own(error, "code") as any, own(error, "reasonCode") as string);
-    else if (error instanceof ProjectionFreshnessChangedPathError) failure = knownFailure(own(error, "code") as any, own(error, "reasonCode") as string);
     else if (error instanceof LocalEgressPolicyError) failure = knownFailure("AC_POLICY_VIOLATION", "egress-policy-denied");
     else if (error instanceof Context7ProviderError) failure = knownFailure("AC_SCHEMA_INVALID", "context7-provider-refused", {kind: own(error, "kind") as any}, {retryable: own(error, "retryable") as boolean});
     else failure = toEnvelope("public.operation", error, "public-operation").error;

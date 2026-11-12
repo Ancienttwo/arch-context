@@ -185,8 +185,6 @@ Object.assign(policies, {
   "projection-check-mode-invalid": {"code": "AC_SCHEMA_INVALID","message": "Projection check mode invalid.","facts": {}},
   "projection-check-input-invalid": {"code": "AC_SCHEMA_INVALID","message": "Projection check input invalid. Supply valid fields and keep lists sorted and unique.","facts": {}},
   "projection-snapshot-mismatch": {"code": "AC_PRECONDITION_FAILED","message": "Projection snapshot mismatch.","facts": {"field":"optional:snapshotField"}},
-  "changed-path-outside-worktree": {"code": "AC_SCHEMA_INVALID","message": "Changed path outside worktree.","facts": {}},
-  "changed-path-not-normalized": {"code": "AC_SCHEMA_INVALID","message": "Changed path not normalized.","facts": {}},
   "projection-result-invalid": {"code": "AC_SCHEMA_INVALID","message": "Projection result invalid.","facts": {}},
   "repository-not-registered": {"code": "AC_REPO_NOT_FOUND","message": "Repository not registered.","facts": {}},
   "landscape-invalid": {"code": "AC_SCHEMA_INVALID","message": "Landscape invalid.","facts": {}},

@@ -6,9 +6,9 @@ import {
   type AcceptedArchitectureChangeReferenceV1,
   type ArchitectureCapabilityChangeV1,
   type ArchitectureCapabilitySemanticStateV1,
-  type ArchitectureDigestSetV1,
+  type ArchitectureDigestSetV2,
   type ArchitectureMajorChangeReasonCode,
-  type ArchitectureRefreshSignalV1,
+  type ArchitectureRefreshSignalV2,
   type ArchitectureSemanticFacet,
   type ArchitectureSemanticStateV1,
   type Json,
@@ -42,7 +42,7 @@ const FACET_REASONS: ReadonlyArray<readonly [ArchitectureSemanticFacet, Architec
 export interface ArchitectureMajorChangeClassificationV1 {
   schemaVersion: "archcontext.major-change-classification/v1";
   mode: "human-action-required" | "none" | "refresh-required";
-  cause?: ArchitectureRefreshSignalV1["cause"];
+  cause?: ArchitectureRefreshSignalV2["cause"];
   reasonCodes: ArchitectureMajorChangeReasonCode[];
   affectedNodeIds: string[];
   /** Per-capability breakdown of `reasonCodes`, sorted by capabilityId; empty when mode is none (#264). */
@@ -169,10 +169,10 @@ export function produceArchitectureRefreshSignals(input: {
   headSha: string;
   worktreeDigest: string;
   expected?: { repositoryId: string; workspaceId: string; headSha: string; worktreeDigest: string };
-  baseDigests: ArchitectureDigestSetV1;
-  resultingDigests: ArchitectureDigestSetV1;
+  baseDigests: ArchitectureDigestSetV2;
+  resultingDigests: ArchitectureDigestSetV2;
   projectionReceiptDigest: string;
-}): ArchitectureRefreshSignalV1[] {
+}): ArchitectureRefreshSignalV2[] {
   if (input.classification.mode === "none") return [];
   if (input.expected && (
     input.expected.repositoryId !== input.repositoryId

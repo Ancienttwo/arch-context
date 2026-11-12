@@ -20,7 +20,7 @@ import {
   replayArchitectureLedgerEvents
 } from "@archcontext/core/architecture-ledger";
 import { ChangeSetEngine } from "@archcontext/core/changeset-engine";
-import { canonicalProjectionReadPlanV1, createProjectionApplyIdentity, digestJson, projectionApplyRecoveryProofDigest, projectionPriorCommittedAppliesIssues, projectionResultReceiptDigest, type AgentJobV1, type ArchitectureEventV1, type ArchitectureRefreshSignalV1, type EvidenceBindingV1, type EvidenceItemV2, type EvidenceLifecycleOperationV1, type ExplorerProjectionV2, type Json, type ProjectionApplyReceiptV1, type ProjectionApplyRecoveryProofV1, type ProjectionResultV2 } from "@archcontext/contracts";
+import { canonicalProjectionReadPlanV1, createProjectionApplyIdentity, digestJson, projectionApplyRecoveryProofDigest, projectionPriorCommittedAppliesIssues, projectionResultReceiptDigest, type AgentJobV1, type ArchitectureEventV1, type ArchitectureRefreshSignalV2, type EvidenceBindingV1, type EvidenceItemV2, type EvidenceLifecycleOperationV1, type ExplorerProjectionV2, type Json, type ProjectionApplyReceiptV1, type ProjectionApplyRecoveryProofV2, type ProjectionResultV3 } from "@archcontext/contracts";
 import { initializeArchContextModel, planGeneratedProjection, YamlModelStore } from "@archcontext/local-runtime/model-store-yaml";
 import {
   DEFAULT_EXPLORER_PROJECTION_CACHE_POLICY,
@@ -4841,8 +4841,8 @@ function changeSetDraft(id: string, path: string) {
 }
 
 function projectionApplyReceiptFixture(): ProjectionApplyReceiptV1 {
-  const base = JSON.parse(readFileSync(join(process.cwd(), "packages/contracts/fixtures/valid/projection-result.json"), "utf8")) as ProjectionResultV2;
-  const fixture = JSON.parse(readFileSync(join(process.cwd(), "packages/contracts/fixtures/valid/architecture-refresh-signal.json"), "utf8")) as ArchitectureRefreshSignalV1;
+  const base = JSON.parse(readFileSync(join(process.cwd(), "packages/contracts/fixtures/valid/projection-result.json"), "utf8")) as ProjectionResultV3;
+  const fixture = JSON.parse(readFileSync(join(process.cwd(), "packages/contracts/fixtures/valid/architecture-refresh-signal.json"), "utf8")) as ArchitectureRefreshSignalV2;
   const acceptedChange = fixture.acceptedChange!;
   const signal = {
     ...fixture,
@@ -4866,7 +4866,7 @@ function projectionApplyReceiptFixture(): ProjectionApplyReceiptV1 {
   const { receiptDigest: _receiptDigest, ...basePayload } = base;
   const payload = { ...basePayload, status: "applied" as const, refreshSignals: [signal], applyReceipt: identity };
   const receiptDigest = projectionResultReceiptDigest(payload);
-  const result: ProjectionResultV2 = {
+  const result: ProjectionResultV3 = {
     ...payload,
     refreshSignals: [{ ...signal, projectionReceiptDigest: receiptDigest }],
     receiptDigest
@@ -4880,7 +4880,7 @@ function projectionApplyRecoveryReceiptFixture(): ProjectionApplyReceiptV1 {
   return {
     ...receipt,
     recovery: {
-      schemaVersion: "archcontext.projection-apply-recovery-binding/v1",
+      schemaVersion: "archcontext.projection-apply-recovery-binding/v2",
       targets: ["architecture-docs"],
       changedPaths: [".archcontext/model/nodes/capability.example.yaml"],
       originalExpectedSnapshot: {
@@ -4899,7 +4899,7 @@ function projectionApplyRecoveryReceiptFixture(): ProjectionApplyReceiptV1 {
   };
 }
 
-function projectionApplyRecoveryProofFixture(receipt: ProjectionApplyReceiptV1): ProjectionApplyRecoveryProofV1 {
+function projectionApplyRecoveryProofFixture(receipt: ProjectionApplyReceiptV1): ProjectionApplyRecoveryProofV2 {
   const binding = receipt.recovery!;
   const current = {
     snapshot: receipt.result.outputSnapshot,
@@ -4908,7 +4908,7 @@ function projectionApplyRecoveryProofFixture(receipt: ProjectionApplyReceiptV1):
     fixedPointDigest: digestJson({ receipt: receipt.result.receiptDigest, fixedPoint: true }) as `sha256:${string}`
   };
   const payload = {
-    schemaVersion: "archcontext.projection-apply-recovery-proof/v1" as const,
+    schemaVersion: "archcontext.projection-apply-recovery-proof/v2" as const,
     requestId: "projection_request.local_store_recovery",
     requestDigest: digestJson({ receipt: receipt.result.receiptDigest, request: true }) as `sha256:${string}`,
     receipt: {

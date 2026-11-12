@@ -12,7 +12,7 @@ import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
 import { MockCodeGraphProvider, declareOptionalCodeFacts } from "@archcontext/local-runtime/test/codegraph-factories";
 import { ArchctxRuntimeRpcServer, RUNTIME_RPC_VERSION, createStartedDaemon, type RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-daemon";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
-import { digestJson, stableYaml, type AcceptedArchitectureChangeReferenceV1, type ProjectionApplyReceiptV1, type ProjectionRequestV1, type ProjectionResultV2 } from "@archcontext/contracts";
+import { digestJson, stableYaml, type AcceptedArchitectureChangeReferenceV1, type ProjectionApplyReceiptV1, type ProjectionRequestV1, type ProjectionResultV3 } from "@archcontext/contracts";
 import { runCli } from "../packages/surfaces/cli/src/main";
 
 const codegraphCli = join(dirname(createRequire(import.meta.url).resolve("@colbymchenry/codegraph/package.json")), "npm-shim.js");
@@ -189,8 +189,8 @@ test("semantic recovery delivers a raced accepted apply only after every immutab
     const racingClient = daemon;
     const raced = await runTestCli("projection", ["run", "--request-json", JSON.stringify(request)], root, racingClient);
     expect(raced.ok, JSON.stringify(raced)).toBe(true);
-    expect(raced.data as ProjectionResultV2).toMatchObject({ status: "applied-reconcile-required", refreshSignals: [] });
-    const lookupKey = (raced.data as ProjectionResultV2).applyReceipt!.lookupKey;
+    expect(raced.data as ProjectionResultV3).toMatchObject({ status: "applied-reconcile-required", refreshSignals: [] });
+    const lookupKey = (raced.data as ProjectionResultV3).applyReceipt!.lookupKey;
     const inspected = await daemon.inspectProjectionApplyReceipt(root, lookupKey);
     expect(inspected).toMatchObject({ ok: true, data: { found: true, deliveryStatus: "pending" } });
     const committedReceipt = (inspected.data as any).receipt;
@@ -258,7 +258,7 @@ test("semantic recovery delivers a raced accepted apply only after every immutab
     }]);
     expect(rawDirectDelivery).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID" } });
     const rawForgedProof = await rawRpc("recoverProjectionApply", [root, {
-      schemaVersion: "archcontext.projection-apply-recovery-proof/v1",
+      schemaVersion: "archcontext.projection-apply-recovery-proof/v2",
       requestId: "projection_request.forged_proof",
       requestDigest: `sha256:${"a".repeat(64)}`,
       proofDigest: `sha256:${"b".repeat(64)}`,
@@ -330,7 +330,7 @@ test("semantic recovery delivers a raced accepted apply only after every immutab
     const recovered = await runTestCli("projection", ["recover", "--request-json", JSON.stringify(matchingRequest)], root, racingClient);
     expect(recovered.ok, JSON.stringify(recovered)).toBe(true);
     expect(recovered.data).toMatchObject({
-      schemaVersion: "archcontext.projection-apply-recovery-result/v1",
+      schemaVersion: "archcontext.projection-apply-recovery-result/v2",
       proof: { deliveryStatus: "delivered", receipt: { lookupKey } },
       refreshSignals: [expect.any(Object)]
     });
@@ -375,8 +375,8 @@ test("semantic recovery rejects a committed receipt whose approved CodeGraph pro
     const racingClient = daemon;
     const raced = await runTestCli("projection", ["run", "--request-json", JSON.stringify(request)], root, racingClient);
     expect(raced.ok, JSON.stringify(raced)).toBe(true);
-    expect((raced.data as ProjectionResultV2).status).toBe("applied-reconcile-required");
-    const lookupKey = (raced.data as ProjectionResultV2).applyReceipt!.lookupKey;
+    expect((raced.data as ProjectionResultV3).status).toBe("applied-reconcile-required");
+    const lookupKey = (raced.data as ProjectionResultV3).applyReceipt!.lookupKey;
     const inspection = await daemon.inspectProjectionApplyReceipt(root, lookupKey);
     expect(inspection).toMatchObject({ ok: true, data: { deliveryStatus: "pending", receipt: { recovery: { generatedFrom: { codeGraphStatus: "unavailable" } } } } });
     const rejected = await runTestCli("projection", ["recover", "--request-json", JSON.stringify(

@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { okEnvelope, stableYaml, type JsonEnvelope, type ProjectionArchitectureDebtV1, type ProjectionRequestV1, type ProjectionResultV2 } from "@archcontext/contracts";
+import { okEnvelope, stableYaml, type JsonEnvelope, type ProjectionArchitectureDebtV1, type ProjectionRequestV1, type ProjectionResultV3 } from "@archcontext/contracts";
 import { repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { architectureDocumentationProjectionWorktreeDigest, loadNativeModelFromArchContext } from "@archcontext/core/projection-engine";
 import { dependencyDebtFromMeasurement, evaluateArchitectureDebt } from "@archcontext/core/review-engine";
@@ -70,10 +70,10 @@ function request(mode: "check" | "plan"): ProjectionRequestV1 {
   };
 }
 
-function projectionResult(envelope: JsonEnvelope): ProjectionResultV2 {
+function projectionResult(envelope: JsonEnvelope): ProjectionResultV3 {
   expect(envelope.ok, JSON.stringify(envelope)).toBe(true);
   expect(publishedSchemaIssues("runtime/projection-result.schema.json", envelope.data)).toEqual([]);
-  return envelope.data as unknown as ProjectionResultV2;
+  return envelope.data as unknown as ProjectionResultV3;
 }
 
 /** `plan` needs only the journal lookup from the daemon; nothing was committed under this requestId. */

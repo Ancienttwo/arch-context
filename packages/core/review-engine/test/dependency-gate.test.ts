@@ -182,11 +182,11 @@ describe("review policy failOn", () => {
       currentHeadSha: "def",
       dependencyConstraints: evaluation({ status: "violated", violations: [violation] }),
       projectionFreshness: {
-        schemaVersion: "archcontext.projection-freshness/v2",
+        schemaVersion: "archcontext.projection-freshness/v3",
         ok: false,
-        reasonCodes: ["projection-source-changed-since-stamp"],
+        reasonCodes: ["projection-output-changed"],
         detail: "fixture",
-        staleNodes: []
+        staleTargets: []
       },
       reviewPolicy: { failOn: ["invalid-schema"], source: "policy-file" }
     });
@@ -203,11 +203,11 @@ describe("review policy failOn", () => {
     const review = completeTaskGate({
       ...base,
       projectionFreshness: {
-        schemaVersion: "archcontext.projection-freshness/v2",
+        schemaVersion: "archcontext.projection-freshness/v3",
         ok: false,
-        reasonCodes: ["projection-source-changed-since-stamp"],
+        reasonCodes: ["projection-output-changed"],
         detail: "fixture",
-        staleNodes: []
+        staleTargets: []
       },
       reviewPolicy: { failOn: ["invalid-schema"], source: "policy-file" }
     });

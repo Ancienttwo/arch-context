@@ -29,7 +29,6 @@ function withRenderedProjection(check: (root: string, files: Map<string, string>
       layoutVersion: ARCHITECTURE_DOCS_LAYOUT_VERSION,
       generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.2" }
     }),
-    sourceFootprints: [],
     sourceScaleSignals: [],
     importGraphs: [],
     selectorEvidence: []

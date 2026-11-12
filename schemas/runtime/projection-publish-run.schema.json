@@ -30,7 +30,7 @@
     },
     "publisher": { "enum": ["command", "gh", "none"] },
     "files": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 }, "description": "Repository-relative generated paths the published commit changes, sorted. Paths only, never contents." },
-    "projectionStatus": { "type": ["string", "null"], "description": "ProjectionResultV2.status of the apply this run made, or null without one." },
+    "projectionStatus": { "type": ["string", "null"], "description": "ProjectionResultV3.status of the apply this run made, or null without one." },
     "humanActions": {
       "type": "array",
       "items": {

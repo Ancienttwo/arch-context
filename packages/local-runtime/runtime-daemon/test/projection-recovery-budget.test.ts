@@ -1,12 +1,12 @@
 import { expect, test } from "bun:test";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { createProjectionApplyIdentity, projectionApplyReceiptInvariantIssues, projectionResultReceiptDigest, type ProjectionApplyReceiptV1, type ProjectionResultV2 } from "@archcontext/contracts";
+import { createProjectionApplyIdentity, projectionApplyReceiptInvariantIssues, projectionResultReceiptDigest, type ProjectionApplyReceiptV1, type ProjectionResultV3 } from "@archcontext/contracts";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
 import { createInitializedGitRepo, createStartedTestDaemon } from "./runtime-test-fixtures";
 
 function oversizedReceipt(): ProjectionApplyReceiptV1 {
-  const result: ProjectionResultV2 = JSON.parse(readFileSync(new URL("../../../contracts/fixtures/valid/projection-result.json", import.meta.url), "utf8"));
+  const result: ProjectionResultV3 = JSON.parse(readFileSync(new URL("../../../contracts/fixtures/valid/projection-result.json", import.meta.url), "utf8"));
   result.requestId = "r".repeat(256 * 1024 + 1);
   const identity = createProjectionApplyIdentity({
     repositoryId: result.inputSnapshot.repositoryId, workspaceId: result.inputSnapshot.workspaceId,

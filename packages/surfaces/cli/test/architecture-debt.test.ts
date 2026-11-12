@@ -233,7 +233,7 @@ test("D6-A anchors refusal retains code/action/reason/details through raw, CLI, 
     details: {
       manifestPath: "docs/architecture/.projection-manifest.json",
       foundSchemaVersion: "archcontext.architecture-docs-projection-manifest/v2",
-      supportedSchemaVersion: "archcontext.architecture-docs-projection-manifest/v3",
+      supportedSchemaVersion: "archcontext.architecture-docs-projection-manifest/v4",
       upgradeCommand: "archctx docs apply --approved --profile <default|repo-harness/v1>",
       migrationGuide: "docs/runbooks/architecture-documentation-projections.md"
     }

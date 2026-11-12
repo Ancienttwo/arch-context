@@ -43,7 +43,6 @@ function render(overrides: Partial<Parameters<typeof renderArchitectureDocumenta
     model,
     provenance,
     sourceDigest,
-    sourceFootprints: [],
     sourceScaleSignals: [],
     importGraphs: [],
     selectorEvidence: [],

@@ -62,7 +62,7 @@ export interface ProjectionPublishRunV1 {
   publisher: ProjectionPublisherKind;
   /** Repository-relative generated paths the published commit changes, sorted. */
   files: string[];
-  /** `ProjectionResultV2.status` of the apply this run made, or null without one. */
+  /** `ProjectionResultV3.status` of the apply this run made, or null without one. */
   projectionStatus: string | null;
   humanActions: ProjectionPublishHumanActionV1[];
   error: { code: string; reasonCode?: string; message: string; severity?: "notice" | "warning" | "error" | "critical"; retryable?: boolean; action?: string; details?: { [key: string]: Json } } | null;

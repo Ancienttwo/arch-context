@@ -1,13 +1,13 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { architectureDocsProjectionCompatibilityIssues, architectureDocsProjectionManifestIssues, serializeArchitectureDocsProjectionManifest, validateJsonSchema, type ArchitectureDocsProjectionManifestV3 } from "../src";
+import { architectureDocsProjectionCompatibilityIssues, architectureDocsProjectionManifestIssues, serializeArchitectureDocsProjectionManifest, validateJsonSchema, type ArchitectureDocsProjectionManifestV4 } from "../src";
 
 const fixture = () => JSON.parse(readFileSync(new URL("../fixtures/valid/projection-manifest.json", import.meta.url), "utf8"));
 const schema = JSON.parse(readFileSync(new URL("../../../schemas/runtime/projection-manifest.schema.json", import.meta.url), "utf8"));
 const engine = { rendererVersion: "archcontext.docs-renderer/v6", protocolVersion: "archcontext.projection-request/v1" };
 
 test("optional manifest floors are compatible with exact or newer engines and preserve serialization", () => {
-  const value: ArchitectureDocsProjectionManifestV3 = fixture();
+  const value: ArchitectureDocsProjectionManifestV4 = fixture();
   const withoutFloors = serializeArchitectureDocsProjectionManifest(value);
   expect(architectureDocsProjectionCompatibilityIssues(value, engine)).toEqual([]);
   value.minimumRendererVersion = "archcontext.docs-renderer/v6";
@@ -36,10 +36,10 @@ test("each minimum floor refuses an older engine and malformed version families"
 
 test("future manifests refuse even without floors; old documented rebaseline versions remain distinguishable", () => {
   expect(architectureDocsProjectionCompatibilityIssues({ minimumRendererVersion: "archcontext.docs-renderer/v6" }, engine).length).toBeGreaterThan(0);
-  for (const version of ["archcontext.architecture-docs-projection-manifest/v4", "archcontext.architecture-docs-projection-manifest/v999"]) {
+  for (const version of ["archcontext.architecture-docs-projection-manifest/v5", "archcontext.architecture-docs-projection-manifest/v999"]) {
     expect(architectureDocsProjectionCompatibilityIssues({ ...fixture(), schemaVersion: version }, engine).length).toBeGreaterThan(0);
   }
-  for (const version of ["archcontext.architecture-docs-projection-manifest/v1", "archcontext.architecture-docs-projection-manifest/v2"]) {
+  for (const version of ["archcontext.architecture-docs-projection-manifest/v1", "archcontext.architecture-docs-projection-manifest/v2", "archcontext.architecture-docs-projection-manifest/v3"]) {
     expect(architectureDocsProjectionCompatibilityIssues({ schemaVersion: version }, engine)).toEqual([]);
   }
 });

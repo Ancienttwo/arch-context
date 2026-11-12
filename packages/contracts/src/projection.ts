@@ -2,15 +2,15 @@ import type { EvidenceCoverageLevelV2 } from "./ledger";
 import { digestJson, isRepoRelativePosixPath, type Json } from "./schema";
 
 export const PROJECTION_REQUEST_SCHEMA_VERSION = "archcontext.projection-request/v1" as const;
-export const PROJECTION_RESULT_SCHEMA_VERSION = "archcontext.projection-result/v2" as const;
+export const PROJECTION_RESULT_SCHEMA_VERSION = "archcontext.projection-result/v3" as const;
 export const PROJECTION_APPLY_IDENTITY_SCHEMA_VERSION = "archcontext.projection-apply-identity/v1" as const;
 export const PROJECTION_APPLY_RECEIPT_SCHEMA_VERSION = "archcontext.projection-apply-receipt/v1" as const;
-export const PROJECTION_APPLY_RECOVERY_BINDING_SCHEMA_VERSION = "archcontext.projection-apply-recovery-binding/v1" as const;
+export const PROJECTION_APPLY_RECOVERY_BINDING_SCHEMA_VERSION = "archcontext.projection-apply-recovery-binding/v2" as const;
 export const PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION = "archcontext.projection-apply-recovery-intent/v1" as const;
-export const PROJECTION_APPLY_RECOVERY_PROOF_SCHEMA_VERSION = "archcontext.projection-apply-recovery-proof/v1" as const;
-export const PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION = "archcontext.projection-apply-recovery-result/v1" as const;
-export const PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION = "archcontext.projection-apply-readback-result/v1" as const;
-export const ARCHITECTURE_REFRESH_SIGNAL_SCHEMA_VERSION = "archcontext.architecture-refresh-signal/v1" as const;
+export const PROJECTION_APPLY_RECOVERY_PROOF_SCHEMA_VERSION = "archcontext.projection-apply-recovery-proof/v2" as const;
+export const PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION = "archcontext.projection-apply-recovery-result/v2" as const;
+export const PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION = "archcontext.projection-apply-readback-result/v2" as const;
+export const ARCHITECTURE_REFRESH_SIGNAL_SCHEMA_VERSION = "archcontext.architecture-refresh-signal/v2" as const;
 export const ARCHCTX_CAPABILITIES_SCHEMA_VERSION = "archcontext.capabilities/v1" as const;
 export const ARCHITECTURE_DOCS_RENDERER_VERSION = "archcontext.docs-renderer/v6" as const;
 /**
@@ -99,10 +99,10 @@ export const ARCHCTX_FEATURES = [
   "projection-apply-replay-v1",
   "projection-architecture-debt-v1",
   "projection-capability-isolation-v1",
-  "projection-change-classification-v1",
-  "projection-check-freshness-v1",
-  "projection-freshness-v1",
-  "projection-manifest-contract-v3",
+  "projection-change-classification-v2",
+  "projection-check-freshness-v2",
+  "projection-freshness-v2",
+  "projection-manifest-contract-v4",
   "projection-observed-major-change-acceptance-v1",
   "projection-orphan-review-v1",
   "projection-preview-v1",
@@ -210,15 +210,17 @@ export const PROJECTION_FILE_PREVIEW_MAX_BYTES = 65_536;
 export const PROJECTION_PREVIEW_TOTAL_MAX_BYTES = 1_048_576;
 
 /**
- * Why a projection is not fresh. Shared by the core freshness evaluator and the `check` result's
- * `freshness` field so the two can never disagree.
+ * Why a projection is not fresh (ADR-0056 §1). Shared by the engine's freshness evaluator and the
+ * `check` result's `freshness` field so the two can never disagree. `projection-output-changed`:
+ * a target renders an output other than its committed row's (`staleTargets`).
+ * `projection-manifest-changed`: every output equals its row, but the manifest the render would
+ * write differs from the committed bytes (the semantic baseline or a header line).
  */
 export const PROJECTION_FRESHNESS_REASON_CODES = [
+  "projection-manifest-changed",
   "projection-manifest-missing",
   "projection-manifest-unreadable",
-  "projection-source-changed-since-stamp",
-  "projection-source-stamp-missing",
-  "projection-source-tree-digest-mismatch"
+  "projection-output-changed"
 ] as const;
 
 /** The architecture debt a `check` or `plan` result reports. Debt is a finding, never a blocker. */
@@ -240,8 +242,8 @@ export const PROJECTION_ARCHITECTURE_DEBT_COVERAGE_REASON_CODES = [
  * down: `blocked` (a human must act before the target can be written: Phase 1 isolation, an orphan
  * that needs review, an adoption or ownership rejection), `proof-change` (a known proof change,
  * which a missing baseline never hides), `baseline-missing` (a comparison is unknown: no committed
- * v3 manifest, or no committed row for the target), `semantic-change`, `output-change`,
- * `stamp-only` (only the source stamps moved) and `unchanged`.
+ * current-format manifest, or no committed row for the target), `semantic-change`, `output-change`
+ * and `unchanged`.
  * `projectionTargetChangeClassification` is the one precedence rule.
  */
 export const PROJECTION_TARGET_CHANGE_CLASSIFICATIONS = [
@@ -250,7 +252,6 @@ export const PROJECTION_TARGET_CHANGE_CLASSIFICATIONS = [
   "output-change",
   "proof-change",
   "semantic-change",
-  "stamp-only",
   "unchanged"
 ] as const;
 /** What the projection write does to the target's file: the result's own `files[]` decision for that path. */
@@ -264,8 +265,7 @@ export const PROJECTION_TARGET_CHANGE_BLOCKING_REASON_CODES = [
   "verified-flow-proof-changed"
 ] as const;
 /**
- * Why a target is classified as it is. Each comparison flag has its codes: `stampChanged` is
- * `source-stamp-changed`; `semanticChanged` is `semantic-fingerprint-changed` or, for a target that
+ * Why a target is classified as it is. Each comparison flag has its codes: `semanticChanged` is `semantic-fingerprint-changed` or, for a target that
  * describes the whole model, `model-digest-changed` (the committed `semanticBaseline.modelDigest`
  * differs from the current model's); `proofChanged` is
  * `flow-proof-changed` or `selector-evidence-changed`; `outputChanged` is `rendered-output-changed`
@@ -285,7 +285,6 @@ export const PROJECTION_TARGET_CHANGE_REASON_CODES = [
   "rendered-output-changed",
   "selector-evidence-changed",
   "semantic-fingerprint-changed",
-  "source-stamp-changed",
   "target-added",
   "target-removed",
   "target-row-missing",
@@ -433,9 +432,12 @@ export interface ProjectionApplyIdentityV1 {
   refreshSignalsDigest: Sha256Digest;
 }
 
-export interface ArchitectureDigestSetV1 {
+/**
+ * The global digests of a projection. The base digests come from the committed manifest, which
+ * records no source state, so the set carries no source tree digest (ADR-0056 §4).
+ */
+export interface ArchitectureDigestSetV2 {
   modelDigest: Sha256Digest;
-  sourceTreeDigest: Sha256Digest;
   flowProofDigest: Sha256Digest;
   projectionDigest: Sha256Digest;
 }
@@ -447,7 +449,7 @@ export interface AcceptedArchitectureChangeReferenceV1 {
   affectedNodeIds: string[];
 }
 
-export interface ArchitectureRefreshSignalV1 {
+export interface ArchitectureRefreshSignalV2 {
   schemaVersion: typeof ARCHITECTURE_REFRESH_SIGNAL_SCHEMA_VERSION;
   signalId: Sha256Digest;
   idempotencyKey: Sha256Digest;
@@ -466,8 +468,8 @@ export interface ArchitectureRefreshSignalV1 {
    */
   capabilities?: ArchitectureCapabilityChangeV1[];
   refreshTargets: ArchitectureRefreshTarget[];
-  baseDigests: ArchitectureDigestSetV1;
-  resultingDigests: ArchitectureDigestSetV1;
+  baseDigests: ArchitectureDigestSetV2;
+  resultingDigests: ArchitectureDigestSetV2;
   projectionReceiptDigest: Sha256Digest;
 }
 
@@ -498,19 +500,27 @@ export interface ProjectionPriorCommittedApplyV1 {
   files: ProjectionPriorCommittedApplyFileV1[];
 }
 
-export interface ProjectionFreshnessStaleNodeV1 {
-  nodeId: string;
-  /** Source-footprint digest the node's projected document is stamped with. */
-  stampedDigest: Sha256Digest;
-  /** Source-footprint digest measured by this run. */
-  currentDigest: Sha256Digest;
+/** One target whose rendered output differs from its committed manifest row. */
+export interface ProjectionFreshnessStaleTargetV2 {
+  targetId: string;
+  path: string;
+  /** The committed row's `outputDigest`; `null` for a target the committed manifest does not record. */
+  committedOutputDigest: Sha256Digest | null;
+  /** The current render's `outputDigest`; `null` for a committed row the current layout no longer renders. */
+  renderedOutputDigest: Sha256Digest | null;
 }
 
-/** Read-only per-node freshness of the committed projection, as `check` measured it. */
-export interface ProjectionFreshnessV1 {
+/**
+ * Render-equivalent freshness of the committed projection (ADR-0056 §1): a target is fresh when the
+ * output the current render produces equals its committed row's `outputDigest`, and the projection
+ * is fresh when every target is, the two target sets are equal, and the manifest the render would
+ * write equals the committed bytes.
+ */
+export interface ProjectionFreshnessV2 {
   ok: boolean;
   reasonCodes: ProjectionFreshnessReasonCode[];
-  staleNodes: ProjectionFreshnessStaleNodeV1[];
+  /** Sorted and unique by targetId. Non-empty exactly when `projection-output-changed` is reported. */
+  staleTargets: ProjectionFreshnessStaleTargetV2[];
 }
 
 /**
@@ -585,8 +595,7 @@ export interface ProjectionCoverageV1 {
  * record), one per path. The projection manifest is not a target; its write is the `files[]` entry
  * no change names.
  *
- * Each comparison is against the committed v3 manifest: `stampChanged` the target row's
- * `sourceStamps`; `outputChanged` the row's `outputDigest`, or any byte the write changes;
+ * Each comparison is against the committed v4 manifest: `outputChanged` the row's `outputDigest`, or any byte the write changes;
  * `semanticChanged` the `semanticFingerprint` of a capability the target documents (every
  * capability for a target that is not an entity summary, which also compares the manifest's
  * `semanticBaseline.modelDigest`, because it renders the whole model); `proofChanged` the `flowProofFingerprint`
@@ -600,12 +609,11 @@ export interface ProjectionCoverageV1 {
  * path rejected for adoption or ownership repair is `blocked` and `none`, because only an
  * approved adoption writes it. `classification` never changes `status`, the write set or a gate.
  */
-export interface ProjectionTargetChangeV1 {
+export interface ProjectionTargetChangeV2 {
   targetId: string;
   path: string;
   /** Sorted and unique: the documented capabilities whose change affects this target. Empty when unchanged. */
   affectedCapabilityIds: string[];
-  stampChanged: boolean | null;
   outputChanged: boolean;
   semanticChanged: boolean | null;
   proofChanged: boolean | null;
@@ -615,7 +623,7 @@ export interface ProjectionTargetChangeV1 {
   reasonCodes: ProjectionTargetChangeReasonCode[];
 }
 
-export interface ProjectionResultV2 {
+export interface ProjectionResultV3 {
   schemaVersion: typeof PROJECTION_RESULT_SCHEMA_VERSION;
   requestId: string;
   status: ProjectionResultStatus;
@@ -624,7 +632,7 @@ export interface ProjectionResultV2 {
   affectedNodeIds: string[];
   files: ProjectionFileResultV1[];
   humanActions: ProjectionHumanActionV1[];
-  refreshSignals: ArchitectureRefreshSignalV1[];
+  refreshSignals: ArchitectureRefreshSignalV2[];
   applyReceipt?: ProjectionApplyIdentityV1;
   /**
    * Omitted, never `[]`, when no earlier attempt of this requestId committed. Never present on
@@ -633,10 +641,10 @@ export interface ProjectionResultV2 {
    */
   priorCommittedApplies?: ProjectionPriorCommittedApplyV1[];
   /**
-   * Present on `check` results only: which nodes changed since their documents were verified.
-   * Consumers gate on the `projection-check-freshness-v1` capability, not on field presence.
+   * Present on `check` results only: which targets render differently from the committed
+   * manifest. Consumers gate on the `projection-check-freshness-v2` capability, not on field presence.
    */
-  freshness?: ProjectionFreshnessV1;
+  freshness?: ProjectionFreshnessV2;
   /**
    * Present on every `check` and `plan` result, and on no other: the architecture debt this run
    * found. It never changes `status`. Consumers gate on the `projection-architecture-debt-v1`
@@ -647,7 +655,7 @@ export interface ProjectionResultV2 {
    * Present on every `check` and `plan` result, and on no other: per-target change classification,
    * sorted by path (#327). It never changes `status` or `files`.
    */
-  changes?: ProjectionTargetChangeV1[];
+  changes?: ProjectionTargetChangeV2[];
   /**
    * Present, as `true`, only when this response returns an apply this requestId already committed
    * for the same request digest, without applying again (#265). It is excluded from
@@ -681,22 +689,22 @@ export interface ProjectionResultV2 {
 export interface ProjectionApplyReceiptV1 {
   schemaVersion: typeof PROJECTION_APPLY_RECEIPT_SCHEMA_VERSION;
   identity: ProjectionApplyIdentityV1;
-  result: ProjectionResultV2;
+  result: ProjectionResultV3;
   /**
    * Present only on receipts written after recovery protocol v1 shipped. Receipts created by
    * v0.4.7 remain inspectable, but cannot be recovered because they never recorded this exact
    * approval binding.
    */
-  recovery?: ProjectionApplyRecoveryBindingV1;
+  recovery?: ProjectionApplyRecoveryBindingV2;
 }
 
 /** Immutable approval metadata recorded with a new committed apply receipt, never inferred later. */
-export interface ProjectionApplyRecoveryBindingV1 {
+export interface ProjectionApplyRecoveryBindingV2 {
   schemaVersion: typeof PROJECTION_APPLY_RECOVERY_BINDING_SCHEMA_VERSION;
   targets: ProjectionTarget[];
   changedPaths: string[];
   originalExpectedSnapshot: ProjectionExpectedSnapshotV1;
-  expectedResultingDigests: ArchitectureDigestSetV1;
+  expectedResultingDigests: ArchitectureDigestSetV2;
   rendererVersion: typeof ARCHITECTURE_DOCS_RENDERER_VERSION;
   layoutVersion: "archcontext.docs-layout/v1";
   generatedFrom: ProjectionSnapshotV1["generatedFrom"];
@@ -731,7 +739,7 @@ export type ProjectionApplyRecoveryDeliveryStatus = "delivered" | "already-deliv
  * `proofDigest` intentionally excludes deliveryStatus so an idempotent repeat can change only
  * that explicitly declared field.
  */
-export interface ProjectionApplyRecoveryProofV1 {
+export interface ProjectionApplyRecoveryProofV2 {
   schemaVersion: typeof PROJECTION_APPLY_RECOVERY_PROOF_SCHEMA_VERSION;
   requestId: string;
   requestDigest: Sha256Digest;
@@ -743,28 +751,28 @@ export interface ProjectionApplyRecoveryProofV1 {
     receiptDigest: Sha256Digest;
   };
   acceptedChange: AcceptedArchitectureChangeReferenceV1;
-  expectedResultingDigests: ArchitectureDigestSetV1;
+  expectedResultingDigests: ArchitectureDigestSetV2;
   current: {
     snapshot: ProjectionSnapshotV1;
-    resultingDigests: ArchitectureDigestSetV1;
+    resultingDigests: ArchitectureDigestSetV2;
     ownedOutputDigest: Sha256Digest;
     fixedPointDigest: Sha256Digest;
   };
 }
 
-export interface ProjectionApplyRecoveryResultV1 {
+export interface ProjectionApplyRecoveryResultV2 {
   schemaVersion: typeof PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION;
-  proof: ProjectionApplyRecoveryProofV1;
-  refreshSignals: ArchitectureRefreshSignalV1[];
+  proof: ProjectionApplyRecoveryProofV2;
+  refreshSignals: ArchitectureRefreshSignalV2[];
 }
 
 /** Non-consuming receipt retrieval; current state is rebuilt for every response. */
-export interface ProjectionApplyReadbackResultV1 {
+export interface ProjectionApplyReadbackResultV2 {
   schemaVersion: typeof PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION;
   requestId: string;
   requestDigest: Sha256Digest;
   receipt: ProjectionApplyReceiptV1;
-  current: ProjectionApplyRecoveryProofV1["current"];
+  current: ProjectionApplyRecoveryProofV2["current"];
   readbackDigest: Sha256Digest;
 }
 
@@ -778,7 +786,7 @@ export interface ProjectionApplyAbsenceV1 {
   absenceDigest: Sha256Digest;
 }
 
-export type ProjectionApplyReadbackV1 = ProjectionApplyReadbackResultV1 | ProjectionApplyAbsenceV1;
+export type ProjectionApplyReadbackV1 = ProjectionApplyReadbackResultV2 | ProjectionApplyAbsenceV1;
 
 export interface ArchctxCapabilitiesV1 {
   schemaVersion: typeof ARCHCTX_CAPABILITIES_SCHEMA_VERSION;
@@ -856,7 +864,7 @@ export function projectionRequestInvariantIssues(input: ProjectionRequestV1): st
  * not carry: only a `plan` result previews what it would write (#264); `check`, `apply` and
  * `adopt` results never carry `files[].preview`, whatever their status.
  */
-export function projectionResultRequestModeIssues(input: ProjectionResultV2, mode: ProjectionMode): string[] {
+export function projectionResultRequestModeIssues(input: ProjectionResultV3, mode: ProjectionMode): string[] {
   const issues: string[] = [];
   if (mode !== "plan" && input.files.some((file) => file.preview !== undefined)) {
     issues.push(`files[].preview is only allowed on a plan result, never when mode=${mode}`);
@@ -880,7 +888,7 @@ export function projectionResultRequestModeIssues(input: ProjectionResultV2, mod
   return issues;
 }
 
-export function projectionResultInvariantIssues(input: ProjectionResultV2): string[] {
+export function projectionResultInvariantIssues(input: ProjectionResultV3): string[] {
   const issues = [
     ...sortedUniqueIssues("affectedNodeIds", input.affectedNodeIds),
     ...sortedUniqueIssues("files.path", input.files.map((file) => file.path)),
@@ -1076,21 +1084,18 @@ const TARGET_CHANGE_SEMANTIC_REASONS = ["model-digest-changed", "semantic-finger
 
 /**
  * The one precedence rule of a target change: blocked > proof-change (`proofChanged === true`) >
- * baseline-missing > semantic-change > output-change > stamp-only > unchanged. A known proof change
- * is never hidden by an unknown comparison (a target without a committed row can still carry a
- * moved flow proof); an unknown comparison outranks everything below the proof change and is never
- * `unchanged`. `stamp-only` therefore means the stamps moved while the output bytes, and the
- * semantic and proof comparisons, are known and unchanged on a target nothing blocks.
+ * baseline-missing > semantic-change > output-change > unchanged. A known proof change is never
+ * hidden by an unknown comparison (a target without a committed row can still carry a moved flow
+ * proof); an unknown comparison outranks everything below the proof change and is never `unchanged`.
  */
 export function projectionTargetChangeClassification(
-  input: Pick<ProjectionTargetChangeV1, "reasonCodes" | "stampChanged" | "outputChanged" | "semanticChanged" | "proofChanged">
+  input: Pick<ProjectionTargetChangeV2, "reasonCodes" | "outputChanged" | "semanticChanged" | "proofChanged">
 ): ProjectionTargetChangeClassification {
   if (input.reasonCodes.some((code) => TARGET_CHANGE_BLOCKING_REASONS.has(code))) return "blocked";
   if (input.proofChanged === true) return "proof-change";
-  if (input.stampChanged === null || input.semanticChanged === null || input.proofChanged === null) return "baseline-missing";
+  if (input.semanticChanged === null || input.proofChanged === null) return "baseline-missing";
   if (input.semanticChanged) return "semantic-change";
   if (input.outputChanged) return "output-change";
-  if (input.stampChanged) return "stamp-only";
   return "unchanged";
 }
 
@@ -1102,7 +1107,7 @@ export function projectionTargetChangeClassification(
  * changes (`outputChanged`). Every `files[]` entry that changes a file has a change of its path,
  * except the projection manifest, which is never a target.
  */
-export function projectionTargetChangesIssues(input: readonly ProjectionTargetChangeV1[], files: readonly ProjectionFileResultV1[] = []): string[] {
+export function projectionTargetChangesIssues(input: readonly ProjectionTargetChangeV2[], files: readonly ProjectionFileResultV1[] = []): string[] {
   const issues = sortedUniqueIssues("changes.path", input.map((entry) => entry.path));
   const fileByPath = new Map(files.map((file) => [file.path, file]));
   const reasons = new Set<string>(PROJECTION_TARGET_CHANGE_REASON_CODES);
@@ -1115,16 +1120,15 @@ export function projectionTargetChangesIssues(input: readonly ProjectionTargetCh
     if (entry.affectedCapabilityIds.some((id) => typeof id !== "string" || id.trim() === "")) issues.push(`${prefix}.affectedCapabilityIds must not contain empty ids`);
     const unsupported = entry.reasonCodes.find((code) => !reasons.has(code));
     if (unsupported !== undefined) issues.push(`${prefix}.reasonCodes contains an unsupported code: ${unsupported}`);
-    for (const field of ["stampChanged", "semanticChanged", "proofChanged"] as const) {
+    for (const field of ["semanticChanged", "proofChanged"] as const) {
       if (entry[field] !== null && typeof entry[field] !== "boolean") issues.push(`${prefix}.${field} must be a boolean or null`);
     }
     if (typeof entry.outputChanged !== "boolean") issues.push(`${prefix}.outputChanged must be a boolean`);
     if (!(PROJECTION_TARGET_CHANGE_PLANNED_ACTIONS as readonly string[]).includes(entry.plannedAction)) issues.push(`${prefix}.plannedAction is unsupported`);
-    if ((entry.stampChanged === true) !== has(["source-stamp-changed"])) issues.push(`${prefix}.stampChanged must be true exactly when source-stamp-changed is reported`);
     if ((entry.semanticChanged === true) !== has(TARGET_CHANGE_SEMANTIC_REASONS)) issues.push(`${prefix}.semanticChanged must be true exactly when semantic-fingerprint-changed or model-digest-changed is reported`);
     if ((entry.proofChanged === true) !== has(TARGET_CHANGE_PROOF_REASONS)) issues.push(`${prefix}.proofChanged must be true exactly when flow-proof-changed or selector-evidence-changed is reported`);
     if (entry.outputChanged !== has(TARGET_CHANGE_OUTPUT_REASONS)) issues.push(`${prefix}.outputChanged must be true exactly when an output reason code is reported`);
-    if ((entry.stampChanged === null || entry.semanticChanged === null || entry.proofChanged === null) !== has(TARGET_CHANGE_UNKNOWN_REASONS)) {
+    if ((entry.semanticChanged === null || entry.proofChanged === null) !== has(TARGET_CHANGE_UNKNOWN_REASONS)) {
       issues.push(`${prefix} must report baseline-missing or target-row-missing exactly when a comparison is unknown`);
     }
     const derived = projectionTargetChangeClassification(entry);
@@ -1151,22 +1155,25 @@ export function projectionTargetChangesIssues(input: readonly ProjectionTargetCh
   return issues;
 }
 
-export function projectionFreshnessIssues(input: ProjectionFreshnessV1): string[] {
+export function projectionFreshnessIssues(input: ProjectionFreshnessV2): string[] {
   const issues = [
     ...sortedUniqueIssues("freshness.reasonCodes", input.reasonCodes),
-    ...sortedUniqueIssues("freshness.staleNodes.nodeId", input.staleNodes.map((node) => node.nodeId))
+    ...sortedUniqueIssues("freshness.staleTargets.targetId", input.staleTargets.map((target) => target.targetId))
   ];
   const unsupported = input.reasonCodes.find((code) => !(PROJECTION_FRESHNESS_REASON_CODES as readonly string[]).includes(code));
   if (unsupported) issues.push(`freshness.reasonCodes contains an unsupported code: ${unsupported}`);
   if (input.ok !== (input.reasonCodes.length === 0)) issues.push("freshness.ok must be true exactly when reasonCodes is empty");
-  if ((input.staleNodes.length > 0) !== input.reasonCodes.includes("projection-source-changed-since-stamp")) {
-    issues.push("freshness.staleNodes must be non-empty exactly when projection-source-changed-since-stamp is reported");
+  if ((input.staleTargets.length > 0) !== input.reasonCodes.includes("projection-output-changed")) {
+    issues.push("freshness.staleTargets must be non-empty exactly when projection-output-changed is reported");
   }
-  for (const [index, node] of input.staleNodes.entries()) {
-    const prefix = `freshness.staleNodes[${index}]`;
-    if (node.nodeId.trim() === "") issues.push(`${prefix}.nodeId must not be empty`);
-    if (!SHA256_DIGEST.test(node.stampedDigest) || !SHA256_DIGEST.test(node.currentDigest)) issues.push(`${prefix} digests must be SHA-256 digests`);
-    else if (node.stampedDigest === node.currentDigest) issues.push(`${prefix} must name two different digests`);
+  for (const [index, target] of input.staleTargets.entries()) {
+    const prefix = `freshness.staleTargets[${index}]`;
+    if (target.targetId.trim() === "") issues.push(`${prefix}.targetId must not be empty`);
+    if (!isRepoRelativePosixPath(target.path)) issues.push(`${prefix}.path must be a repository-relative POSIX path`);
+    const digests = [target.committedOutputDigest, target.renderedOutputDigest];
+    if (digests.every((digest) => digest === null)) issues.push(`${prefix} must name at least one digest`);
+    else if (digests.some((digest) => digest !== null && !SHA256_DIGEST.test(digest))) issues.push(`${prefix} digests must be SHA-256 digests or null`);
+    else if (target.committedOutputDigest === target.renderedOutputDigest) issues.push(`${prefix} must name two different digests`);
   }
   return issues;
 }
@@ -1235,7 +1242,7 @@ export function projectionPriorCommittedAppliesIssues(
  * receipt payload to avoid a circular hash; every signal must then bind that receipt via
  * projectionReceiptDigest, which projectionResultInvariantIssues verifies.
  */
-export function projectionResultReceiptDigest(input: Omit<ProjectionResultV2, "receiptDigest">): Sha256Digest {
+export function projectionResultReceiptDigest(input: Omit<ProjectionResultV3, "receiptDigest">): Sha256Digest {
   const { replayed: _replayed, written: _written, ...payload } = input;
   const refreshSignals = payload.refreshSignals.map(({ projectionReceiptDigest: _projectionReceiptDigest, ...signal }) => signal);
   return digestJson({ ...payload, refreshSignals } as unknown as Json) as Sha256Digest;
@@ -1261,7 +1268,7 @@ export function createProjectionApplyIdentity(input: {
   changeSetId: string;
   idempotencyKey: string;
   files: ProjectionFileResultV1[];
-  refreshSignals: ArchitectureRefreshSignalV1[];
+  refreshSignals: ArchitectureRefreshSignalV2[];
 }): ProjectionApplyIdentityV1 {
   const lookupKey = projectionApplyLookupKey(input);
   const ownedFilesDigest = digestJson(input.files as unknown as Json) as Sha256Digest;
@@ -1308,7 +1315,7 @@ export function projectionApplyReceiptInvariantIssues(input: ProjectionApplyRece
 }
 
 export function projectionApplyRecoveryBindingInvariantIssues(
-  binding: ProjectionApplyRecoveryBindingV1,
+  binding: ProjectionApplyRecoveryBindingV2,
   receipt?: ProjectionApplyReceiptV1
 ): string[] {
   const issues = [
@@ -1406,12 +1413,12 @@ export function projectionApplyAbsenceInvariantIssues(input: ProjectionApplyAbse
   return issues;
 }
 
-export function projectionApplyReadbackResultDigest(input: Omit<ProjectionApplyReadbackResultV1, "readbackDigest">): Sha256Digest {
+export function projectionApplyReadbackResultDigest(input: Omit<ProjectionApplyReadbackResultV2, "readbackDigest">): Sha256Digest {
   return digestJson(input as unknown as Json) as Sha256Digest;
 }
 
 export function projectionApplyReadbackResultInvariantIssues(
-  input: ProjectionApplyReadbackResultV1,
+  input: ProjectionApplyReadbackResultV2,
   request?: ProjectionRequestV1
 ): string[] {
   const issues = projectionApplyReceiptInvariantIssues(input.receipt);
@@ -1464,11 +1471,11 @@ export function projectionApplyRecoveryIntentInvariantIssues(input: ProjectionAp
   return issues;
 }
 
-export function projectionApplyRecoveryProofDigest(input: Omit<ProjectionApplyRecoveryProofV1, "proofDigest" | "deliveryStatus">): Sha256Digest {
+export function projectionApplyRecoveryProofDigest(input: Omit<ProjectionApplyRecoveryProofV2, "proofDigest" | "deliveryStatus">): Sha256Digest {
   return digestJson(input as unknown as Json) as Sha256Digest;
 }
 
-export function projectionApplyRecoveryProofInvariantIssues(input: ProjectionApplyRecoveryProofV1): string[] {
+export function projectionApplyRecoveryProofInvariantIssues(input: ProjectionApplyRecoveryProofV2): string[] {
   const issues = [
     ...sortedUniqueIssues("acceptedChange.reasonCodes", input.acceptedChange.reasonCodes),
     ...sortedUniqueIssues("acceptedChange.affectedNodeIds", input.acceptedChange.affectedNodeIds)
@@ -1483,7 +1490,7 @@ export function projectionApplyRecoveryProofInvariantIssues(input: ProjectionApp
   return issues;
 }
 
-export function projectionApplyRecoveryResultInvariantIssues(input: ProjectionApplyRecoveryResultV1): string[] {
+export function projectionApplyRecoveryResultInvariantIssues(input: ProjectionApplyRecoveryResultV2): string[] {
   const issues = [
     ...projectionApplyRecoveryProofInvariantIssues(input.proof),
     ...input.refreshSignals.flatMap((signal, index) => architectureRefreshSignalInvariantIssues(signal, `refreshSignals[${index}]`)),
@@ -1512,7 +1519,7 @@ export function projectionApplyRecoveryResultInvariantIssues(input: ProjectionAp
 
 /** The durable store uses this before delivery; it can validate immutable bindings but not re-render the current projection. */
 export function projectionApplyRecoveryProofReceiptInvariantIssues(
-  proof: ProjectionApplyRecoveryProofV1,
+  proof: ProjectionApplyRecoveryProofV2,
   receipt: ProjectionApplyReceiptV1
 ): string[] {
   const issues = [
@@ -1540,7 +1547,7 @@ export function projectionApplyRecoveryProofReceiptInvariantIssues(
   return issues;
 }
 
-function projectionApplyReceiptResultingDigests(receipt: ProjectionApplyReceiptV1): ArchitectureDigestSetV1 | undefined {
+function projectionApplyReceiptResultingDigests(receipt: ProjectionApplyReceiptV1): ArchitectureDigestSetV2 | undefined {
   const signals = receipt.result.refreshSignals;
   if (signals.length === 0) return undefined;
   const [first] = signals;
@@ -1549,7 +1556,7 @@ function projectionApplyReceiptResultingDigests(receipt: ProjectionApplyReceiptV
     : undefined;
 }
 
-export function architectureRefreshSignalInvariantIssues(input: ArchitectureRefreshSignalV1, prefix = "signal"): string[] {
+export function architectureRefreshSignalInvariantIssues(input: ArchitectureRefreshSignalV2, prefix = "signal"): string[] {
   const issues = [
     ...sortedUniqueIssues(`${prefix}.reasonCodes`, input.reasonCodes),
     ...sortedUniqueIssues(`${prefix}.affectedNodeIds`, input.affectedNodeIds),

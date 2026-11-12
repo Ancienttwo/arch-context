@@ -26,7 +26,6 @@ import { readCurrentBranch } from "./projection-inputs";
 export type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./projection-service";
 export { runProjectionCheckInvocation, runProjectionFreshnessCommand, runProjectionSnapshotCommand } from "./projection-service";
 export { PROJECTION_PR_BODY_MARKER, PROJECTION_WRITER_DEFAULT_BASE, PROJECTION_WRITER_DEFAULT_REMOTE, createCommandProjectionPublisher, createGhProjectionPublisher, createNoneProjectionPublisher, projectionPublishBody, projectionPublishTitle, projectionWriterPaths, runProjectionPublishCommand, runProjectionPublishFollow, runProjectionPublishStatusCommand, runProjectionVerifyPrCommand, type ProjectionPublishOptions, type ProjectionPublisherExec, type ProjectionPublisherInput, type ProjectionPublisherPort, type ProjectionVerifyPrCheckPort, type ProjectionWriterApplyPort } from "./projection-writer";
-import { measureProjectionFreshness } from "./projection-freshness";
 export { runDocsAnchorsCommand } from "./docs-anchors";
 export { CapabilityDependenciesError, readCapabilityDependencies, type CapabilityDependenciesRequestV1, type CapabilityDependenciesResultV1 } from "./capability-dependencies";
 export { runConstraintCheckCommand } from "./constraints-check";
@@ -75,7 +74,7 @@ import { type CommandInvestigationRunnerTransport } from "@archcontext/core/agen
 import { loadPracticeCatalog, type PracticeCatalogCommandInput } from "@archcontext/core/practice-catalog";
 import { evaluatePracticeEnforcement, loadPracticeEnforcementPolicy, loadPracticeWaiverOwnerRegistry, loadPracticeWaivers, shouldEvaluatePracticeEnforcement } from "@archcontext/core/practice-engine";
 import { reconcileArchitectureLedgerDrift } from "@archcontext/core/reconcile-engine";
-import { ProjectionPreconditionError, renderAgentContextProjection, loadAgentContextProjectionFiles, agentContextProjectionTargetPaths, architectureDocumentationSourceDigest, digestCapabilitySourceFootprints, loadArchitectureDocumentationInputs, loadArchitectureDocumentationProfile, loadArchitectureProjectionManifestStamps, loadNativeModelFromArchContext, measureCapabilitySourceScaleSignals, projectionOwnedWriteBody, renderArchitectureDocumentationProjection } from "@archcontext/core/projection-engine";
+import { ProjectionPreconditionError, renderAgentContextProjection, loadAgentContextProjectionFiles, agentContextProjectionTargetPaths, architectureDocumentationSourceDigest, loadArchitectureDocumentationInputs, loadArchitectureDocumentationProfile, loadNativeModelFromArchContext, measureCapabilitySourceScaleSignals, projectionOwnedWriteBody, renderArchitectureDocumentationProjection } from "@archcontext/core/projection-engine";
 import { completeTaskGate, type CompleteTaskInput, type CompleteTaskProjectionDriftInput, type CompleteTaskProjectionFreshnessInput } from "@archcontext/core/review-engine";
 import { CodeGraphAdapter, CodeGraphCliProvider, ProjectionCodeFactsUnavailableError, assertProjectionCodeFactsAvailable, prepareArchitectureDocumentationProjectionSnapshot, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { CONTEXT7_ENABLED_ENV, CONTEXT7_MODE_ENV, Context7ExternalDocumentationAdapter } from "@archcontext/local-runtime/context7-adapter";
@@ -814,8 +813,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     let projectionFreshness: CompleteTaskProjectionFreshnessInput | undefined;
     let architectureDebt: CompleteTaskInput["architectureDebt"];
     try {
-      projectionDrift = completeTaskProjectionDrift(session.workspace.root);
-      projectionFreshness = completeTaskProjectionFreshness(session.workspace.root);
+      ({ projectionDrift, projectionFreshness } = completeTaskProjectionDrift(session.workspace.root));
       if (model.valid || !existsSync(resolve(session.workspace.root, ".archcontext/manifest.yaml"))) {
         architectureDebt = readCompleteTaskArchitectureDebt(session.workspace.root, practiceEnforcement);
       }
@@ -1626,8 +1624,15 @@ function blockedProductionInjections(deps: RuntimeDeps): string[] {
   ].filter((key) => key in deps);
 }
 
-function completeTaskProjectionDrift(root: string): CompleteTaskProjectionDriftInput | undefined {
-  if (!existsSync(resolve(root, "docs/architecture/.projection-manifest.json"))) return undefined;
+/**
+ * The projection half of the `complete` gate (ADR-0056 §2): one build over the committed profile,
+ * with no isolation and no accepted change, yields both drift and freshness. It reads no Git
+ * history. A repository with no projection manifest has no projection to verify or keep fresh, so
+ * both inputs are absent rather than a blocking finding. The flow
+ * `flow.architecture-context.projection-render` names this function as its daemon source symbol.
+ */
+function completeTaskProjectionDrift(root: string): { projectionDrift?: CompleteTaskProjectionDriftInput; projectionFreshness?: CompleteTaskProjectionFreshnessInput } {
+  if (!existsSync(resolve(root, "docs/architecture/.projection-manifest.json"))) return {};
   const profile = loadArchitectureDocumentationProfile(root);
   const loaded = loadArchitectureDocumentationInputs(root, profile);
   const sourceDigest = architectureDocumentationSourceDigest({
@@ -1645,37 +1650,26 @@ function completeTaskProjectionDrift(root: string): CompleteTaskProjectionDriftI
     decisions: loaded.decisions,
     existingFiles: loaded.existingFiles,
     docsLanguage: loaded.docsLanguage,
-    sourceFootprints: digestCapabilitySourceFootprints(root, loaded.model, codeGraphInputs.footprints),
-    sourceScaleSignals: measureCapabilitySourceScaleSignals(root, codeGraphInputs.footprints),
+    sourceScaleSignals: measureCapabilitySourceScaleSignals(root, loaded.model, codeGraphInputs.footprints),
     importGraphs: codeGraphInputs.importGraphs,
     selectorEvidence: codeGraphInputs.selectorEvidence,
     provenance,
     sourceDigest
   });
   return {
-    schemaVersion: "archcontext.complete-task-projection-drift/v1",
-    ok: plan.drift.ok && plan.rejected.length === 0,
-    sourceDigest: plan.sourceDigest,
-    projectionDigest: plan.projectionDigest,
-    rendererVersion: plan.rendererVersion,
-    targetCount: plan.targets.length,
-    fileCount: plan.files.length,
-    driftCount: plan.drift.diffs.length,
-    rejectedCount: plan.rejected.length,
-    reasonCodes: [...new Set([...plan.drift.reasonCodes, ...plan.rejected.map((diff) => diff.reasonCode)])].sort()
+    projectionDrift: {
+      schemaVersion: "archcontext.complete-task-projection-drift/v1",
+      ok: plan.drift.ok && plan.rejected.length === 0,
+      sourceDigest: plan.sourceDigest,
+      projectionDigest: plan.projectionDigest,
+      rendererVersion: plan.rendererVersion,
+      targetCount: plan.targets.length,
+      fileCount: plan.files.length,
+      driftCount: plan.drift.diffs.length,
+      rejectedCount: plan.rejected.length,
+      reasonCodes: [...new Set([...plan.drift.reasonCodes, ...plan.rejected.map((diff) => diff.reasonCode)])].sort()
+    },
+    projectionFreshness: plan.freshness
   };
 }
 
-/**
- * Freshness half of the projection gate: the drift check above asks whether the rendered files
- * still match the model, this one asks whether the code those files describe moved after each
- * document was verified, through the shared evaluator `check` and `projection freshness` use
- * (`measureProjectionFreshness`). A repository with no projection manifest has no projection to keep
- * fresh, which is why the missing-manifest case returns `undefined` here — the same short-circuit
- * `completeTaskProjectionDrift` uses — rather than a blocking finding.
- */
-function completeTaskProjectionFreshness(root: string): CompleteTaskProjectionFreshnessInput | undefined {
-  const manifest = loadArchitectureProjectionManifestStamps(root);
-  if (manifest.status === "manifest-missing") return undefined;
-  return measureProjectionFreshness(root, { manifest }).evaluation;
-}

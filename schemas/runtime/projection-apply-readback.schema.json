@@ -386,15 +386,11 @@
       "additionalProperties": false,
       "required": [
         "modelDigest",
-        "sourceTreeDigest",
         "flowProofDigest",
         "projectionDigest"
       ],
       "properties": {
         "modelDigest": {
-          "$ref": "#/$defs/digest"
-        },
-        "sourceTreeDigest": {
           "$ref": "#/$defs/digest"
         },
         "flowProofDigest": {
@@ -442,7 +438,7 @@
       ],
       "properties": {
         "schemaVersion": {
-          "const": "archcontext.architecture-refresh-signal/v1"
+          "const": "archcontext.architecture-refresh-signal/v2"
         },
         "signalId": {
           "$ref": "#/$defs/digest"
@@ -822,12 +818,11 @@
     "targetChange": {
       "type": "object",
       "additionalProperties": false,
-      "description": "How one target changes since the committed projection and what this run's write does to its file (#327). null is an unknown comparison. classification follows blocked > proof-change (a known proof change) > baseline-missing > semantic-change > output-change > stamp-only > unchanged.",
+      "description": "How one target changes since the committed projection and what this run's write does to its file (#327). null is an unknown comparison. classification follows blocked > proof-change (a known proof change) > baseline-missing > semantic-change > output-change > unchanged.",
       "required": [
         "targetId",
         "path",
         "affectedCapabilityIds",
-        "stampChanged",
         "outputChanged",
         "semanticChanged",
         "proofChanged",
@@ -865,12 +860,6 @@
             "minLength": 1
           }
         },
-        "stampChanged": {
-          "type": [
-            "boolean",
-            "null"
-          ]
-        },
         "outputChanged": {
           "type": "boolean"
         },
@@ -901,7 +890,6 @@
             "output-change",
             "proof-change",
             "semantic-change",
-            "stamp-only",
             "unchanged"
           ]
         },
@@ -920,7 +908,6 @@
               "rendered-output-changed",
               "selector-evidence-changed",
               "semantic-fingerprint-changed",
-              "source-stamp-changed",
               "target-added",
               "target-removed",
               "target-row-missing",
@@ -954,10 +941,7 @@
           "if": {
             "properties": {
               "classification": {
-                "enum": [
-                  "stamp-only",
-                  "unchanged"
-                ]
+                "const": "unchanged"
               }
             },
             "required": [
@@ -971,9 +955,6 @@
               },
               "outputChanged": {
                 "const": false
-              },
-              "stampChanged": {
-                "type": "boolean"
               },
               "semanticChanged": {
                 "const": false
@@ -1128,11 +1109,11 @@
     "freshness": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Present on check results only. Canonical wire orders and the ok/reasonCodes/staleNodes coupling are enforced by projectionResultInvariantIssues.",
+      "description": "Present on check results only: render-equivalent freshness (ADR-0056 §1). Canonical wire orders and the ok/reasonCodes/staleTargets coupling are enforced by projectionResultInvariantIssues.",
       "required": [
         "ok",
         "reasonCodes",
-        "staleNodes"
+        "staleTargets"
       ],
       "properties": {
         "ok": {
@@ -1143,34 +1124,52 @@
           "uniqueItems": true,
           "items": {
             "enum": [
+              "projection-manifest-changed",
               "projection-manifest-missing",
               "projection-manifest-unreadable",
-              "projection-source-changed-since-stamp",
-              "projection-source-stamp-missing",
-              "projection-source-tree-digest-mismatch"
+              "projection-output-changed"
             ]
           }
         },
-        "staleNodes": {
+        "staleTargets": {
           "type": "array",
           "items": {
             "type": "object",
             "additionalProperties": false,
             "required": [
-              "nodeId",
-              "stampedDigest",
-              "currentDigest"
+              "targetId",
+              "path",
+              "committedOutputDigest",
+              "renderedOutputDigest"
             ],
             "properties": {
-              "nodeId": {
+              "targetId": {
                 "type": "string",
                 "minLength": 1
               },
-              "stampedDigest": {
-                "$ref": "#/$defs/digest"
+              "path": {
+                "type": "string",
+                "minLength": 1
               },
-              "currentDigest": {
-                "$ref": "#/$defs/digest"
+              "committedOutputDigest": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/digest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "renderedOutputDigest": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/digest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             }
           }
@@ -1255,7 +1254,7 @@
       ],
       "properties": {
         "schemaVersion": {
-          "const": "archcontext.projection-result/v2"
+          "const": "archcontext.projection-result/v3"
         },
         "requestId": {
           "type": "string",
@@ -1578,7 +1577,7 @@
       ],
       "properties": {
         "schemaVersion": {
-          "const": "archcontext.projection-apply-recovery-binding/v1"
+          "const": "archcontext.projection-apply-recovery-binding/v2"
         },
         "targets": {
           "type": "array",
@@ -1683,7 +1682,7 @@
       ],
       "properties": {
         "schemaVersion": {
-          "const": "archcontext.projection-apply-readback-result/v1"
+          "const": "archcontext.projection-apply-readback-result/v2"
         },
         "requestId": {
           "type": "string",
