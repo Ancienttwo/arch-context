@@ -83,6 +83,10 @@
     ]
   },
   "targets": {
+    "projection_target.agent-context.agents.capability-architecture-context":
+      {"type":"agent-context","scope":{"kind":"entity","id":"capability.architecture.context","entityKind":"capability"},"path":"AGENTS.md","ownership":"mixed","format":"markdown","outputDigest":"sha256:3e4fe25ceff548e583d76672a5e0f49cf8614bd3460273dcd340e7701ef5503d"},
+    "projection_target.agent-context.claude.capability-architecture-context":
+      {"type":"agent-context","scope":{"kind":"entity","id":"capability.architecture.context","entityKind":"capability"},"path":"CLAUDE.md","ownership":"mixed","format":"markdown","outputDigest":"sha256:3e4fe25ceff548e583d76672a5e0f49cf8614bd3460273dcd340e7701ef5503d"},
     "projection_target.architecture.history":
       {"type":"architecture-history","scope":{"kind":"repository"},"path":"docs/architecture/history.md","ownership":"generated","format":"markdown","outputDigest":"sha256:f38ffacaa0ec3b67a6b87e4210a2e5fb4d587728160161e1919ff3657f6902bc"},
     "projection_target.entity.capability-architecture-context":
