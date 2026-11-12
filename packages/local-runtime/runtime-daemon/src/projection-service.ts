@@ -13,7 +13,7 @@ import { classifyProjectionTargetChanges } from "./projection-target-changes";
 import type { RuntimeDaemonClient } from "./rpc-protocol";
 import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, PROJECTION_APPLY_RECOVERY_BINDING_SCHEMA_VERSION, PROJECTION_RESULT_SCHEMA_VERSION, architectureDocsProjectionManifestSchemaVersion, isSupersededArchitectureDocsProjectionManifestSchemaVersion, PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_TARGETS, createProjectionApplyIdentity, digestJson, isRepoRelativePosixPath, okEnvelope, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestFromReceipt, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryResultInvariantIssues, projectionApplyLookupKey, projectionFreshnessIssues, projectionPriorCommittedAppliesIssues, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest, projectionResultRequestModeIssues } from "@archcontext/contracts";
 import type { AcceptedArchitectureChangeReferenceV1, ArchitectureDocumentationProjectionProvenanceV3, ArchitectureHistory, ArchitectureRefreshSignalV2, Json, JsonEnvelope, ProjectionApplyAbsenceV1, ProjectionApplyReadbackResultV2, ProjectionApplyIdentityV1, ProjectionApplyReceiptV1, ProjectionApplyRecoveryBindingV2, ProjectionApplyRecoveryIntentV1, ProjectionApplyRecoveryProofV2, ProjectionApplyRecoveryResultV2, ProjectionFreshnessV2, ProjectionCoverageV1, ProjectionPriorCommittedApplyV1, ProjectionRequestV1, ProjectionResultV3, ProjectionSnapshotV1, ProjectionExpectedSnapshotV1, ProjectionTargetChangeV2, Sha256Digest } from "@archcontext/contracts";
-import { REPO_HARNESS_PROJECTION_PROFILE, architectureAdoptionReceipt, architectureHistoryInputRequired, architectureProjectionFilePreviews, architectureDocumentationSourceDigest, ProjectionPreconditionError, buildArchitectureDocumentationAdoptionPlan, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, architectureProjectionFootprintOwners, architectureProjectionFreshnessWithoutBaseline, loadArchitectureDocumentationProfile, readCommittedArchitectureDocsProjectionManifest, measureCapabilitySourceScaleSignals, loadNativeModelFromArchContext, projectionOwnedWriteBody, renderAgentContextProjection, renderArchitectureDocumentationProjection, architectureDocumentationProjectionWorktreeDigest, type ArchitectureProjectionProfile, type ProjectionOwnedFile, type ArchitectureMajorChangeClassificationV1, type ArchitectureDocumentationProjectionRuntimeSnapshot } from "@archcontext/core/projection-engine";
+import { REPO_HARNESS_PROJECTION_PROFILE, ARCHITECTURE_HISTORY_TARGET, architectureAdoptionReceipt, architectureHistoryCarryForwardBlocker, architectureProjectionFilePreviews, architectureDocumentationSourceDigest, ProjectionPreconditionError, buildArchitectureDocumentationAdoptionPlan, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, architectureProjectionFootprintOwners, architectureProjectionFreshnessWithoutBaseline, loadArchitectureDocumentationProfile, readCommittedArchitectureDocsProjectionManifest, measureCapabilitySourceScaleSignals, loadNativeModelFromArchContext, projectionOwnedWriteBody, renderAgentContextProjection, renderArchitectureDocumentationProjection, architectureDocumentationProjectionWorktreeDigest, type ArchitectureProjectionProfile, type ProjectionOwnedFile, type ArchitectureMajorChangeClassificationV1, type ArchitectureDocumentationProjectionRuntimeSnapshot } from "@archcontext/core/projection-engine";
 import { loadStateMachinesFromArchContext } from "@archcontext/core/state-machine-engine";
 import type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./rpc-types";
 export type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./rpc-types";
@@ -102,10 +102,6 @@ export async function runArchitectureDocsProjectionCommand(input: RuntimeDocsPro
       refreshSignals: projection.plan.refreshSignals,
       receiptDigest: projection.plan.receiptDigest
     } as unknown as Json);
-  }
-  if (subcommand === "apply") {
-    const historyRefusal = architectureHistoryRenderRequiredEnvelope("docs.apply", projection);
-    if (historyRefusal) return historyRefusal;
   }
   const changeSetId = input.id ?? docsProjectionChangeSetId(projection);
   // Generated-only orphans are deleted in the same ChangeSet that writes the manifest without their rows.
@@ -222,9 +218,10 @@ type ArchitectureDocsRenderOptions = { rebaselineSupersededManifest?: boolean; i
 
 /**
  * The architecture history a render is given (ADR-0056 §8), read only when the request names the
- * `architecture-history` target or the committed manifest has no row for it. Every other render
- * carries the committed row and bytes forward and reads no Git history, so it works in a shallow
- * clone. A read in a shallow clone fails with `history-shallow-repository`.
+ * `architecture-history` target or the committed row cannot be carried forward: there is none, or
+ * `history.md` is missing or does not digest to it. Every other render carries the intact row and
+ * bytes forward and reads no Git history, so it works in a shallow clone. A read in a shallow clone
+ * fails with `history-shallow-repository`, whose `historyReadReason` says why history was read.
  */
 export function architectureHistoryRenderInput(
   root: string,
@@ -233,14 +230,11 @@ export function architectureHistoryRenderInput(
   historyTargetNamed: boolean
 ): { architectureHistory?: ArchitectureHistory } {
   if (profile !== REPO_HARNESS_PROJECTION_PROFILE) return {};
-  if (!historyTargetNamed && !architectureHistoryInputRequired(existingFiles.find((file) => file.path === ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH)?.body)) return {};
+  const body = (path: string) => existingFiles.find((file) => file.path === path)?.body;
+  const readReason = historyTargetNamed ? "target-named" : architectureHistoryCarryForwardBlocker(body(ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH), body(ARCHITECTURE_HISTORY_TARGET.path));
+  if (readReason === undefined) return {};
   // The engine selects the window, so the whole history is read.
-  return { architectureHistory: readArchitectureHistory(root, { limit: Number.MAX_SAFE_INTEGER }) };
-}
-
-/** An apply cannot write `history.md` when its render carried a row whose file no longer matches it. */
-function architectureHistoryRenderRequiredEnvelope(requestId: string, projection: ReturnType<typeof buildArchitectureDocsProjection>): JsonEnvelope | undefined {
-  return projection.plan.historyRenderRequired ? publicFailureEnvelope(requestId, "AC_PRECONDITION_FAILED", "architecture-history-render-required", {}) : undefined;
+  return { architectureHistory: readArchitectureHistory(root, { limit: Number.MAX_SAFE_INTEGER, readReason }) };
 }
 
 export function buildArchitectureDocsProjection(
@@ -407,8 +401,6 @@ async function runArchitectureDocsAdoptionCommand(
   if (reviewOrphans.length > 0) {
     return publicFailureEnvelope("docs.adopt", "AC_PRECONDITION_FAILED", "projection-orphan-review-required", {issueCount: reviewOrphans.length});
   }
-  const historyRefusal = architectureHistoryRenderRequiredEnvelope("docs.adopt", projection);
-  if (historyRefusal) return historyRefusal;
   const expectedPlanId = input.adoptionPlanId;
   const expectedWorktreeDigest = input.expectedWorktreeDigest;
   if (!expectedPlanId || !expectedWorktreeDigest) {
@@ -472,8 +464,6 @@ async function applyProjectionProtocolFixedPoint(
   // Generated-only orphans are deleted by this write; human-review orphans stopped the request
   // before it reached here (projectionProtocolHumanStatus), so `apply` never reports a delete it
   // does not perform (#268).
-  const historyRefusal = architectureHistoryRenderRequiredEnvelope("projection.run", fixedPoint);
-  if (historyRefusal) return historyRefusal;
   const orphanDeletes = projectionOrphanDeleteOperations(input);
   const committedFiles = projectionWriteFileResults(input.loaded.existingFiles, fixedPoint.files, orphanDeletes);
   const committedSignals = acceptedChange

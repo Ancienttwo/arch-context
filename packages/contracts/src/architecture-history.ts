@@ -4,6 +4,14 @@ export const ARCHITECTURE_HISTORY_SCHEMA_VERSION = "archcontext.architecture-his
 export const ARCHITECTURE_HISTORY_MERMAID_SCHEMA_VERSION = "archcontext.architecture-history-mermaid/v1" as const;
 export const ARCHITECTURE_HISTORY_DERIVATION_VERSION = "v3" as const;
 
+/**
+ * Why a projection render reads the architecture history (ADR-0056 §8): the request names the
+ * `architecture-history` target, or the committed row cannot be carried forward because there is
+ * none, its file is missing, or its file does not digest to the row.
+ */
+export const ARCHITECTURE_HISTORY_READ_REASONS = ["target-named", "history-row-missing", "history-file-missing", "history-file-mismatch"] as const;
+export type ArchitectureHistoryReadReason = (typeof ARCHITECTURE_HISTORY_READ_REASONS)[number];
+
 export type HistoryErrorCode = "history-model-layout-unsupported" | "history-model-missing" | "history-model-invalid" | "history-model-too-large";
 export interface HistoryNode { id: string; name: string; domain: string | null }
 export interface HistoryEdge { source: string; target: string }

@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import { relative, resolve } from "node:path";
-import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION, architectureDocsProjectionManifestIssues, isRepoRelativePosixPath, isRuntimeTopologyNodeKind, stableId, type ArchitectureDocsProjectionManifestV4, type Json, type ProjectionTargetV1 } from "@archcontext/contracts";
+import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION, architectureDocsProjectionManifestIssues, digestJson, isRepoRelativePosixPath, type ArchitectureHistoryReadReason, isRuntimeTopologyNodeKind, stableId, type ArchitectureDocsProjectionManifestV4, type Json, type ProjectionTargetV1 } from "@archcontext/contracts";
 import { ARCHITECTURE_HISTORY_PATH } from "./architecture-history";
 export { sourceIncludeAnchors as repoHarnessIncludeAnchors } from "./source-globs";
 
@@ -273,18 +273,22 @@ function committedProjectionOutputs(manifest: ArchitectureDocsProjectionManifest
 }
 
 /**
- * Whether a render under a layout with the `architecture-history` target must be given the
- * architecture history (ADR-0056 §8): the committed manifest is not a current-format manifest with
- * a row for that target (adoption, the v4 re-baseline). Otherwise a render that does not name the
- * target carries the row forward and reads no Git history.
+ * Why a render under a layout with the `architecture-history` target that does not name it cannot
+ * carry the committed row forward, so it must be given the architecture history (ADR-0056 §8): the
+ * committed manifest has no current-format row for the target (adoption, the v4 re-baseline), or
+ * the committed file is missing or does not digest to the row ("the file must still match its
+ * row"). Undefined when the row and its file are intact: the render carries them forward and reads
+ * no Git history. `historyBody` is the LF-normalized file body, as a render reads it.
  */
-export function architectureHistoryInputRequired(committedManifestBody: string | undefined): boolean {
+export function architectureHistoryCarryForwardBlocker(committedManifestBody: string | undefined, historyBody: string | undefined): Exclude<ArchitectureHistoryReadReason, "target-named"> | undefined {
   const row = committedManifestBody === undefined ? undefined : currentFormatManifest(committedManifestBody)?.targets[ARCHITECTURE_HISTORY_TARGET.targetId];
-  return row === undefined
+  if (row === undefined
     || row.type !== ARCHITECTURE_HISTORY_TARGET.type
     || row.path !== ARCHITECTURE_HISTORY_TARGET.path
     || row.ownership !== ARCHITECTURE_HISTORY_TARGET.ownership
-    || row.format !== ARCHITECTURE_HISTORY_TARGET.format;
+    || row.format !== ARCHITECTURE_HISTORY_TARGET.format) return "history-row-missing";
+  if (historyBody === undefined) return "history-file-missing";
+  return digestJson({ targetId: ARCHITECTURE_HISTORY_TARGET.targetId, body: historyBody }) === row.outputDigest ? undefined : "history-file-mismatch";
 }
 
 /** The `generated` (whole-file) rows of `committedProjectionOutputs`. */

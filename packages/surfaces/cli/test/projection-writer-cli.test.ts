@@ -177,12 +177,32 @@ test("with a committed history row, check, docs drift and complete leave history
     expect(readFileSync(join(shallow, "docs/architecture/history.md"), "utf8")).toBe(historyBefore);
     const named = await runCli("projection", ["run", "--request-json", JSON.stringify(request(["agent-context", "architecture-docs", "architecture-history"])), "--json"], shallow, { runtimeClient: daemon });
     expect(named).toMatchObject({ ok: false, error: { reasonCode: "history-shallow-repository" } });
-    // An edited history.md is drift like any generated row's; an apply that cannot render it refuses.
+    // A broken history.md cannot be carried forward, so the render reads history; a shallow clone
+    // refuses and says why history was read.
     writeFileSync(join(shallow, "docs/architecture/history.md"), `${historyBefore}edited\n`);
-    const edited = await runCli("docs", ["drift", "--profile", "repo-harness/v1"], shallow, { runtimeClient: daemon });
-    expect((edited.data as any).drift.diffs).toContainEqual(expect.objectContaining({ path: "docs/architecture/history.md", reasonCode: "projection-generated-file-manually-edited" }));
-    const refused = await runCli("docs", ["apply", "--profile", "repo-harness/v1", "--approved"], shallow, { runtimeClient: daemon });
-    expect(refused).toMatchObject({ ok: false, error: { code: "AC_PRECONDITION_FAILED", reasonCode: "architecture-history-render-required" } });
+    expect(await runCli("docs", ["drift", "--profile", "repo-harness/v1"], shallow, { runtimeClient: daemon }))
+      .toMatchObject({ ok: false, error: { reasonCode: "history-shallow-repository", details: { historyReadReason: "history-file-mismatch" } } });
+    rmSync(join(shallow, "docs/architecture/history.md"));
+    expect(await runCli("projection", ["run", "--request-json", JSON.stringify(request(["agent-context", "architecture-docs"])), "--json"], shallow, { runtimeClient: daemon }))
+      .toMatchObject({ ok: false, error: { reasonCode: "history-shallow-repository", details: { historyReadReason: "history-file-missing" } } });
+
+    // In a full clone the same breakage is drift like any generated row's: check plans the write,
+    // docs drift names the reason, and the file renders back to its row.
+    const historyPath = join(fixture.dev, "docs/architecture/history.md");
+    const devSnapshot = async () => ((await runCli("projection", ["snapshot", "--json"], fixture.dev, { runtimeClient: daemon })).data as any).expected;
+    for (const [label, breakHistory, action, reasonCode] of [
+      ["edited", () => writeFileSync(historyPath, `${historyBefore}edited\n`), "update", "projection-generated-file-manually-edited"],
+      ["missing", () => rmSync(historyPath), "create", "projection-file-missing"]
+    ] as const) {
+      breakHistory();
+      const brokenCheck = await runCli("projection", ["run", "--request-json", JSON.stringify({ ...request(["agent-context", "architecture-docs"]), requestId: `projection_request.history_${label}`, expected: await devSnapshot() }), "--json"], fixture.dev, { runtimeClient: daemon });
+      expect(brokenCheck.ok, JSON.stringify(brokenCheck)).toBe(true);
+      expect((brokenCheck.data as any).files).toContainEqual(expect.objectContaining({ path: "docs/architecture/history.md", action }));
+      expect((brokenCheck.data as any).changes.find((change: any) => change.path === "docs/architecture/history.md")).toMatchObject({ plannedAction: action, outputChanged: true, reasonCodes: expect.arrayContaining(["file-bytes-changed"]) });
+      const brokenDrift = await runCli("docs", ["drift", "--profile", "repo-harness/v1"], fixture.dev, { runtimeClient: daemon });
+      expect((brokenDrift.data as any).drift.diffs).toContainEqual(expect.objectContaining({ path: "docs/architecture/history.md", reasonCode }));
+      git(fixture.dev, "checkout", "--", "docs/architecture/history.md");
+    }
   } finally {
     await daemon.stop();
     rmSync(fixture.root, { recursive: true, force: true });
