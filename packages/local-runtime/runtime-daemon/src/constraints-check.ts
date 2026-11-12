@@ -18,8 +18,9 @@ export function runConstraintCheckCommand(cwd: string): JsonEnvelope {
       throw new FailureError("AC_SCHEMA_INVALID", "constraint-model-invalid", { issueCount: declarations.errors.length });
     }
     const model = loadNativeModelFromModelFiles(new Map(modelFiles.map(file => [file.path, file.body])));
-    const worktreeDigest = computeWorktreeDigest(root, listGitVisibleFiles(root));
-    const result = evaluateWorktreeDependencyConstraints({ root, worktreeDigest, nodes: model.nodes, constraints: declarations.constraints });
+    const sourceFiles = listGitVisibleFiles(root);
+    const worktreeDigest = computeWorktreeDigest(root, sourceFiles);
+    const result = evaluateWorktreeDependencyConstraints({ root, worktreeDigest, sourceFiles, nodes: model.nodes, constraints: declarations.constraints });
     return okEnvelope("constraints.check", { ...result, warnings: declarations.warnings } as unknown as Json);
   } catch (error) {
     return selectedProducerFailureEnvelope("constraints.check", error, "cli");

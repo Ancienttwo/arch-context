@@ -389,6 +389,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
       clock: this.clock,
       architectureLedgerScope: (root) => this.architectureLedgerScope(root),
       architectureLedgerGitScope: (root) => this.architectureLedgerGitScope(root),
+      refactorScanGitScope: (root) => this.architectureLedgerGitScopeWithFiles(root),
       assertFreshWorktree: (root, digest, command) => this.assertFreshWorktree(root, digest, command),
       shortDigest,
       appendArchitectureEventsWithFeed: (root, input) => this.appendArchitectureEventsWithFeed(root, input),
@@ -830,11 +831,12 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
       }
       throw error;
     }
-    const worktreeDigest = computeWorktreeDigest(session.workspace.root, listGitVisibleFiles(session.workspace.root));
+    const sourceFiles = listGitVisibleFiles(session.workspace.root);
+    const worktreeDigest = computeWorktreeDigest(session.workspace.root, sourceFiles);
     // Constraints and the review policy are read through the model store port, so the ledger read
     // mode sees the same model `validate` does.
     const modelFiles = (await this.readModelStore.loadModel(session.workspace)).filter(isModelFile);
-    const dependencyConstraints = evaluateReviewDependencyConstraints({ root: session.workspace.root, worktreeDigest, modelFiles });
+    const dependencyConstraints = evaluateReviewDependencyConstraints({ root: session.workspace.root, worktreeDigest, sourceFiles, modelFiles });
     const reviewInput: CompleteTaskInput = {
       taskSessionId,
       posture: input.posture ?? "normal",
@@ -1092,9 +1094,15 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   }
 
   private async architectureLedgerGitScope(root: string): Promise<ArchitectureLedgerScope> {
+    return (await this.architectureLedgerGitScopeWithFiles(root)).scope;
+  }
+
+  /** The live scope plus the Git-visible files its `worktreeDigest` was computed over. */
+  private async architectureLedgerGitScopeWithFiles(root: string): Promise<{ scope: ArchitectureLedgerScope; sourceFiles: string[] }> {
     const session = await this.openSession(root);
     const paths = runtimeStatePaths(root);
-    return {
+    const sourceFiles = listGitVisibleFiles(root);
+    const scope: ArchitectureLedgerScope = {
       repository: {
         repositoryId: session.workspace.repositoryId,
         storageRepositoryId: paths.storageRepositoryId
@@ -1104,9 +1112,10 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
         storageWorkspaceId: paths.storageWorkspaceId,
         branch: readCurrentBranch(root),
         headSha: session.workspace.headSha,
-        worktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
+        worktreeDigest: computeWorktreeDigest(root, sourceFiles)
       }
     };
+    return { scope, sourceFiles };
   }
 
   private assertFreshWorktree(root: string, expectedWorktreeDigest: string | undefined, command: string, domain: "ledger" | "refactor" = "refactor"): void {
