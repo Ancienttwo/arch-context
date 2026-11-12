@@ -8,6 +8,7 @@ import { createPrivateControlFile } from "@archcontext/local-runtime/control-fil
 import { publicOperationErrorEnvelope } from "../src/public-operation-failure";
 import { failureEnvelope, knownFailure } from "@archcontext/contracts";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
+import { indexCodeGraphFixture } from "../../codegraph-adapter/test/real-index";
 import { declareOptionalCodeFacts } from "@archcontext/local-runtime/test/codegraph-factories";
 import {
   PROJECTION_PR_BODY_MARKER,
@@ -379,6 +380,33 @@ test("a new base commit force-updates the rolling branch to that base plus exact
   expect(git(fixture.origin, "rev-list", "--parents", "-n", "1", tip).split(" ")).toEqual([tip, nextBase]);
   expect(git(fixture.origin, "rev-list", "--count", `${nextBase}..${tip}`)).toBe("1");
   expect(changedFiles(fixture, tip)).toEqual(["docs/architecture/overview.md"]);
+});
+
+test("a CodeGraph index initialized in the writer worktree survives publishes and is never published; any other untracked non-owned file is refused", async () => {
+  // The fixture's .gitignore does not list .codegraph/, so codegraph init leaves .codegraph/.gitignore untracked.
+  const fixture = writerFixture();
+  expect(existsSync(join(fixture.dev, ".gitignore"))).toBe(false);
+  const publisher = recordingPublisher().publisher;
+  const overview = fakeApply((_worktree, request) => ({ files: { "docs/architecture/overview.md": `# overview for ${request.expected.headSha}\n` } }));
+  expect(runOf(await runProjectionPublishCommand({ cwd: fixture.clone, publisher, apply: fakeApply(() => ({ status: "noop" })).apply, env: fixture.env })).result).toBe("up-to-date");
+  const worktree = projectionWriterPaths(fixture.clone, "origin", "main", fixture.env).worktree;
+  indexCodeGraphFixture(worktree);
+  const index = join(worktree, ".codegraph/codegraph.db");
+  expect(existsSync(index)).toBe(true);
+  for (const [label, source] of [["first", "export const app = 2;\n"], ["second", "export const app = 3;\n"]] as const) {
+    pushBaseCommit(fixture, source);
+    const run = runOf(await runProjectionPublishCommand({ cwd: fixture.clone, publisher, apply: overview.apply, env: fixture.env }));
+    expect(run, label).toMatchObject({ result: "published", pushed: true, files: ["docs/architecture/overview.md"] });
+    expect(changedFiles(fixture, run.publishedCommit!), label).toEqual(["docs/architecture/overview.md"]);
+    expect(existsSync(index), label).toBe(true);
+  }
+
+  const other = writerFixture();
+  const lookalike = fakeApply(() => ({ files: { ".codegraph-cache/index": "x\n", "docs/architecture/overview.md": "# overview\n" }, reported: ["docs/architecture/overview.md"] }));
+  const refused = await runProjectionPublishCommand({ cwd: other.clone, publisher, apply: lookalike.apply, env: other.env });
+  expect(refused.error).toMatchObject({ code: "AC_POLICY_VIOLATION", reasonCode: "projection-writer-non-owned-change" });
+  expect(refused.error!.message).toContain(".codegraph-cache/index");
+  expect(originRef(other, "refs/heads/archctx/projection")).toBeNull();
 });
 
 test("render-equal is up to date and pushes nothing; an apply that touches a non-owned path fails and pushes nothing", async () => {

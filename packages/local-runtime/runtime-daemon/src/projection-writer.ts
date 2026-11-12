@@ -1197,8 +1197,9 @@ function writeProjectionWriterState(path: string, state: ProjectionWriterStateV1
 
 /**
  * The owned worktree at `sha`, detached and clean. It is reused across runs; `clean` keeps ignored
- * files (no `-x`) so a gitignored CodeGraph index survives. A path that is not a registered
- * worktree of this repository is archctx-owned debris and is recreated.
+ * files (no `-x`) and CodeGraph's `.codegraph/`, which is untracked where the repository does not
+ * ignore it, so the CodeGraph index survives. A path that is not a registered worktree of this
+ * repository is archctx-owned debris and is recreated.
  */
 function prepareProjectionWriterWorktree(repositoryRoot: string, worktree: string, sha: string): void {
   git(repositoryRoot, ["worktree", "prune"]);
@@ -1208,7 +1209,7 @@ function prepareProjectionWriterWorktree(repositoryRoot: string, worktree: strin
   }
   git(worktree, ["checkout", "-q", "--force", "--detach", sha]);
   git(worktree, ["reset", "-q", "--hard", sha]);
-  git(worktree, ["clean", "-ffdq"]);
+  git(worktree, ["clean", "-ffdq", "-e", "/.codegraph/"]);
 }
 
 function isRegisteredWorktree(repositoryRoot: string, worktree: string): boolean {
@@ -1229,6 +1230,11 @@ function canonical(path: string): string {
 }
 
 /** Tracked and untracked (non-ignored) changes in the worktree, as repository-relative paths. */
+/**
+ * The worktree's changed paths, without CodeGraph's own metadata directory: `codegraph init` in the
+ * owned worktree writes `.codegraph/` (its `.gitignore` is untracked where the repository does not
+ * ignore the directory), and that is never a projection change, so it is neither compared nor staged.
+ */
 function worktreeChangedPaths(worktree: string): string[] {
   const tokens = git(worktree, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]).split("\0");
   const paths = new Set<string>();
@@ -1242,7 +1248,7 @@ function worktreeChangedPaths(worktree: string): string[] {
       index += 1;
     }
   }
-  return [...paths].sort();
+  return [...paths].filter((path) => !path.startsWith(".codegraph/")).sort();
 }
 
 /** `docs/architecture/**` style directory patterns and exact paths, as `projectionOwnedPaths` lists them. */
