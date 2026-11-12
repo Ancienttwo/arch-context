@@ -10,7 +10,8 @@ export interface StateMachineAnchorScope {
   readonly files: ReadonlySet<string>;
   /**
    * When present, only the anchors on these paths, or with a callee on them, are evaluated. A
-   * symbol anchor whose callees cannot be read from the index is evaluated as `unchecked`.
+   * symbol anchor whose callees cannot be read from the index is evaluated as `unchecked`. A path
+   * that is not in `files` selects every symbol anchor.
    */
   readonly paths?: ReadonlySet<string>;
 }
@@ -68,35 +69,46 @@ export function stateMachineAnchors(root: string, machines: readonly StateMachin
     // changed path can select an anchor through its callees.
     const outcome = new Map<CodeAnchor, Pick<StateMachineAnchor, "status" | "reason">>();
     const declarations = new Map<CodeAnchor, CodeGraphIndexedDeclaration>();
-    // A declaration nested in the anchored one is part of its body, so its edges are the same hop.
-    const bodies = new Map<CodeAnchor, CodeGraphIndexedDeclaration[]>();
+    const held = new Map<CodeAnchor, CodeGraphIndexedDeclaration[]>();
     for (const anchor of reader === undefined ? [] : symbolAnchors) {
       const { path, symbol } = anchor.source;
       if (!reader!.supportsPath(path)) { outcome.set(anchor, { status: "anchor-language-unsupported" }); continue; }
-      const held = indexedAt(path);
-      if (held === undefined) { outcome.set(anchor, { status: "unchecked", reason: "index-stale" }); continue; }
+      const entries = indexedAt(path);
+      if (entries === undefined) { outcome.set(anchor, { status: "unchecked", reason: "index-stale" }); continue; }
       const { name, container } = splitSymbol(symbol!);
-      const matches = held.filter((declaration) => declaration.name === name && matchingDeclarations([declaration], container).length > 0);
+      const matches = entries.filter((declaration) => declaration.name === name && matchingDeclarations([declaration], container).length > 0);
       if (matches.length !== 1) { outcome.set(anchor, { status: matches.length === 0 ? "anchor-missing-symbol" : "anchor-ambiguous-symbol" }); continue; }
-      const declaration = matches[0]!;
-      declarations.set(anchor, declaration);
-      bodies.set(anchor, held.filter((entry) => within(entry, declaration)));
+      declarations.set(anchor, matches[0]!);
+      held.set(anchor, entries);
     }
+    // A declaration that the anchored one contains is part of its body, so its edges are the same
+    // hop. Containment is the index's own `contains` relation: line ranges would also take in a
+    // sibling declared on the anchor's first or last line.
+    const contained = reader === undefined || declarations.size === 0 ? new Map<string, Set<string>>()
+      : reader.contained([...declarations.values()].map((declaration) => declaration.id));
+    const bodies = new Map([...declarations].map(([anchor, declaration]) => {
+      const ids = new Set([declaration.id, ...contained.get(declaration.id)!]);
+      return [anchor, { ids, entries: held.get(anchor)!.filter((entry) => ids.has(entry.id)) }] as const;
+    }));
     const edges = reader === undefined || declarations.size === 0 ? new Map<string, CodeGraphCallee[]>()
-      : reader.callees([...new Set([...bodies.values()].flat().map((entry) => entry.id))]);
-    // Before the Git-visible filter, so that a deleted callee file still selects its anchors.
-    const indexedCallees = new Map([...declarations].map(([anchor, declaration]) => {
-      const targets = new Map(bodies.get(anchor)!.flatMap((entry) => edges.get(entry.id) ?? []).map((target) => [target.id, target]));
+      : reader.callees([...new Set([...bodies.values()].flatMap((body) => body.entries.map((entry) => entry.id)))]);
+    const indexedCallees = new Map([...bodies].map(([anchor, body]) => {
+      const targets = new Map(body.entries.flatMap((entry) => edges.get(entry.id) ?? []).map((target) => [target.id, target]));
       return [anchor, [...targets.values()]
         .filter((target) => CALLEE_KINDS.has(target.kind) && !target.containerKinds.some((kind) => SIGNATURE_CONTAINER_KINDS.has(kind))
-          && !within(target, declaration))
+          && !body.ids.has(target.id))
         .sort(digestOrder)] as const;
     }));
 
-    const symbolAnchorSet = new Set(symbolAnchors);
+    const readableAnchors = new Set(symbolAnchors);
+    // A synced index holds no edge into a file that is gone, so such a path may have held any anchor's
+    // callee. It selects every symbol anchor, including one whose own file is gone too.
+    const pathGone = scope.paths !== undefined && [...scope.paths].some((path) => !scope.files.has(path));
     const selected = (anchor: CodeAnchor): boolean => {
       if (scope.paths === undefined || scope.paths.has(anchor.source.path)) return true;
-      if (!symbolAnchorSet.has(anchor)) return false;
+      if (anchor.source.symbol === undefined) return false;
+      if (pathGone) return true;
+      if (!readableAnchors.has(anchor)) return false;
       // Without the index, or with a stale anchor file, the callees are unknown: fail closed.
       if (reader === undefined || outcome.get(anchor)?.reason === "index-stale") return true;
       return indexedCallees.get(anchor)?.some((callee) => scope.paths!.has(callee.path)) ?? false;
@@ -137,10 +149,6 @@ function codeAnchors(machine: StateMachineV1): CodeAnchor[] {
     ...machine.regions.flatMap((region) => region.source ? [{ owner: "region" as const, ownerId: region.id, source: region.source }] : []),
     ...machine.events.flatMap((event) => event.source.kind === "code" ? [{ owner: "event" as const, ownerId: event.id, source: event.source }] : [])
   ];
-}
-
-function within(target: CodeGraphIndexedDeclaration, declaration: CodeGraphIndexedDeclaration): boolean {
-  return target.path === declaration.path && target.startLine >= declaration.startLine && target.endLine <= declaration.endLine;
 }
 
 /** Identity only sets the order of the hashed texts: path, qualified name, kind, start line. */
