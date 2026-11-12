@@ -376,7 +376,8 @@ function capture(source: CapturedSource, snapshot: NativeContextSnapshot): Nativ
   let layout: ReturnType<typeof resolveArchitectureDocumentationLayout>;
   try { layout = resolveArchitectureDocumentationLayout({ nodes: model.nodes as unknown as ProjectionLayoutNode[], relations: model.relations as unknown as Array<{ id: string } & Record<string, Json>>, profile: NATIVE_CONTEXT_PROFILE }); }
   catch { throw new NativeContextError("native-context-profile-incomplete", { field: "layout-target-identity" }); }
-  const targets = layout.targets.filter(target => target.ownership === "mixed" && target.format === "markdown");
+  // Contract files are read once, as declared contracts; their agent-context rows are not documents.
+  const targets = layout.targets.filter(target => target.ownership === "mixed" && target.format === "markdown" && target.type !== "agent-context");
   source.read([...declared.keys()].map(path => ({ path, role: "contract", requirement: "declared" })).concat(targets.map(target => ({ path: target.path, role: "document", requirement: "optional" }))) as InputSpec[]);
   source.hooks.onBoundary?.("after-document-batch", { observation: source.observation });
   const contracts: NativeContextContract[] = [...declared.entries()].map(([path, declaration]) => {
