@@ -39,10 +39,10 @@ describe("repo-harness projection layout", () => {
     expect(layout.retiredTargetPaths).toEqual([
       "docs/architecture/index.md",
       "docs/architecture/decisions/index.md",
-      "docs/architecture/changelog.md",
       "docs/architecture/diagrams/architecture.mmd",
       "docs/architecture/diagrams/architecture.structurizr.json",
-      "docs/architecture/diagrams/architecture.likec4"
+      "docs/architecture/diagrams/architecture.likec4",
+      "docs/architecture/changelog.md"
     ]);
     expect(agentContextTargetPaths(model.nodes)).toEqual([
       { nodeId: "capability.runtime-harness.hook-adapters", path: "packages/runtime-harness/AGENTS.md" },

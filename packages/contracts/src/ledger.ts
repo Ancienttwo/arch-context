@@ -146,7 +146,6 @@ export type ProjectionTargetType =
   | "entity-summary"
   | "relation-summary"
   | "decision-index"
-  | "architecture-changelog"
   | "diagram-mermaid"
   | "diagram-structurizr"
   | "diagram-likec4"
@@ -154,7 +153,7 @@ export type ProjectionTargetType =
   | "runtime-topology-summary"
   | "architecture-history"
   | "agent-context";
-export type ProjectionTargetScopeKind = "repository" | "entity" | "relation" | "decision" | "diagram" | "changelog";
+export type ProjectionTargetScopeKind = "repository" | "entity" | "relation" | "decision" | "diagram";
 export type ProjectionTargetOwnership = "generated" | "mixed";
 export type ProjectionTargetFormat = "markdown" | "mermaid" | "structurizr-json" | "likec4";
 

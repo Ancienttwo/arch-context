@@ -245,7 +245,7 @@ export function buildArchitectureDocsProjection(
   acceptedChange?: AcceptedArchitectureChangeReferenceV1,
   options: ArchitectureDocsRenderOptions & { historyTargetNamed?: boolean } = {}
 ) {
-  const inputs = measureArchitectureDocsProjectionInputs(root, profile, existingFilesOverride, options.historyTargetNamed === true);
+  const inputs = measureArchitectureDocsProjectionInputs(root, profile, existingFilesOverride, options.historyTargetNamed === true, options.rebaselineSupersededManifest === true);
   return renderArchitectureDocsProjectionFromInputs(root, inputs, existingFilesOverride ?? inputs.loaded.existingFiles, acceptedChange, options);
 }
 
@@ -263,8 +263,8 @@ function docsProjectionChangeSetId(projection: ReturnType<typeof buildArchitectu
  * footprints. The render is a function of these, the existing documents it is
  * given and the accepted change.
  */
-function measureArchitectureDocsProjectionInputs(root: string, profile: ArchitectureProjectionProfile, existingFilesOverride: ProjectionOwnedFile[] | undefined, historyTargetNamed: boolean) {
-  const loaded = loadArchitectureDocumentationInputs(root, profile);
+function measureArchitectureDocsProjectionInputs(root: string, profile: ArchitectureProjectionProfile, existingFilesOverride: ProjectionOwnedFile[] | undefined, historyTargetNamed: boolean, rebaselineSupersededManifest: boolean) {
+  const loaded = loadArchitectureDocumentationInputs(root, profile, { rebaselineSupersededManifest });
   const sourceDigest = architectureDocumentationSourceDigest({ model: loaded.model, profile, decisions: loaded.decisions });
   const codeGraphInputs = prepareArchitectureDocumentationProjectionSnapshot(root, loaded.model);
   assertProjectionCodeFactsAvailable(root, codeGraphInputs);

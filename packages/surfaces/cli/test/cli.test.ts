@@ -499,10 +499,10 @@ test("repo-harness/v1 apply removes the intact whole-model files an earlier defa
     const defaultApply = await cli("docs", ["apply", "--profile", "default", "--approved"]);
     expect(defaultApply.ok, JSON.stringify(defaultApply)).toBe(true);
     commitProjectionFixture(root, "default profile projection");
-    const retiredTypes = new Set(["architecture-index", "decision-index", "architecture-changelog", "diagram-mermaid", "diagram-structurizr", "diagram-likec4"]);
+    const retiredTypes = new Set(["architecture-index", "decision-index", "diagram-mermaid", "diagram-structurizr", "diagram-likec4"]);
     const globalPaths = (Object.values(JSON.parse(readFileSync(manifestPath, "utf8")).targets) as Array<{ type: string; path: string }>)
       .filter((target) => retiredTypes.has(target.type)).map((target) => target.path).sort();
-    expect(globalPaths).toHaveLength(6);
+    expect(globalPaths).toHaveLength(5);
 
     const plan = await cli("docs", ["plan", "--profile", "repo-harness/v1"]);
     expect(plan.ok, JSON.stringify(plan)).toBe(true);
@@ -563,6 +563,76 @@ test("repo-harness/v1 apply keeps and reports a hand-modified whole-model file (
 
     const drift = await cli("docs", ["drift", "--profile", "repo-harness/v1"]);
     expect((drift.data as any).drift.orphans).toContainEqual(expect.objectContaining({ path: editedPath, disposition: "human-review" }));
+  } finally {
+    await daemon.stop();
+    removeTempRoot(root);
+  }
+}, CLI_DOCS_TEST_TIMEOUT_MS);
+
+test("the default re-baseline deletes a placeholder-only changelog and refuses one with human text (ADR-0057)", async () => {
+  const root = mkdtempSync(join(tmpdir(), "archctx-cli-540-changelog-"));
+  writeFileSync(join(root, "README.md"), "# projection fixture\n", "utf8");
+  initializeArchContextModel(root, "Retired Changelog App");
+  declareOptionalCodeFacts(root);
+  const daemon = await createStartedDaemon({
+    codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
+    codeGraphProviderFactory: () => new MockCodeGraphProvider(),
+    localStore: new TestLocalStore()
+  });
+  const cli = (command: string, args: string[]) => runCli(command, args, root, { runtimeClient: daemon });
+  const manifestPath = join(root, "docs/architecture/.projection-manifest.json");
+  const changelogPath = join(root, "docs/architecture/changelog.md");
+  // The bytes 0.13.x committed for every default projection: no production caller passed a timeline.
+  const placeholder = [
+    '<!-- BEGIN ARCHCONTEXT:generated target="projection_target.architecture.changelog" rendererVersion="archcontext.docs-renderer/v6" outputDigest="sha256:1f723aeb74466aae7d607eeab8c438a830c36f49a48e6622f868a8151afabea6" -->',
+    "# Architecture Changelog",
+    "",
+    "- No accepted architecture ledger events selected for this projection.",
+    '<!-- END ARCHCONTEXT:generated target="projection_target.architecture.changelog" -->',
+    ""
+  ].join("\n");
+  const humanText = `${placeholder}\n## Notes\n\nMigrated the payment ledger in Q3.\n`;
+  // An intact region that lists an event is not the placeholder either.
+  const entryBody = "# Architecture Changelog\n\n- 2026-06-26T00:00:00.000Z — Added payment module\n";
+  const withEntry = [
+    `<!-- BEGIN ARCHCONTEXT:generated target="projection_target.architecture.changelog" rendererVersion="archcontext.docs-renderer/v6" outputDigest="${digestJson({ targetId: "projection_target.architecture.changelog", body: entryBody })}" -->`,
+    entryBody.trimEnd(),
+    '<!-- END ARCHCONTEXT:generated target="projection_target.architecture.changelog" -->',
+    ""
+  ].join("\n");
+  try {
+    seedProjectionProtocolFixture(root);
+    expect((await cli("docs", ["apply", "--profile", "default", "--approved"])).ok).toBe(true);
+    const projected = readFileSync(manifestPath, "utf8");
+    // The 0.13.x tree: a v3 manifest, which the re-baseline reads for its schemaVersion only.
+    const supersede = (changelog: string) => {
+      writeFileSync(manifestPath, `${JSON.stringify({ ...JSON.parse(projected), schemaVersion: "archcontext.architecture-docs-projection-manifest/v3" }, null, 2)}\n`, "utf8");
+      writeFileSync(changelogPath, changelog, "utf8");
+      commitProjectionFixture(root, "the 0.13.x projection");
+    };
+
+    // Human text around the region, an event entry, or a changelog with no marker is left for a human.
+    for (const changelog of [humanText, withEntry, "# Changelog\n\nWritten by hand.\n"]) {
+      supersede(changelog);
+      const refused = await cli("docs", ["apply", "--profile", "default", "--approved"]);
+      expect((refused as any).error).toMatchObject({ reasonCode: "projection-orphan-review-required", details: { issueCount: 1 } });
+      expect(readFileSync(changelogPath, "utf8")).toBe(changelog);
+    }
+
+    supersede(placeholder);
+    const applied = await cli("docs", ["apply", "--profile", "default", "--approved"]);
+    expect(applied.ok, JSON.stringify(applied)).toBe(true);
+    expect(existsSync(changelogPath)).toBe(false);
+    expect(readFileSync(manifestPath, "utf8")).toBe(projected);
+    commitProjectionFixture(root, "re-baseline");
+
+    // After the re-baseline the v4 manifest is the only authority: a file at that path is not owned.
+    writeFileSync(changelogPath, placeholder, "utf8");
+    commitProjectionFixture(root, "a later file at the retired path");
+    const drift = await cli("docs", ["drift", "--profile", "default"]);
+    expect((drift.data as any).drift.ok, JSON.stringify(drift)).toBe(true);
+    expect((await cli("docs", ["apply", "--profile", "default", "--approved"])).ok).toBe(true);
+    expect(readFileSync(changelogPath, "utf8")).toBe(placeholder);
   } finally {
     await daemon.stop();
     removeTempRoot(root);

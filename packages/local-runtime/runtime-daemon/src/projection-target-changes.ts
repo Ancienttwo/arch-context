@@ -117,7 +117,7 @@ export function classifyProjectionTargetChanges(input: ProjectionTargetChangeInp
     } else {
       // An entity summary documents the capabilities its node, and the nodes whose footprint it
       // documents, belong to. An agent-context region documents the capabilities its node belongs
-      // to and renders no flow proof (ADR-0056 §4). Any other target (index, decisions, changelog,
+      // to and renders no flow proof (ADR-0056 §4). Any other target (index, decisions,
       // diagrams, relation summaries) describes the whole model and renders no flow proof.
       const entity = row.type === "entity-summary";
       const agentContext = row.type === "agent-context";

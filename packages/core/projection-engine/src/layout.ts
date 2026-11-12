@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import { relative, resolve } from "node:path";
-import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION, architectureDocsProjectionManifestIssues, digestJson, isRepoRelativePosixPath, type ArchitectureHistoryReadReason, isRuntimeTopologyNodeKind, stableId, type ArchitectureDocsProjectionManifestV4, type Json, type ProjectionTargetV1 } from "@archcontext/contracts";
+import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION, architectureDocsProjectionManifestIssues, architectureDocsProjectionManifestSchemaVersion, isSupersededArchitectureDocsProjectionManifestSchemaVersion, digestJson, isRepoRelativePosixPath, type ArchitectureHistoryReadReason, isRuntimeTopologyNodeKind, stableId, type ArchitectureDocsProjectionManifestV4, type Json, type ProjectionTargetV1 } from "@archcontext/contracts";
 import { ARCHITECTURE_HISTORY_PATH } from "./architecture-history";
 export { sourceIncludeAnchors as repoHarnessIncludeAnchors } from "./source-globs";
 
@@ -49,10 +49,21 @@ export interface ArchitectureDocumentationLayout {
   entityPathByNodeId: ReadonlyMap<string, string>;
 }
 
+/**
+ * The changelog the `default` layout rendered before 0.14.0 (ADR-0057). Its only intended source was
+ * the ledger, which is not Git-visible, so the target is gone and only the re-baseline of a
+ * superseded manifest reads a file left at this path.
+ */
+export const RETIRED_ARCHITECTURE_CHANGELOG = {
+  targetId: "projection_target.architecture.changelog",
+  path: "docs/architecture/changelog.md",
+  /** The region body every earlier render wrote: no production caller ever passed it a timeline. */
+  placeholderBody: "# Architecture Changelog\n\n- No accepted architecture ledger events selected for this projection.\n"
+} as const;
+
 const FIXED_TARGETS: ProjectionLayoutTargetDraft[] = [
   layoutTarget("projection_target.architecture.index", "architecture-index", { kind: "repository" }, "docs/architecture/index.md", "mixed", "markdown"),
   layoutTarget("projection_target.decision.index", "decision-index", { kind: "decision" }, "docs/architecture/decisions/index.md", "mixed", "markdown"),
-  layoutTarget("projection_target.architecture.changelog", "architecture-changelog", { kind: "changelog" }, "docs/architecture/changelog.md", "mixed", "markdown"),
   layoutTarget("projection_target.diagram.mermaid", "diagram-mermaid", { kind: "diagram", id: "architecture" }, "docs/architecture/diagrams/architecture.mmd", "generated", "mermaid"),
   layoutTarget("projection_target.diagram.structurizr", "diagram-structurizr", { kind: "diagram", id: "architecture" }, "docs/architecture/diagrams/architecture.structurizr.json", "generated", "structurizr-json"),
   layoutTarget("projection_target.diagram.likec4", "diagram-likec4", { kind: "diagram", id: "architecture" }, "docs/architecture/diagrams/architecture.likec4", "generated", "likec4")
@@ -164,7 +175,7 @@ export function resolveArchitectureDocumentationLayout(input: {
   // repo-harness/v1 publishes one projection per fact class (repo-harness#1222 D9): the capability
   // documents, the runtime topology pair (its only projection, ADR-0049 §4), the architecture
   // history, and the manifest. The
-  // default profile keeps every whole-model view. The retired paths stay listed so an apply can
+  // default profile keeps the other whole-model views. The retired paths stay listed so an apply can
   // remove the intact global files an earlier repo-harness/v1 manifest recorded.
   const targets = (profile === REPO_HARNESS_PROJECTION_PROFILE
     ? [...entityTargets, ...topologyTargets, ARCHITECTURE_HISTORY_TARGET, ...agentContextTargets]
@@ -175,7 +186,9 @@ export function resolveArchitectureDocumentationLayout(input: {
     profile,
     targets,
     expectedPaths: [...new Set([...targets.map((target) => target.path), "docs/architecture/.projection-manifest.json"])].sort(),
-    retiredTargetPaths: profile === REPO_HARNESS_PROJECTION_PROFILE ? FIXED_TARGETS.map((target) => target.path) : [],
+    retiredTargetPaths: profile === REPO_HARNESS_PROJECTION_PROFILE
+      ? [...FIXED_TARGETS.map((target) => target.path), RETIRED_ARCHITECTURE_CHANGELOG.path]
+      : [RETIRED_ARCHITECTURE_CHANGELOG.path],
     orphanRoots: ["docs/architecture/modules", "docs/architecture/relations"],
     entityPathByNodeId: new Map(entityTargets.map((target, index) => [targetNodes[index]!.id, target.path]))
   };
@@ -237,7 +250,8 @@ export function contractFilesForNode(node: ProjectionLayoutNode): string[] {
 
 export function loadArchitectureFilesForLayout(
   root: string,
-  layout: ArchitectureDocumentationLayout
+  layout: ArchitectureDocumentationLayout,
+  options: { rebaselineSupersededManifest?: boolean } = {}
 ): ProjectionOwnedFile[] {
   const paths = new Set<string>();
   for (const path of layout.expectedPaths) {
@@ -255,6 +269,14 @@ export function loadArchitectureFilesForLayout(
     const manifest = readProjectionOwnedFile(resolve(root, ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH), ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH);
     const retired = new Set(layout.retiredTargetPaths);
     const committed = currentFormatManifest(manifest.body);
+    // The re-baseline of a superseded manifest has no committed row to name a retired file, so it
+    // reads the `default` retired paths from disk (ADR-0057 Decision 3). No other run does: after
+    // it, the v4 manifest is the only record of what the projection owns. repo-harness/v1 keeps
+    // reading its retired paths only through committed rows.
+    if (options.rebaselineSupersededManifest === true && layout.profile !== REPO_HARNESS_PROJECTION_PROFILE
+      && isSupersededArchitectureDocsProjectionManifestSchemaVersion(architectureDocsProjectionManifestSchemaVersion(manifest.body))) {
+      for (const path of layout.retiredTargetPaths) if (resolveSafeRegularPath(root, path, false)) paths.add(path);
+    }
     for (const output of committedProjectionOutputs(committed)) {
       if (output.ownership !== "generated" && !retired.has(output.path)) continue;
       if (resolveSafeRegularPath(root, output.path, false)) paths.add(output.path);

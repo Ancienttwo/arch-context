@@ -261,15 +261,15 @@ describe("mixed regions: the marker carries no source digest (#327)", () => {
 
   test("a model change that leaves a region's output unchanged leaves its document untouched", () => {
     const first = render([]);
-    // The summary reaches only the payment module document; the index, decision index and
-    // changelog render the same bytes, so their files do not move although the model did.
+    // The summary reaches only the payment module document; the index and decision index render
+    // the same bytes, so their files do not move although the model did.
     const resummarized: NativeModel = { ...model, nodes: model.nodes.map((node) => node.id === "module.payment" ? { ...node, summary: "Takes and refunds payments." } : node) };
     const next = render(written(first), resummarized);
     expect(next.drift.diffs.map((diff) => [diff.path, diff.reasonCode])).toEqual([
       [manifestPath, "projection-manifest-stale"],
       ["docs/architecture/modules/module-payment.md", "projection-generated-region-stale"]
     ]);
-    for (const path of ["docs/architecture/index.md", "docs/architecture/decisions/index.md", "docs/architecture/changelog.md", ...generatedPaths]) {
+    for (const path of ["docs/architecture/index.md", "docs/architecture/decisions/index.md", ...generatedPaths]) {
       expect(file(next, path).body).toBe(file(first, path).body);
     }
   });

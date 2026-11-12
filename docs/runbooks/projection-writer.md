@@ -156,7 +156,7 @@ base branch. Gate automation on `data.verdict`; the envelope is ok for every val
 
 Conservative cases, by design, report `touches-non-generated` and fall back to full review or CI:
 
-- a mixed target (module document, index, changelog, agent-context file) that the pull request
+- a mixed target (module document, index, agent-context file) that the pull request
   adds or deletes, including a writer pull request that creates or removes a module document;
 - a mixed target whose generated-region markers are unbalanced or cannot be parsed on either side;
 - any hand-written file under `docs/architecture/`.

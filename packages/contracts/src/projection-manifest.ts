@@ -155,7 +155,6 @@ const TARGET_TYPES: Record<ProjectionTargetType, true> = {
   "entity-summary": true,
   "relation-summary": true,
   "decision-index": true,
-  "architecture-changelog": true,
   "diagram-mermaid": true,
   "diagram-structurizr": true,
   "diagram-likec4": true,
@@ -169,7 +168,7 @@ export const RUNTIME_TOPOLOGY_TARGET_TYPES = ["diagram-runtime-topology", "runti
 export function isRuntimeTopologyTargetType(type: unknown): type is (typeof RUNTIME_TOPOLOGY_TARGET_TYPES)[number] {
   return typeof type === "string" && (RUNTIME_TOPOLOGY_TARGET_TYPES as readonly string[]).includes(type);
 }
-const SCOPE_KINDS: Record<ProjectionTargetScopeKind, true> = { repository: true, entity: true, relation: true, decision: true, diagram: true, changelog: true };
+const SCOPE_KINDS: Record<ProjectionTargetScopeKind, true> = { repository: true, entity: true, relation: true, decision: true, diagram: true };
 const OWNERSHIPS: Record<ProjectionTargetOwnership, true> = { generated: true, mixed: true };
 const FORMATS: Record<ProjectionTargetFormat, true> = { markdown: true, mermaid: true, "structurizr-json": true, likec4: true };
 

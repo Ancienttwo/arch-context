@@ -76,6 +76,7 @@ import {
   loadArchitectureFilesForLayout,
   primarySourceDirectory,
   readProjectionOwnedFile,
+  RETIRED_ARCHITECTURE_CHANGELOG,
   committedGeneratedOutputs,
   architectureHistoryCarryForwardBlocker,
   type CommittedGeneratedOutput,
@@ -172,14 +173,6 @@ export interface ArchitectureDecisionRecord {
   title: string;
   path: string;
   status?: string;
-}
-
-export interface ArchitectureDocumentationTimelineEntry {
-  eventId: string;
-  timestamp: string;
-  title?: string;
-  summary?: string;
-  affectedSubjects?: string[];
 }
 
 export interface ArchitectureDocumentationExistingFile {
@@ -371,7 +364,6 @@ export function renderArchitectureDocumentationProjection(input: {
   importGraphs: CapabilityImportGraph[];
   selectorEvidence: ArchitectureSelectorEvidenceV1[];
   decisions?: ArchitectureDecisionRecord[];
-  timeline?: ArchitectureDocumentationTimelineEntry[];
   existingFiles?: ArchitectureDocumentationExistingFile[];
   /**
    * The complete architecture history at the projection base (ADR-0056 §8). Given, the
@@ -451,7 +443,7 @@ export function renderArchitectureDocumentationProjection(input: {
   // The plan-wide `input.sourceDigest` (the moving tree) is deliberately not folded into the
   // per-entity key either: it would couple every entity document to unrelated commits. No body
   // prints a wall-clock or run time, so two runs over the same inputs render the same bytes.
-  // Index/diagram/decision/relation/changelog targets render no per-node measurement, so their
+  // Index/diagram/decision/relation targets render no per-node measurement, so their
   // runtime target records the plan-wide `input.sourceDigest`. Neither a marker nor a manifest row
   // carries it: a marker records only the target, the renderer version and the output digest of
   // its own body, and a row records the output digest.
@@ -498,7 +490,6 @@ export function renderArchitectureDocumentationProjection(input: {
       semanticCompilationsByNodeId,
       stateMachines: input.stateMachines ?? [],
       decisions: input.decisions ?? [],
-      timeline: input.timeline ?? [],
       architectureHistory: input.architectureHistory,
       layout
     });
@@ -1121,7 +1112,12 @@ function assertArchitectureDocumentationProjectionProvenance(
   }
 }
 
-export function loadArchitectureDocumentationInputs(root: string, profile: ArchitectureProjectionProfile = "default"): {
+/** `rebaselineSupersededManifest`: only `docs apply`, which re-baselines a superseded manifest (ADR-0057 Decision 3). */
+export function loadArchitectureDocumentationInputs(
+  root: string,
+  profile: ArchitectureProjectionProfile = "default",
+  options: { rebaselineSupersededManifest?: boolean } = {}
+): {
   model: NativeModel;
   decisions: ArchitectureDecisionRecord[];
   existingFiles: ProjectionOwnedFile[];
@@ -1132,7 +1128,7 @@ export function loadArchitectureDocumentationInputs(root: string, profile: Archi
   return {
     model,
     decisions: loadArchitectureDecisionRecords(root),
-    existingFiles: loadArchitectureFilesForLayout(root, layout),
+    existingFiles: loadArchitectureFilesForLayout(root, layout, options),
     docsLanguage: loadArchitectureDocumentationLanguage(root)
   };
 }
@@ -2269,7 +2265,6 @@ function renderTargetGeneratedBody(
     semanticCompilationsByNodeId: Map<string, SemanticCapabilityDiagramCompilation>;
     stateMachines: readonly StateMachineV1[];
     decisions: ArchitectureDecisionRecord[];
-    timeline: ArchitectureDocumentationTimelineEntry[];
     architectureHistory: ArchitectureHistory | undefined;
     layout: ArchitectureDocumentationLayout;
   }
@@ -2287,7 +2282,6 @@ function renderTargetGeneratedBody(
   }
   if (target.type === "relation-summary") return renderRelationSummary(model.relations.find((relation) => relation.id === target.scope.id)!, model);
   if (target.type === "decision-index") return renderDecisionIndex(input.decisions, target.path);
-  if (target.type === "architecture-changelog") return renderArchitectureChangelog(input.timeline);
   if (target.type === "diagram-mermaid") return exportMermaidModel(model).files[0].content;
   if (target.type === "diagram-structurizr") return exportDocumentationStructurizrWorkspace(model).files[0].content;
   if (target.type === "diagram-likec4") return exportDocumentationLikeC4Model(model).files[0].content;
@@ -2331,8 +2325,7 @@ function renderArchitectureIndex(model: NativeModel, layout: ArchitectureDocumen
     ...layout.targets.flatMap((target) => target.type === "diagram-runtime-topology"
       ? [`- [Runtime topology Mermaid](${architectureIndexLink(target.path)})`]
       : target.type === "runtime-topology-summary" ? [`- [Runtime topology](${architectureIndexLink(target.path)})`] : []),
-    "- [Decision index](decisions/index.md)",
-    "- [Architecture changelog](changelog.md)"
+    "- [Decision index](decisions/index.md)"
   ];
   return `${lines.join("\n")}\n`;
 }
@@ -2604,20 +2597,6 @@ function renderDecisionIndex(decisions: ArchitectureDecisionRecord[], indexPath:
   return `${lines.join("\n")}\n`;
 }
 
-function renderArchitectureChangelog(timeline: ArchitectureDocumentationTimelineEntry[]): string {
-  const lines = [
-    "# Architecture Changelog",
-    "",
-    ...(timeline.length === 0
-      ? ["- No accepted architecture ledger events selected for this projection."]
-      : timeline.map((entry) => {
-        const affected = entry.affectedSubjects && entry.affectedSubjects.length > 0 ? ` (${entry.affectedSubjects.join(", ")})` : "";
-        return `- ${entry.timestamp} — ${entry.title ?? entry.eventId}${affected}${entry.summary ? `: ${entry.summary}` : ""}`;
-      }))
-  ];
-  return `${lines.join("\n")}\n`;
-}
-
 function wrapGeneratedRegion(target: ProjectionMixedTargetV1, generatedBody: string): string {
   return [
     target.generatedRegion.startMarker,
@@ -2767,6 +2746,18 @@ function architectureDocumentationProjectionDrift(input: {
       });
       continue;
     }
+    // Only the re-baseline of a superseded manifest loads the retired changelog (ADR-0057).
+    if (existing.path === RETIRED_ARCHITECTURE_CHANGELOG.path) {
+      const actualDigest = digestJson({ path: existing.path, body: existing.body } as unknown as Json);
+      diffs.push({ path: existing.path, targetId: RETIRED_ARCHITECTURE_CHANGELOG.targetId, reasonCode: "projection-orphaned", actualDigest });
+      orphans.push({
+        path: existing.path,
+        targetId: RETIRED_ARCHITECTURE_CHANGELOG.targetId,
+        actualDigest,
+        disposition: retiredChangelogHoldsOnlyPlaceholder(existing.body) ? "delete" : "human-review"
+      });
+      continue;
+    }
     if (!isManagedArchitectureDocumentationMarkdownPath(existing.path)) continue;
     const region = findAnyGeneratedRegion(existing.body);
     if (region && !targetIds.has(region.targetId)) {
@@ -2903,6 +2894,16 @@ function orphanHoldsOnlyIntactGeneratedRegion(body: string, targetId: string, sk
     && digestJson({ targetId, body: `${region.body.trimEnd()}\n` } as unknown as Json) === metadata.outputDigest;
 }
 
+/**
+ * True only for a retired changelog that is its one intact generated region holding the empty-state
+ * line. Human text, a missing or unusable marker, or any timeline entry is left for a human.
+ */
+function retiredChangelogHoldsOnlyPlaceholder(body: string): boolean {
+  const { targetId, placeholderBody } = RETIRED_ARCHITECTURE_CHANGELOG;
+  const region = findGeneratedRegion(body, targetId);
+  return region !== undefined && `${region.body.trimEnd()}\n` === placeholderBody && orphanHoldsOnlyIntactGeneratedRegion(body, targetId, []);
+}
+
 function findGeneratedRegion(body: string, targetId: string): { start: number; end: number; startMarker: string; body: string } | undefined {
   const region = scanDocumentRegions(body, { generatedBodyLiterals: false }).generatedRegions.find(region => region.targetId === targetId && region.closed);
   if (!region) return undefined;
@@ -2947,7 +2948,6 @@ function generatedEndMarker(targetId: string): string {
 function isManagedArchitectureDocumentationMarkdownPath(path: string): boolean {
   return /^docs\/architecture\/(modules|relations)\/.+\.md$/.test(path)
     || path === "docs/architecture/index.md"
-    || path === "docs/architecture/changelog.md"
     || path === "docs/architecture/decisions/index.md";
 }
 
