@@ -1634,6 +1634,8 @@ export interface CodeGraphSymbolReader {
    * keyed by source id. A reference that CodeGraph left unresolved has no target and is absent.
    */
   callees(ids: readonly string[]): Map<string, CodeGraphCallee[]>;
+  /** The ids that each id contains, directly or nested, by the index's `contains` edges. */
+  contained(ids: readonly string[]): Map<string, Set<string>>;
   close(): void;
 }
 
@@ -1716,6 +1718,20 @@ export function openCodeGraphSymbolReader(
           entries.set(target.id, { ...indexedDeclaration(target), containerKinds: containerKinds.get(target.id) ?? [] });
         }
         return new Map([...bySource].map(([source, entries]) => [source, [...entries.values()]]));
+      },
+      contained: (ids) => {
+        const result = new Map(ids.map((id) => [id, new Set<string>()]));
+        // One edge read per nesting level, for all ids at once.
+        let frontier = ids.map((id) => [id, id] as const);
+        while (frontier.length > 0) {
+          const roots = new Map<string, string[]>();
+          for (const [root, node] of frontier) roots.set(node, [...roots.get(node) ?? [], root]);
+          frontier = graph.getOutgoingEdgesFrom([...roots.keys()], ["contains"])
+            .flatMap((edge) => roots.get(edge.source)!.map((root) => [root, edge.target] as const))
+            .filter(([root, node]) => !result.get(root)!.has(node));
+          for (const [root, node] of frontier) result.get(root)!.add(node);
+        }
+        return result;
       },
       close: () => graph.close()
     }

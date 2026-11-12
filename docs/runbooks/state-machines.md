@@ -68,7 +68,8 @@ daemon and writes nothing. For each machine, sorted by id:
 A file anchor's digest covers the whole file. A symbol anchor's digest covers the lines of its one
 declaration and of each direct callee: a function, method, property, constant or variable in the
 repository that the CodeGraph index records as called or referenced by the declaration or by a
-declaration nested in it, such as a local function or a named closure. An edit elsewhere in the
+declaration that the index records as contained in it, such as a local function or a named
+closure. A sibling declared on the same line is not contained. An edit elsewhere in the
 file leaves it `confirmed`; an edit to a callee, in any file, makes it `anchor-changed`. Types,
 interfaces, classes, members of a type alias or an interface, code outside the repository and
 references that CodeGraph does not resolve are not covered. Both digests read CRLF as LF.
@@ -76,7 +77,9 @@ references that CodeGraph does not resolve are not covered. Both digests read CR
 The check reads symbols and callees only from the index and never syncs it. After an edit, a
 symbol anchor on the edited file, or with a callee in it, is `unchecked` with `index-stale` until
 the index is synced; `complete` syncs it first, a checkpoint does not. A deleted callee file
-also gives `index-stale` until a sync.
+also gives `index-stale` until a sync. A checkpoint whose changed paths include a deleted or
+renamed path evaluates every symbol anchor, because a synced index no longer records which anchors
+called into it.
 
 CodeGraph records a file over 1 MB by its size instead of its content, so a symbol anchor in such
 a file, or with a callee in one, stays `index-stale` and a sync does not fix it. Anchor the
