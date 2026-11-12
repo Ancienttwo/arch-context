@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { fixtureArchitectureHistory } from "./fixture-source-files";
 import {
   ARCHITECTURE_DOCS_LAYOUT_VERSION,
   ARCHITECTURE_DOCS_RENDERER_VERSION,
@@ -94,6 +95,7 @@ function render(overrides: Partial<Parameters<typeof renderArchitectureDocumenta
     sourceScaleSignals: scaleSignals,
     importGraphs: [],
     selectorEvidence: [],
+    architectureHistory: fixtureArchitectureHistory,
     ...overrides
   });
 }

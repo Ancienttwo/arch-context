@@ -5,6 +5,7 @@ import { parse as parseYaml } from "yaml";
 import { generatedMarkerAttributes, scanDocumentRegions } from "./document-regions";
 import { globLiteralPrefixLength } from "./source-globs";
 import { renderStateMachineSection } from "./state-machine-diagrams";
+import { renderHistoryMarkdown } from "./architecture-history";
 export * from "./document-regions";
 export * from "./architecture-history";
 export * from "./source-globs";
@@ -47,6 +48,7 @@ import {
   type ArchitectureDocumentationProjectionProvenanceV3,
   type ArchitectureFlowSelectorCheckV1,
   type ArchitectureFlowV1,
+  type ArchitectureHistory,
   type ArchitectureNodeSourceV2,
   type ArchitectureProjectionProofEvidenceV2,
   type ArchitectureRefreshSignalV2,
@@ -73,6 +75,7 @@ import {
   primarySourceDirectory,
   readProjectionOwnedFile,
   committedGeneratedOutputs,
+  architectureHistoryCarryForwardBlocker,
   type CommittedGeneratedOutput,
   type ProjectionOwnedFile,
   resolveArchitectureDocumentationLayout,
@@ -369,6 +372,12 @@ export function renderArchitectureDocumentationProjection(input: {
   timeline?: ArchitectureDocumentationTimelineEntry[];
   existingFiles?: ArchitectureDocumentationExistingFile[];
   /**
+   * The complete architecture history at the projection base (ADR-0056 §8). Given, the
+   * `architecture-history` target renders from it. Absent, the target carries its committed row and
+   * bytes forward, which must be intact (`architectureHistoryCarryForwardBlocker`).
+   */
+  architectureHistory?: ArchitectureHistory;
+  /**
    * `docs.language` (`loadArchitectureDocumentationLanguage`): the headings of a new module
    * document's skeleton. An existing document keeps its headings. Absent writes the legacy headings.
    */
@@ -450,8 +459,18 @@ export function renderArchitectureDocumentationProjection(input: {
   // ancestor-or-self that has one, or by both topology targets for a topology node; a footprint no
   // target documents is refused, never dropped.
   const footprintOwners = architectureProjectionFootprintOwners(model, layout.profile);
-  const rendered = targetDrafts.map((draft) => {
+  const historyTarget = layout.targets.find((target) => target.type === "architecture-history");
+  const historyBlocker = historyTarget === undefined || input.architectureHistory !== undefined
+    ? undefined
+    : architectureHistoryCarryForwardBlocker(existingByPath.get(ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH), existingByPath.get(historyTarget.path));
+  if (historyBlocker !== undefined) {
+    throw new Error(`architecture-history-input-missing: ${historyBlocker}, so the committed history row cannot be carried forward and this render must be given the architecture history`);
+  }
+  const rendered = targetDrafts.map((draft): ArchitectureDocumentationProjectionFile => {
     const existing = existingByPath.get(draft.path);
+    if (draft.type === "architecture-history" && input.architectureHistory === undefined) {
+      return carriedArchitectureHistoryFile(draft, previousManifest!.targets[draft.targetId]!, existing!, rendererVersion, input.sourceDigest);
+    }
     const nodeId = draft.type === "entity-summary" ? draft.scope.id : undefined;
     // A node that declares `source.include` with no measured scale signal throws
     // `architecture-docs-projection-scale-signal-missing` here.
@@ -462,6 +481,7 @@ export function renderArchitectureDocumentationProjection(input: {
       stateMachines: input.stateMachines ?? [],
       decisions: input.decisions ?? [],
       timeline: input.timeline ?? [],
+      architectureHistory: input.architectureHistory,
       layout
     });
     // Targets that render no per-node measurement key on the plan-wide digest; an entity-summary
@@ -805,6 +825,26 @@ function isolateBlockedCapabilityTargets(input: {
         .sort((left, right) => compareStrings(left.targetId, right.targetId)),
       appliedTargetIds: targets.map((target) => target.targetId).filter((targetId) => !carried.has(targetId)).sort(compareStrings)
     }
+  };
+}
+
+/**
+ * The `architecture-history` target of a render given no history (ADR-0056 §8): its intact
+ * committed row and bytes (`architectureHistoryCarryForwardBlocker`), not rendered again.
+ */
+function carriedArchitectureHistoryFile(
+  draft: ProjectionTargetDraft,
+  row: ArchitectureDocsProjectionManifestTargetV4,
+  body: string,
+  rendererVersion: typeof ARCHITECTURE_DOCS_RENDERER_VERSION,
+  sourceDigest: string
+): ArchitectureDocumentationProjectionFile {
+  return {
+    path: draft.path,
+    body,
+    target: projectionTarget({ ...draft, rendererVersion, sourceDigest, outputDigest: row.outputDigest }),
+    digest: digestJson({ path: draft.path, body } as unknown as Json),
+    generatedBodyDigest: row.outputDigest
   };
 }
 
@@ -2206,6 +2246,7 @@ function renderTargetGeneratedBody(
     stateMachines: readonly StateMachineV1[];
     decisions: ArchitectureDecisionRecord[];
     timeline: ArchitectureDocumentationTimelineEntry[];
+    architectureHistory: ArchitectureHistory | undefined;
     layout: ArchitectureDocumentationLayout;
   }
 ): string {
@@ -2228,6 +2269,7 @@ function renderTargetGeneratedBody(
   if (target.type === "diagram-likec4") return exportDocumentationLikeC4Model(model).files[0].content;
   if (target.type === "diagram-runtime-topology") return exportRuntimeTopologyMermaid(model).files[0].content;
   if (target.type === "runtime-topology-summary") return renderRuntimeTopologySummary(model, target.path);
+  if (target.type === "architecture-history") return renderHistoryMarkdown(input.architectureHistory!);
   return "";
 }
 

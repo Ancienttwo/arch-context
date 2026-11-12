@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { fixtureArchitectureHistory } from "./fixture-source-files";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -149,6 +150,7 @@ function render(input: RenderInput = {}): ArchitectureDocumentationProjectionPla
     importGraphs: [],
     selectorEvidence: input.evidence ?? proven,
     existingFiles: existing,
+    architectureHistory: fixtureArchitectureHistory,
     refreshContext: { repositoryId: "repo.example", workspaceId: "ws.example", headSha: "a".repeat(40), worktreeDigest: stamp("9") },
     ...(input.isolate ? { isolateBlockedCapabilities: true } : {})
   });

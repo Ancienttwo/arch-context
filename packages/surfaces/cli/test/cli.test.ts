@@ -419,7 +419,7 @@ function plannedProjectionFiles(plan: { data?: unknown }): { path: string; delet
   return operation?.projectionFiles ?? [];
 }
 
-test("repo-harness/v1 plans capability documents and the manifest only (#433)", async () => {
+test("repo-harness/v1 plans capability documents, the architecture history and the manifest only (#433)", async () => {
   const root = mkdtempSync(join(tmpdir(), "archctx-cli-433-plan-"));
   writeFileSync(join(root, "README.md"), "# projection fixture\n", "utf8");
   initializeArchContextModel(root, "Projection Targets App");
@@ -436,6 +436,7 @@ test("repo-harness/v1 plans capability documents and the manifest only (#433)", 
     expect(plan.ok, JSON.stringify(plan)).toBe(true);
     expect(plannedProjectionFiles(plan).map((file) => file.path).sort()).toEqual([
       "docs/architecture/.projection-manifest.json",
+      "docs/architecture/history.md",
       "docs/architecture/modules/runtime-harness/hook-adapters.md"
     ]);
   } finally {
@@ -471,6 +472,7 @@ test("repo-harness/v1 plans the topology pair beside capability documents when t
     expect(plannedProjectionFiles(plan).map((file) => file.path).sort()).toEqual([
       "docs/architecture/.projection-manifest.json",
       "docs/architecture/diagrams/runtime-topology.mmd",
+      "docs/architecture/history.md",
       "docs/architecture/modules/runtime-harness/hook-adapters.md",
       "docs/architecture/runtime-topology.md"
     ]);
@@ -515,6 +517,7 @@ test("repo-harness/v1 apply removes the intact whole-model files an earlier defa
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
     expect(manifest.profile).toBe("repo-harness/v1");
     expect(Object.values(manifest.targets).map((target: any) => [target.type, target.path])).toEqual([
+      ["architecture-history", "docs/architecture/history.md"],
       ["entity-summary", "docs/architecture/modules/runtime-harness/hook-adapters.md"]
     ]);
   } finally {

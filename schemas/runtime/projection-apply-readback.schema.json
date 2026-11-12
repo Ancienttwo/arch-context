@@ -1587,7 +1587,8 @@
           "items": {
             "enum": [
               "agent-context",
-              "architecture-docs"
+              "architecture-docs",
+              "architecture-history"
             ]
           }
         },

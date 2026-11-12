@@ -22,7 +22,7 @@ export const AGENT_CONTEXT_RENDERER_VERSION = "archcontext.agent-context-rendere
 
 export const PROJECTION_MODES = ["check", "plan", "apply", "adopt"] as const;
 export const PROJECTION_PRIOR_COMMITTED_APPLY_OPERATIONS = ["delete", "write"] as const;
-export const PROJECTION_TARGETS = ["agent-context", "architecture-docs"] as const;
+export const PROJECTION_TARGETS = ["agent-context", "architecture-docs", "architecture-history"] as const;
 export const PROJECTION_RESULT_STATUSES = [
   "adoption-required",
   "applied",

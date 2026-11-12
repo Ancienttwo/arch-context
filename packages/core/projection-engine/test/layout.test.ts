@@ -25,10 +25,11 @@ describe("repo-harness projection layout", () => {
       .toBe("docs/architecture/modules/runtime-harness/hook-adapters.md");
     expect(layout.entityPathByNodeId.get("capability.source-tree.core-index"))
       .toBe("docs/architecture/modules/source-tree/core-index.md");
-    // repo-harness/v1 projects one fact class per target: capability documents and the manifest.
+    // repo-harness/v1 projects one fact class per target: capability documents, the architecture history and the manifest.
     expect(layout.targets.map((target) => [target.type, target.path])).toEqual([
       ["entity-summary", "docs/architecture/modules/runtime-harness/hook-adapters.md"],
-      ["entity-summary", "docs/architecture/modules/source-tree/core-index.md"]
+      ["entity-summary", "docs/architecture/modules/source-tree/core-index.md"],
+      ["architecture-history", "docs/architecture/history.md"]
     ]);
     expect(layout.retiredTargetPaths).toEqual([
       "docs/architecture/index.md",

@@ -3,7 +3,7 @@
   "requestId": "projection_request.repo_main",
   "profile": "repo-harness/v1",
   "mode": "apply",
-  "targets": ["agent-context", "architecture-docs"],
+  "targets": ["agent-context", "architecture-docs", "architecture-history"],
   "changedPaths": ["packages/core/src/index.ts", "src/cli/main.ts"],
   "expected": {
     "repositoryId": "repo.example",

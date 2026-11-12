@@ -664,11 +664,18 @@ test("a replay surfaces a failed snapshot read instead of reporting a moved snap
 
 test("a new requestId for a committed accepted change restores reverted outputs and points at readback (#325)", async () => {
   await withProtocolFixture("archctx-projection-new-id-restore-", async ({ root, cli, request, projectionRun }) => {
+    // A committed model change is a history milestone, so an apply that names the history target
+    // rewrites history.md too, and the restore must render it again.
     editKeptSummary(root);
-    const original = request("apply", "projection_request.new_id_restore", { acceptObservedMajorChange: true });
+    const keptPath = join(root, `.archcontext/model/nodes/${KEPT}.yaml`);
+    writeFileSync(keptPath, readFileSync(keptPath, "utf8").replace('name: "Hook Adapters"', 'name: "Hook Adapter Router"'), "utf8");
+    commitAll(root, "rename the kept capability");
+    const historyBefore = readFileSync(join(root, "docs/architecture/history.md"), "utf8");
+    const original = request("apply", "projection_request.new_id_restore", { acceptObservedMajorChange: true, targets: ["architecture-docs", "architecture-history"] });
     const first = projectionResult(await projectionRun(original));
     expect(first.status).toBe("applied");
     const docsAfterFirst = docsSnapshot(root);
+    expect(docsAfterFirst["docs/architecture/history.md"]).not.toBe(historyBefore);
     git(root, "checkout", "--", "docs/architecture");
 
     // The worker guide's new requestId observes the same accepted change at the same snapshot. The
@@ -929,7 +936,9 @@ const V5_SOURCE_DIGEST = `sha256:${"5".repeat(64)}`;
 function rewriteOutputsAsV5(root: string, lineEnding: "lf" | "crlf"): string[] {
   const manifest = JSON.parse(readFileSync(join(root, MANIFEST_PATH), "utf8"));
   const changed: string[] = [];
-  for (const [targetId, row] of Object.entries(manifest.targets as Record<string, { path: string; ownership: string; outputDigest: string }>)) {
+  for (const [targetId, row] of Object.entries(manifest.targets as Record<string, { type: string; path: string; ownership: string; outputDigest: string }>)) {
+    // history.md was never a v5 output: it became a row with manifest v4 (ADR-0056 §8).
+    if (row.type === "architecture-history") continue;
     const absolute = join(root, row.path);
     const body = readFileSync(absolute, "utf8");
     const v5Marker = (markerTargetId: string, outputDigest: string) =>

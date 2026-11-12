@@ -7,7 +7,7 @@ import { assertProjectionCodeFactsAvailable, prepareArchitectureDocumentationPro
 import { readHeadSha, listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import type { RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { projectionProtocolGeneratedFrom, projectionWorkspaceId as runtimeProjectionWorkspaceId } from "./projection-inputs";
-import { projectionFailureEnvelope } from "./projection-service";
+import { architectureHistoryRenderInput, projectionFailureEnvelope } from "./projection-service";
 
 interface ProjectionApplyContext {
   assertRunning(): void;
@@ -224,6 +224,7 @@ function buildRuntimeProjectionRecoveryFixedPoint(root: string): RuntimeProjecti
     selectorEvidence: codeGraphInputs.selectorEvidence,
     provenance,
     sourceDigest,
+    ...architectureHistoryRenderInput(root, REPO_HARNESS_PROJECTION_PROFILE, loaded.existingFiles, false),
     refreshContext: {
       repositoryId: repositoryFingerprint(root),
       workspaceId: runtimeProjectionWorkspaceId(root),

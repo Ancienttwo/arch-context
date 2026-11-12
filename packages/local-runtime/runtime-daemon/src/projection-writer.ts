@@ -9,8 +9,7 @@ import { isProcessAlive } from "@archcontext/local-runtime/process-liveness";
 import { acquireLocalStoreWriterOwnership } from "@archcontext/local-runtime/local-store-sqlite";
 import { runtimeStatePaths } from "@archcontext/local-runtime/runtime-state-paths";
 import { findRepositoryRoot, isGitRevisionArgument, isTrackedWorktreeClean } from "@archcontext/local-runtime/git-adapter";
-import { ARCHITECTURE_HISTORY_PATH, agentContextProjectionTargetPaths, agentContextTextOutsideRegions, loadNativeModelFromArchContext, loadNativeModelFromModelFiles, projectionOwnedPaths, renderHistoryMarkdown, scanDocumentRegions } from "@archcontext/core/projection-engine";
-import { readArchitectureHistory } from "@archcontext/local-runtime/model-store-yaml";
+import { agentContextProjectionTargetPaths, agentContextTextOutsideRegions, loadNativeModelFromArchContext, loadNativeModelFromModelFiles, projectionOwnedPaths, scanDocumentRegions } from "@archcontext/core/projection-engine";
 import {
   ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH,
   PROJECTION_PR_VERIFICATION_SCHEMA_VERSION,
@@ -67,14 +66,9 @@ export const PROJECTION_PR_BODY_MARKER = "<!-- archctx-projection-writer -->";
 
 const PROJECTION_WRITER_STATE_SCHEMA_VERSION = "archcontext.projection-writer-state/v1";
 const PROJECTION_WRITER_MAX_ITERATIONS = 3;
-const PROJECTION_WRITER_TARGETS: ProjectionRequestV1["targets"] = ["agent-context", "architecture-docs"];
+const PROJECTION_WRITER_TARGETS: ProjectionRequestV1["targets"] = ["agent-context", "architecture-docs", "architecture-history"];
 const PUBLISHER_TIMEOUT_MS = 120_000;
 const PR_BODY_MAX_LISTED_PATHS = 200;
-
-function renderRecentHistory(root: string, ref: string, env?: Env): string {
-  const { total } = readArchitectureHistory(root, { ref, limit: 0, env });
-  return renderHistoryMarkdown(readArchitectureHistory(root, { ref, offset: Math.max(0, total - 20), limit: 20, env }));
-}
 
 type Env = Record<string, string | undefined>;
 
@@ -376,14 +370,7 @@ async function runLockedProjectionPublish(input: LockedRunInput): Promise<Locked
         throw new ProjectionWriterFailure("AC_PRECONDITION_FAILED", "projection-apply-status-unsupported", `projection apply ended with status ${projectionStatus}; the writer publishes only noop, applied and applied-partial results`);
       }
 
-      const historyBody = renderRecentHistory(paths.worktree, baseSha, options.env);
-      const historyPath = join(paths.worktree, ARCHITECTURE_HISTORY_PATH);
-      mkdirSync(join(paths.worktree, "docs/architecture"), { recursive: true });
-      const historyTemp = `${historyPath}.${randomUUID()}.tmp`;
-      writeFileSync(historyTemp, historyBody);
-      renameSync(historyTemp, historyPath);
-
-      // 4. Every changed path must be a file the apply wrote or the history output.
+      // 4. Every changed path must be a file the apply wrote.
       const changed = worktreeChangedPaths(paths.worktree);
       if (changed.length === 0) {
         // A no-op proves freshness only for the tip we rendered. The base can advance
@@ -399,7 +386,6 @@ async function runLockedProjectionPublish(input: LockedRunInput): Promise<Locked
         return finish("up-to-date", { projectionStatus });
       }
       const written = new Set(result.files.filter((file) => file.action !== "unchanged").map((file) => file.path));
-      written.add(ARCHITECTURE_HISTORY_PATH);
       const offending = changed.filter((path) => !written.has(path) || !isProjectionOwnedPath(path, ownedPatterns));
       if (offending.length > 0) {
         return failed(new ProjectionWriterFailure("AC_POLICY_VIOLATION", "projection-writer-non-owned-change",
@@ -698,13 +684,11 @@ export function runProjectionVerifyPrCommand(options: { cwd: string; base: strin
       // A contract file whose region the render refuses (for example a tampered marker digest) is not rendered output.
       agentContextDiffering = [...classified.agentContextPaths];
     }
-    const historyDiffering = changedPaths.includes(ARCHITECTURE_HISTORY_PATH) && readFileAtRevision(root, headSha, ARCHITECTURE_HISTORY_PATH) !== renderRecentHistory(root, headSha) ? [ARCHITECTURE_HISTORY_PATH] : [];
     const differingPaths = [...new Set([
       ...result.files.filter((file) => file.action !== "unchanged").map((file) => file.path),
-      ...agentContextDiffering,
-      ...historyDiffering
+      ...agentContextDiffering
     ])].sort();
-    const renderEquivalent = result.status === "noop" && agentContextDiffering.length === 0 && historyDiffering.length === 0;
+    const renderEquivalent = result.status === "noop" && agentContextDiffering.length === 0;
     return verification({
       verdict: renderEquivalent ? "generated-only-render-equivalent" : "generated-only-not-render-equivalent",
       generatedOnly: true,
@@ -737,7 +721,7 @@ function classifyPullRequestPaths(root: string, mergeBase: string, headSha: stri
   const humanEdited: string[] = [];
   const agentContext: string[] = [];
   for (const path of changedPaths) {
-    if (path === ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH || path === ARCHITECTURE_HISTORY_PATH) continue;
+    if (path === ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH) continue;
     const atBase = baseTargets.get(path);
     const atHead = headTargets.get(path);
     if (!atBase && !atHead) { nonGenerated.push(path); continue; }

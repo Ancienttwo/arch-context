@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { ARCHITECTURE_HISTORY_DERIVATION_VERSION, ARCHITECTURE_HISTORY_SCHEMA_VERSION, FailureError, NativeContextError, decodeArchitectureHistoryState, nativeByteCompare, validateJsonSchema, type ArchitectureHistory, type HistoryDelta, type HistoryEdge, type HistoryMilestone, type HistoryState, type HistoryStructureNode, type Json } from "@archcontext/contracts";
+import { ARCHITECTURE_HISTORY_DERIVATION_VERSION, ARCHITECTURE_HISTORY_SCHEMA_VERSION, FailureError, NativeContextError, decodeArchitectureHistoryState, nativeByteCompare, validateJsonSchema, type ArchitectureHistory, type ArchitectureHistoryReadReason, type HistoryDelta, type HistoryEdge, type HistoryMilestone, type HistoryState, type HistoryStructureNode, type Json } from "@archcontext/contracts";
 import { parseJsonOrStableYaml } from "@archcontext/core/architecture-domain";
 import { runtimeStatePaths } from "@archcontext/local-runtime/runtime-state-paths";
 import { decodeUtf8, readGitBlobTree, readGitBlobs, readNativeGitRoot, readOnlyGit, resolveNativeGitSnapshot, type GitBlobTreeEntry } from "../../git-adapter/src/blob-reader";
@@ -102,9 +102,12 @@ function difference(before: HistoryState & { structure: HistoryStructureNode[]; 
   };
 }
 
-export function readArchitectureHistory(cwd: string, options: { ref?: string; offset?: number; limit?: number; env?: Record<string, string | undefined> } = {}): ArchitectureHistory {
+/** `readReason`: why a projection render reads the history; a shallow-clone refusal names it. */
+export function readArchitectureHistory(cwd: string, options: { ref?: string; offset?: number; limit?: number; env?: Record<string, string | undefined>; readReason?: ArchitectureHistoryReadReason } = {}): ArchitectureHistory {
   const root = readNativeGitRoot(cwd);
-  if (decodeUtf8(readOnlyGit(root, "rev-parse", ["--is-shallow-repository"])).trim() === "true") throw new FailureError("AC_PRECONDITION_FAILED", "history-shallow-repository");
+  if (decodeUtf8(readOnlyGit(root, "rev-parse", ["--is-shallow-repository"])).trim() === "true") {
+    throw new FailureError("AC_PRECONDITION_FAILED", "history-shallow-repository", options.readReason ? { historyReadReason: options.readReason } : {});
+  }
   const head = resolveNativeGitSnapshot(root, options.ref ?? "HEAD").commitSha;
   const output = decodeUtf8(readOnlyGit(root, "log", ["--first-parent", "--reverse", "-z", "--format=%H%x00%cI%x00%s", head, "--", modelRoot, ".archcontext/manifest.yaml"]));
   const fields = output ? output.split("\0") : [];
