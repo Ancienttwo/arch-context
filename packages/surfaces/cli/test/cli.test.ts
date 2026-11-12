@@ -517,6 +517,8 @@ test("repo-harness/v1 apply removes the intact whole-model files an earlier defa
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
     expect(manifest.profile).toBe("repo-harness/v1");
     expect(Object.values(manifest.targets).map((target: any) => [target.type, target.path])).toEqual([
+      ["agent-context", "AGENTS.md"],
+      ["agent-context", "CLAUDE.md"],
       ["architecture-history", "docs/architecture/history.md"],
       ["entity-summary", "docs/architecture/modules/runtime-harness/hook-adapters.md"]
     ]);

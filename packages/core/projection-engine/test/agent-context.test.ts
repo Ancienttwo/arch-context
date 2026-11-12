@@ -70,7 +70,7 @@ describe("renderAgentContextProjection (ADR-0043)", () => {
   });
 
   test("constructs one agent-context target per CLAUDE.md/AGENTS.md for every capability node with a declared source", () => {
-    const plan = renderAgentContextProjection({ model, sourceDigest });
+    const plan = renderAgentContextProjection({ model });
 
     expect(plan.schemaVersion).toBe("archcontext.agent-context-projection-plan/v1");
     expect(plan.rendererVersion).toBe(AGENT_CONTEXT_RENDERER_VERSION);
@@ -122,7 +122,7 @@ describe("renderAgentContextProjection (ADR-0043)", () => {
   });
 
   test("renders a marker-delimited body carrying id/name/summary/source/extensions", () => {
-    const plan = renderAgentContextProjection({ model, sourceDigest });
+    const plan = renderAgentContextProjection({ model });
     const claudeFile = plan.files.find((file) => file.path === "scripts/CLAUDE.md")!;
 
     expect(claudeFile.body).toContain(AGENT_CONTEXT_BEGIN_PREFIX);
@@ -164,8 +164,8 @@ describe("renderAgentContextProjection (ADR-0043)", () => {
   });
 
   test("rendering is deterministic: identical input yields identical output digests", () => {
-    const first = renderAgentContextProjection({ model, sourceDigest });
-    const second = renderAgentContextProjection({ model: { nodes: [...model.nodes].reverse(), relations: [] }, sourceDigest });
+    const first = renderAgentContextProjection({ model });
+    const second = renderAgentContextProjection({ model: { nodes: [...model.nodes].reverse(), relations: [] } });
 
     const firstDigests = first.targets.map((target) => target.outputDigest).sort();
     const secondDigests = second.targets.map((target) => target.outputDigest).sort();
@@ -175,7 +175,6 @@ describe("renderAgentContextProjection (ADR-0043)", () => {
   test("preserves surrounding human-authored content and replaces only its own marker region", () => {
     const initial = renderAgentContextProjection({
       model,
-      sourceDigest,
       existingFiles: [{ path: "scripts/CLAUDE.md", body: "# Scripts\n\nHuman-written context for this directory.\n" }]
     });
     const claudeFile = initial.files.find((file) => file.path === "scripts/CLAUDE.md")!;
@@ -186,7 +185,6 @@ describe("renderAgentContextProjection (ADR-0043)", () => {
     // or disturb the human-authored heading above it.
     const again = renderAgentContextProjection({
       model,
-      sourceDigest,
       existingFiles: initial.files.map(({ path, body }) => ({ path, body }))
     });
     const claudeAgain = again.files.find((file) => file.path === "scripts/CLAUDE.md")!;
@@ -194,17 +192,25 @@ describe("renderAgentContextProjection (ADR-0043)", () => {
     expect(claudeAgain.body.match(new RegExp(AGENT_CONTEXT_BEGIN_PREFIX.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"))?.length).toBe(1);
     expect(claudeAgain.body).toContain("Human-written context for this directory.");
 
-    // A change to the underlying facts (new sourceDigest) must replace only the marker
-    // region in place, leaving the human-authored heading untouched.
+    // A model edit outside the node leaves the file byte-identical: the marker carries no
+    // model-wide digest (ADR-0056 §9).
+    const unrelated = renderAgentContextProjection({
+      model: { ...model, nodes: [...model.nodes, { id: "module.unrelated", kind: "module", name: "Unrelated" }] },
+      existingFiles: initial.files.map(({ path, body }) => ({ path, body }))
+    });
+    expect(unrelated.files.find((file) => file.path === "scripts/CLAUDE.md")!.body).toBe(claudeFile.body);
+    expect(claudeFile.body).not.toContain("sourceDigest=");
+
+    // A change to the node's own facts replaces only the marker region in place, leaving the
+    // human-authored heading untouched.
     const changed = renderAgentContextProjection({
-      model,
-      sourceDigest: "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      model: { ...model, nodes: model.nodes.map((node) => node.id === "capability.workflow-engine.inspection-migration" ? { ...node, name: "Renamed Migration" } : node) },
       existingFiles: initial.files.map(({ path, body }) => ({ path, body }))
     });
     const claudeChanged = changed.files.find((file) => file.path === "scripts/CLAUDE.md")!;
     expect(claudeChanged.body).toContain("Human-written context for this directory.");
+    expect(claudeChanged.body).toContain("# Agent Context: Renamed Migration");
     expect(claudeChanged.body.match(new RegExp(AGENT_CONTEXT_BEGIN_PREFIX.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"))?.length).toBe(1);
-    expect(claudeChanged.targets[0]?.sourceDigest).toBe("sha256:2222222222222222222222222222222222222222222222222222222222222222");
   });
 
   test("rejects source.include paths that escape the repository", () => {
@@ -219,7 +225,7 @@ describe("renderAgentContextProjection (ADR-0043)", () => {
       ],
       relations: []
     };
-    const plan = renderAgentContextProjection({ model: shared, sourceDigest });
+    const plan = renderAgentContextProjection({ model: shared });
     expect(plan.targets).toHaveLength(4);
     expect(plan.files.map((file) => file.path)).toEqual([
       "packages/shared/AGENTS.md",
@@ -232,14 +238,13 @@ describe("renderAgentContextProjection (ADR-0043)", () => {
     }
   });
 
-  test("rejects a tampered generated region whose marker digest no longer matches its body", () => {
-    const initial = renderAgentContextProjection({ model, sourceDigest });
+  test("rewrites a hand-edited region whose marker digest no longer matches its body", () => {
+    const initial = renderAgentContextProjection({ model });
     const files = initial.files.map(({ path, body }) => ({
       path,
       body: path === "scripts/CLAUDE.md" ? body.replace("Inspection Migration", "Tampered Content") : body
     }));
-    expect(() => renderAgentContextProjection({ model, sourceDigest, existingFiles: files }))
-      .toThrow("agent-context-marker-output-digest-mismatch");
+    expect(renderAgentContextProjection({ model, existingFiles: files }).files).toEqual(initial.files);
   });
 
   test("agentContextProjectionTargetPaths is the single derivation the renderer consumes", () => {
@@ -247,7 +252,7 @@ describe("renderAgentContextProjection (ADR-0043)", () => {
     // renderer. If these two ever disagree, either the write surface is too wide or a legitimate
     // write is denied — so they are pinned to be the same set.
     const derived = agentContextProjectionTargetPaths(model);
-    const rendered = renderAgentContextProjection({ model, sourceDigest }).files.map((file) => file.path);
+    const rendered = renderAgentContextProjection({ model }).files.map((file) => file.path);
     expect([...new Set(derived.map((target) => target.path))].sort()).toEqual([...rendered].sort());
     expect(derived).toContainEqual({
       nodeId: "capability.projection.agent-context",
@@ -272,27 +277,10 @@ describe("renderAgentContextProjection (ADR-0043)", () => {
     };
     expect(() => agentContextProjectionTargetPaths(rootGlob))
       .toThrow("agent-context-primary-source-dir-is-repository-root: capability.everything");
-    expect(() => renderAgentContextProjection({ model: rootGlob, sourceDigest }))
+    expect(() => renderAgentContextProjection({ model: rootGlob }))
       .toThrow("agent-context-primary-source-dir-is-repository-root: capability.everything");
     expect(() => projectionOwnedPaths(rootGlob))
       .toThrow("agent-context-primary-source-dir-is-repository-root: capability.everything");
-  });
-
-  test("names the file, the node and both digests when a marker no longer matches its region", () => {
-    const initial = renderAgentContextProjection({ model, sourceDigest });
-    const files = initial.files.map(({ path, body }) => ({
-      path,
-      body: path === "scripts/CLAUDE.md" ? body.replace("Inspection Migration", "Tampered Content") : body
-    }));
-    try {
-      renderAgentContextProjection({ model, sourceDigest, existingFiles: files });
-      throw new Error("expected a digest mismatch");
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      expect(message).toContain("agent-context-marker-output-digest-mismatch: scripts/CLAUDE.md");
-      expect(message).toContain("node capability.workflow-engine.inspection-migration");
-      expect(message).toMatch(/marker records sha256:[0-9a-f]{64}, region body digests to sha256:[0-9a-f]{64}/);
-    }
   });
 
   test("does not project non-capability nodes even when they declare a source", () => {
@@ -302,8 +290,7 @@ describe("renderAgentContextProjection (ADR-0043)", () => {
           { id: "module.with-source", kind: "module", name: "Module With Source", source: { include: ["src/module/**"] } }
         ],
         relations: []
-      },
-      sourceDigest
+      }
     });
     expect(plan.targets).toHaveLength(0);
     expect(plan.files).toHaveLength(0);
@@ -313,14 +300,38 @@ describe("renderAgentContextProjection (ADR-0043)", () => {
 test("root markers reject incomplete, duplicate and digest-valid overlapping regions", async () => {
   const { digestJson } = await import("@archcontext/contracts");
   const rootModel: NativeModel = { nodes: [{ id: "capability.test.root", kind: "capability", name: "Root", extensions: { contractFiles: { agents: "AGENTS.md", claude: "CLAUDE.md" } } }], relations: [] };
-  const plan = renderAgentContextProjection({ model: rootModel, sourceDigest });
+  const plan = renderAgentContextProjection({ model: rootModel });
   const file = plan.files.find(file => file.path === "AGENTS.md")!;
   const end = '<!-- END ARCHCONTEXT AGENT CONTEXT id="capability.test.root" -->';
-  const nestedBody = '# outer\n<!-- BEGIN ARCHCONTEXT AGENT CONTEXT id="capability.other.root" -->\nHuman region\n<!-- END ARCHCONTEXT AGENT CONTEXT id="capability.other.root" -->\n';
-  const digest = digestJson({ id: "capability.test.root", body: nestedBody });
-  const overlap = `<!-- BEGIN ARCHCONTEXT AGENT CONTEXT id="capability.test.root" outputDigest="${digest}" -->\n${nestedBody}${end}\n`;
-  for (const body of [file.body.replace(end, ""), `${file.body}${file.body}`, end, overlap]) {
-    expect(() => renderAgentContextProjection({ model: rootModel, sourceDigest, existingFiles: [{ path: "AGENTS.md", body }] })).toThrow("agent-context-marker");
+  const complete = (id: string, body: string) => `<!-- BEGIN ARCHCONTEXT AGENT CONTEXT id="${id}" rendererVersion="archcontext.agent-context-renderer/v2" outputDigest="${digestJson({ id, body })}" -->`;
+  const innerBody = "Human region\n";
+  const nestedBody = `# outer\n${complete("capability.other.root", innerBody)}\n${innerBody}<!-- END ARCHCONTEXT AGENT CONTEXT id="capability.other.root" -->\n`;
+  const overlap = `${complete("capability.test.root", nestedBody)}\n${nestedBody}${end}\n`;
+  // An id-less or unpaired marker anywhere in the file fails closed, never reads as a missing region (#572 G-F2).
+  const stray = ["# Human\n<!-- BEGIN ARCHCONTEXT AGENT CONTEXT -->\nstray\n", '# Human\n<!-- END ARCHCONTEXT AGENT CONTEXT id="capability.other.root" -->\n'];
+  // A paired region of another node whose marker lacks a required attribute fails closed too (#572 G2-F1).
+  const otherIncomplete = `${file.body}<!-- BEGIN ARCHCONTEXT AGENT CONTEXT id="capability.other.root" rendererVersion="archcontext.agent-context-renderer/v2" -->\nOther\n<!-- END ARCHCONTEXT AGENT CONTEXT id="capability.other.root" -->\n`;
+  // A repeated attribute fails closed instead of letting the last value win (#572 G4-F1).
+  const repeatedId = `${complete("capability.test.root", innerBody).replace(' id="capability.test.root"', ' id="capability.test.root" id="capability.other.root"')}\n${innerBody}<!-- END ARCHCONTEXT AGENT CONTEXT id="capability.other.root" -->\n`;
+  expect(() => renderAgentContextProjection({ model: rootModel, existingFiles: [{ path: "AGENTS.md", body: repeatedId }] })).toThrow("agent-context-marker-malformed");
+  for (const body of [file.body.replace(end, ""), `${file.body}${file.body}`, end, ...stray, otherIncomplete]) {
+    expect(() => renderAgentContextProjection({ model: rootModel, existingFiles: [{ path: "AGENTS.md", body }] })).toThrow("agent-context-marker");
+  }
+  // Both markers are complete, so only the nesting can refuse this body (#572 R3-F1).
+  expect(() => renderAgentContextProjection({ model: rootModel, existingFiles: [{ path: "AGENTS.md", body: overlap }] })).toThrow("agent-context-marker-overlap");
+});
+
+test("a reordered or v1 root marker is the node's region and re-renders to the canonical bytes", () => {
+  const rootModel: NativeModel = { nodes: [{ id: "capability.test.root", kind: "capability", name: "Root", extensions: { contractFiles: { agents: "AGENTS.md", claude: "CLAUDE.md" } } }], relations: [] };
+  const canonical = renderAgentContextProjection({ model: rootModel }).files.find(file => file.path === "AGENTS.md")!.body;
+  const [, id, rendererVersion, outputDigest] = /^(id="[^"]+") (rendererVersion="[^"]+") (outputDigest="[^"]+")/.exec(canonical.slice("<!-- BEGIN ARCHCONTEXT AGENT CONTEXT ".length))!;
+  const reordered = canonical.replace(`${id} ${rendererVersion} ${outputDigest}`, `${rendererVersion} ${outputDigest} ${id}`);
+  const v1 = canonical.replace(rendererVersion, `sourceDigest="${sourceDigest}" rendererVersion="archcontext.agent-context-renderer/v1"`);
+  for (const existing of [reordered, v1]) {
+    expect(existing).not.toBe(canonical);
+    const rendered = renderAgentContextProjection({ model: rootModel, existingFiles: [{ path: "AGENTS.md", body: `# Human\n\n${existing}` }] });
+    // A marker the parser did not recognize as this node's region would be appended a second time (#572 G3-F1).
+    expect(rendered.files.find(file => file.path === "AGENTS.md")!.body).toBe(`# Human\n\n${canonical}`);
   }
 });
 

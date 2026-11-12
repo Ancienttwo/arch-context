@@ -159,7 +159,7 @@ function ownedLines(manifest: string, key: "row" | "capability", id: string): st
 }
 
 function entityTargetId(manifest: string, nodeId: string): string {
-  const entry = Object.entries(JSON.parse(manifest).targets as Record<string, { scope: { id?: string } }>).find(([, row]) => row.scope.id === nodeId);
+  const entry = Object.entries(JSON.parse(manifest).targets as Record<string, { type: string; scope: { id?: string } }>).find(([, row]) => row.type === "entity-summary" && row.scope.id === nodeId);
   if (!entry) throw new Error(`manifest has no target for ${nodeId}`);
   return entry[0];
 }

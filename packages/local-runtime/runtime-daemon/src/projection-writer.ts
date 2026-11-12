@@ -9,7 +9,7 @@ import { isProcessAlive } from "@archcontext/local-runtime/process-liveness";
 import { acquireLocalStoreWriterOwnership } from "@archcontext/local-runtime/local-store-sqlite";
 import { runtimeStatePaths } from "@archcontext/local-runtime/runtime-state-paths";
 import { findRepositoryRoot, isGitRevisionArgument, isTrackedWorktreeClean } from "@archcontext/local-runtime/git-adapter";
-import { agentContextProjectionTargetPaths, agentContextTextOutsideRegions, loadNativeModelFromArchContext, loadNativeModelFromModelFiles, projectionOwnedPaths, scanDocumentRegions } from "@archcontext/core/projection-engine";
+import { agentContextTextOutsideRegions, loadNativeModelFromArchContext, projectionOwnedPaths, scanDocumentRegions } from "@archcontext/core/projection-engine";
 import {
   ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH,
   PROJECTION_PR_VERIFICATION_SCHEMA_VERSION,
@@ -40,7 +40,7 @@ import {
   type ProjectionResultV3
 } from "@archcontext/contracts";
 import { publicOperationErrorEnvelope } from "./public-operation-failure";
-import { agentContextProjectionDifferingPaths, runProjectionCheckInvocation, runProjectionSnapshotCommand } from "./projection-service";
+import { runProjectionCheckInvocation, runProjectionSnapshotCommand } from "./projection-service";
 
 /**
  * Projection writer mode (issue #379, ADR-0048). `archctx projection publish` is a client of the
@@ -675,20 +675,9 @@ export function runProjectionVerifyPrCommand(options: { cwd: string; base: strin
     const checked = (options.check ?? runProjectionCheckInvocation)(request, root);
     if (!checked.ok) return { ...checked, requestId };
     const result = checked.data as unknown as ProjectionResultV3;
-    // `check` renders the architecture documentation only; a changed agent-context file is compared
-    // with the agent-context render, so its generated region is proven too.
-    let agentContextDiffering: string[];
-    try {
-      agentContextDiffering = agentContextProjectionDifferingPaths(root, classified.agentContextPaths);
-    } catch {
-      // A contract file whose region the render refuses (for example a tampered marker digest) is not rendered output.
-      agentContextDiffering = [...classified.agentContextPaths];
-    }
-    const differingPaths = [...new Set([
-      ...result.files.filter((file) => file.action !== "unchanged").map((file) => file.path),
-      ...agentContextDiffering
-    ])].sort();
-    const renderEquivalent = result.status === "noop" && agentContextDiffering.length === 0;
+    // `check` renders every manifest row, agent-context contract regions included (ADR-0056 §9).
+    const differingPaths = [...new Set(result.files.filter((file) => file.action !== "unchanged").map((file) => file.path))].sort();
+    const renderEquivalent = result.status === "noop";
     return verification({
       verdict: renderEquivalent ? "generated-only-render-equivalent" : "generated-only-not-render-equivalent",
       generatedOnly: true,
@@ -714,12 +703,11 @@ type PullRequestTargetOwnership = { whole: boolean; mixedDocument: boolean; agen
  * target) is generated only when HEAD deletes it: HEAD's render never looks at a file it no longer
  * targets, so a rewrite of such a file would otherwise pass as render-equivalent.
  */
-function classifyPullRequestPaths(root: string, mergeBase: string, headSha: string, changedPaths: readonly string[]): { nonGeneratedPaths: string[]; humanEditedPaths: string[]; agentContextPaths: string[] } {
+function classifyPullRequestPaths(root: string, mergeBase: string, headSha: string, changedPaths: readonly string[]): { nonGeneratedPaths: string[]; humanEditedPaths: string[] } {
   const baseTargets = projectionTargetsAtRevision(root, mergeBase);
   const headTargets = projectionTargetsAtRevision(root, headSha);
   const nonGenerated: string[] = [];
   const humanEdited: string[] = [];
-  const agentContext: string[] = [];
   for (const path of changedPaths) {
     if (path === ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH) continue;
     const atBase = baseTargets.get(path);
@@ -737,14 +725,15 @@ function classifyPullRequestPaths(root: string, mergeBase: string, headSha: stri
     if (!mixedTargetTextUnchanged(before, after, target)) {
       humanEdited.push(path);
       nonGenerated.push(path);
-    } else if (target.agentNodeIds.length > 0) {
-      agentContext.push(path);
     }
   }
-  return { nonGeneratedPaths: nonGenerated.sort(), humanEditedPaths: humanEdited.sort(), agentContextPaths: agentContext.sort() };
+  return { nonGeneratedPaths: nonGenerated.sort(), humanEditedPaths: humanEdited.sort() };
 }
 
-/** Manifest target rows and agent-context target paths at one revision; an unreadable side contributes nothing. */
+/**
+ * The manifest target rows at one revision; an unreadable side contributes nothing. An agent-context
+ * row contributes its node, whose region is the only generated text of that contract file.
+ */
 function projectionTargetsAtRevision(root: string, revision: string): Map<string, PullRequestTargetOwnership> {
   const targets = new Map<string, PullRequestTargetOwnership>();
   const add = (path: string, ownership: Partial<PullRequestTargetOwnership>) => {
@@ -759,21 +748,18 @@ function projectionTargetsAtRevision(root: string, revision: string): Map<string
     const manifest = readFileAtRevision(root, revision, ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH);
     const rows = manifest === null ? {} : (JSON.parse(manifest) as { targets?: unknown }).targets;
     if (rows && typeof rows === "object" && !Array.isArray(rows)) {
-      for (const row of Object.values(rows as Record<string, { path?: unknown; ownership?: unknown }>)) {
+      for (const row of Object.values(rows as Record<string, { type?: unknown; scope?: { id?: unknown }; path?: unknown; ownership?: unknown }>)) {
         if (!row || typeof row.path !== "string") continue;
+        if (row.type === "agent-context" && typeof row.scope?.id === "string") {
+          add(row.path, { agentNodeIds: [row.scope.id] });
+          continue;
+        }
         // Anything but whole-file `generated` is compared as mixed: unknown ownership is never trusted.
         add(row.path, row.ownership === "generated" ? { whole: true } : { mixedDocument: true });
       }
     }
   } catch {
     // An unreadable manifest names no target on this side; its paths stay non-generated.
-  }
-  try {
-    const listed = git(root, ["ls-tree", "-r", "-z", "--name-only", revision, "--", ".archcontext/model"]).split("\0").filter(Boolean);
-    const files = new Map(listed.map((path) => [path, readFileAtRevision(root, revision, path) ?? ""] as const));
-    for (const target of agentContextProjectionTargetPaths(loadNativeModelFromModelFiles(files))) add(target.path, { agentNodeIds: [target.nodeId] });
-  } catch {
-    // A model that does not load at this revision designates no agent-context target on this side.
   }
   return targets;
 }

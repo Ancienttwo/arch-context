@@ -1,6 +1,6 @@
 import { afterAll, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { appendFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { canonicalRepositoryRoot, repositoryFingerprint } from "@archcontext/core/architecture-domain";
@@ -71,8 +71,10 @@ function writeStaticCapability(root: string, id: string, name: string, slug: str
   });
 }
 
+/** Removes the capability and its contract files; a contract region left behind would be a review orphan (ADR-0056 §9). */
 function removeStaticCapability(root: string, id: string, slug: string): void {
   for (const path of [`nodes/${id}.yaml`, `relations/relation.${slug}-journal.yaml`, `flows/flow.${slug}.yaml`]) rmSync(join(root, ".archcontext/model", path));
+  rmSync(join(root, "packages", slug), { recursive: true, force: true });
 }
 
 function seedFixture(root: string): void {
@@ -136,16 +138,18 @@ function expectedSnapshot(root: string): ProjectionRequestV1["expected"] {
   };
 }
 
+/** Every projection output: the documentation tree and the capabilities' contract files under `packages/`. */
 function docsSnapshot(root: string): Record<string, string> {
   const files: Record<string, string> = {};
-  const walk = (directory: string) => {
+  const walk = (directory: string, keep: (name: string) => boolean) => {
     for (const entry of readdirSync(directory)) {
       const absolute = join(directory, entry);
-      if (statSync(absolute).isDirectory()) walk(absolute);
-      else files[relative(root, absolute).split(sep).join("/")] = readFileSync(absolute, "utf8");
+      if (statSync(absolute).isDirectory()) walk(absolute, keep);
+      else if (keep(entry)) files[relative(root, absolute).split(sep).join("/")] = readFileSync(absolute, "utf8");
     }
   };
-  walk(join(root, "docs/architecture"));
+  walk(join(root, "docs/architecture"), () => true);
+  if (existsSync(join(root, "packages"))) walk(join(root, "packages"), (name) => name === "AGENTS.md" || name === "CLAUDE.md");
   return files;
 }
 
@@ -186,8 +190,11 @@ function fileActions(result: ProjectionResultV3): string[] {
   return result.files.filter((file) => file.path !== MANIFEST).map((file) => `${file.path} ${file.action}`);
 }
 
+/** Keyed by path: each capability of this fixture designates its own contract files, so every path is one target. */
 function byPath(result: ProjectionResultV3): Map<string, ProjectionTargetChangeV2> {
-  return new Map(result.changes!.map((entry) => [entry.path, entry]));
+  const entries = new Map(result.changes!.map((entry) => [entry.path, entry]));
+  expect(entries.size).toBe(result.changes!.length);
+  return entries;
 }
 
 function classifications(result: ProjectionResultV3): Record<string, string> {
@@ -340,9 +347,9 @@ test("check and plan classify a source-only edit as unchanged, then output, sema
     expect(semanticChanges.get(CATALOG_DOC)).toMatchObject({
       classification: "semantic-change", plannedAction: "none", semanticChanged: true, outputChanged: false, proofChanged: false, affectedCapabilityIds: [CATALOG], reasonCodes: ["semantic-fingerprint-changed"]
     });
-    // The unaffected capability's document stays unchanged: only the catalog moved.
+    // The unaffected capability's document and contract files stay unchanged: only the catalog moved.
     for (const entry of semantic.changes!) {
-      if (entry.path === RENDERER_DOC) expect(entry.classification).toBe("unchanged");
+      if (entry.path === RENDERER_DOC || entry.path.startsWith("packages/renderer/")) expect(entry.classification).toBe("unchanged");
       else expect(`${entry.path} ${entry.classification}/${entry.plannedAction}`).toBe(`${entry.path} semantic-change/none`);
     }
     git(root, "checkout", "--", ".archcontext");

@@ -22,8 +22,8 @@ renders; see "Downstream CI" for what that does and does not prove. Design: `doc
 4. Resets the writer-owned worktree to the tip and asks that worktree's own `archctxd` to apply the
    projection (`projection run`, mode `apply`, targets `agent-context`, `architecture-docs` and
    `architecture-history`). Under `repo-harness/v1` the apply renders `docs/architecture/history.md`
-   from the Git history of the model and writes it through its ChangeSet; the writer writes no file
-   itself (ADR-0056 §8). The owned worktree must therefore not be a shallow clone: a history read
+   from the Git history of the model and the capabilities' contract-file regions, and writes them
+   through its ChangeSet; the writer writes no file itself (ADR-0056 §8, §9). The owned worktree must therefore not be a shallow clone: a history read
    there fails with `history-shallow-repository`.
 5. Checks that every changed path is a file the apply wrote and a projection-owned output, commits
    them, re-reads the base tip at that push URL (a moved tip is re-evaluated, the stale commit is dropped),
@@ -132,17 +132,20 @@ checkout fails with `history-shallow-repository`. `history.md` is a manifest row
 generated output, and its render equivalence comes from the `check` result.
 
 A changed path counts as generated only when it is the projection manifest
-(`docs/architecture/.projection-manifest.json`), a `targets[*].path` of that manifest, or an
-agent-context target path of the model, at HEAD or at the merge base. Everything else is
-non-generated, including hand-written documents under `docs/architecture/` that no target renders.
-For a mixed-ownership target (manifest `ownership: "mixed"`, and every agent-context contract file)
-the text outside the generated regions must also be byte-identical between the merge base and
-HEAD; otherwise the path is a human edit (`humanEditedPaths`, also listed in `nonGeneratedPaths`).
+(`docs/architecture/.projection-manifest.json`) or a `targets[*].path` of that manifest, at HEAD or
+at the merge base. Everything else is non-generated, including hand-written documents under
+`docs/architecture/` that no target renders. Under `repo-harness/v1` the agent-context contract
+files are manifest rows (ADR-0056 §9), so a writer pull request that changes only their regions,
+root `AGENTS.md` and `CLAUDE.md` included, can still be generated-only. For a mixed-ownership target
+(manifest `ownership: "mixed"`) the text outside the generated regions must also be byte-identical
+between the merge base and HEAD; for an agent-context row that text is everything outside its
+node's region. Otherwise the path is a human edit (`humanEditedPaths`, also listed in
+`nonGeneratedPaths`).
 
 | `verdict` | Meaning |
 |---|---|
 | `touches-non-generated` | Some changed path is not generated output, or a mixed target's text outside its generated regions changed (`nonGeneratedPaths`, `humanEditedPaths`). Answered from the diff alone; nothing is rendered. |
-| `generated-only-render-equivalent` | Every changed path is generated output, the generated files and generated regions at HEAD equal a fresh render there (`projection check` is `noop`, and each changed agent-context file equals the agent-context render), and no text outside the generated regions changed. |
+| `generated-only-render-equivalent` | Every changed path is generated output, the generated files and generated regions at HEAD equal a fresh render there (`projection check` is `noop`), and no text outside the generated regions changed. |
 | `generated-only-not-render-equivalent` | Generated output only, but it differs from a fresh render (`differingPaths`), for example a hand edit inside a generated region. |
 | `no-changes` | The diff against the merge base is empty. |
 
