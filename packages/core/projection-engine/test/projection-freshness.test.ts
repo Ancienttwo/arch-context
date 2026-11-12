@@ -19,7 +19,7 @@ import {
   type ArchitectureProjectionProfile,
   type NativeModel
 } from "../src/index";
-import { fixtureSourceFiles } from "./fixture-source-files";
+import { fixtureArchitectureHistory, fixtureSourceFiles } from "./fixture-source-files";
 
 const sourceDigest = "sha256:2222222222222222222222222222222222222222222222222222222222222222";
 const provenance = provenanceFor(sourceDigest);
@@ -196,6 +196,7 @@ describe("render-equivalent projection freshness (ADR-0056 §1)", () => {
       sourceScaleSignals: loadCapabilitySourceScaleSignals(root, renderedModel, fixtureSourceFiles(root)),
       importGraphs: [],
       selectorEvidence: [],
+      architectureHistory: fixtureArchitectureHistory,
       ...(options.existingFiles ? { existingFiles: options.existingFiles } : {})
     });
   }
@@ -298,6 +299,7 @@ describe("render-equivalent projection freshness (ADR-0056 §1)", () => {
         importGraphs: [],
         selectorEvidence: [],
         existingFiles,
+        architectureHistory: fixtureArchitectureHistory,
         rebaselineSupersededManifest: true
       });
       expect(JSON.parse(upgraded.manifest.body).schemaVersion).toBe("archcontext.architecture-docs-projection-manifest/v4");

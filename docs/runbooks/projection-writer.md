@@ -20,7 +20,11 @@ renders; see "Downstream CI" for what that does and does not prove. Design: `doc
    The push URL must be readable; an unavailable base fails the run. The same successful branch and
    publisher can return `already-processed`. Pending publication is retried first.
 4. Resets the writer-owned worktree to the tip and asks that worktree's own `archctxd` to apply the
-   projection (`projection run`, mode `apply`).
+   projection (`projection run`, mode `apply`, targets `agent-context`, `architecture-docs` and
+   `architecture-history`). Under `repo-harness/v1` the apply renders `docs/architecture/history.md`
+   from the Git history of the model and writes it through its ChangeSet; the writer writes no file
+   itself (ADR-0056 §8). The owned worktree must therefore not be a shallow clone: a history read
+   there fails with `history-shallow-repository`.
 5. Checks that every changed path is a file the apply wrote and a projection-owned output, commits
    them, re-reads the base tip at that push URL (a moved tip is re-evaluated, the stale commit is dropped),
    pushes with `--force-with-lease`, and calls the publisher. With `--base-sha` a moved tip is not
@@ -121,6 +125,11 @@ On the pull request's head commit, with the base fetched:
 ```sh
 archctx projection verify-pr --base origin/main --json
 ```
+
+`verify-pr` names the `architecture-history` target in its `check`, so it reads the full
+architecture history at HEAD and needs a full clone (as its merge base already does); a shallow
+checkout fails with `history-shallow-repository`. `history.md` is a manifest row like every other
+generated output, and its render equivalence comes from the `check` result.
 
 A changed path counts as generated only when it is the projection manifest
 (`docs/architecture/.projection-manifest.json`), a `targets[*].path` of that manifest, or an

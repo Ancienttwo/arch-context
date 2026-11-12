@@ -272,6 +272,21 @@ function committedProjectionOutputs(manifest: ArchitectureDocsProjectionManifest
   return outputs;
 }
 
+/**
+ * Whether a render under a layout with the `architecture-history` target must be given the
+ * architecture history (ADR-0056 §8): the committed manifest is not a current-format manifest with
+ * a row for that target (adoption, the v4 re-baseline). Otherwise a render that does not name the
+ * target carries the row forward and reads no Git history.
+ */
+export function architectureHistoryInputRequired(committedManifestBody: string | undefined): boolean {
+  const row = committedManifestBody === undefined ? undefined : currentFormatManifest(committedManifestBody)?.targets[ARCHITECTURE_HISTORY_TARGET.targetId];
+  return row === undefined
+    || row.type !== ARCHITECTURE_HISTORY_TARGET.type
+    || row.path !== ARCHITECTURE_HISTORY_TARGET.path
+    || row.ownership !== ARCHITECTURE_HISTORY_TARGET.ownership
+    || row.format !== ARCHITECTURE_HISTORY_TARGET.format;
+}
+
 /** The `generated` (whole-file) rows of `committedProjectionOutputs`. */
 export function committedGeneratedOutputs(manifest: ArchitectureDocsProjectionManifestV4 | undefined): CommittedGeneratedOutput[] {
   return committedProjectionOutputs(manifest)

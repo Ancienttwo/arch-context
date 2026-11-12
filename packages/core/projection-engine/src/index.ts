@@ -5,6 +5,7 @@ import { parse as parseYaml } from "yaml";
 import { generatedMarkerAttributes, scanDocumentRegions } from "./document-regions";
 import { globLiteralPrefixLength } from "./source-globs";
 import { renderStateMachineSection } from "./state-machine-diagrams";
+import { renderHistoryMarkdown } from "./architecture-history";
 export * from "./document-regions";
 export * from "./architecture-history";
 export * from "./source-globs";
@@ -47,6 +48,7 @@ import {
   type ArchitectureDocumentationProjectionProvenanceV3,
   type ArchitectureFlowSelectorCheckV1,
   type ArchitectureFlowV1,
+  type ArchitectureHistory,
   type ArchitectureNodeSourceV2,
   type ArchitectureProjectionProofEvidenceV2,
   type ArchitectureRefreshSignalV2,
@@ -73,6 +75,7 @@ import {
   primarySourceDirectory,
   readProjectionOwnedFile,
   committedGeneratedOutputs,
+  architectureHistoryInputRequired,
   type CommittedGeneratedOutput,
   type ProjectionOwnedFile,
   resolveArchitectureDocumentationLayout,
@@ -186,6 +189,11 @@ export interface ArchitectureDocumentationProjectionFile extends ArchitectureDoc
   target: ProjectionTargetV1;
   digest: string;
   generatedBodyDigest: string;
+  /**
+   * The `architecture-history` row this render carries forward without a history to render it,
+   * whose file is missing or no longer matches the row. Its bytes are unknown, so no apply writes it.
+   */
+  unrendered?: true;
 }
 
 export type ArchitectureDocumentationDriftReason =
@@ -274,6 +282,12 @@ export interface ArchitectureDocumentationProjectionPlan {
    * baseline entries byte for byte. Absent, the plan covers every target.
    */
   isolation?: ArchitectureProjectionIsolationV1;
+  /**
+   * Present when the committed `history.md` is missing or does not match its row and this render
+   * was given no architecture history (ADR-0056 §8). The drift reports it; an apply refuses with
+   * `architecture-history-render-required`.
+   */
+  historyRenderRequired?: true;
 }
 
 /** What a partial plan covers; the result's `coverage` without its `complete: false`. */
@@ -369,6 +383,12 @@ export function renderArchitectureDocumentationProjection(input: {
   timeline?: ArchitectureDocumentationTimelineEntry[];
   existingFiles?: ArchitectureDocumentationExistingFile[];
   /**
+   * The complete architecture history at the projection base (ADR-0056 §8). Given, the
+   * `architecture-history` target renders from it. Absent, the target carries its committed row and
+   * bytes forward, and the committed manifest must have that row (`architectureHistoryInputRequired`).
+   */
+  architectureHistory?: ArchitectureHistory;
+  /**
    * `docs.language` (`loadArchitectureDocumentationLanguage`): the headings of a new module
    * document's skeleton. An existing document keeps its headings. Absent writes the legacy headings.
    */
@@ -450,8 +470,15 @@ export function renderArchitectureDocumentationProjection(input: {
   // ancestor-or-self that has one, or by both topology targets for a topology node; a footprint no
   // target documents is refused, never dropped.
   const footprintOwners = architectureProjectionFootprintOwners(model, layout.profile);
-  const rendered = targetDrafts.map((draft) => {
+  if (layout.targets.some((target) => target.type === "architecture-history") && input.architectureHistory === undefined
+    && architectureHistoryInputRequired(existingByPath.get(ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH))) {
+    throw new Error("architecture-history-input-missing: the committed manifest has no architecture-history row, so this render must be given the architecture history");
+  }
+  const rendered = targetDrafts.map((draft): ArchitectureDocumentationProjectionFile => {
     const existing = existingByPath.get(draft.path);
+    if (draft.type === "architecture-history" && input.architectureHistory === undefined) {
+      return carriedArchitectureHistoryFile(draft, previousManifest!.targets[draft.targetId]!, existing, rendererVersion, input.sourceDigest);
+    }
     const nodeId = draft.type === "entity-summary" ? draft.scope.id : undefined;
     // A node that declares `source.include` with no measured scale signal throws
     // `architecture-docs-projection-scale-signal-missing` here.
@@ -462,6 +489,7 @@ export function renderArchitectureDocumentationProjection(input: {
       stateMachines: input.stateMachines ?? [],
       decisions: input.decisions ?? [],
       timeline: input.timeline ?? [],
+      architectureHistory: input.architectureHistory,
       layout
     });
     // Targets that render no per-node measurement key on the plan-wide digest; an entity-summary
@@ -587,7 +615,7 @@ export function renderArchitectureDocumentationProjection(input: {
     receiptDigest,
     proofEvidence,
     targets,
-    files: rendered.filter((file) => !rejected.some((diff) => diff.path === file.path && diff.targetId === file.target.targetId)),
+    files: rendered.filter((file) => file.unrendered !== true && !rejected.some((diff) => diff.path === file.path && diff.targetId === file.target.targetId)),
     manifest,
     drift: {
       ...drift,
@@ -601,6 +629,7 @@ export function renderArchitectureDocumentationProjection(input: {
     orphans: drift.orphans,
     ...(previousManifest ? { committedManifest: previousManifest } : {}),
     renderedTargets: manifestValue.targets,
+    ...(rendered.some((file) => file.unrendered === true) ? { historyRenderRequired: true as const } : {}),
     freshness: evaluateArchitectureProjectionFreshness({
       committedManifestBody: existingByPath.get(ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH),
       committedManifest: previousManifest,
@@ -783,7 +812,7 @@ function isolateBlockedCapabilityTargets(input: {
       majorChange: plan.majorChange
     }),
     targets,
-    files: input.rendered.filter((file) => !carried.has(file.target.targetId)),
+    files: input.rendered.filter((file) => file.unrendered !== true && !carried.has(file.target.targetId)),
     manifest,
     drift: {
       ok: drift.ok,
@@ -805,6 +834,30 @@ function isolateBlockedCapabilityTargets(input: {
         .sort((left, right) => compareStrings(left.targetId, right.targetId)),
       appliedTargetIds: targets.map((target) => target.targetId).filter((targetId) => !carried.has(targetId)).sort(compareStrings)
     }
+  };
+}
+
+/**
+ * The `architecture-history` target of a render given no history (ADR-0056 §8): its committed row
+ * and bytes, not rendered again. A file that is missing or no longer digests to the row is marked
+ * `unrendered`; the drift reports it and no apply writes it.
+ */
+function carriedArchitectureHistoryFile(
+  draft: ProjectionTargetDraft,
+  row: ArchitectureDocsProjectionManifestTargetV4,
+  existing: string | undefined,
+  rendererVersion: typeof ARCHITECTURE_DOCS_RENDERER_VERSION,
+  sourceDigest: string
+): ArchitectureDocumentationProjectionFile {
+  const intact = existing !== undefined && generatedOutputDigest(draft.targetId, existing) === row.outputDigest;
+  const body = intact ? existing : "";
+  return {
+    path: draft.path,
+    body,
+    target: projectionTarget({ ...draft, rendererVersion, sourceDigest, outputDigest: row.outputDigest }),
+    digest: digestJson({ path: draft.path, body } as unknown as Json),
+    generatedBodyDigest: row.outputDigest,
+    ...(intact ? {} : { unrendered: true as const })
   };
 }
 
@@ -2206,6 +2259,7 @@ function renderTargetGeneratedBody(
     stateMachines: readonly StateMachineV1[];
     decisions: ArchitectureDecisionRecord[];
     timeline: ArchitectureDocumentationTimelineEntry[];
+    architectureHistory: ArchitectureHistory | undefined;
     layout: ArchitectureDocumentationLayout;
   }
 ): string {
@@ -2228,6 +2282,7 @@ function renderTargetGeneratedBody(
   if (target.type === "diagram-likec4") return exportDocumentationLikeC4Model(model).files[0].content;
   if (target.type === "diagram-runtime-topology") return exportRuntimeTopologyMermaid(model).files[0].content;
   if (target.type === "runtime-topology-summary") return renderRuntimeTopologySummary(model, target.path);
+  if (target.type === "architecture-history") return renderHistoryMarkdown(input.architectureHistory!);
   return "";
 }
 
@@ -2630,6 +2685,17 @@ function architectureDocumentationProjectionDrift(input: {
     const existing = existingByPath.get(expected.path);
     if (!existing) {
       diffs.push({ path: expected.path, targetId: expected.target.targetId, reasonCode: "projection-file-missing", expectedDigest: expected.digest });
+      continue;
+    }
+    if (expected.unrendered === true) {
+      // A carried history row whose file no longer matches it: an edit, as for any generated row.
+      diffs.push({
+        path: expected.path,
+        targetId: expected.target.targetId,
+        reasonCode: "projection-generated-file-manually-edited",
+        expectedDigest: expected.generatedBodyDigest,
+        actualDigest: generatedOutputDigest(expected.target.targetId, existing.body)
+      });
       continue;
     }
     if (expected.target.ownership === "generated") {

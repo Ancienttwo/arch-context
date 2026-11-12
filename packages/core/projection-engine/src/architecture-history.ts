@@ -3,7 +3,7 @@ import { ARCHITECTURE_HISTORY_MERMAID_SCHEMA_VERSION, type ArchitectureHistory, 
 export const ARCHITECTURE_HISTORY_PATH = "docs/architecture/history.md";
 export const HISTORY_DETAIL_EDGE_LIMIT = 20;
 /** The number of most recent milestones `history.md` shows. */
-export const ARCHITECTURE_HISTORY_WINDOW = 20;
+const ARCHITECTURE_HISTORY_WINDOW = 20;
 const capabilityDomain = (id: string | null) => id === null ? null : /^capability\.([a-z0-9]+(?:-[a-z0-9]+)*)\.([a-z0-9]+(?:-[a-z0-9]+)*)$/.exec(id)?.[1] ?? null;
 const compare = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
 
@@ -78,7 +78,7 @@ export function projectHistoryMermaid(history: ArchitectureHistory) {
 }
 
 /** The milestones `history.md` shows: the last `ARCHITECTURE_HISTORY_WINDOW` of a complete history (offset 0, every milestone read). */
-export function architectureHistoryWindow(history: ArchitectureHistory): HistoryMilestone[] {
+function architectureHistoryWindow(history: ArchitectureHistory): HistoryMilestone[] {
   return history.milestones.slice(-ARCHITECTURE_HISTORY_WINDOW);
 }
 

@@ -7,8 +7,7 @@ import { jsonSchemaResolver, stableYaml, validateJsonSchema, type Json, type Pro
 import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
 import { MockCodeGraphProvider, declareOptionalCodeFacts } from "@archcontext/local-runtime/test/codegraph-factories";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
-import { initializeArchContextModel, readArchitectureHistory } from "@archcontext/local-runtime/model-store-yaml";
-import { renderHistoryMarkdown } from "@archcontext/core/projection-engine";
+import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { createStartedDaemon, projectionWriterPaths, runProjectionCheckInvocation, runProjectionVerifyPrCommand } from "@archcontext/local-runtime/runtime-daemon";
 import { runCli } from "../src/main";
 
@@ -144,29 +143,43 @@ async function projectedOrigin(daemon: Awaited<ReturnType<typeof startDaemon>>) 
   return { root, origin, dev, clone };
 }
 
-test("a committed model and generated history do not create history drift in check or complete", async () => {
+test("with a committed history row, check, docs drift and complete leave history.md alone in a shallow clone; naming the target there is refused", async () => {
   const daemon = await startDaemon();
   const fixture = await projectedOrigin(daemon);
+  const shallow = join(fixture.root, "shallow");
   try {
-    writeFileSync(join(fixture.dev, "docs/architecture/history.md"), renderHistoryMarkdown(readArchitectureHistory(fixture.dev)));
-    git(fixture.dev, "add", "docs/architecture/history.md");
-    git(fixture.dev, "commit", "-qm", "commit generated history");
     git(fixture.dev, "checkout", "-qb", "feature/model-change");
     const modelPath = join(fixture.dev, ".archcontext/model/nodes/capability.app.service.yaml");
     writeFileSync(modelPath, readFileSync(modelPath, "utf8").replace("Serves the application.", "Serves the revised application."));
     git(fixture.dev, "add", ".archcontext/model");
     git(fixture.dev, "commit", "-qm", "change model");
-    const snapshot = await runCli("projection", ["snapshot", "--json"], fixture.dev, { runtimeClient: daemon });
+    git(fixture.dev, "push", "-q", "origin", "feature/model-change");
+    git(fixture.root, "clone", "-q", "--depth", "1", "--branch", "feature/model-change", "-c", "core.autocrlf=false", `file://${fixture.origin}`, shallow);
+    expect(git(shallow, "rev-parse", "--is-shallow-repository")).toBe("true");
+    const historyBefore = readFileSync(join(shallow, "docs/architecture/history.md"), "utf8");
+    const snapshot = await runCli("projection", ["snapshot", "--json"], shallow, { runtimeClient: daemon });
     expect(snapshot.ok).toBe(true);
-    const request = { schemaVersion: "archcontext.projection-request/v1", requestId: "projection_request.history_check", profile: "repo-harness/v1", mode: "check", targets: ["agent-context", "architecture-docs"], changedPaths: [], expected: (snapshot.data as any).expected };
-    const checked = await runCli("projection", ["run", "--request-json", JSON.stringify(request), "--json"], fixture.dev, { runtimeClient: daemon });
+    const request = (targets: string[]) => ({ schemaVersion: "archcontext.projection-request/v1", requestId: "projection_request.history_check", profile: "repo-harness/v1", mode: "check", targets, changedPaths: [], expected: (snapshot.data as any).expected });
+    const checked = await runCli("projection", ["run", "--request-json", JSON.stringify(request(["agent-context", "architecture-docs"])), "--json"], shallow, { runtimeClient: daemon });
     expect(checked.ok, JSON.stringify(checked)).toBe(true);
-    expect(JSON.stringify(checked)).not.toContain("docs/architecture/history.md");
-    const drift = await runCli("docs", ["drift", "--profile", "repo-harness/v1"], fixture.dev, { runtimeClient: daemon });
+    // The history row is carried forward: listed like every whole-model row, with nothing to write.
+    expect(JSON.stringify((checked.data as any).files)).not.toContain("docs/architecture/history.md");
+    expect((checked.data as any).changes.find((change: any) => change.path === "docs/architecture/history.md")).toMatchObject({ outputChanged: false, plannedAction: "none" });
+    const drift = await runCli("docs", ["drift", "--profile", "repo-harness/v1"], shallow, { runtimeClient: daemon });
     expect(drift.ok, JSON.stringify(drift)).toBe(true);
     expect(JSON.stringify(drift)).not.toContain("docs/architecture/history.md");
-    const completed = await runCli("complete", ["--task", "verify history does not drift"], fixture.dev, { runtimeClient: daemon });
+    const completed = await runCli("complete", ["--task", "verify history does not drift"], shallow, { runtimeClient: daemon });
+    expect(JSON.stringify(completed)).not.toContain("history-shallow-repository");
     expect(JSON.stringify(completed)).not.toContain("docs/architecture/history.md");
+    expect(readFileSync(join(shallow, "docs/architecture/history.md"), "utf8")).toBe(historyBefore);
+    const named = await runCli("projection", ["run", "--request-json", JSON.stringify(request(["agent-context", "architecture-docs", "architecture-history"])), "--json"], shallow, { runtimeClient: daemon });
+    expect(named).toMatchObject({ ok: false, error: { reasonCode: "history-shallow-repository" } });
+    // An edited history.md is drift like any generated row's; an apply that cannot render it refuses.
+    writeFileSync(join(shallow, "docs/architecture/history.md"), `${historyBefore}edited\n`);
+    const edited = await runCli("docs", ["drift", "--profile", "repo-harness/v1"], shallow, { runtimeClient: daemon });
+    expect((edited.data as any).drift.diffs).toContainEqual(expect.objectContaining({ path: "docs/architecture/history.md", reasonCode: "projection-generated-file-manually-edited" }));
+    const refused = await runCli("docs", ["apply", "--profile", "repo-harness/v1", "--approved"], shallow, { runtimeClient: daemon });
+    expect(refused).toMatchObject({ ok: false, error: { code: "AC_PRECONDITION_FAILED", reasonCode: "architecture-history-render-required" } });
   } finally {
     await daemon.stop();
     rmSync(fixture.root, { recursive: true, force: true });
@@ -177,10 +190,6 @@ test("projection publish ends up-to-date for a source-only change and pushes a g
   const daemon = await startDaemon();
   const fixture = await projectedOrigin(daemon);
   try {
-    // With the writer-owned history committed, the base differs from a fixed point only in source.
-    writeFileSync(join(fixture.dev, "docs/architecture/history.md"), renderHistoryMarkdown(readArchitectureHistory(fixture.dev)));
-    git(fixture.dev, "add", "docs/architecture/history.md");
-    git(fixture.dev, "commit", "-q", "-m", "commit generated history");
     // A source change inside the declared footprint renders no document differently.
     writeFileSync(join(fixture.dev, "app/src/index.ts"), "export const app = 2;\n", "utf8");
     git(fixture.dev, "commit", "-q", "-am", "change app source");
@@ -407,8 +416,9 @@ test("projection publish --base-sha pins a one-shot publish and refuses stale, m
   const fixture = await projectedOrigin(daemon);
   const unreachable = new Proxy({}, { get: () => () => { throw new Error("refused pin reached the runtime"); } }) as any;
   try {
-    writeFileSync(join(fixture.dev, "app/src/index.ts"), "export const app = 2;\n", "utf8");
-    git(fixture.dev, "commit", "-qam", "change source for pinned publish");
+    // The base lacks its history.md, so the pinned publish has a generated output to restore.
+    git(fixture.dev, "rm", "-q", "docs/architecture/history.md");
+    git(fixture.dev, "commit", "-qm", "remove history for pinned publish");
     git(fixture.dev, "push", "-q", "origin", "main");
     const baseSha = git(fixture.dev, "rev-parse", "HEAD");
     const expectedBaseSha = "0".repeat(40);
@@ -424,7 +434,8 @@ test("projection publish --base-sha pins a one-shot publish and refuses stale, m
       await runCli("projection", ["publish", "--base-sha", baseSha, "--publisher", "none", "--json"], fixture.clone, { runtimeClient: daemon }),
       "projection.publish", RUN_SCHEMA
     );
-    expect(run).toMatchObject({ result: "published", baseSha, pushed: true, iterations: 1 });
+    // The apply names the history target and writes history.md through its ChangeSet.
+    expect(run).toMatchObject({ result: "published", baseSha, pushed: true, iterations: 1, files: ["docs/architecture/history.md"] });
     const tip = git(fixture.origin, "rev-parse", "refs/heads/archctx/projection");
     expect(git(fixture.origin, "rev-list", "--parents", "-n", "1", tip).split(" ")).toEqual([tip, baseSha]);
     const status = dataOf<ProjectionPublishStatusV1>(await runCli("projection", ["publish-status"], fixture.clone), "projection.publish-status", STATUS_SCHEMA);

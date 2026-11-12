@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { computeWorktreeDigest, manifestDecisionDiagnostics, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { GitVisibleFilesUnavailableError, findRepositoryRoot, ignoredRepositoryPaths, readHeadSha, listGitVisibleFiles, type IgnoredRepositoryPath } from "@archcontext/local-runtime/git-adapter";
-import { architectureModelIgnoreProbePaths } from "@archcontext/local-runtime/model-store-yaml";
+import { architectureModelIgnoreProbePaths, readArchitectureHistory } from "@archcontext/local-runtime/model-store-yaml";
 import { ProjectionCodeFactsUnavailableError, assertProjectionCodeFactsAvailable, prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
 import { projectionProtocolGeneratedFrom, projectionWorkspaceId } from "./projection-inputs";
 import { projectionFreshnessContract } from "./projection-freshness";
@@ -12,8 +12,8 @@ import { projectionArchitectureDebt } from "./projection-architecture-debt";
 import { classifyProjectionTargetChanges } from "./projection-target-changes";
 import type { RuntimeDaemonClient } from "./rpc-protocol";
 import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, PROJECTION_APPLY_RECOVERY_BINDING_SCHEMA_VERSION, PROJECTION_RESULT_SCHEMA_VERSION, architectureDocsProjectionManifestSchemaVersion, isSupersededArchitectureDocsProjectionManifestSchemaVersion, PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_TARGETS, createProjectionApplyIdentity, digestJson, isRepoRelativePosixPath, okEnvelope, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestFromReceipt, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryResultInvariantIssues, projectionApplyLookupKey, projectionFreshnessIssues, projectionPriorCommittedAppliesIssues, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest, projectionResultRequestModeIssues } from "@archcontext/contracts";
-import type { AcceptedArchitectureChangeReferenceV1, ArchitectureDocumentationProjectionProvenanceV3, ArchitectureRefreshSignalV2, Json, JsonEnvelope, ProjectionApplyAbsenceV1, ProjectionApplyReadbackResultV2, ProjectionApplyIdentityV1, ProjectionApplyReceiptV1, ProjectionApplyRecoveryBindingV2, ProjectionApplyRecoveryIntentV1, ProjectionApplyRecoveryProofV2, ProjectionApplyRecoveryResultV2, ProjectionFreshnessV2, ProjectionCoverageV1, ProjectionPriorCommittedApplyV1, ProjectionRequestV1, ProjectionResultV3, ProjectionSnapshotV1, ProjectionExpectedSnapshotV1, ProjectionTargetChangeV2, Sha256Digest } from "@archcontext/contracts";
-import { REPO_HARNESS_PROJECTION_PROFILE, architectureAdoptionReceipt, architectureProjectionFilePreviews, architectureDocumentationSourceDigest, ProjectionPreconditionError, buildArchitectureDocumentationAdoptionPlan, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, architectureProjectionFootprintOwners, architectureProjectionFreshnessWithoutBaseline, loadArchitectureDocumentationProfile, readCommittedArchitectureDocsProjectionManifest, measureCapabilitySourceScaleSignals, loadNativeModelFromArchContext, projectionOwnedWriteBody, renderAgentContextProjection, renderArchitectureDocumentationProjection, architectureDocumentationProjectionWorktreeDigest, type ArchitectureProjectionProfile, type ProjectionOwnedFile, type ArchitectureMajorChangeClassificationV1, type ArchitectureDocumentationProjectionRuntimeSnapshot } from "@archcontext/core/projection-engine";
+import type { AcceptedArchitectureChangeReferenceV1, ArchitectureDocumentationProjectionProvenanceV3, ArchitectureHistory, ArchitectureRefreshSignalV2, Json, JsonEnvelope, ProjectionApplyAbsenceV1, ProjectionApplyReadbackResultV2, ProjectionApplyIdentityV1, ProjectionApplyReceiptV1, ProjectionApplyRecoveryBindingV2, ProjectionApplyRecoveryIntentV1, ProjectionApplyRecoveryProofV2, ProjectionApplyRecoveryResultV2, ProjectionFreshnessV2, ProjectionCoverageV1, ProjectionPriorCommittedApplyV1, ProjectionRequestV1, ProjectionResultV3, ProjectionSnapshotV1, ProjectionExpectedSnapshotV1, ProjectionTargetChangeV2, Sha256Digest } from "@archcontext/contracts";
+import { REPO_HARNESS_PROJECTION_PROFILE, architectureAdoptionReceipt, architectureHistoryInputRequired, architectureProjectionFilePreviews, architectureDocumentationSourceDigest, ProjectionPreconditionError, buildArchitectureDocumentationAdoptionPlan, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, architectureProjectionFootprintOwners, architectureProjectionFreshnessWithoutBaseline, loadArchitectureDocumentationProfile, readCommittedArchitectureDocsProjectionManifest, measureCapabilitySourceScaleSignals, loadNativeModelFromArchContext, projectionOwnedWriteBody, renderAgentContextProjection, renderArchitectureDocumentationProjection, architectureDocumentationProjectionWorktreeDigest, type ArchitectureProjectionProfile, type ProjectionOwnedFile, type ArchitectureMajorChangeClassificationV1, type ArchitectureDocumentationProjectionRuntimeSnapshot } from "@archcontext/core/projection-engine";
 import { loadStateMachinesFromArchContext } from "@archcontext/core/state-machine-engine";
 import type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./rpc-types";
 export type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./rpc-types";
@@ -102,6 +102,10 @@ export async function runArchitectureDocsProjectionCommand(input: RuntimeDocsPro
       refreshSignals: projection.plan.refreshSignals,
       receiptDigest: projection.plan.receiptDigest
     } as unknown as Json);
+  }
+  if (subcommand === "apply") {
+    const historyRefusal = architectureHistoryRenderRequiredEnvelope("docs.apply", projection);
+    if (historyRefusal) return historyRefusal;
   }
   const changeSetId = input.id ?? docsProjectionChangeSetId(projection);
   // Generated-only orphans are deleted in the same ChangeSet that writes the manifest without their rows.
@@ -216,15 +220,38 @@ function withProjectionMetadata(
  */
 type ArchitectureDocsRenderOptions = { rebaselineSupersededManifest?: boolean; isolateBlockedCapabilities?: boolean };
 
+/**
+ * The architecture history a render is given (ADR-0056 §8), read only when the request names the
+ * `architecture-history` target or the committed manifest has no row for it. Every other render
+ * carries the committed row and bytes forward and reads no Git history, so it works in a shallow
+ * clone. A read in a shallow clone fails with `history-shallow-repository`.
+ */
+export function architectureHistoryRenderInput(
+  root: string,
+  profile: ArchitectureProjectionProfile,
+  existingFiles: readonly ProjectionOwnedFile[],
+  historyTargetNamed: boolean
+): { architectureHistory?: ArchitectureHistory } {
+  if (profile !== REPO_HARNESS_PROJECTION_PROFILE) return {};
+  if (!historyTargetNamed && !architectureHistoryInputRequired(existingFiles.find((file) => file.path === ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH)?.body)) return {};
+  // The engine selects the window, so the whole history is read.
+  return { architectureHistory: readArchitectureHistory(root, { limit: Number.MAX_SAFE_INTEGER }) };
+}
+
+/** An apply cannot write `history.md` when its render carried a row whose file no longer matches it. */
+function architectureHistoryRenderRequiredEnvelope(requestId: string, projection: ReturnType<typeof buildArchitectureDocsProjection>): JsonEnvelope | undefined {
+  return projection.plan.historyRenderRequired ? publicFailureEnvelope(requestId, "AC_PRECONDITION_FAILED", "architecture-history-render-required", {}) : undefined;
+}
+
 export function buildArchitectureDocsProjection(
   _host: ProjectionServiceHost | undefined,
   root: string,
   profile: ArchitectureProjectionProfile = "default",
   existingFilesOverride?: ProjectionOwnedFile[],
   acceptedChange?: AcceptedArchitectureChangeReferenceV1,
-  options: ArchitectureDocsRenderOptions = {}
+  options: ArchitectureDocsRenderOptions & { historyTargetNamed?: boolean } = {}
 ) {
-  const inputs = measureArchitectureDocsProjectionInputs(root, profile);
+  const inputs = measureArchitectureDocsProjectionInputs(root, profile, existingFilesOverride, options.historyTargetNamed === true);
   return renderArchitectureDocsProjectionFromInputs(root, inputs, existingFilesOverride ?? inputs.loaded.existingFiles, acceptedChange, options);
 }
 
@@ -242,7 +269,7 @@ function docsProjectionChangeSetId(projection: ReturnType<typeof buildArchitectu
  * footprints. The render is a function of these, the existing documents it is
  * given and the accepted change.
  */
-function measureArchitectureDocsProjectionInputs(root: string, profile: ArchitectureProjectionProfile) {
+function measureArchitectureDocsProjectionInputs(root: string, profile: ArchitectureProjectionProfile, existingFilesOverride: ProjectionOwnedFile[] | undefined, historyTargetNamed: boolean) {
   const loaded = loadArchitectureDocumentationInputs(root, profile);
   const sourceDigest = architectureDocumentationSourceDigest({ model: loaded.model, profile, decisions: loaded.decisions });
   const codeGraphInputs = prepareArchitectureDocumentationProjectionSnapshot(root, loaded.model);
@@ -253,7 +280,8 @@ function measureArchitectureDocsProjectionInputs(root: string, profile: Architec
     stateMachines: loadStateMachinesFromArchContext(root, loaded.model.nodes),
     sourceDigest,
     codeGraphInputs,
-    sourceScaleSignals: measureCapabilitySourceScaleSignals(root, loaded.model, codeGraphInputs.footprints)
+    sourceScaleSignals: measureCapabilitySourceScaleSignals(root, loaded.model, codeGraphInputs.footprints),
+    ...architectureHistoryRenderInput(root, profile, existingFilesOverride ?? loaded.existingFiles, historyTargetNamed)
   };
 }
 
@@ -309,6 +337,7 @@ function renderArchitectureDocsProjectionFromInputs(
     selectorEvidence: codeGraphInputs.selectorEvidence,
     provenance,
     sourceDigest,
+    ...(inputs.architectureHistory ? { architectureHistory: inputs.architectureHistory } : {}),
     ...(options.rebaselineSupersededManifest ? { rebaselineSupersededManifest: true } : {}),
     ...(options.isolateBlockedCapabilities ? { isolateBlockedCapabilities: true } : {}),
     refreshContext: {
@@ -378,6 +407,8 @@ async function runArchitectureDocsAdoptionCommand(
   if (reviewOrphans.length > 0) {
     return publicFailureEnvelope("docs.adopt", "AC_PRECONDITION_FAILED", "projection-orphan-review-required", {issueCount: reviewOrphans.length});
   }
+  const historyRefusal = architectureHistoryRenderRequiredEnvelope("docs.adopt", projection);
+  if (historyRefusal) return historyRefusal;
   const expectedPlanId = input.adoptionPlanId;
   const expectedWorktreeDigest = input.expectedWorktreeDigest;
   if (!expectedPlanId || !expectedWorktreeDigest) {
@@ -441,6 +472,8 @@ async function applyProjectionProtocolFixedPoint(
   // Generated-only orphans are deleted by this write; human-review orphans stopped the request
   // before it reached here (projectionProtocolHumanStatus), so `apply` never reports a delete it
   // does not perform (#268).
+  const historyRefusal = architectureHistoryRenderRequiredEnvelope("projection.run", fixedPoint);
+  if (historyRefusal) return historyRefusal;
   const orphanDeletes = projectionOrphanDeleteOperations(input);
   const committedFiles = projectionWriteFileResults(input.loaded.existingFiles, fixedPoint.files, orphanDeletes);
   const committedSignals = acceptedChange
@@ -581,6 +614,7 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
   if (request.mode === "check") return runProjectionCheckCommand(request, findRepositoryRoot(cwd));
 
   const root = findRepositoryRoot(cwd);
+  const historyTargetNamed = request.targets.includes("architecture-history");
   // Snapshot the journal before this command can write anything: whatever is committed under this
   // requestId now belongs to an earlier attempt by construction, so no changeSetId comparison is
   // needed against this run's own commit (the protocol changeSetId is derived from the owned-output
@@ -615,7 +649,7 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
   let declinedUnprovableNodeIds: string[] | undefined;
   if (request.acceptObservedMajorChange === true) {
     try {
-      observed = buildArchitectureDocsProjection(daemon, root, REPO_HARNESS_PROJECTION_PROFILE);
+      observed = buildArchitectureDocsProjection(daemon, root, REPO_HARNESS_PROJECTION_PROFILE, undefined, undefined, { historyTargetNamed });
       assertProjectionExpectedSnapshot(request, root, observed);
     } catch (error) {
       return projectionFailureEnvelope("projection.run", error);
@@ -656,7 +690,7 @@ export async function runProjectionProtocolCommand(invocation: RuntimeProjection
   let projection: ReturnType<typeof buildArchitectureDocsProjection>;
   try {
     projection = observed === undefined
-      ? buildArchitectureDocsProjection(daemon, root, REPO_HARNESS_PROJECTION_PROFILE, undefined, acceptedChange, isolation)
+      ? buildArchitectureDocsProjection(daemon, root, REPO_HARNESS_PROJECTION_PROFILE, undefined, acceptedChange, { ...isolation, historyTargetNamed })
       // A declined flag renders once more with isolation; nothing else in `observed` can isolate.
       : acceptedChange === undefined && (isolation.isolateBlockedCapabilities !== true || observed.plan.majorChange.mode !== "human-action-required")
         ? observed
@@ -736,8 +770,10 @@ function runProjectionCheckCommandUnchecked(request: ProjectionRequestV1, root: 
   }
   let projection: ReturnType<typeof buildArchitectureDocsProjection>;
   try {
-    projection = buildArchitectureDocsProjection(undefined, root, REPO_HARNESS_PROJECTION_PROFILE, undefined, request.acceptedChange,
-      request.acceptedChange === undefined ? { isolateBlockedCapabilities: true } : {});
+    projection = buildArchitectureDocsProjection(undefined, root, REPO_HARNESS_PROJECTION_PROFILE, undefined, request.acceptedChange, {
+      ...(request.acceptedChange === undefined ? { isolateBlockedCapabilities: true } : {}),
+      historyTargetNamed: request.targets.includes("architecture-history")
+    });
     assertProjectionExpectedSnapshot(request, root, projection);
   } catch (error) {
     if (error instanceof ProjectionExpectedSnapshotMismatchError) return publicFailureEnvelope("projection.run", "AC_PRECONDITION_FAILED", "projection-snapshot-mismatch", {field: error.field});

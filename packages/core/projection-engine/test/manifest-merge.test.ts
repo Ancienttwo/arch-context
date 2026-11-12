@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { fixtureArchitectureHistory } from "./fixture-source-files";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -96,7 +97,8 @@ function render(input: {
     importGraphs: [],
     selectorEvidence: [],
     rebaselineSupersededManifest: input.rebaselineSupersededManifest,
-    existingFiles: input.existingFiles ?? []
+    existingFiles: input.existingFiles ?? [],
+    architectureHistory: fixtureArchitectureHistory
   });
 }
 

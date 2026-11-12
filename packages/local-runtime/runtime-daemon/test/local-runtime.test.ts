@@ -20,7 +20,7 @@ import { createNodeInvestigationTransport } from "../src/investigation-transport
 import { createNodeGithubIssueExecutor, preflightGithubIssueDrafts, withGithubIssueBodyFile, type GithubIssueExecutorPort, type GithubIssuePreflightDraft } from "../src/github-issue-executor";
 import { architectureDocumentationSourceDigest, architectureDocumentationProjectionWorktreeDigest, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, loadCapabilitySourceScaleSignals, loadNativeModelFromArchContext, projectionOwnedWriteBody, renderAgentContextProjection, renderArchitectureDocumentationProjection, type ArchitectureProjectionProfile } from "@archcontext/core/projection-engine";
 import * as projectionEngine from "@archcontext/core/projection-engine";
-import { buildArchitectureDocsProjection, currentProjectionExpectedSnapshot, runArchitectureDocsProjectionCommand, runProjectionProtocolCommand } from "../src/projection-service";
+import { architectureHistoryRenderInput, buildArchitectureDocsProjection, currentProjectionExpectedSnapshot, runArchitectureDocsProjectionCommand, runProjectionProtocolCommand } from "../src/projection-service";
 import { ArchctxRuntimeRpcServer, RUNTIME_RPC_VERSION, RuntimeRpcClient, assertProductionRuntimeDeps, createStartedProductionDaemon, createStartedDaemon, runtimeDefaultClock } from "../src/index";
 
 const PREVIOUS_ARCHCONTEXT_STATE_DIR = process.env.ARCHCONTEXT_STATE_DIR;
@@ -71,7 +71,8 @@ function writeArchitectureDocsProjection(root: string, profile: ArchitectureProj
     sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model, listGitVisibleFiles(root)),
     ...loadCapabilityCodeGraphProjectionInputs(root, loaded.model),
     sourceDigest,
-    provenance: projectionTestProvenance(root, loaded.model)
+    provenance: projectionTestProvenance(root, loaded.model),
+    ...architectureHistoryRenderInput(root, profile, loaded.existingFiles, false)
   });
   for (const file of [
     ...plan.files.map((file) => ({ path: file.path, body: file.body })),

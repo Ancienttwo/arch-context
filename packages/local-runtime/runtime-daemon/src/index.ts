@@ -21,7 +21,7 @@ export type { RuntimeBookInput } from "./architecture-book";
 import { AuditService, AUDIT_APPROVE_GH_TOKEN_ENV, type RuntimeAuditRunInput, type RuntimeAuditApproveInput } from "./audit";
 export { AUDIT_RUN_DEFAULT_TIMEOUT_MS, AUDIT_APPROVE_GH_TOKEN_ENV, type RuntimeAuditRunInput, type RuntimeAuditApproveInput } from "./audit";
 import { ProjectionApplyService } from "./projection-apply";
-import { ignoredArchitectureModelPaths, runArchitectureDocsProjectionCommand, runAgentContextProjectionCommand, runProjectionProtocolCommand, validateProjectionInvocation, validateDocsProjectionInput, validateAgentContextProjectionInput, type RuntimeDocsProjectionInput, type RuntimeAgentContextProjectionInput, type RuntimeProjectionInvocation, type ProjectionServiceHost } from "./projection-service";
+import { architectureHistoryRenderInput, ignoredArchitectureModelPaths, runArchitectureDocsProjectionCommand, runAgentContextProjectionCommand, runProjectionProtocolCommand, validateProjectionInvocation, validateDocsProjectionInput, validateAgentContextProjectionInput, type RuntimeDocsProjectionInput, type RuntimeAgentContextProjectionInput, type RuntimeProjectionInvocation, type ProjectionServiceHost } from "./projection-service";
 import { readCurrentBranch } from "./projection-inputs";
 export type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./projection-service";
 export { runProjectionCheckInvocation, runProjectionFreshnessCommand, runProjectionSnapshotCommand } from "./projection-service";
@@ -1635,8 +1635,8 @@ function blockedProductionInjections(deps: RuntimeDeps): string[] {
 
 /**
  * The projection half of the `complete` gate (ADR-0056 §2): one build over the committed profile,
- * with no isolation and no accepted change, yields both drift and freshness. It reads no Git
- * history. A repository with no projection manifest has no projection to verify or keep fresh, so
+ * with no isolation and no accepted change, yields both drift and freshness. It reads Git history
+ * only when the committed manifest has no architecture-history row (ADR-0056 §8). A repository with no projection manifest has no projection to verify or keep fresh, so
  * both inputs are absent rather than a blocking finding. The flow
  * `flow.architecture-context.projection-render` names this function as its daemon source symbol.
  */
@@ -1663,7 +1663,8 @@ function completeTaskProjectionDrift(root: string): { projectionDrift?: Complete
     importGraphs: codeGraphInputs.importGraphs,
     selectorEvidence: codeGraphInputs.selectorEvidence,
     provenance,
-    sourceDigest
+    sourceDigest,
+    ...architectureHistoryRenderInput(root, profile, loaded.existingFiles, false)
   });
   return {
     projectionDrift: {
