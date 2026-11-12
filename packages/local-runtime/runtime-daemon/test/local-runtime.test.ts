@@ -137,7 +137,6 @@ function agentContextProjectionOperation(root: string) {
   const model = loadNativeModelFromArchContext(root);
   const plan = renderAgentContextProjection({
     model,
-    sourceDigest: digestJson({ model } as unknown as Json),
     existingFiles: loadAgentContextProjectionFiles(root, model)
   });
   return {
@@ -1361,6 +1360,57 @@ setInterval(() => undefined, 1 << 30);
     } finally { await daemon?.stop(); removeTempRepo(root); }
   });
 
+  test("repo-harness/v1 docs apply owns root contract regions through render_agent_context (ADR-0056 §9)", async () => {
+    const root = createInitializedGitRepo();
+    let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
+    try {
+      const nodePath = join(root, ".archcontext/model/nodes/capability.architecture.context.yaml");
+      writeFileSync(nodePath, `${readText(nodePath)}extensions:\n  contractFiles:\n    agents: "AGENTS.md"\n    claude: "CLAUDE.md"\n`);
+      const relationPath = join(root, ".archcontext/model/relations/relation.context-journal.yaml");
+      const relation = (intent: string) => JSON.stringify({ schemaVersion: "archcontext.relation/v1", id: "relation.context-journal", kind: "writes", source: "capability.architecture.context", target: "capability.architecture.context", intent });
+      mkdirSync(dirname(relationPath), { recursive: true });
+      writeFileSync(relationPath, relation("Persist context events"), "utf8");
+      const flowPath = join(root, ".archcontext/model/flows/flow.context-fixture.yaml");
+      mkdirSync(dirname(flowPath), { recursive: true });
+      writeFileSync(flowPath, JSON.stringify({ schemaVersion: "archcontext.flow/v1", id: "flow.context-fixture", capabilityId: "capability.architecture.context", name: "Context fixture", applicability: "not-applicable", rationale: "Model-only contract file fixture." }), "utf8");
+      const human = "# Human routing\n\nKeep these trailing spaces.  \n";
+      for (const path of ["AGENTS.md", "CLAUDE.md"]) writeFileSync(join(root, path), human);
+      gitCommitAll(root, "declare root contracts");
+      execFileSync("codegraph", ["init", root], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+      daemon = await createStartedTestDaemon();
+      const docs = (action: "plan" | "apply" | "drift") => runArchitectureDocsProjectionCommand({ action, profile: "repo-harness/v1", approved: true }, root, daemon!);
+
+      // One ChangeSet carries the manifest and both root contracts, and passes the canonical check.
+      const planned = await docs("plan");
+      expect((planned.data as any).draft.operations.map((operation: { op: string }) => operation.op)).toEqual(["render_projection", "render_agent_context"]);
+      expect((planned.data as any).preview).toMatchObject({ allowed: true, findings: [] });
+      expect((await docs("apply")).ok).toBe(true);
+      const projected = { agents: readText(join(root, "AGENTS.md")), claude: readText(join(root, "CLAUDE.md")) };
+      expect(projected.agents.startsWith(human)).toBe(true);
+      expect(projected.agents).toContain('rendererVersion="archcontext.agent-context-renderer/v2"');
+      expect(projected.agents).not.toContain("sourceDigest=");
+      gitCommitAll(root, "project root contracts");
+
+      // A model edit that changes no region body leaves both contract files byte-identical.
+      writeFileSync(relationPath, relation("Persist context lifecycle events"), "utf8");
+      expect((await docs("apply")).ok).toBe(true);
+      expect(readText(join(root, "AGENTS.md"))).toBe(projected.agents);
+      expect(readText(join(root, "CLAUDE.md"))).toBe(projected.claude);
+
+      // A hand-edited region is drift that apply rewrites, not a renderer error.
+      writeFileSync(join(root, "AGENTS.md"), projected.agents.replace("# Agent Context: Architecture Context", "# Agent Context: Tampered"), "utf8");
+      const drift = await docs("drift");
+      expect(drift.ok, JSON.stringify(drift)).toBe(true);
+      expect((drift.data as any).drift.diffs).toContainEqual(expect.objectContaining({ path: "AGENTS.md", reasonCode: "projection-generated-region-manually-edited" }));
+      expect((await docs("apply")).ok).toBe(true);
+      expect(readText(join(root, "AGENTS.md"))).toBe(projected.agents);
+
+      // The manifest records agent-context rows, so the projection is the one writer of these paths.
+      const refused = await daemon.agentContextProjection(root, { action: "apply", approved: true });
+      expect(refused).toMatchObject({ ok: false, error: { reasonCode: "agent-context-owned-by-projection" } });
+    } finally { await daemon?.stop(); removeTempRepo(root); }
+  }, 120_000);
+
   test("agent-context apply on CRLF root contracts keeps the human bytes and leaves git clean", async () => {
     const root = createGitRepo();
     let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
@@ -1455,10 +1505,9 @@ setInterval(() => undefined, 1 << 30);
       expect(readText(claudePath)).toBe(before.claude);
       expect(readText(agentsPath)).toBe(before.agents);
 
-      // A hand-edited machine region is reported with the file, the node and both digests.
+      // A hand-edited machine region is rewritten to the canonical region, not refused.
       writeFileSync(claudePath, before.claude.replace("Architecture Context", "Tampered Name"), "utf8");
-      expect(() => agentContextProjectionOperation(root)).toThrow("agent-context-marker-output-digest-mismatch: src/CLAUDE.md");
-      expect(() => agentContextProjectionOperation(root)).toThrow("node capability.architecture.context");
+      expect(agentContextProjectionOperation(root).projectionFiles.find((file) => file.path === "src/CLAUDE.md")!.body).toBe(before.claude);
       writeFileSync(claudePath, before.claude, "utf8");
 
       // The same paths carried by any other operation kind stay outside the write allowlist.

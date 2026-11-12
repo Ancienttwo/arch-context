@@ -462,8 +462,10 @@ export class ChangeSetEngine {
     const validate = this.deps?.agentContextScope?.validateRootWrite;
     if (!validate) throw new Error("Root contract write requires canonical marker-only validation");
     const absolute = assertPathHasNoSymlinkSegments(root, file.path);
-    if (!/^sha256:[a-f0-9]{64}$/.test(file.expectedHash)) throw new Error("Root contract must exist with an exact expectedHash");
-    assertExpectedHash(absolute, file.expectedHash);
+    // An existing root contract binds its exact bytes. A designated one that is absent may be
+    // created (ADR-0056 §9); the canonical check then binds every byte of the new file.
+    if (file.expectedHash !== "missing" && !/^sha256:[a-f0-9]{64}$/.test(file.expectedHash)) throw new Error("Root contract requires an exact expectedHash, or missing to create it");
+    assertRootContractPreimage(absolute, file.expectedHash);
     validate(root, file);
   }
 
@@ -544,7 +546,8 @@ export class ChangeSetEngine {
     }
     if (operation === "update_adr_references" || (operation === "render_agent_context" && (path === "AGENTS.md" || path === "CLAUDE.md"))) {
       assertPathHasNoSymlinkSegments(root, path);
-      assertExpectedHash(absolute, expectedHash);
+      if (operation === "update_adr_references") assertExpectedHash(absolute, expectedHash);
+      else assertRootContractPreimage(absolute, expectedHash);
       if (operation === "render_agent_context") {
         const currentPaths = deps.agentContextScope?.derive(root) ?? EMPTY_PATH_SET;
         assertSafeTarget(root, path, pathScope(operation, currentPaths));
@@ -1101,6 +1104,11 @@ function preimageFailure(diagnostic: string): FailureError<"AC_PRECONDITION_FAIL
   const error = new FailureError("AC_PRECONDITION_FAILED", "apply-preimage-changed", { issueCount: 1 });
   error.message = diagnostic;
   return error;
+}
+
+function assertRootContractPreimage(path: string, expectedHash: string): void {
+  if (expectedHash !== "missing") assertExpectedHash(path, expectedHash);
+  else if (existsSync(path)) throw preimageFailure(`Expected missing file hash for new path: ${path}`);
 }
 
 function assertExpectedHash(path: string, expectedHash: string): void {

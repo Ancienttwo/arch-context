@@ -142,7 +142,7 @@ function docsSnapshot(root: string): Record<string, string> {
 
 function manifestTargetPath(root: string, scopeId: string): string {
   const manifest = JSON.parse(readFileSync(join(root, "docs/architecture/.projection-manifest.json"), "utf8"));
-  const target = Object.values(manifest.targets as Record<string, any>).find((entry) => entry.scope?.id === scopeId);
+  const target = Object.values(manifest.targets as Record<string, any>).find((entry) => entry.type === "entity-summary" && entry.scope?.id === scopeId);
   if (!target) throw new Error(`fixture manifest has no target for ${scopeId}`);
   return target.path;
 }
@@ -194,9 +194,11 @@ test("check, plan and apply agree on orphaned module documents after a node is r
     expect(preRemoval.data, JSON.stringify(preRemoval)).toMatchObject({ ok: true });
     commitAll(root, "human notes and a generated-only document");
 
-    // Remove both capabilities together with their relations and flows.
+    // Remove both capabilities together with their relations and flows. Their contract files go
+    // too: a contract region left behind is its own review orphan, covered by the ADR-0056 §9 test.
     removeCapability(root, REMOVED, "automation-budget");
     removeCapability(root, REMOVED_GENERATED, "legacy-queue");
+    for (const slug of ["automation-budget", "legacy-queue"]) rmSync(join(root, "packages", slug), { recursive: true, force: true });
 
     const checked = projectionResult(await run("check", "projection_request.orphans_check"));
     const planned = projectionResult(await run("plan", "projection_request.orphans_plan"));
@@ -767,6 +769,44 @@ test("AC_PROJECTION_APPLY_COMMITTED details are a readback request a flag-only c
   });
 }, TEST_TIMEOUT_MS);
 
+test("a contract region left in a shared file by a removed designation stops the run for review (ADR-0056 §9)", async () => {
+  await withProtocolFixture("archctx-projection-agent-orphan-", async ({ root, cli, request, projectionRun }) => {
+    const shared = ["packages/hook-adapters/AGENTS.md", "packages/hook-adapters/CLAUDE.md"];
+    const designate = (slug: string) => writeYaml(root, `.archcontext/model/nodes/${REMOVED}.yaml`, { ...capability(REMOVED, "Automation Budget", "automation-budget"), extensions: { contractFiles: { agents: `packages/${slug}/AGENTS.md`, claude: `packages/${slug}/CLAUDE.md` } } });
+    const region = (nodeId: string) => new RegExp(`<!-- BEGIN ARCHCONTEXT AGENT CONTEXT id="${nodeId.replaceAll(".", "\\.")}"[\\s\\S]*?<!-- END ARCHCONTEXT AGENT CONTEXT id="${nodeId.replaceAll(".", "\\.")}" -->\\n`);
+    // REMOVED moves into KEPT's contract files; a human removes the regions it left behind.
+    designate("hook-adapters");
+    for (const path of ["packages/automation-budget/AGENTS.md", "packages/automation-budget/CLAUDE.md"]) rmSync(join(root, path));
+    const moved = await cli("docs", ["apply", "--profile", "repo-harness/v1", "--approved"]);
+    expect(moved.ok, JSON.stringify(moved)).toBe(true);
+    for (const path of shared) expect(readFileSync(join(root, path), "utf8")).toMatch(region(REMOVED));
+    commitAll(root, "two capabilities share one contract file");
+
+    // The designation leaves the shared file while KEPT's own region there changes.
+    designate("automation-budget");
+    editKeptSummary(root);
+    const before = Object.fromEntries(shared.map((path) => [path, readFileSync(join(root, path), "utf8")]));
+    for (const mode of ["check", "plan", "apply"] as const) {
+      const result = projectionResult(await projectionRun(request(mode, `projection_request.agent_orphan_${mode}`, mode === "apply" ? { acceptObservedMajorChange: true } : {})));
+      expect(result.status).toBe("human-action-required");
+      expect(result.humanActions.filter((action) => action.reasonCode === "orphaned-document-review").map((action) => action.path)).toEqual(shared);
+      expect(result.files.filter((file) => shared.includes(file.path))).toEqual([]);
+      expect(result.applyReceipt).toBeUndefined();
+    }
+    for (const path of shared) expect(readFileSync(join(root, path), "utf8")).toBe(before[path]);
+    const refused = await cli("docs", ["apply", "--profile", "repo-harness/v1", "--approved"]);
+    expect((refused as any).error).toMatchObject({ reasonCode: "projection-orphan-review-required", details: { issueCount: 2 } });
+
+    // Once a human removes the region, the apply writes KEPT's region and drops REMOVED's rows there.
+    for (const path of shared) writeFileSync(join(root, path), before[path]!.replace(region(REMOVED), ""), "utf8");
+    const applied = projectionResult(await projectionRun(request("apply", "projection_request.agent_orphan_applied", { acceptObservedMajorChange: true })));
+    expect(applied.status).toBe("applied");
+    const rows = Object.values(JSON.parse(readFileSync(join(root, "docs/architecture/.projection-manifest.json"), "utf8")).targets as Record<string, any>);
+    expect(rows.filter((row) => shared.includes(row.path)).map((row) => row.scope.id)).toEqual([KEPT, KEPT]);
+    for (const path of shared) expect(readFileSync(join(root, path), "utf8")).toContain("Hook Adapters route and validate events.");
+  });
+}, TEST_TIMEOUT_MS);
+
 test("plan previews each file as a bounded body or unified diff and writes nothing (#264)", async () => {
   await withProtocolFixture("archctx-projection-preview-", async ({ root, daemon, request, projectionRun }) => {
     // A summary far larger than one preview bound turns the module document diff into a truncated one.
@@ -937,8 +977,9 @@ function rewriteOutputsAsV5(root: string, lineEnding: "lf" | "crlf"): string[] {
   const manifest = JSON.parse(readFileSync(join(root, MANIFEST_PATH), "utf8"));
   const changed: string[] = [];
   for (const [targetId, row] of Object.entries(manifest.targets as Record<string, { type: string; path: string; ownership: string; outputDigest: string }>)) {
-    // history.md was never a v5 output: it became a row with manifest v4 (ADR-0056 §8).
-    if (row.type === "architecture-history") continue;
+    // history.md and the contract files were never v5 docs outputs: they became rows with manifest
+    // v4 (ADR-0056 §8, §9).
+    if (row.type === "architecture-history" || row.type === "agent-context") continue;
     const absolute = join(root, row.path);
     const body = readFileSync(absolute, "utf8");
     const v5Marker = (markerTargetId: string, outputDigest: string) =>

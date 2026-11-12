@@ -81,11 +81,15 @@ export function classifyProjectionTargetChanges(input: ProjectionTargetChangeInp
   // whose path no current target renders is a removed target, and an orphan no row records is a
   // removed target without a committed row.
   const entries: Array<{ targetId: string; path: string; current?: ArchitectureDocsProjectionManifestTargetV4; committed?: ArchitectureDocsProjectionManifestTargetV4 }> = [];
-  for (const [targetId, row] of Object.entries(input.renderedTargets)) {
+  // Agent-context rows of several nodes may share a contract file; its first row, by targetId, is
+  // the path's entry, and `files[]` reports the file's bytes for all of them.
+  const covered = new Set<string>();
+  for (const [targetId, row] of Object.entries(input.renderedTargets).sort(([left], [right]) => compareStrings(left, right))) {
+    if (covered.has(row.path)) continue;
     const committedRow = committedRows[targetId];
     entries.push({ targetId, path: row.path, current: row, ...(committedRow?.path === row.path ? { committed: committedRow } : {}) });
+    covered.add(row.path);
   }
-  const covered = new Set(entries.map((entry) => entry.path));
   for (const [targetId, row] of Object.entries(committedRows)) {
     if (covered.has(row.path)) continue;
     entries.push({ targetId, path: row.path, committed: row });
@@ -110,16 +114,18 @@ export function classifyProjectionTargetChanges(input: ProjectionTargetChangeInp
       reasons.add("target-row-missing");
     } else {
       // An entity summary documents the capabilities its node, and the nodes whose footprint it
-      // documents, belong to; any other target (index, decisions, changelog, diagrams, relation
-      // summaries) describes the whole model and renders no flow proof.
+      // documents, belong to. An agent-context region documents the capabilities its node belongs
+      // to and renders no flow proof (ADR-0056 §4). Any other target (index, decisions, changelog,
+      // diagrams, relation summaries) describes the whole model and renders no flow proof.
       const entity = row.type === "entity-summary";
+      const agentContext = row.type === "agent-context";
       const scopeId = row.scope.id;
-      const nodeIds = scopeId === undefined ? [] : [scopeId, ...[...input.footprintOwners].filter(([, owner]) => owner === scopeId).map(([nodeId]) => nodeId)];
-      const documented = entity ? capabilityIds.filter((id) => nodeIds.some((nodeId) => membersById.get(id)!.has(nodeId))) : capabilityIds;
+      const nodeIds = scopeId === undefined ? [] : entity ? [scopeId, ...[...input.footprintOwners].filter(([, owner]) => owner === scopeId).map(([nodeId]) => nodeId)] : [scopeId];
+      const documented = entity || agentContext ? capabilityIds.filter((id) => nodeIds.some((nodeId) => membersById.get(id)!.has(nodeId))) : capabilityIds;
       const semanticIds = documented.filter((id) => semanticChangedIds.has(id));
       const proofIds = entity ? documented.filter((id) => proofReasonsById.has(id)) : [];
-      if (entity) documentedByEntity = documented;
-      const wholeModelChanged = !entity && modelChanged;
+      if (entity || agentContext) documentedByEntity = documented;
+      const wholeModelChanged = !entity && !agentContext && modelChanged;
       semanticChanged = semanticIds.length > 0 || wholeModelChanged;
       proofChanged = proofIds.length > 0;
       if (semanticIds.length > 0) reasons.add("semantic-fingerprint-changed");

@@ -140,6 +140,7 @@ Object.assign(policies, {
   "projection-adoption-profile-invalid": {"code": "AC_SCHEMA_INVALID", "message": "Projection adoption profile invalid.", "facts": {}},
   "projection-adoption-approval-input-invalid": {"code": "AC_SCHEMA_INVALID", "message": "Projection adoption approval input invalid.", "facts": {}},
   "agent-context-input-invalid": {"code": "AC_SCHEMA_INVALID", "message": "Agent context input invalid.", "facts": {}},
+  "agent-context-owned-by-projection": {"code": "AC_PRECONDITION_FAILED", "message": "The committed projection manifest owns the agent-context contract files; run archctx docs apply or projection run instead.", "facts": {}},
   "projection-readback-input-invalid": {"code": "AC_SCHEMA_INVALID", "message": "Projection readback input invalid.", "facts": {}},
   "projection-recovery-input-invalid": {"code": "AC_SCHEMA_INVALID", "message": "Projection recovery input invalid.", "facts": {}},
   "projection-readback-result-invalid": {"code": "AC_SCHEMA_INVALID", "message": "Projection readback result invalid.", "facts": {"issueCount": "uint"}},

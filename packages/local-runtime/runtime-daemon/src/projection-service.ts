@@ -11,7 +11,7 @@ import { projectionFreshnessContract } from "./projection-freshness";
 import { projectionArchitectureDebt } from "./projection-architecture-debt";
 import { classifyProjectionTargetChanges } from "./projection-target-changes";
 import type { RuntimeDaemonClient } from "./rpc-protocol";
-import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, PROJECTION_APPLY_RECOVERY_BINDING_SCHEMA_VERSION, PROJECTION_RESULT_SCHEMA_VERSION, architectureDocsProjectionManifestSchemaVersion, isSupersededArchitectureDocsProjectionManifestSchemaVersion, PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_TARGETS, createProjectionApplyIdentity, digestJson, isRepoRelativePosixPath, okEnvelope, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestFromReceipt, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryResultInvariantIssues, projectionApplyLookupKey, projectionFreshnessIssues, projectionPriorCommittedAppliesIssues, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest, projectionResultRequestModeIssues } from "@archcontext/contracts";
+import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_BINDING_SCHEMA_VERSION, PROJECTION_RESULT_SCHEMA_VERSION, architectureDocsProjectionManifestSchemaVersion, isSupersededArchitectureDocsProjectionManifestSchemaVersion, PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_TARGETS, createProjectionApplyIdentity, digestJson, isRepoRelativePosixPath, okEnvelope, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestFromReceipt, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryResultInvariantIssues, projectionApplyLookupKey, projectionFreshnessIssues, projectionPriorCommittedAppliesIssues, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest, projectionResultRequestModeIssues } from "@archcontext/contracts";
 import type { AcceptedArchitectureChangeReferenceV1, ArchitectureDocumentationProjectionProvenanceV3, ArchitectureHistory, ArchitectureRefreshSignalV2, Json, JsonEnvelope, ProjectionApplyAbsenceV1, ProjectionApplyReadbackResultV2, ProjectionApplyIdentityV1, ProjectionApplyReceiptV1, ProjectionApplyRecoveryBindingV2, ProjectionApplyRecoveryIntentV1, ProjectionApplyRecoveryProofV2, ProjectionApplyRecoveryResultV2, ProjectionFreshnessV2, ProjectionCoverageV1, ProjectionPriorCommittedApplyV1, ProjectionRequestV1, ProjectionResultV3, ProjectionSnapshotV1, ProjectionExpectedSnapshotV1, ProjectionTargetChangeV2, Sha256Digest } from "@archcontext/contracts";
 import { REPO_HARNESS_PROJECTION_PROFILE, ARCHITECTURE_HISTORY_TARGET, architectureAdoptionReceipt, architectureHistoryCarryForwardBlocker, architectureProjectionFilePreviews, architectureDocumentationSourceDigest, ProjectionPreconditionError, buildArchitectureDocumentationAdoptionPlan, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, architectureProjectionFootprintOwners, architectureProjectionFreshnessWithoutBaseline, loadArchitectureDocumentationProfile, readCommittedArchitectureDocsProjectionManifest, measureCapabilitySourceScaleSignals, loadNativeModelFromArchContext, projectionOwnedWriteBody, renderAgentContextProjection, renderArchitectureDocumentationProjection, architectureDocumentationProjectionWorktreeDigest, type ArchitectureProjectionProfile, type ProjectionOwnedFile, type ArchitectureMajorChangeClassificationV1, type ArchitectureDocumentationProjectionRuntimeSnapshot } from "@archcontext/core/projection-engine";
 import { loadStateMachinesFromArchContext } from "@archcontext/core/state-machine-engine";
@@ -105,7 +105,7 @@ export async function runArchitectureDocsProjectionCommand(input: RuntimeDocsPro
   }
   const changeSetId = input.id ?? docsProjectionChangeSetId(projection);
   // Generated-only orphans are deleted in the same ChangeSet that writes the manifest without their rows.
-  const operations = [architectureDocsRenderProjectionOperation(projection.loaded.existingFiles, projection.files, projectionOrphanDeleteOperations(projection).map((orphan) => orphan.operation))];
+  const operations = architectureDocsRenderProjectionOperations(projection, projection.files, projectionOrphanDeleteOperations(projection).map((orphan) => orphan.operation));
   const plan = await daemon.planUpdate(root, {
     id: changeSetId,
     reason: { taskSessionId: input.taskSessionId ?? "task_docs_projection" },
@@ -435,7 +435,7 @@ async function runArchitectureDocsAdoptionCommand(
   const planned = await daemon.planUpdate(root, {
     id: adoption.changeSetId,
     reason: { taskSessionId: input.taskSessionId ?? "task_docs_adoption" },
-    operations: [architectureDocsRenderProjectionOperation(projection.loaded.existingFiles, [...filesByPath.values()], orphanDeletes.map((orphan) => orphan.operation))]
+    operations: architectureDocsRenderProjectionOperations(projection, [...filesByPath.values()], orphanDeletes.map((orphan) => orphan.operation))
   });
   if (!planned.ok) return planned;
   const applied = await daemon.applyUpdate(root, {
@@ -518,13 +518,13 @@ async function applyProjectionProtocolFixedPoint(
   const planned = await daemon.planUpdate(root, {
     id: changeSetId,
     reason: { taskSessionId: request.requestId },
-    operations: [architectureDocsRenderProjectionOperation(
-      input.loaded.existingFiles,
+    operations: architectureDocsRenderProjectionOperations(
+      input,
       fixedPoint.files,
       orphanDeletes.map((orphan) => orphan.operation),
       // A partial apply's manifest keeps the blocked rows only while their documents are unchanged.
       fixedPoint.plan.isolation?.blockedTargets.map((target) => target.path) ?? []
-    )],
+    ),
     worktreeDigestPrecondition: {
       profile: "architecture-documentation-projection",
       expectedDigest: request.expected.worktreeDigest
@@ -934,7 +934,7 @@ async function proveOrRestoreCommittedProjectionApply(
   const planned = await daemon.planUpdate(root, {
     id: changeSetId,
     reason: { taskSessionId: receipt.result.requestId },
-    operations: [architectureDocsRenderProjectionOperation(input.loaded.existingFiles, fixedPoint.files, orphanDeletes.map((orphan) => orphan.operation))],
+    operations: architectureDocsRenderProjectionOperations(input, fixedPoint.files, orphanDeletes.map((orphan) => orphan.operation)),
     worktreeDigestPrecondition: {
       profile: "architecture-documentation-projection",
       expectedDigest: binding.originalExpectedSnapshot.worktreeDigest
@@ -1364,8 +1364,13 @@ function projectionProtocolHumanStatus(
   return human ? "human-action-required" : null;
 }
 
+/**
+ * One review orphan per path: two nodes' regions left in one shared contract file are one document
+ * for a human to review (ADR-0056 §9).
+ */
 function projectionReviewOrphans(projection: ReturnType<typeof buildArchitectureDocsProjection>) {
-  return projection.plan.orphans.filter((orphan) => orphan.disposition === "human-review");
+  const seen = new Set<string>();
+  return projection.plan.orphans.filter((orphan) => orphan.disposition === "human-review" && !seen.has(orphan.path) && seen.add(orphan.path) !== undefined);
 }
 
 function projectionDeletableOrphans(projection: ReturnType<typeof buildArchitectureDocsProjection>) {
@@ -1421,7 +1426,12 @@ function projectionProtocolResult(
 ): ProjectionResultV3 {
   const inputSnapshot = projectionProtocolSnapshot(request, input);
   const outputSnapshot = projectionProtocolSnapshot(request, output);
-  const plannedFiles = overrides?.files ?? projectionProtocolFiles(input);
+  // A review orphan stops the run, so its path is no file action of it, also when another node's
+  // region in the same shared contract file would change.
+  const reviewOrphanPaths = status === "adoption-required" || status === "human-action-required"
+    ? new Set(projectionReviewOrphans(input).map((orphan) => orphan.path))
+    : new Set<string>();
+  const plannedFiles = (overrides?.files ?? projectionProtocolFiles(input)).filter((file) => !reviewOrphanPaths.has(file.path));
   const files = request.mode === "plan" ? withProjectionPlanPreviews(input, plannedFiles) : plannedFiles;
   const affectedNodeIds = projectionProtocolAffectedNodes(input);
   const requestPayloadDigest = digestJson(request as unknown as Json) as Sha256Digest;
@@ -1683,6 +1693,9 @@ export async function runAgentContextProjectionCommand(input: RuntimeAgentContex
   const root = findRepositoryRoot(cwd);
   let projection: ReturnType<typeof buildAgentContextProjection>;
   try {
+    // One writer per path: once the committed manifest records agent-context rows, the projection
+    // writes the contract files (ADR-0056 §9).
+    if (committedManifestRecordsAgentContext(root)) return publicFailureEnvelope(channel, "AC_PRECONDITION_FAILED", "agent-context-owned-by-projection", {});
     projection = buildAgentContextProjection(root);
   } catch (error) {
     return projectionFailureEnvelope(channel, error);
@@ -1708,7 +1721,7 @@ export async function runAgentContextProjectionCommand(input: RuntimeAgentContex
   }
   return okEnvelope(channel, {
     schemaVersion: "archcontext.agent-context-projection-change-set/v1",
-    sourceDigest: projection.plan.sourceDigest,
+    sourceDigest: projection.sourceDigest,
     rendererVersion: projection.plan.rendererVersion,
     targetCount: projection.plan.targets.length,
     fileCount: projection.plan.files.length,
@@ -1753,8 +1766,18 @@ function buildAgentContextProjection(root: string) {
     model,
     sourceDigest,
     existingFiles,
-    plan: renderAgentContextProjection({ model, sourceDigest, existingFiles })
+    plan: renderAgentContextProjection({ model, existingFiles })
   };
+}
+
+function committedManifestRecordsAgentContext(root: string): boolean {
+  const absolute = resolve(root, ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH);
+  if (!existsSync(absolute)) return false;
+  const body = readFileSync(absolute, "utf8");
+  // A manifest an earlier release wrote records no agent-context row.
+  if (architectureDocsProjectionManifestSchemaVersion(body) !== ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION) return false;
+  const manifest = readCommittedArchitectureDocsProjectionManifest(body);
+  return manifest !== undefined && Object.values(manifest.targets).some((row) => row.type === "agent-context");
 }
 
 /**
@@ -1764,21 +1787,34 @@ function buildAgentContextProjection(root: string) {
  * lock instead of being overwritten by a body rendered without it. The written body keeps the
  * line endings of those bytes.
  */
-function architectureDocsRenderProjectionOperation(
-  renderInput: readonly ProjectionOwnedFile[],
+function architectureDocsRenderProjectionOperations(
+  projection: ReturnType<typeof buildArchitectureDocsProjection>,
   files: { path: string; body: string }[],
   deletes: { path: string; expectedHash: string; delete: true }[] = [],
   carriedPaths: readonly string[] = []
 ) {
-  return {
-    op: "render_projection" as const,
-    expectedHash: "missing",
-    projectionFiles: [
-      ...projectionFilesBoundToRenderInput(renderInput, files),
-      ...deletes,
-      ...projectionGuardsBoundToRenderInput(renderInput, carriedPaths)
-    ]
-  };
+  const renderInput = projection.loaded.existingFiles;
+  // Contract files go through `render_agent_context`, whose model-derived write scope and
+  // root-contract canonical check apply to them; they render on every run and are never carried
+  // as guards (ADR-0056 §9).
+  const agentContextPaths = new Set(projection.plan.targets.filter((target) => target.type === "agent-context").map((target) => target.path));
+  const agentContextFiles = files.filter((file) => agentContextPaths.has(file.path));
+  return [
+    {
+      op: "render_projection" as const,
+      expectedHash: "missing",
+      projectionFiles: [
+        ...projectionFilesBoundToRenderInput(renderInput, files.filter((file) => !agentContextPaths.has(file.path))),
+        ...deletes,
+        ...projectionGuardsBoundToRenderInput(renderInput, carriedPaths)
+      ]
+    },
+    ...(agentContextFiles.length === 0 ? [] : [{
+      op: "render_agent_context" as const,
+      expectedHash: "missing",
+      projectionFiles: projectionFilesBoundToRenderInput(renderInput, agentContextFiles)
+    }])
+  ];
 }
 
 /**

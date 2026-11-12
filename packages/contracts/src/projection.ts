@@ -18,7 +18,7 @@ export const ARCHITECTURE_DOCS_RENDERER_VERSION = "archcontext.docs-renderer/v6"
  * the path lives here because a projection result's `files[]` names the manifest write.
  */
 export const ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH = "docs/architecture/.projection-manifest.json" as const;
-export const AGENT_CONTEXT_RENDERER_VERSION = "archcontext.agent-context-renderer/v1" as const;
+export const AGENT_CONTEXT_RENDERER_VERSION = "archcontext.agent-context-renderer/v2" as const;
 
 export const PROJECTION_MODES = ["check", "plan", "apply", "adopt"] as const;
 export const PROJECTION_PRIOR_COMMITTED_APPLY_OPERATIONS = ["delete", "write"] as const;

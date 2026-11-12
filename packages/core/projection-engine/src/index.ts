@@ -66,8 +66,10 @@ import {
 import { assertRepoRelativePath, computeWorktreeDigest, parseArchitectureDecisionRecord, parseJsonOrStableYaml } from "@archcontext/core/architecture-domain";
 import { assertPathHasNoSymlinkSegments } from "@archcontext/core/changeset-engine";
 import {
+  agentContextTargetId,
   agentContextTargetPaths,
   ARCHITECTURE_DOCS_LAYOUT_VERSION,
+  committedAgentContextOutputs,
   REPO_HARNESS_PROJECTION_PROFILE,
   contractFilesForNode,
   entitySummaryTargetNodes,
@@ -466,7 +468,23 @@ export function renderArchitectureDocumentationProjection(input: {
   if (historyBlocker !== undefined) {
     throw new Error(`architecture-history-input-missing: ${historyBlocker}, so the committed history row cannot be carried forward and this render must be given the architecture history`);
   }
+  // Contract files render through the one agent-context renderer, which also backs the root-contract
+  // canonical check, so the projection and that check agree byte for byte (ADR-0056 §9).
+  const agentContextByTargetId = new Map((targetDrafts.some((draft) => draft.type === "agent-context")
+    ? renderAgentContextProjection({ model, existingFiles: input.existingFiles ?? [] }).files
+    : []).flatMap((file) => file.targets.map((target) => [target.targetId, { target, body: file.body }] as const)));
   const rendered = targetDrafts.map((draft): ArchitectureDocumentationProjectionFile => {
+    if (draft.type === "agent-context") {
+      const agentContext = agentContextByTargetId.get(draft.targetId);
+      if (agentContext === undefined || agentContext.target.path !== draft.path) throw new Error(`agent-context-layout-render-mismatch: ${draft.targetId}`);
+      return {
+        path: draft.path,
+        body: agentContext.body,
+        target: agentContext.target,
+        digest: digestJson({ path: draft.path, body: agentContext.body } as unknown as Json),
+        generatedBodyDigest: agentContext.target.outputDigest
+      };
+    }
     const existing = existingByPath.get(draft.path);
     if (draft.type === "architecture-history" && input.architectureHistory === undefined) {
       return carriedArchitectureHistoryFile(draft, previousManifest!.targets[draft.targetId]!, existing!, rendererVersion, input.sourceDigest);
@@ -607,7 +625,7 @@ export function renderArchitectureDocumentationProjection(input: {
     receiptDigest,
     proofEvidence,
     targets,
-    files: rendered.filter((file) => !rejected.some((diff) => diff.path === file.path && diff.targetId === file.target.targetId)),
+    files: filesWithUniquePaths(rendered.filter((file) => !rejected.some((diff) => diff.path === file.path && diff.targetId === file.target.targetId))),
     manifest,
     drift: {
       ...drift,
@@ -638,6 +656,12 @@ export function renderArchitectureDocumentationProjection(input: {
     acceptedChange: input.refreshContext?.acceptedChange,
     footprintOwners
   }) ?? plan;
+}
+
+/** The agent-context targets of one contract file render one body, so the file is written once. */
+function filesWithUniquePaths(files: ArchitectureDocumentationProjectionFile[]): ArchitectureDocumentationProjectionFile[] {
+  const seen = new Set<string>();
+  return files.filter((file) => !seen.has(file.path) && seen.add(file.path) !== undefined);
 }
 
 /**
@@ -803,7 +827,7 @@ function isolateBlockedCapabilityTargets(input: {
       majorChange: plan.majorChange
     }),
     targets,
-    files: input.rendered.filter((file) => !carried.has(file.target.targetId)),
+    files: filesWithUniquePaths(input.rendered.filter((file) => !carried.has(file.target.targetId))),
     manifest,
     drift: {
       ok: drift.ok,
@@ -2679,6 +2703,11 @@ function architectureDocumentationProjectionDrift(input: {
       if (diff) diffs.push(diff);
       continue;
     }
+    if (expected.target.type === "agent-context") {
+      const diff = agentContextRegionDrift(expected, existing);
+      if (diff) diffs.push(diff);
+      continue;
+    }
     const region = findGeneratedRegion(existing.body, expected.target.targetId);
     if (!region) {
       diffs.push({
@@ -2752,6 +2781,18 @@ function architectureDocumentationProjectionDrift(input: {
     }
   }
 
+  // A committed agent-context row the current layout no longer renders leaves its region behind in
+  // a contract file outside `docs/architecture/`. The projection writes only paths the model
+  // designates, so only a human removes that region; the next apply then drops the row.
+  for (const output of committedAgentContextOutputs(input.previousManifest)) {
+    if (currentPathByTargetId.get(output.targetId) === output.path) continue;
+    const existing = existingByPath.get(output.path);
+    if (existing === undefined || findAgentContextRegion(existing.body, output.nodeId) === undefined) continue;
+    const actualDigest = digestJson({ path: existing.path, body: existing.body } as unknown as Json);
+    diffs.push({ path: existing.path, targetId: output.targetId, reasonCode: "projection-orphaned", actualDigest });
+    orphans.push({ path: existing.path, targetId: output.targetId, actualDigest, disposition: "human-review" });
+  }
+
   const reasonCodes = [...new Set(diffs.map((diff) => diff.reasonCode))].sort() as ArchitectureDocumentationDriftReason[];
   return {
     ok: diffs.length === 0,
@@ -2759,6 +2800,22 @@ function architectureDocumentationProjectionDrift(input: {
     diffs: diffs.sort((left, right) => left.path.localeCompare(right.path) || (left.targetId ?? "").localeCompare(right.targetId ?? "")),
     orphans: orphans.sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0)
   };
+}
+
+/**
+ * The mixed-target rules of ADR-0047 for one node's region in a contract file, read with the
+ * agent-context marker parser: a missing region is appended, an edited or stale one is rewritten.
+ * A duplicate, overlapping or malformed marker throws.
+ */
+function agentContextRegionDrift(expected: ArchitectureDocumentationProjectionFile, existing: ArchitectureDocumentationExistingFile): ArchitectureDocumentationProjectionDrift | undefined {
+  const target = expected.target as AgentContextProjectionTarget;
+  const region = findAgentContextRegion(existing.body, target.scope.id);
+  const base = { path: expected.path, targetId: target.targetId, expectedDigest: expected.generatedBodyDigest };
+  if (region === undefined) return { ...base, reasonCode: "projection-generated-region-missing" };
+  const actualDigest = agentContextRegionBodyDigest(existing.body, region, target.scope.id);
+  if (actualDigest !== agentContextMarkerOutputDigest(region.startMarker)) return { ...base, reasonCode: "projection-generated-region-manually-edited", actualDigest };
+  if (region.startMarker !== target.generatedRegion.startMarker) return { ...base, reasonCode: "projection-generated-region-stale", actualDigest };
+  return undefined;
 }
 
 /** The digest a manifest row records for a whole-file output: the same shape as a region's `outputDigest`. */
@@ -2906,23 +2963,15 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-// --- Agent Context Provider (ADR-0043) ---
+// --- Agent Context Provider (ADR-0043, ADR-0056 §9) ---
 //
-// Projects one capability node's identity/source/extensions into a marker-owned region
-// inside that capability's own primary source directory (CLAUDE.md and AGENTS.md).
-// `type: "agent-context"` is a new `ProjectionTarget` target type (see
-// schemas/runtime/projection-target.schema.json); the shape below intentionally does not
-// import the strict `ProjectionTargetV1`/`ProjectionTargetType` TS union from
-// @archcontext/contracts, whose `packages/contracts/src` is out of scope for this change.
+// Projects one capability node's identity/source/extensions into a marker-owned region of each
+// contract file the node designates (CLAUDE.md and AGENTS.md). This one renderer serves the
+// repo-harness/v1 projection, the root-contract canonical check and `archctx agent-context`.
 
 export const AGENT_CONTEXT_RENDERER_VERSION = CONTRACT_AGENT_CONTEXT_RENDERER_VERSION;
 export const AGENT_CONTEXT_BEGIN_PREFIX = "<!-- BEGIN ARCHCONTEXT AGENT CONTEXT";
 export const AGENT_CONTEXT_END_PREFIX = "<!-- END ARCHCONTEXT AGENT CONTEXT";
-
-const AGENT_CONTEXT_FILE_NAMES = [
-  { fileName: "CLAUDE.md", slug: "claude" },
-  { fileName: "AGENTS.md", slug: "agents" }
-] as const;
 
 export interface AgentContextProjectionTargetScope {
   kind: "entity";
@@ -2930,18 +2979,10 @@ export interface AgentContextProjectionTargetScope {
   entityKind: string;
 }
 
-export interface AgentContextProjectionTarget {
-  schemaVersion: typeof PROJECTION_TARGET_SCHEMA_VERSION;
-  targetId: string;
+export interface AgentContextProjectionTarget extends ProjectionMixedTargetV1 {
   type: "agent-context";
   scope: AgentContextProjectionTargetScope;
-  path: string;
-  ownership: "mixed";
-  generatedRegion: { startMarker: string; endMarker: string };
-  rendererVersion: string;
   format: "markdown";
-  sourceDigest: string;
-  outputDigest: string;
 }
 
 export interface AgentContextProjectionFile {
@@ -2953,7 +2994,6 @@ export interface AgentContextProjectionFile {
 export interface AgentContextProjectionPlan {
   schemaVersion: "archcontext.agent-context-projection-plan/v1";
   rendererVersion: typeof AGENT_CONTEXT_RENDERER_VERSION;
-  sourceDigest: string;
   targets: AgentContextProjectionTarget[];
   files: AgentContextProjectionFile[];
 }
@@ -3003,7 +3043,6 @@ export function loadAgentContextProjectionFiles(root: string, model: NativeModel
 
 export function renderAgentContextProjection(input: {
   model: NativeModel;
-  sourceDigest: string;
   existingFiles?: ArchitectureDocumentationExistingFile[];
   rendererVersion?: typeof AGENT_CONTEXT_RENDERER_VERSION;
 }): AgentContextProjectionPlan {
@@ -3021,24 +3060,25 @@ export function renderAgentContextProjection(input: {
   for (const [nodeId, derivedPaths] of derivedByNodeId) {
     const node = nodesById.get(nodeId)!;
     const generatedBody = renderAgentContextBody(node);
+    // The region reads only its node's model facts, so its body digest is both the marker's and
+    // the manifest row's `outputDigest`, and the target's runtime source digest.
     const outputDigest = digestJson({ id: node.id, body: generatedBody } as unknown as Json);
 
     for (const { path } of derivedPaths) {
-      const slug = agentContextSlugForPath(path);
       const target: AgentContextProjectionTarget = {
         schemaVersion: PROJECTION_TARGET_SCHEMA_VERSION,
-        targetId: `projection_target.agent-context.${slug}.${stableId(node.id)}`,
+        targetId: agentContextTargetId(path, node.id),
         type: "agent-context",
         scope: { kind: "entity", id: node.id, entityKind: node.kind },
         path,
         ownership: "mixed",
         generatedRegion: {
-          startMarker: agentContextStartMarker(node.id, input.sourceDigest, rendererVersion, outputDigest),
+          startMarker: agentContextStartMarker(node.id, rendererVersion, outputDigest),
           endMarker: agentContextEndMarker(node.id)
         },
         rendererVersion,
         format: "markdown",
-        sourceDigest: input.sourceDigest,
+        sourceDigest: outputDigest,
         outputDigest
       };
       const wrapped = wrapAgentContextRegion(target, generatedBody);
@@ -3056,7 +3096,6 @@ export function renderAgentContextProjection(input: {
   return {
     schemaVersion: "archcontext.agent-context-projection-plan/v1",
     rendererVersion,
-    sourceDigest: input.sourceDigest,
     targets,
     files
   };
@@ -3084,16 +3123,12 @@ function renderAgentContextBody(node: NativeNode): string {
   return `${lines.join("\n")}\n`;
 }
 
-/** Target-id slug for a derived agent-context path, keyed off its file name. */
-function agentContextSlugForPath(path: string): string {
-  const fileName = path.slice(path.lastIndexOf("/") + 1);
-  const entry = AGENT_CONTEXT_FILE_NAMES.find((candidate) => candidate.fileName === fileName);
-  if (!entry) throw new Error(`agent-context-unknown-target-file: ${path}`);
-  return entry.slug;
-}
-
-function agentContextStartMarker(nodeId: string, sourceDigest: string, rendererVersion: string, outputDigest: string): string {
-  return `${AGENT_CONTEXT_BEGIN_PREFIX} id="${nodeId}" sourceDigest="${sourceDigest}" rendererVersion="${rendererVersion}" outputDigest="${outputDigest}" -->`;
+/**
+ * The marker names the node, the renderer and the digest of the region body; no model-wide digest
+ * enters it, so a model edit that leaves the body unchanged leaves the file byte-identical.
+ */
+function agentContextStartMarker(nodeId: string, rendererVersion: string, outputDigest: string): string {
+  return `${AGENT_CONTEXT_BEGIN_PREFIX} id="${nodeId}" rendererVersion="${rendererVersion}" outputDigest="${outputDigest}" -->`;
 }
 
 function agentContextEndMarker(nodeId: string): string {
@@ -3113,16 +3148,9 @@ function mergeAgentContextRegion(target: AgentContextProjectionTarget, wrapped: 
     }
     return `${existing.trimEnd()}\n\n${wrapped}`;
   }
-  const markerDigest = /\boutputDigest="([^"]+)"/.exec(region.startMarker)?.[1];
-  if (!markerDigest) {
+  // A hand-edited region is drift the projection reports and rewrites, not an error.
+  if (!agentContextMarkerOutputDigest(region.startMarker)) {
     throw new Error(`agent-context-marker-output-digest-missing: ${target.path} (node ${target.scope.id})`);
-  }
-  const generatedBody = `${existing.slice(region.contentStart, region.contentEnd).trimEnd()}\n`;
-  const actualDigest = digestJson({ id: target.scope.id, body: generatedBody } as unknown as Json);
-  if (markerDigest !== actualDigest) {
-    throw new Error(
-      `agent-context-marker-output-digest-mismatch: ${target.path} (node ${target.scope.id}; marker records ${markerDigest}, region body digests to ${actualDigest})`
-    );
   }
   return `${existing.slice(0, region.start)}${wrapped}${existing.slice(region.end)}`;
 }
@@ -3142,6 +3170,15 @@ export function agentContextTextOutsideRegions(body: string, nodeIds: readonly s
     text = `${text.slice(0, region.start)}\u0000archcontext-agent-context-region:${nodeId}\u0000${text.slice(region.end)}`;
   }
   return text;
+}
+
+function agentContextMarkerOutputDigest(startMarker: string): string | undefined {
+  return /\boutputDigest="([^"]+)"/.exec(startMarker)?.[1];
+}
+
+/** The digest of a region's body as its marker records it: `digestJson({ id, body })`. */
+function agentContextRegionBodyDigest(body: string, region: { contentStart: number; contentEnd: number }, nodeId: string): string {
+  return digestJson({ id: nodeId, body: `${body.slice(region.contentStart, region.contentEnd).trimEnd()}\n` } as unknown as Json);
 }
 
 function findAgentContextRegion(body: string, nodeId: string): {

@@ -17,7 +17,7 @@ async function fixture() {
   writeFileSync(nodePath, readFileSync(nodePath, "utf8") + 'extensions:\n  contractFiles:\n    agents: "AGENTS.md"\n    claude: "CLAUDE.md"\n');
   const human = "# Human routing\nKeep these spaces.  \n\n\n";
   for (const path of ["AGENTS.md", "CLAUDE.md"]) writeFileSync(join(root, path), human);
-  const canonical = () => { const model = loadNativeModelFromArchContext(root); return renderAgentContextProjection({ model, sourceDigest: digestJson({ model } as unknown as Json), existingFiles: loadAgentContextProjectionFiles(root, model) }); };
+  const canonical = () => { const model = loadNativeModelFromArchContext(root); return renderAgentContextProjection({ model, existingFiles: loadAgentContextProjectionFiles(root, model) }); };
   const scope: AgentContextScopePort = {
     derive: () => new Set(agentContextProjectionTargetPaths(loadNativeModelFromArchContext(root)).map(target => target.path)),
     validateRootWrite: (_root, file) => { if (canonical().files.find(candidate => candidate.path === file.path)?.body !== file.body) throw new Error("canonical mismatch"); }
@@ -60,4 +60,15 @@ test("root revalidates hash after async journal boundary and leaves concurrent h
   await expect(engine.apply(root, plan(), { approved: true })).rejects.toThrow();
   expect(readFileSync(join(root, "AGENTS.md"), "utf8")).toBe("concurrent human edit\n");
   expect(await journal.listCommittedChangeSetsForTaskSession(root, "task.root")).toEqual([]);
+});
+
+test("root creates a missing designated contract only with the exact canonical render (ADR-0056 §9)", async () => {
+  const { root, engine, plan } = await fixture();
+  for (const path of ["AGENTS.md", "CLAUDE.md"]) rmSync(join(root, path));
+  const model = loadNativeModelFromArchContext(root);
+  const files = renderAgentContextProjection({ model, existingFiles: [] }).files.map(file => ({ path: file.path, body: file.body, expectedHash: "missing" }));
+  const create: ChangeOperation = { op: "render_agent_context", expectedHash: "missing", projectionFiles: files };
+  expect(engine.preview(root, plan([create])).allowed).toBe(true);
+  await engine.apply(root, plan([create]), { approved: true });
+  for (const file of files) expect(readFileSync(join(root, file.path), "utf8")).toBe(file.body);
 });

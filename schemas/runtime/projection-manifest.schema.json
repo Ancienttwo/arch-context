@@ -219,7 +219,21 @@
         "format",
         "outputDigest"
       ],
-      "description": "One target row, keyed by its targetId. The key and the manifest header carry the targetId and the renderer version, so the row repeats neither.",
+      "description": "One target row, keyed by its targetId. The key and the manifest header carry the targetId and the renderer version, so the row repeats neither. An agent-context row owns one node's region in a contract file, so it is mixed, markdown and entity-scoped with an id, and several agent-context rows may share a path when their scope ids differ.",
+      "if": {
+        "properties": { "type": { "const": "agent-context" } },
+        "required": ["type"]
+      },
+      "then": {
+        "properties": {
+          "ownership": { "const": "mixed" },
+          "format": { "const": "markdown" },
+          "scope": {
+            "properties": { "kind": { "const": "entity" }, "id": { "type": "string", "minLength": 1 } },
+            "required": ["kind", "id"]
+          }
+        }
+      },
       "properties": {
         "type": {
           "enum": [
