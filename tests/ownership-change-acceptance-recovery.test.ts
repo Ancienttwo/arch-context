@@ -12,7 +12,7 @@ import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
 import { MockCodeGraphProvider, declareOptionalCodeFacts } from "@archcontext/local-runtime/test/codegraph-factories";
 import { ArchctxRuntimeRpcServer, RUNTIME_RPC_VERSION, createStartedDaemon, type RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-daemon";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
-import { digestJson, stableYaml, type AcceptedArchitectureChangeReferenceV1, type ProjectionApplyReceiptV1, type ProjectionRequestV1, type ProjectionResultV3 } from "@archcontext/contracts";
+import { digestJson, projectionResultReceiptDigest, stableYaml, type AcceptedArchitectureChangeReferenceV1, type ProjectionApplyReceiptV1, type ProjectionRequestV1, type ProjectionResultV3 } from "@archcontext/contracts";
 import { runCli } from "../packages/surfaces/cli/src/main";
 
 const codegraphCli = join(dirname(createRequire(import.meta.url).resolve("@colbymchenry/codegraph/package.json")), "npm-shim.js");
@@ -351,8 +351,25 @@ test("semantic recovery delivers a raced accepted apply only after every immutab
   }
 }, PROJECTION_CODEGRAPH_TEST_TIMEOUT_MS);
 
+/**
+ * `projection run` refuses a receipt without a ready CodeGraph index before the write (#552). A
+ * receipt committed before that gate still carries an unavailable proof, so this rewrites the one
+ * being committed into that shape, with its receipt digest and the fields bound to it recomputed.
+ */
+function recordAsPreGateReceipt(receipt: ProjectionApplyReceiptV1): void {
+  const result = receipt.result;
+  for (const snapshot of [result.inputSnapshot, result.outputSnapshot]) {
+    snapshot.indexedWorktreeDigest = null;
+    snapshot.generatedFrom = { ...snapshot.generatedFrom, codeGraphStatus: "unavailable" };
+  }
+  const { receiptDigest: _committed, ...payload } = result;
+  result.receiptDigest = projectionResultReceiptDigest(payload);
+  result.refreshSignals = result.refreshSignals.map((signal) => ({ ...signal, projectionReceiptDigest: result.receiptDigest }));
+  receipt.recovery = { ...receipt.recovery!, generatedFrom: result.outputSnapshot.generatedFrom, receiptDigest: result.receiptDigest };
+}
+
 test("semantic recovery rejects a committed receipt whose approved CodeGraph proof was unavailable", async () => {
-  // Only a project that declares code facts optional can commit a receipt without them.
+  // Only a project that declares code facts optional could commit a receipt without them.
   const root = createFixture({ codeFacts: "optional" });
   const paths = runtimePaths(root);
   const daemon = await createStartedDaemon({
@@ -361,10 +378,12 @@ test("semantic recovery rejects a committed receipt whose approved CodeGraph pro
     codeGraphProviderFactory: () => new MockCodeGraphProvider()
   });
   try {
-    const { request } = await prepareAcceptedMajorChange(root);
+    const { request } = await prepareAcceptedMajorChange(root, { codeGraphReady: true });
     let injected = false;
     const applyUpdate = daemon.applyUpdate.bind(daemon);
     daemon.applyUpdate = async (...args) => {
+      const receipt = (args[1] as { projectionApplyReceipt?: ProjectionApplyReceiptV1 }).projectionApplyReceipt;
+      if (!injected && receipt) recordAsPreGateReceipt(receipt);
       const applied = await applyUpdate(...args);
       if (!injected && applied.ok) {
         injected = true;
@@ -391,4 +410,4 @@ test("semantic recovery rejects a committed receipt whose approved CodeGraph pro
     rmSync(stateRoot(root), { recursive: true, force: true });
     rmSync(root, { recursive: true, force: true });
   }
-}, timeout);
+}, PROJECTION_CODEGRAPH_TEST_TIMEOUT_MS);

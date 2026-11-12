@@ -6240,7 +6240,7 @@ describe("archctx CLI", () => {
   }, PROJECTION_CODEGRAPH_TEST_TIMEOUT_MS);
 
   test("projection recovery leaves a post-write non-owned race receipt pending", async () => {
-    const { root, protocolRequest, acceptedChange } = await runAdoptedHookAdaptersScenario();
+    const { root, protocolRequest, acceptedChange } = await runAdoptedHookAdaptersScenario({ codeGraphReady: true });
     try {
       const daemon = await createStartedDaemon({
         localStorePath: testRuntimePaths(root).localStorePath,
@@ -6336,7 +6336,7 @@ describe("archctx CLI", () => {
     } finally {
       removeTempRoot(root);
     }
-  }, DAEMON_TEST_TIMEOUT_MS);
+  }, PROJECTION_CODEGRAPH_TEST_TIMEOUT_MS);
 
   // Causation control for the race test above: identical scenario and identical apply request,
   // with the injected non-owned mutation as the only removed variable. Without it the first
@@ -6437,7 +6437,7 @@ describe("archctx CLI", () => {
   }, PROJECTION_CODEGRAPH_TEST_TIMEOUT_MS);
 
   test("projection apply over real RPC rejects concurrent authority-input mutation without a receipt", async () => {
-    const { root, protocolRequest, acceptedChange } = await runAdoptedHookAdaptersScenario();
+    const { root, protocolRequest, acceptedChange } = await runAdoptedHookAdaptersScenario({ codeGraphReady: true });
     const daemon = await createStartedDaemon({
       localStorePath: testRuntimePaths(root).localStorePath,
       codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
@@ -6488,7 +6488,7 @@ describe("archctx CLI", () => {
       await rpc.stop().catch(() => undefined);
       removeTempRoot(root);
     }
-  }, DAEMON_TEST_TIMEOUT_MS);
+  }, PROJECTION_CODEGRAPH_TEST_TIMEOUT_MS);
 
   // The complete real-CodeGraph fixture + approval/recovery path measured 130s locally.
   // Keep the existing Windows allowance for this scenario on every platform.
