@@ -1,6 +1,7 @@
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION, architectureDocsProjectionManifestIssues, isRepoRelativePosixPath, isRuntimeTopologyNodeKind, stableId, type ArchitectureDocsProjectionManifestV4, type Json, type ProjectionTargetV1 } from "@archcontext/contracts";
+import { ARCHITECTURE_HISTORY_PATH } from "./architecture-history";
 export { sourceIncludeAnchors as repoHarnessIncludeAnchors } from "./source-globs";
 
 export const REPO_HARNESS_PROJECTION_PROFILE = "repo-harness/v1" as const;
@@ -56,6 +57,13 @@ const FIXED_TARGETS: ProjectionLayoutTargetDraft[] = [
   layoutTarget("projection_target.diagram.structurizr", "diagram-structurizr", { kind: "diagram", id: "architecture" }, "docs/architecture/diagrams/architecture.structurizr.json", "generated", "structurizr-json"),
   layoutTarget("projection_target.diagram.likec4", "diagram-likec4", { kind: "diagram", id: "architecture" }, "docs/architecture/diagrams/architecture.likec4", "generated", "likec4")
 ];
+
+/**
+ * `history.md` (ADR-0056 §8): rendered from the Git history of the model, not from the model, so
+ * only a render that is given that history writes it; every other render carries its committed
+ * row and bytes forward.
+ */
+export const ARCHITECTURE_HISTORY_TARGET: ProjectionLayoutTargetDraft = layoutTarget("projection_target.architecture.history", "architecture-history", { kind: "repository" }, ARCHITECTURE_HISTORY_PATH, "generated", "markdown");
 
 /**
  * The runtime topology view (ADR-0049). Whole-model, generated targets that the layout includes only
@@ -150,11 +158,12 @@ export function resolveArchitectureDocumentationLayout(input: {
   ));
   const topologyTargets = hasRuntimeTopologyNodes(input.nodes) ? RUNTIME_TOPOLOGY_TARGETS : [];
   // repo-harness/v1 publishes one projection per fact class (repo-harness#1222 D9): the capability
-  // documents, the runtime topology pair (its only projection, ADR-0049 §4), and the manifest. The
+  // documents, the runtime topology pair (its only projection, ADR-0049 §4), the architecture
+  // history, and the manifest. The
   // default profile keeps every whole-model view. The retired paths stay listed so an apply can
   // remove the intact global files an earlier repo-harness/v1 manifest recorded.
   const targets = (profile === REPO_HARNESS_PROJECTION_PROFILE
-    ? [...entityTargets, ...topologyTargets]
+    ? [...entityTargets, ...topologyTargets, ARCHITECTURE_HISTORY_TARGET]
     : [FIXED_TARGETS[0]!, ...entityTargets, ...relationTargets, ...FIXED_TARGETS.slice(1), ...topologyTargets])
     .map((target) => ({ ...target, path: requiredPath(target.path, target.targetId) }));
   assertUniqueTargets(targets);

@@ -152,6 +152,7 @@ export type ProjectionTargetType =
   | "diagram-likec4"
   | "diagram-runtime-topology"
   | "runtime-topology-summary"
+  | "architecture-history"
   | "agent-context";
 export type ProjectionTargetScopeKind = "repository" | "entity" | "relation" | "decision" | "diagram" | "changelog";
 export type ProjectionTargetOwnership = "generated" | "mixed";

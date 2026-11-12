@@ -15,7 +15,7 @@
       "minItems": 1,
       "uniqueItems": true,
       "description": "Canonical wire order is lexicographic and is enforced by projectionRequestInvariantIssues.",
-      "items": { "enum": ["agent-context", "architecture-docs"] }
+      "items": { "enum": ["agent-context", "architecture-docs", "architecture-history"] }
     },
     "changedPaths": {
       "type": "array",

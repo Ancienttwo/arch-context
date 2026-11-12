@@ -161,6 +161,7 @@ const TARGET_TYPES: Record<ProjectionTargetType, true> = {
   "diagram-likec4": true,
   "diagram-runtime-topology": true,
   "runtime-topology-summary": true,
+  "architecture-history": true,
   "agent-context": true
 };
 /** The whole-model targets that render the runtime topology (ADR-0049); they document its nodes' footprints. */
