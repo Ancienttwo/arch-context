@@ -460,6 +460,12 @@ async function applyProjectionProtocolFixedPoint(
         refreshSignals: committedSignals
       })
     : undefined;
+  // The receipt's recovery proof (projection-apply.ts) requires a ready CodeGraph snapshot. Optional
+  // code facts let a receipt-less apply render without an index, but a receipt written here would
+  // commit and then never prove, stranding a pending receipt (#552), so it is refused before any write.
+  if (applyIdentity && fixedPoint.runtimeSnapshot.codeGraphStatus !== "ready") {
+    return projectionFailureEnvelope("projection.run", new ProjectionCodeFactsUnavailableError(fixedPoint.inputs.codeGraphInputs.handshake.reasonCode ?? "index-missing"));
+  }
   // A partial plan has no accepted change, so it never reaches a receipt (#327, Phase 1).
   const appliedResult = projectionProtocolResult(request, input, fixedPoint.plan.isolation ? "applied-partial" : "applied", fixedPoint, applyIdentity, {
     files: committedFiles,
