@@ -80,8 +80,10 @@ export function classifyProjectionTargetChanges(input: ProjectionTargetChangeInp
   // One entry per target. A committed row describes a current target only at the same path; a row
   // whose target no current layout renders is a removed target, and an orphan no row records is a
   // removed target without a committed row. Only agent-context targets share a path (ADR-0056 §9).
-  // A targetId has one entry: an agent-context row whose designation moved keeps its current
-  // entry, and the region left at the old path is blocked through that path's orphan.
+  // A targetId has one entry: an agent-context row whose designation moved is described at its
+  // current path. The region left at the old path is reported by the run's status and its
+  // `orphaned-document-review` human action; changes[] names that path only when another target
+  // still renders there.
   const entries: Array<{ targetId: string; path: string; current?: ArchitectureDocsProjectionManifestTargetV4; committed?: ArchitectureDocsProjectionManifestTargetV4 }> = [];
   const coveredTargetIds = new Set<string>();
   const coveredPaths = new Set<string>();

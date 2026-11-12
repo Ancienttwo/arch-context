@@ -303,13 +303,35 @@ test("root markers reject incomplete, duplicate and digest-valid overlapping reg
   const plan = renderAgentContextProjection({ model: rootModel });
   const file = plan.files.find(file => file.path === "AGENTS.md")!;
   const end = '<!-- END ARCHCONTEXT AGENT CONTEXT id="capability.test.root" -->';
-  const nestedBody = '# outer\n<!-- BEGIN ARCHCONTEXT AGENT CONTEXT id="capability.other.root" -->\nHuman region\n<!-- END ARCHCONTEXT AGENT CONTEXT id="capability.other.root" -->\n';
-  const digest = digestJson({ id: "capability.test.root", body: nestedBody });
-  const overlap = `<!-- BEGIN ARCHCONTEXT AGENT CONTEXT id="capability.test.root" outputDigest="${digest}" -->\n${nestedBody}${end}\n`;
+  const complete = (id: string, body: string) => `<!-- BEGIN ARCHCONTEXT AGENT CONTEXT id="${id}" rendererVersion="archcontext.agent-context-renderer/v2" outputDigest="${digestJson({ id, body })}" -->`;
+  const innerBody = "Human region\n";
+  const nestedBody = `# outer\n${complete("capability.other.root", innerBody)}\n${innerBody}<!-- END ARCHCONTEXT AGENT CONTEXT id="capability.other.root" -->\n`;
+  const overlap = `${complete("capability.test.root", nestedBody)}\n${nestedBody}${end}\n`;
   // An id-less or unpaired marker anywhere in the file fails closed, never reads as a missing region (#572 G-F2).
   const stray = ["# Human\n<!-- BEGIN ARCHCONTEXT AGENT CONTEXT -->\nstray\n", '# Human\n<!-- END ARCHCONTEXT AGENT CONTEXT id="capability.other.root" -->\n'];
-  for (const body of [file.body.replace(end, ""), `${file.body}${file.body}`, end, overlap, ...stray]) {
+  // A paired region of another node whose marker lacks a required attribute fails closed too (#572 G2-F1).
+  const otherIncomplete = `${file.body}<!-- BEGIN ARCHCONTEXT AGENT CONTEXT id="capability.other.root" rendererVersion="archcontext.agent-context-renderer/v2" -->\nOther\n<!-- END ARCHCONTEXT AGENT CONTEXT id="capability.other.root" -->\n`;
+  // A repeated attribute fails closed instead of letting the last value win (#572 G4-F1).
+  const repeatedId = `${complete("capability.test.root", innerBody).replace(' id="capability.test.root"', ' id="capability.test.root" id="capability.other.root"')}\n${innerBody}<!-- END ARCHCONTEXT AGENT CONTEXT id="capability.other.root" -->\n`;
+  expect(() => renderAgentContextProjection({ model: rootModel, existingFiles: [{ path: "AGENTS.md", body: repeatedId }] })).toThrow("agent-context-marker-malformed");
+  for (const body of [file.body.replace(end, ""), `${file.body}${file.body}`, end, ...stray, otherIncomplete]) {
     expect(() => renderAgentContextProjection({ model: rootModel, existingFiles: [{ path: "AGENTS.md", body }] })).toThrow("agent-context-marker");
+  }
+  // Both markers are complete, so only the nesting can refuse this body (#572 R3-F1).
+  expect(() => renderAgentContextProjection({ model: rootModel, existingFiles: [{ path: "AGENTS.md", body: overlap }] })).toThrow("agent-context-marker-overlap");
+});
+
+test("a reordered or v1 root marker is the node's region and re-renders to the canonical bytes", () => {
+  const rootModel: NativeModel = { nodes: [{ id: "capability.test.root", kind: "capability", name: "Root", extensions: { contractFiles: { agents: "AGENTS.md", claude: "CLAUDE.md" } } }], relations: [] };
+  const canonical = renderAgentContextProjection({ model: rootModel }).files.find(file => file.path === "AGENTS.md")!.body;
+  const [, id, rendererVersion, outputDigest] = /^(id="[^"]+") (rendererVersion="[^"]+") (outputDigest="[^"]+")/.exec(canonical.slice("<!-- BEGIN ARCHCONTEXT AGENT CONTEXT ".length))!;
+  const reordered = canonical.replace(`${id} ${rendererVersion} ${outputDigest}`, `${rendererVersion} ${outputDigest} ${id}`);
+  const v1 = canonical.replace(rendererVersion, `sourceDigest="${sourceDigest}" rendererVersion="archcontext.agent-context-renderer/v1"`);
+  for (const existing of [reordered, v1]) {
+    expect(existing).not.toBe(canonical);
+    const rendered = renderAgentContextProjection({ model: rootModel, existingFiles: [{ path: "AGENTS.md", body: `# Human\n\n${existing}` }] });
+    // A marker the parser did not recognize as this node's region would be appended a second time (#572 G3-F1).
+    expect(rendered.files.find(file => file.path === "AGENTS.md")!.body).toBe(`# Human\n\n${canonical}`);
   }
 });
 
