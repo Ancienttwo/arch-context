@@ -3149,9 +3149,6 @@ function mergeAgentContextRegion(target: AgentContextProjectionTarget, wrapped: 
     return `${existing.trimEnd()}\n\n${wrapped}`;
   }
   // A hand-edited region is drift the projection reports and rewrites, not an error.
-  if (!agentContextMarkerOutputDigest(region.startMarker)) {
-    throw new Error(`agent-context-marker-output-digest-missing: ${target.path} (node ${target.scope.id})`);
-  }
   return `${existing.slice(0, region.start)}${wrapped}${existing.slice(region.end)}`;
 }
 
@@ -3183,9 +3180,10 @@ function agentContextRegionBodyDigest(body: string, region: { contentStart: numb
 
 /**
  * Every agent-context marker in the file is well-formed and paired before any one node's region is
- * read: each BEGIN names an id and is closed by the END of that id before the next marker, and no
- * id has two regions. A stray, id-less or unpaired marker therefore fails closed instead of reading
- * as a missing region that the projection would append.
+ * read: each BEGIN carries `id`, `rendererVersion` and a SHA-256 `outputDigest` (a v1 marker may also
+ * carry `sourceDigest`, so it reads as stale) and is closed by the END of that id before the next
+ * marker, and no id has two regions. A stray, id-less, unpaired or incomplete marker of any node
+ * therefore fails closed instead of reading as a missing region or surviving a rewrite.
  */
 function assertAgentContextMarkers(body: string): void {
   const marker = /<!-- (BEGIN|END) ARCHCONTEXT AGENT CONTEXT/g;
@@ -3194,8 +3192,7 @@ function assertAgentContextMarkers(body: string): void {
   for (let match = marker.exec(body); match !== null; match = marker.exec(body)) {
     const rest = body.slice(match.index);
     if (match[1] === "BEGIN") {
-      const id = /^<!-- BEGIN ARCHCONTEXT AGENT CONTEXT id="([^"]+)"[^>]*-->/.exec(rest)?.[1];
-      if (id === undefined) throw new Error("agent-context-marker-malformed: a BEGIN marker names no id");
+      const id = agentContextBeginMarkerId(rest);
       if (open !== undefined) throw new Error(`agent-context-marker-overlap: ${open}`);
       if (seen.has(id)) throw new Error(`agent-context-marker-duplicate: ${id}`);
       seen.add(id);
@@ -3207,6 +3204,20 @@ function assertAgentContextMarkers(body: string): void {
     }
   }
   if (open !== undefined) throw new Error(`agent-context-marker-malformed: ${open}`);
+}
+
+const AGENT_CONTEXT_MARKER_ATTRIBUTES = new Set(["id", "sourceDigest", "rendererVersion", "outputDigest"]);
+
+/** The id of the BEGIN marker at the start of `text`; throws unless its required attributes are present and well-formed. */
+function agentContextBeginMarkerId(text: string): string {
+  const marker = /^<!-- BEGIN ARCHCONTEXT AGENT CONTEXT((?: [A-Za-z]+="[^"]*")*) -->/.exec(text);
+  const attributes = new Map([...(marker?.[1] ?? "").matchAll(/ ([A-Za-z]+)="([^"]*)"/g)].map((entry) => [entry[1]!, entry[2]!]));
+  const id = attributes.get("id");
+  if (marker === null || !id || !attributes.get("rendererVersion") || !/^sha256:[a-f0-9]{64}$/.test(attributes.get("outputDigest") ?? "")
+    || [...attributes.keys()].some((key) => !AGENT_CONTEXT_MARKER_ATTRIBUTES.has(key))) {
+    throw new Error(`agent-context-marker-malformed: ${id ?? "a BEGIN marker names no id"}`);
+  }
+  return id;
 }
 
 function findAgentContextRegion(body: string, nodeId: string): {
