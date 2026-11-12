@@ -100,14 +100,17 @@ export function stateMachineAnchors(root: string, machines: readonly StateMachin
         .sort(digestOrder)] as const;
     }));
 
-    const symbolAnchorSet = new Set(symbolAnchors);
-    // A synced index holds no edge into a file that is gone, so such a path may have held any anchor's callee.
+    const readableAnchors = new Set(symbolAnchors);
+    // A synced index holds no edge into a file that is gone, so such a path may have held any anchor's
+    // callee. It selects every symbol anchor, including one whose own file is gone too.
     const pathGone = scope.paths !== undefined && [...scope.paths].some((path) => !scope.files.has(path));
     const selected = (anchor: CodeAnchor): boolean => {
       if (scope.paths === undefined || scope.paths.has(anchor.source.path)) return true;
-      if (!symbolAnchorSet.has(anchor)) return false;
-      // Without the index, with a stale anchor file or after a path is gone, the callees are unknown: fail closed.
-      if (pathGone || reader === undefined || outcome.get(anchor)?.reason === "index-stale") return true;
+      if (anchor.source.symbol === undefined) return false;
+      if (pathGone) return true;
+      if (!readableAnchors.has(anchor)) return false;
+      // Without the index, or with a stale anchor file, the callees are unknown: fail closed.
+      if (reader === undefined || outcome.get(anchor)?.reason === "index-stale") return true;
       return indexedCallees.get(anchor)?.some((callee) => scope.paths!.has(callee.path)) ?? false;
     };
 

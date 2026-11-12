@@ -342,9 +342,9 @@ a rule result depends only on the model. A debt item keeps the anchor's path, so
 The debt read is on the edit-time path, where a consumer may allow three seconds for the whole
 checkpoint. It never runs the protection run and parses no file; it reads each anchored or callee
 file at most once. Its budget is 250 ms added to the edit-time read for ten machines anchored on
-one changed file, and it holds when a deleted path selects every symbol anchor. The edit-time read
-already includes the checkpoint's readiness gate, which runs `codegraph status`; the state machine
-check adds no CodeGraph command to it.
+one changed file. The same budget applies when a deleted path selects every symbol anchor. The
+edit-time read already includes the checkpoint's readiness gate, which runs `codegraph status`;
+the state machine check adds no CodeGraph command to it.
 
 ### 9. Command surface, and what does not change
 

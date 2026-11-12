@@ -170,6 +170,9 @@ test("state machine debt: complete reports rules, and anchors go stale until the
       // After the sync the index holds no edge into the deleted file, and the path still selects the anchor.
       syncCodeGraphFixture(root);
       expect(stale(["src/rules.ts"])).toEqual([["anchor-changed", ["src/job.ts"], "finish", "Store.finish"]]);
+      // A symbol anchor whose own file is gone as well is selected and reported as missing.
+      rmSync(join(root, "src/job.ts"));
+      expect(stale(["src/rules.ts"])).toEqual([["anchor-missing-path", ["src/job.ts"], "finish", "Store.finish"]]);
     } finally { holder.close(); }
   } finally { await daemon.stop(); Bun.gc(true); removeTempRepo(root); }
 }, 120_000);
