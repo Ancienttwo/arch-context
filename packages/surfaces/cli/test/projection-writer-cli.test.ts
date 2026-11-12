@@ -361,7 +361,7 @@ test("projection publish ends up-to-date for a source-only change and pushes a g
     expect(orphanRewrite.verification).toMatchObject({ verdict: "touches-non-generated", nonGeneratedPaths: [wholePath], humanEditedPaths: [], renderEquivalent: null });
     expect(orphanRewrite.checks).toBe(0);
 
-    // A change inside the agent-context region is compared with the agent-context render.
+    // A change inside the agent-context region is checked against its manifest row by `projection check`.
     const regionStart = contractBody.indexOf("\n", contractBody.indexOf("<!-- BEGIN ARCHCONTEXT AGENT CONTEXT")) + 1;
     const contractInside = await verifyCase(() => writeFileSync(join(fixture.clone, contractPath), `${contractBody.slice(0, regionStart)}Injected claim.\n${contractBody.slice(regionStart)}`, "utf8"));
     expect(contractInside.verification).toMatchObject({ verdict: "generated-only-not-render-equivalent", humanEditedPaths: [], nonGeneratedPaths: [], renderEquivalent: false });
