@@ -466,8 +466,11 @@ test("a model change outside every capability leaves every capability document u
     writeYaml(root, `.archcontext/model/nodes/${STORE}.yaml`, storeNode("high"));
     const moved = await checkAndPlan(fixture, "external_moved");
     expect(moved.files.map((file) => file.path)).toEqual([MANIFEST]);
+    // The history row describes the whole model, so a model edit classifies it as a semantic
+    // change like any whole-model row; it is carried forward, with nothing to write.
     for (const entry of moved.changes!) {
-      expect(`${entry.path} ${entry.classification}/${entry.plannedAction}`).toBe(`${entry.path} unchanged/none`);
+      const expected = entry.path === "docs/architecture/history.md" ? "semantic-change/none" : "unchanged/none";
+      expect(`${entry.path} ${entry.classification}/${entry.plannedAction}`).toBe(`${entry.path} ${expected}`);
     }
     expect(byPath(moved).get(RENDERER_DOC)!.classification).toBe("unchanged");
     expect(byPath(moved).get(CATALOG_DOC)!.classification).toBe("unchanged");

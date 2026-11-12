@@ -929,7 +929,9 @@ const V5_SOURCE_DIGEST = `sha256:${"5".repeat(64)}`;
 function rewriteOutputsAsV5(root: string, lineEnding: "lf" | "crlf"): string[] {
   const manifest = JSON.parse(readFileSync(join(root, MANIFEST_PATH), "utf8"));
   const changed: string[] = [];
-  for (const [targetId, row] of Object.entries(manifest.targets as Record<string, { path: string; ownership: string; outputDigest: string }>)) {
+  for (const [targetId, row] of Object.entries(manifest.targets as Record<string, { type: string; path: string; ownership: string; outputDigest: string }>)) {
+    // history.md was never a v5 output: it became a row with manifest v4 (ADR-0056 §8).
+    if (row.type === "architecture-history") continue;
     const absolute = join(root, row.path);
     const body = readFileSync(absolute, "utf8");
     const v5Marker = (markerTargetId: string, outputDigest: string) =>
