@@ -905,7 +905,9 @@ async function proveOrRestoreCommittedProjectionApply(
   let input: ReturnType<typeof buildArchitectureDocsProjection>;
   let fixedPoint: ReturnType<typeof buildArchitectureDocsProjection>;
   try {
-    input = buildArchitectureDocsProjection(daemon, root, REPO_HARNESS_PROJECTION_PROFILE, undefined, readbackRequest.acceptedChange);
+    input = buildArchitectureDocsProjection(daemon, root, REPO_HARNESS_PROJECTION_PROFILE, undefined, readbackRequest.acceptedChange, {
+      historyTargetNamed: readbackRequest.targets.includes("architecture-history")
+    });
     assertProjectionExpectedSnapshot(readbackRequest, root, input);
     // Like the first apply, the fixed point reuses the input render's measured inputs (#324) and
     // simulates the post-write state from the rendered outputs. The write below binds its

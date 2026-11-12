@@ -1636,9 +1636,10 @@ function blockedProductionInjections(deps: RuntimeDeps): string[] {
 /**
  * The projection half of the `complete` gate (ADR-0056 §2): one build over the committed profile,
  * with no isolation and no accepted change, yields both drift and freshness. It reads Git history
- * only when the committed manifest has no architecture-history row (ADR-0056 §8). A repository with no projection manifest has no projection to verify or keep fresh, so
- * both inputs are absent rather than a blocking finding. The flow
- * `flow.architecture-context.projection-render` names this function as its daemon source symbol.
+ * only when the committed manifest has no architecture-history row (ADR-0056 §8). A repository
+ * with no projection manifest has no projection to verify or keep fresh, so both inputs are absent
+ * rather than a blocking finding. The flow `flow.architecture-context.projection-render` names this
+ * function as its daemon source symbol.
  */
 function completeTaskProjectionDrift(root: string): { projectionDrift?: CompleteTaskProjectionDriftInput; projectionFreshness?: CompleteTaskProjectionFreshnessInput } {
   if (!existsSync(resolve(root, "docs/architecture/.projection-manifest.json"))) return {};

@@ -664,11 +664,18 @@ test("a replay surfaces a failed snapshot read instead of reporting a moved snap
 
 test("a new requestId for a committed accepted change restores reverted outputs and points at readback (#325)", async () => {
   await withProtocolFixture("archctx-projection-new-id-restore-", async ({ root, cli, request, projectionRun }) => {
+    // A committed model change is a history milestone, so an apply that names the history target
+    // rewrites history.md too, and the restore must render it again.
     editKeptSummary(root);
-    const original = request("apply", "projection_request.new_id_restore", { acceptObservedMajorChange: true });
+    const keptPath = join(root, `.archcontext/model/nodes/${KEPT}.yaml`);
+    writeFileSync(keptPath, readFileSync(keptPath, "utf8").replace('name: "Hook Adapters"', 'name: "Hook Adapter Router"'), "utf8");
+    commitAll(root, "rename the kept capability");
+    const historyBefore = readFileSync(join(root, "docs/architecture/history.md"), "utf8");
+    const original = request("apply", "projection_request.new_id_restore", { acceptObservedMajorChange: true, targets: ["architecture-docs", "architecture-history"] });
     const first = projectionResult(await projectionRun(original));
     expect(first.status).toBe("applied");
     const docsAfterFirst = docsSnapshot(root);
+    expect(docsAfterFirst["docs/architecture/history.md"]).not.toBe(historyBefore);
     git(root, "checkout", "--", "docs/architecture");
 
     // The worker guide's new requestId observes the same accepted change at the same snapshot. The

@@ -200,8 +200,13 @@ test("the writer publishes the history.md its apply wrote, and verify-pr classif
   expect(run.files).toEqual(["docs/architecture/.projection-manifest.json", "docs/architecture/history.md"]);
   git(fixture.clone, "fetch", "-q", "origin");
   git(fixture.clone, "checkout", "-q", "-b", "test-history", "origin/archctx/projection");
-  const check = (files: { path: string; action: string }[]) => () => okEnvelope("projection.run", { status: files.length === 0 ? "noop" : "planned", files } as unknown as Json);
+  const checkedTargets: string[][] = [];
+  const check = (files: { path: string; action: string }[]) => (request: ProjectionRequestV1) => {
+    checkedTargets.push([...request.targets]);
+    return okEnvelope("projection.run", { status: files.length === 0 ? "noop" : "planned", files } as unknown as Json);
+  };
   expect(runProjectionVerifyPrCommand({ cwd: fixture.clone, base: "origin/main", check: check([]) }).data).toMatchObject({ verdict: "generated-only-render-equivalent", differingPaths: [] });
+  expect(checkedTargets).toEqual([["agent-context", "architecture-docs", "architecture-history"]]);
   expect(runProjectionVerifyPrCommand({ cwd: fixture.clone, base: "origin/main", check: check([{ path: "docs/architecture/history.md", action: "update" }]) }).data)
     .toMatchObject({ generatedOnly: true, renderEquivalent: false, differingPaths: ["docs/architecture/history.md"] });
 });

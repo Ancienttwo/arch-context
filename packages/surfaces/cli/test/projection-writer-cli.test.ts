@@ -169,8 +169,11 @@ test("with a committed history row, check, docs drift and complete leave history
     expect(drift.ok, JSON.stringify(drift)).toBe(true);
     expect(JSON.stringify(drift)).not.toContain("docs/architecture/history.md");
     const completed = await runCli("complete", ["--task", "verify history does not drift"], shallow, { runtimeClient: daemon });
-    expect(JSON.stringify(completed)).not.toContain("history-shallow-repository");
-    expect(JSON.stringify(completed)).not.toContain("docs/architecture/history.md");
+    expect(completed.ok, JSON.stringify(completed)).toBe(true);
+    // The model edit stales its module document only; the carried history row adds no drift reason.
+    const completedData = completed.data as any;
+    expect(completedData.snapshot.projectionDigest).toMatch(/^sha256:/);
+    expect(completedData.extensions.projectionDriftGate.reasonCodes).toEqual(["projection-generated-region-stale", "projection-manifest-stale"]);
     expect(readFileSync(join(shallow, "docs/architecture/history.md"), "utf8")).toBe(historyBefore);
     const named = await runCli("projection", ["run", "--request-json", JSON.stringify(request(["agent-context", "architecture-docs", "architecture-history"])), "--json"], shallow, { runtimeClient: daemon });
     expect(named).toMatchObject({ ok: false, error: { reasonCode: "history-shallow-repository" } });
