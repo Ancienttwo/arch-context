@@ -199,15 +199,22 @@ export function architectureDocsProjectionManifestIssues(value: unknown): string
     issues.push("manifest.targets must be an object keyed by targetId");
     return issues;
   }
-  const paths = new Set<string>();
+  // Every path appears in one row, except that agent-context rows share a contract file when their
+  // nodes differ: each row owns only its node's region (ADR-0056 §9).
+  const rowsByPath = new Map<string, { agentContext: boolean; scopeId: unknown }[]>();
   for (const [targetId, row] of Object.entries(targets)) {
     const prefix = `manifest.targets[${JSON.stringify(targetId)}]`;
     if (!isNonEmptyString(targetId)) issues.push("manifest.targets keys must be non-empty targetIds");
     issues.push(...manifestTargetIssues(row, prefix));
-    const path = record(row)?.path;
+    const target = record(row);
+    const path = target?.path;
     if (typeof path === "string") {
-      if (paths.has(path)) issues.push(`${prefix}.path is recorded by another target`);
-      paths.add(path);
+      const current = { agentContext: target!.type === "agent-context", scopeId: record(target!.scope)?.id };
+      const others = rowsByPath.get(path) ?? [];
+      if (others.some((other) => !current.agentContext || !other.agentContext || other.scopeId === current.scopeId)) {
+        issues.push(`${prefix}.path is recorded by another target`);
+      }
+      rowsByPath.set(path, [...others, current]);
     }
   }
   return issues;
@@ -448,6 +455,10 @@ function manifestTargetIssues(value: unknown, prefix: string): string[] {
   if (typeof target.ownership !== "string" || !Object.hasOwn(OWNERSHIPS, target.ownership)) issues.push(`${prefix}.ownership is unsupported`);
   if (typeof target.format !== "string" || !Object.hasOwn(FORMATS, target.format)) issues.push(`${prefix}.format is unsupported`);
   if (!isDigest(target.outputDigest)) issues.push(`${prefix}.outputDigest must be a SHA-256 digest`);
+  if (target.type === "agent-context"
+    && (target.ownership !== "mixed" || target.format !== "markdown" || scope?.kind !== "entity" || !isNonEmptyString(scope.id))) {
+    issues.push(`${prefix} agent-context rows must be mixed, markdown and entity-scoped with an id`);
+  }
   return issues;
 }
 

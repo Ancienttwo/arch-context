@@ -40,9 +40,9 @@ const REJECTION_REASONS: Readonly<Record<string, ProjectionTargetChangeReasonCod
 
 /**
  * Classifies every target of a `check` or `plan` result (#327 finding 2): the union of the current
- * targets, the committed manifest's rows and the orphans, one entry per path, sorted by path. Each
- * comparison reads values the render already holds (row output digests, the model
- * digest, per-capability semantic and flow-proof fingerprints, selector-evidence digests);
+ * targets, the committed manifest's rows and the orphans, one entry per target, sorted by path,
+ * then targetId. Each comparison reads values the render already holds (row output digests, the
+ * model digest, per-capability semantic and flow-proof fingerprints, selector-evidence digests);
  * `plannedAction` is the result's `files[]` action, never a second comparison, and `outputChanged`
  * reads the `files[]` action even where a rejection blocks the write. Nothing here changes what a
  * run writes or reports as its status.
@@ -75,26 +75,34 @@ export function classifyProjectionTargetChanges(input: ProjectionTargetChangeInp
   const fileByPath = new Map(input.files.map((file) => [file.path, file]));
   const rejectedByPath = new Map(input.rejected.map((entry) => [entry.path, entry.reasonCode]));
   const orphanByPath = new Map(input.orphans.map((orphan) => [orphan.path, orphan]));
-  const blockedByPath = new Map(input.blockedTargets.map((target) => [target.path, target]));
+  const blockedByTargetId = new Map(input.blockedTargets.map((target) => [target.targetId, target]));
 
-  // One entry per path. A committed row describes a current target only at the same path; a row
-  // whose path no current target renders is a removed target, and an orphan no row records is a
-  // removed target without a committed row.
+  // One entry per target. A committed row describes a current target only at the same path; a row
+  // whose target no current layout renders is a removed target, and an orphan no row records is a
+  // removed target without a committed row. Only agent-context targets share a path (ADR-0056 §9).
+  // A targetId has one entry: an agent-context row whose designation moved is described at its
+  // current path. The region left at the old path is reported by the run's status and its
+  // `orphaned-document-review` human action; changes[] names that path only when another target
+  // still renders there.
   const entries: Array<{ targetId: string; path: string; current?: ArchitectureDocsProjectionManifestTargetV4; committed?: ArchitectureDocsProjectionManifestTargetV4 }> = [];
+  const coveredTargetIds = new Set<string>();
+  const coveredPaths = new Set<string>();
+  const add = (entry: (typeof entries)[number]) => {
+    entries.push(entry);
+    coveredTargetIds.add(entry.targetId);
+    coveredPaths.add(entry.path);
+  };
   for (const [targetId, row] of Object.entries(input.renderedTargets)) {
     const committedRow = committedRows[targetId];
-    entries.push({ targetId, path: row.path, current: row, ...(committedRow?.path === row.path ? { committed: committedRow } : {}) });
+    add({ targetId, path: row.path, current: row, ...(committedRow?.path === row.path ? { committed: committedRow } : {}) });
   }
-  const covered = new Set(entries.map((entry) => entry.path));
   for (const [targetId, row] of Object.entries(committedRows)) {
-    if (covered.has(row.path)) continue;
-    entries.push({ targetId, path: row.path, committed: row });
-    covered.add(row.path);
+    if (coveredTargetIds.has(targetId) || (row.type !== "agent-context" && coveredPaths.has(row.path))) continue;
+    add({ targetId, path: row.path, committed: row });
   }
   for (const orphan of input.orphans) {
-    if (covered.has(orphan.path)) continue;
-    entries.push({ targetId: orphan.targetId, path: orphan.path });
-    covered.add(orphan.path);
+    if (coveredTargetIds.has(orphan.targetId) || (committedRows[orphan.targetId]?.type !== "agent-context" && coveredPaths.has(orphan.path))) continue;
+    add({ targetId: orphan.targetId, path: orphan.path });
   }
 
   return entries.map((entry): ProjectionTargetChangeV2 => {
@@ -110,16 +118,18 @@ export function classifyProjectionTargetChanges(input: ProjectionTargetChangeInp
       reasons.add("target-row-missing");
     } else {
       // An entity summary documents the capabilities its node, and the nodes whose footprint it
-      // documents, belong to; any other target (index, decisions, changelog, diagrams, relation
-      // summaries) describes the whole model and renders no flow proof.
+      // documents, belong to. An agent-context region documents the capabilities its node belongs
+      // to and renders no flow proof (ADR-0056 §4). Any other target (index, decisions, changelog,
+      // diagrams, relation summaries) describes the whole model and renders no flow proof.
       const entity = row.type === "entity-summary";
+      const agentContext = row.type === "agent-context";
       const scopeId = row.scope.id;
-      const nodeIds = scopeId === undefined ? [] : [scopeId, ...[...input.footprintOwners].filter(([, owner]) => owner === scopeId).map(([nodeId]) => nodeId)];
-      const documented = entity ? capabilityIds.filter((id) => nodeIds.some((nodeId) => membersById.get(id)!.has(nodeId))) : capabilityIds;
+      const nodeIds = scopeId === undefined ? [] : entity ? [scopeId, ...[...input.footprintOwners].filter(([, owner]) => owner === scopeId).map(([nodeId]) => nodeId)] : [scopeId];
+      const documented = entity || agentContext ? capabilityIds.filter((id) => nodeIds.some((nodeId) => membersById.get(id)!.has(nodeId))) : capabilityIds;
       const semanticIds = documented.filter((id) => semanticChangedIds.has(id));
       const proofIds = entity ? documented.filter((id) => proofReasonsById.has(id)) : [];
-      if (entity) documentedByEntity = documented;
-      const wholeModelChanged = !entity && modelChanged;
+      if (entity || agentContext) documentedByEntity = documented;
+      const wholeModelChanged = !entity && !agentContext && modelChanged;
       semanticChanged = semanticIds.length > 0 || wholeModelChanged;
       proofChanged = proofIds.length > 0;
       if (semanticIds.length > 0) reasons.add("semantic-fingerprint-changed");
@@ -150,7 +160,7 @@ export function classifyProjectionTargetChanges(input: ProjectionTargetChangeInp
       reasons.add(reason);
     }
     if (orphanByPath.get(entry.path)?.disposition === "human-review") reasons.add("orphan-review-required");
-    const carried = blockedByPath.get(entry.path);
+    const carried = blockedByTargetId.get(entry.targetId);
     if (carried !== undefined) {
       for (const reason of carried.reasonCodes) reasons.add(reason);
       for (const id of carried.capabilityIds) affected.add(id);
@@ -179,7 +189,7 @@ export function classifyProjectionTargetChanges(input: ProjectionTargetChangeInp
       classification,
       reasonCodes
     };
-  }).sort((left, right) => compareStrings(left.path, right.path));
+  }).sort((left, right) => compareStrings(left.path, right.path) || compareStrings(left.targetId, right.targetId));
 }
 
 function compareStrings(left: string, right: string): number {

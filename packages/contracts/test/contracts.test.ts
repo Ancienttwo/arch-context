@@ -555,6 +555,15 @@ test("the projection manifest contract matches the schema and the writer's curre
   // Beyond JSON Schema: unique paths.
   expect(architectureDocsProjectionManifestIssues(withTarget({ path: manifest.targets[indexId].path })))
     .toContain(`manifest.targets[${JSON.stringify(entityId)}].path is recorded by another target`);
+  // Agent-context rows (ADR-0056 §9) are mixed, markdown and entity-scoped, and share a contract file only across nodes.
+  const agentRow = (id: string) => ({ type: "agent-context", scope: { kind: "entity", id, entityKind: "capability" }, path: "AGENTS.md", ownership: "mixed", format: "markdown", outputDigest: `sha256:${"7".repeat(64)}` });
+  const withAgentRows = (rows: Record<string, unknown>) => JSON.parse(JSON.stringify({ ...manifest, targets: { ...manifest.targets, ...rows } }));
+  expect(architectureDocsProjectionManifestIssues(withAgentRows({ "projection_target.agent-context.agents.a": agentRow("capability.a.one"), "projection_target.agent-context.agents.b": agentRow("capability.b.two") }))).toEqual([]);
+  expect(architectureDocsProjectionManifestIssues(withAgentRows({ "projection_target.agent-context.agents.a": agentRow("capability.a.one"), "projection_target.agent-context.agents.b": agentRow("capability.a.one") })))
+    .toContain(`manifest.targets["projection_target.agent-context.agents.b"].path is recorded by another target`);
+  const generatedAgentRow = withAgentRows({ "projection_target.agent-context.agents.a": { ...agentRow("capability.a.one"), ownership: "generated" } });
+  expect(architectureDocsProjectionManifestIssues(generatedAgentRow)).toContain(`manifest.targets["projection_target.agent-context.agents.a"] agent-context rows must be mixed, markdown and entity-scoped with an id`);
+  expect(validateJsonSchema(schema as any, generatedAgentRow).valid).toBe(false);
   // Enum lookups are own-key only: an inherited Object.prototype key is not a supported value.
   const first = manifest.targets[indexId];
   for (const [field, patch] of [

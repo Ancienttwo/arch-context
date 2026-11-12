@@ -329,9 +329,11 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
         ),
         validateRootWrite: (root, file) => {
           const model = loadNativeModelFromArchContext(root);
-          const canonical = renderAgentContextProjection({ model, sourceDigest: digestJson({ model } as unknown as Json), existingFiles: loadAgentContextProjectionFiles(root, model) });
+          const canonical = renderAgentContextProjection({ model, existingFiles: loadAgentContextProjectionFiles(root, model) });
           const canonicalBody = canonical.files.find(candidate => candidate.path === file.path)?.body;
-          if (canonicalBody === undefined || projectionOwnedWriteBody(canonicalBody, readFileSync(resolve(root, file.path), "utf8")) !== file.body) {
+          const absolute = resolve(root, file.path);
+          const onDisk = existsSync(absolute) ? readFileSync(absolute, "utf8") : undefined;
+          if (canonicalBody === undefined || projectionOwnedWriteBody(canonicalBody, onDisk) !== file.body) {
             throw new Error(`Root contract requires canonical marker-only content: ${file.path}`);
           }
         }

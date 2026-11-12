@@ -157,13 +157,17 @@ export function resolveArchitectureDocumentationLayout(input: {
     "markdown"
   ));
   const topologyTargets = hasRuntimeTopologyNodes(input.nodes) ? RUNTIME_TOPOLOGY_TARGETS : [];
+  // repo-harness/v1 requires `contractFiles` on every capability, so each contract file it
+  // designates is a row the projection writes (ADR-0056 §9). The default profile keeps
+  // `archctx agent-context` as their writer.
+  const agentContextTargets = profile === REPO_HARNESS_PROJECTION_PROFILE ? agentContextLayoutTargets(targetNodes) : [];
   // repo-harness/v1 publishes one projection per fact class (repo-harness#1222 D9): the capability
   // documents, the runtime topology pair (its only projection, ADR-0049 §4), the architecture
   // history, and the manifest. The
   // default profile keeps every whole-model view. The retired paths stay listed so an apply can
   // remove the intact global files an earlier repo-harness/v1 manifest recorded.
   const targets = (profile === REPO_HARNESS_PROJECTION_PROFILE
-    ? [...entityTargets, ...topologyTargets, ARCHITECTURE_HISTORY_TARGET]
+    ? [...entityTargets, ...topologyTargets, ARCHITECTURE_HISTORY_TARGET, ...agentContextTargets]
     : [FIXED_TARGETS[0]!, ...entityTargets, ...relationTargets, ...FIXED_TARGETS.slice(1), ...topologyTargets])
     .map((target) => ({ ...target, path: requiredPath(target.path, target.targetId) }));
   assertUniqueTargets(targets);
@@ -175,6 +179,26 @@ export function resolveArchitectureDocumentationLayout(input: {
     orphanRoots: ["docs/architecture/modules", "docs/architecture/relations"],
     entityPathByNodeId: new Map(entityTargets.map((target, index) => [targetNodes[index]!.id, target.path]))
   };
+}
+
+/** The target id of one contract file of one node; the agent-context renderer gives its targets the same id. */
+export function agentContextTargetId(path: string, nodeId: string): string {
+  const fileName = path.slice(path.lastIndexOf("/") + 1);
+  const slug = fileName === "AGENTS.md" ? "agents" : fileName === "CLAUDE.md" ? "claude" : undefined;
+  if (slug === undefined) throw new Error(`agent-context-unknown-target-file: ${path}`);
+  return `projection_target.agent-context.${slug}.${stableId(nodeId)}`;
+}
+
+function agentContextLayoutTargets(capabilities: readonly ProjectionLayoutNode[]): ProjectionLayoutTargetDraft[] {
+  const kindById = new Map(capabilities.map((node) => [node.id, node.kind]));
+  return agentContextTargetPaths([...capabilities]).map(({ nodeId, path }) => layoutTarget(
+    agentContextTargetId(path, nodeId),
+    "agent-context",
+    { kind: "entity", id: nodeId, entityKind: kindById.get(nodeId)! },
+    path,
+    "mixed",
+    "markdown"
+  ));
 }
 
 export function agentContextTargetPaths(nodes: ProjectionLayoutNode[]): { nodeId: string; path: string }[] {
@@ -230,8 +254,14 @@ export function loadArchitectureFilesForLayout(
   if (paths.has(ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH)) {
     const manifest = readProjectionOwnedFile(resolve(root, ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH), ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH);
     const retired = new Set(layout.retiredTargetPaths);
-    for (const output of committedProjectionOutputs(currentFormatManifest(manifest.body))) {
+    const committed = currentFormatManifest(manifest.body);
+    for (const output of committedProjectionOutputs(committed)) {
       if (output.ownership !== "generated" && !retired.has(output.path)) continue;
+      if (resolveSafeRegularPath(root, output.path, false)) paths.add(output.path);
+    }
+    // A contract file an agent-context row names is read even when the current model no longer
+    // designates it, so a region left there is found as an orphan (ADR-0056 §9).
+    for (const output of committedAgentContextOutputs(committed)) {
       if (resolveSafeRegularPath(root, output.path, false)) paths.add(output.path);
     }
   }
@@ -289,6 +319,27 @@ export function architectureHistoryCarryForwardBlocker(committedManifestBody: st
     || row.format !== ARCHITECTURE_HISTORY_TARGET.format) return "history-row-missing";
   if (historyBody === undefined) return "history-file-missing";
   return digestJson({ targetId: ARCHITECTURE_HISTORY_TARGET.targetId, body: historyBody }) === row.outputDigest ? undefined : "history-file-mismatch";
+}
+
+/** One `agent-context` row of the committed projection manifest: the node whose region it owns in a contract file. */
+export interface CommittedAgentContextOutput {
+  targetId: string;
+  path: string;
+  nodeId: string;
+  /** `digestJson({ id: nodeId, body })` of the region body the projection wrote. */
+  outputDigest: string;
+}
+
+/**
+ * The `agent-context` rows of the committed manifest. Contract files live anywhere in the
+ * repository, so these rows are the one record outside `docs/architecture/` that is read back.
+ */
+export function committedAgentContextOutputs(manifest: ArchitectureDocsProjectionManifestV4 | undefined): CommittedAgentContextOutput[] {
+  if (manifest === undefined) return [];
+  return Object.entries(manifest.targets).flatMap(([targetId, row]) =>
+    row.type === "agent-context" && row.scope.id !== undefined && isRepoRelativePosixPath(row.path)
+      ? [{ targetId, path: row.path, nodeId: row.scope.id, outputDigest: row.outputDigest }]
+      : []);
 }
 
 /** The `generated` (whole-file) rows of `committedProjectionOutputs`. */
@@ -406,9 +457,14 @@ function assertInsideRoot(root: string, absolute: string, label: string): void {
   if (path === ".." || path.startsWith("../")) throw new Error(`projection-layout-path-escapes-repository: ${label}`);
 }
 
+/** Agent-context targets of different nodes may share a contract file; every other path has one target. */
 function assertUniqueTargets(targets: ProjectionLayoutTargetDraft[]): void {
+  const pathKey = (target: ProjectionLayoutTargetDraft) => target.type === "agent-context" ? `${target.path}\u0000${target.scope.id}` : target.path;
+  const agentContextPaths = new Set(targets.filter((target) => target.type === "agent-context").map((target) => target.path));
+  const sharedPath = targets.find((target) => target.type !== "agent-context" && agentContextPaths.has(target.path));
+  if (sharedPath) throw new Error(`projection-layout-path-collision: ${sharedPath.path}`);
   for (const [label, values] of [
-    ["path", targets.map((target) => target.path)],
+    ["path", targets.map(pathKey)],
     ["targetId", targets.map((target) => target.targetId)]
   ] as const) {
     const duplicate = values.find((value, index) => values.indexOf(value) !== index);

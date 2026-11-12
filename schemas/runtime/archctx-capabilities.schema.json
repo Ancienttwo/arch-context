@@ -32,7 +32,7 @@
       "required": ["architectureDocs", "agentContext"],
       "properties": {
         "architectureDocs": { "const": "archcontext.docs-renderer/v6" },
-        "agentContext": { "const": "archcontext.agent-context-renderer/v1" }
+        "agentContext": { "const": "archcontext.agent-context-renderer/v2" }
       }
     },
     "features": {

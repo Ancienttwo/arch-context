@@ -120,7 +120,13 @@ test("classification follows one precedence: blocked > proof (known) > baseline-
 test("the change invariants refuse inconsistent entries (#327)", () => {
   const issues = (entries: ProjectionTargetChangeV2[], resultFiles = files) => projectionTargetChangesIssues(entries, resultFiles);
   expect(issues(changes)).toEqual([]);
-  expect(issues([...changes].reverse())).toContain("changes.path must be sorted and unique");
+  expect(issues([...changes].reverse())).toContain("changes must be ordered by path, then targetId");
+  // One entry per target (#572): a targetId appears once, and only agent-context targets share a path.
+  expect(issues([changes[0]!, { ...changes[1]!, targetId: changes[0]!.targetId }, changes[2]!])).toContain("changes.targetId must be unique");
+  expect(issues([changes[0]!, { ...changes[0]!, targetId: `${changes[0]!.targetId}_twin` }, changes[1]!, changes[2]!]))
+    .toContain(`changes.path ${changes[0]!.path} is shared by targets that are not all agent-context targets`);
+  const agent = (node: string) => ({ ...change("packages/app/AGENTS.md", {}), targetId: `projection_target.agent-context.agents.${node}` });
+  expect(issues([agent("capability-app-one"), agent("capability-app-two")], [])).toEqual([]);
   // The classification is derived, never chosen.
   expect(issues([changes[0]!, { ...changes[1]!, classification: "semantic-change" }, changes[2]!]))
     .toContain("changes[1].classification must be output-change for its comparisons and reason codes");

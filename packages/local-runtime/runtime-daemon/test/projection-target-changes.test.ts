@@ -154,6 +154,21 @@ test("a semantic delta with unchanged rendered bytes is semantic-change on its d
   expect(changes.get(ENTITY_B)!.classification).toBe("unchanged");
 });
 
+test("agent-context rows sharing one contract file each keep their own target, semantic change and capability (ADR-0056 §9)", () => {
+  const agentRow = (nodeId: string): ArchitectureDocsProjectionManifestTargetV4 => ({ type: "agent-context", scope: { kind: "entity", id: nodeId, entityKind: "capability" }, path: "packages/flows/AGENTS.md", ownership: "mixed", format: "markdown", outputDigest: digest(nodeId === A ? "4" : "5") });
+  const AGENT_A = "projection_target.agent-context.agents.capability-flows-alpha";
+  const AGENT_B = "projection_target.agent-context.agents.capability-flows-beta";
+  const rows = { ...baseRows(), [AGENT_A]: agentRow(A), [AGENT_B]: agentRow(B) };
+  const input = unchangedInput();
+  input.committed = manifest(undefined, rows);
+  input.renderedTargets = { ...rows };
+  input.capabilities = input.capabilities.map((entry) => entry.capabilityId === B ? { ...entry, semanticFingerprint: digest("9") } : entry);
+  input.files = [MANIFEST_WRITE];
+  const changes = classify(input);
+  expect(summary(changes.get(AGENT_A))).toEqual({ classification: "unchanged", plannedAction: "none", reasonCodes: [], affectedCapabilityIds: [] });
+  expect(changes.get(AGENT_B)).toMatchObject({ targetId: AGENT_B, path: "packages/flows/AGENTS.md", classification: "semantic-change", semanticChanged: true, proofChanged: false, affectedCapabilityIds: [B], reasonCodes: ["semantic-fingerprint-changed"] });
+});
+
 test("a proof change with no bytes to write is proof-change on the capability's documents only", () => {
   for (const [field, reason] of [["flowProofFingerprint", "flow-proof-changed"], ["selectorEvidenceDigest", "selector-evidence-changed"]] as const) {
     const input = unchangedInput();

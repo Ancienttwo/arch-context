@@ -238,20 +238,24 @@ describe("runtime topology view (ADR-0049)", () => {
     const layout = (nodes: NativeModel["nodes"]) => resolveArchitectureDocumentationLayout({
       nodes, relations: [], profile: REPO_HARNESS_PROJECTION_PROFILE
     });
-    expect(layout([capability]).targets.map((target) => target.type)).toEqual(["entity-summary", "architecture-history"]);
+    expect(layout([capability]).targets.map((target) => target.type)).toEqual(["entity-summary", "architecture-history", "agent-context", "agent-context"]);
     const topologyLayout = layout([capability, { id: "process.shop.web", kind: "process", name: "Web" }]);
     expect(topologyLayout.targets.map((target) => target.type)).toEqual([
       "entity-summary",
       "diagram-runtime-topology",
       "runtime-topology-summary",
-      "architecture-history"
+      "architecture-history",
+      "agent-context",
+      "agent-context"
     ]);
     expect(topologyLayout.expectedPaths).toEqual([
       "docs/architecture/.projection-manifest.json",
       "docs/architecture/diagrams/runtime-topology.mmd",
       "docs/architecture/history.md",
       "docs/architecture/modules/shop/storefront.md",
-      "docs/architecture/runtime-topology.md"
+      "docs/architecture/runtime-topology.md",
+      "shop/AGENTS.md",
+      "shop/CLAUDE.md"
     ]);
     // The whole-model views repo-harness/v1 retired stay off the target set.
     for (const type of ["architecture-index", "architecture-changelog", "decision-index", "diagram-mermaid", "diagram-likec4", "diagram-structurizr"]) {
