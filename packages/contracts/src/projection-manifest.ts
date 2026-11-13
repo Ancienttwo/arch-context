@@ -496,7 +496,11 @@ function versionNumber(value: unknown, family: string): number | undefined {
   return Number.isSafeInteger(version) ? version : undefined;
 }
 
-/** Pure engine compatibility; absent floors retain the v3 behavior. Future formats never rebaseline. */
+/**
+ * Pure engine compatibility; absent floors retain the v3 behavior. Future formats never rebaseline.
+ * Floors require a current or superseded declared schema. A superseded manifest's floors are
+ * evaluated against this engine, as v4 floors are; they only decide whether this engine may replace it.
+ */
 export function architectureDocsProjectionCompatibilityIssues(value: unknown, engine: { rendererVersion: string; protocolVersion: string } = {
   rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION, protocolVersion: PROJECTION_REQUEST_SCHEMA_VERSION
 }): string[] {
@@ -504,7 +508,10 @@ export function architectureDocsProjectionCompatibilityIssues(value: unknown, en
   if (!manifest) return [];
   const issues: string[] = [];
   if (["minimumRendererVersion", "minimumProtocolVersion"].some(key => Object.hasOwn(manifest, key))
-    && manifest.schemaVersion !== ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION) issues.push("projection manifest floors require the current schema");
+    && manifest.schemaVersion !== ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION
+    && !(typeof manifest.schemaVersion === "string" && isSupersededArchitectureDocsProjectionManifestSchemaVersion(manifest.schemaVersion))) {
+    issues.push("projection manifest floors require a current or superseded schema");
+  }
   if (typeof manifest.schemaVersion === "string" && manifest.schemaVersion !== ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION
     && !isSupersededArchitectureDocsProjectionManifestSchemaVersion(manifest.schemaVersion)) issues.push("projection manifest schema is unsupported by this engine");
   for (const [key, family, current] of [

@@ -4,6 +4,7 @@ import {
   ARCHITECTURE_EVENT_SCHEMA_VERSION,
   ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH,
   architectureDocsProjectionCompatibilityIssues,
+  isSupersededArchitectureDocsProjectionManifestSchemaVersion,
   FailureError,
   architectureEventHash,
   baseModelBlockingErrors,
@@ -591,6 +592,9 @@ function assertProjectionWriteCompatibility(root: string, proposed?: ChangeSetPr
   let candidate: unknown;
   try { candidate = JSON.parse(proposed.body); } catch { throw new FailureError("AC_PRECONDITION_FAILED", "projection-manifest-incompatible"); }
   if (architectureDocsProjectionCompatibilityIssues(candidate).length) throw new FailureError("AC_PRECONDITION_FAILED", "projection-manifest-incompatible");
+  // A superseded manifest is not a baseline: its floors only decide whether this engine may replace it (#579).
+  const currentSchema = current && typeof current === "object" ? (current as Record<string, unknown>).schemaVersion : undefined;
+  if (typeof currentSchema === "string" && isSupersededArchitectureDocsProjectionManifestSchemaVersion(currentSchema)) return;
   for (const key of ["minimumRendererVersion", "minimumProtocolVersion"] as const) {
     const floor = current && typeof current === "object" ? (current as Record<string, unknown>)[key] : undefined;
     if (floor !== undefined && (!candidate || typeof candidate !== "object" || (candidate as Record<string, unknown>)[key] !== floor)) throw new FailureError("AC_PRECONDITION_FAILED", "projection-manifest-incompatible");

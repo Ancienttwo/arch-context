@@ -41,5 +41,12 @@ test("future manifests refuse even without floors; old documented rebaseline ver
   }
   for (const version of ["archcontext.architecture-docs-projection-manifest/v1", "archcontext.architecture-docs-projection-manifest/v2", "archcontext.architecture-docs-projection-manifest/v3"]) {
     expect(architectureDocsProjectionCompatibilityIssues({ schemaVersion: version }, engine)).toEqual([]);
+    // A superseded manifest's floors are evaluated against this engine, as v4 floors are (#579).
+    expect(architectureDocsProjectionCompatibilityIssues({ schemaVersion: version, minimumRendererVersion: "archcontext.docs-renderer/v6" }, engine)).toEqual([]);
+    expect(architectureDocsProjectionCompatibilityIssues({ schemaVersion: version, minimumRendererVersion: "archcontext.docs-renderer/v7" }, engine).length).toBeGreaterThan(0);
+  }
+  // Floors still need a declared schema this engine knows.
+  for (const schemaVersion of [undefined, 3, "archcontext.architecture-docs-projection-manifest/v5"]) {
+    expect(architectureDocsProjectionCompatibilityIssues({ schemaVersion, minimumRendererVersion: "archcontext.docs-renderer/v6" }, engine)).toContain("projection manifest floors require a current or superseded schema");
   }
 });
