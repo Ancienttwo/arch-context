@@ -569,7 +569,7 @@ test("repo-harness/v1 apply keeps and reports a hand-modified whole-model file (
   }
 }, CLI_DOCS_TEST_TIMEOUT_MS);
 
-test("a 0.13.0 default tree re-baselines: a placeholder-only changelog is deleted, one with human text refuses (ADR-0057)", async () => {
+test("a 0.13.0 default tree with a renderer floor re-baselines: a placeholder-only changelog is deleted, one with human text refuses (ADR-0057, #579)", async () => {
   const root = mkdtempSync(join(tmpdir(), "archctx-cli-540-changelog-"));
   writeFileSync(join(root, "README.md"), "# projection fixture\n", "utf8");
   initializeArchContextModel(root, "Retired Changelog App");
@@ -602,15 +602,18 @@ test("a 0.13.0 default tree re-baselines: a placeholder-only changelog is delete
     const indexBody = /-->\n([\s\S]*)\n<!-- END/.exec(readFileSync(indexPath, "utf8"))![1]!;
     // A 0.13.0 default tree differs from this release's only by the changelog, the index link to it
     // and a v3 manifest that records both. On an initialized model this derivation reproduces, byte
-    // for byte, what the 0.13.0 release's own `docs apply --profile default` writes.
+    // for byte, what the 0.13.0 release's own `docs apply --profile default` writes, with the
+    // `minimumRendererVersion` floor that repo-harness's committed 0.13.0 manifest carries (#579).
     const index013 = region("projection_target.architecture.index", `${indexBody}\n- [Architecture changelog](changelog.md)\n`);
     const manifest013 = projected
       .replace("projection-manifest/v4", "projection-manifest/v3")
+      .replace(/(\n  "rendererVersion": "[^"]+",\n)/, '$1  "minimumRendererVersion": "archcontext.docs-renderer/v6",\n')
       .replace(/("projection_target\.architecture\.index":\n.*"outputDigest":")sha256:[a-f0-9]{64}/, `$1${/outputDigest="([^"]+)"/.exec(index013)![1]}`)
       .replace('    "projection_target.architecture.index":', `    "${changelogId}":\n      {"type":"architecture-changelog","scope":{"kind":"changelog"},"path":"docs/architecture/changelog.md","ownership":"mixed","format":"markdown","outputDigest":"sha256:1f723aeb74466aae7d607eeab8c438a830c36f49a48e6622f868a8151afabea6"},\n    "projection_target.architecture.index":`);
     expect(placeholder).toContain("sha256:1f723aeb74466aae7d607eeab8c438a830c36f49a48e6622f868a8151afabea6");
-    const tree013 = (changelog: string) => {
-      writeFileSync(manifestPath, manifest013, "utf8");
+    expect(manifest013).toContain('\n  "rendererVersion": "archcontext.docs-renderer/v6",\n  "minimumRendererVersion": "archcontext.docs-renderer/v6",\n');
+    const tree013 = (changelog: string, manifest = manifest013) => {
+      writeFileSync(manifestPath, manifest, "utf8");
       writeFileSync(indexPath, index013, "utf8");
       writeFileSync(changelogPath, changelog, "utf8");
       commitProjectionFixture(root, "the 0.13.0 projection");
@@ -625,6 +628,16 @@ test("a 0.13.0 default tree re-baselines: a placeholder-only changelog is delete
       expect(readFileSync(manifestPath, "utf8")).toBe(manifest013);
     }
 
+    // The superseded manifest's floor is evaluated against this engine: one above it refuses.
+    const aboveEngine = manifest013.replace('"minimumRendererVersion": "archcontext.docs-renderer/v6"', '"minimumRendererVersion": "archcontext.docs-renderer/v7"');
+    tree013(placeholder, aboveEngine);
+    const refusedFloor = await cli("docs", ["apply", "--profile", "default", "--approved"]);
+    expect((refusedFloor as any).error).toMatchObject({ code: "AC_PRECONDITION_FAILED", reasonCode: "projection-manifest-incompatible" });
+    expect(readFileSync(manifestPath, "utf8")).toBe(aboveEngine);
+    expect(readFileSync(changelogPath, "utf8")).toBe(placeholder);
+
+    // The floor this engine meets lets the re-baseline replace the v3 manifest with a fresh v4 one;
+    // the floor is not carried over.
     tree013(placeholder);
     const applied = await cli("docs", ["apply", "--profile", "default", "--approved"]);
     expect(applied.ok, JSON.stringify(applied)).toBe(true);
