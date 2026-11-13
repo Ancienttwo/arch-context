@@ -516,9 +516,8 @@ test("repo-harness/v1 apply removes the intact whole-model files an earlier defa
     for (const path of globalPaths) expect(existsSync(join(root, path)), path).toBe(false);
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
     expect(manifest.profile).toBe("repo-harness/v1");
+    // The fixture's contractFiles are the root files, which get no agent-context row (#580).
     expect(Object.values(manifest.targets).map((target: any) => [target.type, target.path])).toEqual([
-      ["agent-context", "AGENTS.md"],
-      ["agent-context", "CLAUDE.md"],
       ["architecture-history", "docs/architecture/history.md"],
       ["entity-summary", "docs/architecture/modules/runtime-harness/hook-adapters.md"]
     ]);

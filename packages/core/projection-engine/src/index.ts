@@ -1076,7 +1076,7 @@ export function architectureDocumentationProjectionWorktreeDigest(
     ignore: [
       ".ai/harness",
       "docs/architecture",
-      ...agentContextTargetPaths(model.nodes).map((target) => target.path)
+      ...agentContextTargetPaths(model.nodes, "default").map((target) => target.path)
     ]
   });
 }
@@ -3023,10 +3023,11 @@ export interface AgentContextProjectionTargetPath {
  *
  * A capability whose primary source directory resolves to the repository root is rejected rather
  * than inferred. Explicit contractFiles may designate existing root contracts; ChangeSetEngine
- * requires exact preimage hashes and canonical marker-only content for those writes.
+ * requires exact preimage hashes and canonical marker-only content for those writes. This is the
+ * `default` derivation, so it keeps the root contracts the `repo-harness/v1` layout skips.
  */
 export function agentContextProjectionTargetPaths(model: NativeModel): AgentContextProjectionTargetPath[] {
-  return agentContextTargetPaths(model.nodes).map(({ nodeId, path }) => {
+  return agentContextTargetPaths(model.nodes, "default").map(({ nodeId, path }) => {
     const slash = path.lastIndexOf("/");
     return { nodeId, path, primarySourceDir: slash < 0 ? "." : path.slice(0, slash) };
   });

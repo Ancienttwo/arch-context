@@ -62,17 +62,13 @@ test("root revalidates hash after async journal boundary and leaves concurrent h
   expect(await journal.listCommittedChangeSetsForTaskSession(root, "task.root")).toEqual([]);
 });
 
-test("root creates a missing designated contract only with the exact canonical render (ADR-0056 §9)", async () => {
+test("root refuses to create a missing contract, even with the exact canonical render (#580)", async () => {
   const { root, engine, plan } = await fixture();
   for (const path of ["AGENTS.md", "CLAUDE.md"]) rmSync(join(root, path));
   const model = loadNativeModelFromArchContext(root);
   const files = renderAgentContextProjection({ model, existingFiles: [] }).files.map(file => ({ path: file.path, body: file.body, expectedHash: "missing" }));
   const create: ChangeOperation = { op: "render_agent_context", expectedHash: "missing", projectionFiles: files };
-  const forged: ChangeOperation = { ...create, projectionFiles: files.map(file => ({ ...file, body: `# Forged\n${file.body}` })) };
-  expect(engine.preview(root, plan([forged])).allowed).toBe(false);
-  await expect(engine.apply(root, plan([forged]), { approved: true })).rejects.toThrow();
+  expect(engine.preview(root, plan([create])).findings).toContain("Root contract must exist with an exact expectedHash");
+  await expect(engine.apply(root, plan([create]), { approved: true })).rejects.toThrow("Root contract must exist with an exact expectedHash");
   for (const file of files) expect(existsSync(join(root, file.path))).toBe(false);
-  expect(engine.preview(root, plan([create])).allowed).toBe(true);
-  await engine.apply(root, plan([create]), { approved: true });
-  for (const file of files) expect(readFileSync(join(root, file.path), "utf8")).toBe(file.body);
 });

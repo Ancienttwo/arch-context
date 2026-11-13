@@ -135,8 +135,9 @@ A changed path counts as generated only when it is the projection manifest
 (`docs/architecture/.projection-manifest.json`) or a `targets[*].path` of that manifest, at HEAD or
 at the merge base. Everything else is non-generated, including hand-written documents under
 `docs/architecture/` that no target renders. Under `repo-harness/v1` the agent-context contract
-files are manifest rows (ADR-0056 §9), so a writer pull request that changes only their regions,
-root `AGENTS.md` and `CLAUDE.md` included, can still be generated-only. For a mixed-ownership target
+files outside the repository root are manifest rows (ADR-0056 §9), so a writer pull request that
+changes only their regions can still be generated-only. A root `AGENTS.md` or `CLAUDE.md` has no
+row, so any change to it is non-generated. For a mixed-ownership target
 (manifest `ownership: "mixed"`) the text outside the generated regions must also be byte-identical
 between the merge base and HEAD; for an agent-context row that text is everything outside its
 node's region. Otherwise the path is a human edit (`humanEditedPaths`, also listed in

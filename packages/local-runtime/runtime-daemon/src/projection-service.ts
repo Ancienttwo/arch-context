@@ -11,7 +11,7 @@ import { projectionFreshnessContract } from "./projection-freshness";
 import { projectionArchitectureDebt } from "./projection-architecture-debt";
 import { classifyProjectionTargetChanges } from "./projection-target-changes";
 import type { RuntimeDaemonClient } from "./rpc-protocol";
-import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_BINDING_SCHEMA_VERSION, PROJECTION_RESULT_SCHEMA_VERSION, architectureDocsProjectionManifestSchemaVersion, isSupersededArchitectureDocsProjectionManifestSchemaVersion, PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_TARGETS, createProjectionApplyIdentity, digestJson, isRepoRelativePosixPath, okEnvelope, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestFromReceipt, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryResultInvariantIssues, projectionApplyLookupKey, projectionFreshnessIssues, projectionPriorCommittedAppliesIssues, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest, projectionResultRequestModeIssues } from "@archcontext/contracts";
+import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, PROJECTION_APPLY_RECOVERY_BINDING_SCHEMA_VERSION, PROJECTION_RESULT_SCHEMA_VERSION, architectureDocsProjectionManifestSchemaVersion, isSupersededArchitectureDocsProjectionManifestSchemaVersion, PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_TARGETS, createProjectionApplyIdentity, digestJson, isRepoRelativePosixPath, okEnvelope, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestFromReceipt, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryResultInvariantIssues, projectionApplyLookupKey, projectionFreshnessIssues, projectionPriorCommittedAppliesIssues, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest, projectionResultRequestModeIssues } from "@archcontext/contracts";
 import type { AcceptedArchitectureChangeReferenceV1, ArchitectureDocumentationProjectionProvenanceV3, ArchitectureHistory, ArchitectureRefreshSignalV2, Json, JsonEnvelope, ProjectionApplyAbsenceV1, ProjectionApplyReadbackResultV2, ProjectionApplyIdentityV1, ProjectionApplyReceiptV1, ProjectionApplyRecoveryBindingV2, ProjectionApplyRecoveryIntentV1, ProjectionApplyRecoveryProofV2, ProjectionApplyRecoveryResultV2, ProjectionFreshnessV2, ProjectionCoverageV1, ProjectionPriorCommittedApplyV1, ProjectionRequestV1, ProjectionResultV3, ProjectionSnapshotV1, ProjectionExpectedSnapshotV1, ProjectionTargetChangeV2, Sha256Digest } from "@archcontext/contracts";
 import { REPO_HARNESS_PROJECTION_PROFILE, ARCHITECTURE_HISTORY_TARGET, architectureAdoptionReceipt, architectureHistoryCarryForwardBlocker, architectureProjectionFilePreviews, architectureDocumentationSourceDigest, ProjectionPreconditionError, buildArchitectureDocumentationAdoptionPlan, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, architectureProjectionFootprintOwners, architectureProjectionFreshnessWithoutBaseline, loadArchitectureDocumentationProfile, readCommittedArchitectureDocsProjectionManifest, measureCapabilitySourceScaleSignals, loadNativeModelFromArchContext, projectionOwnedWriteBody, renderAgentContextProjection, renderArchitectureDocumentationProjection, architectureDocumentationProjectionWorktreeDigest, type ArchitectureProjectionProfile, type ProjectionOwnedFile, type ArchitectureMajorChangeClassificationV1, type ArchitectureDocumentationProjectionRuntimeSnapshot } from "@archcontext/core/projection-engine";
 import { loadStateMachinesFromArchContext } from "@archcontext/core/state-machine-engine";
@@ -1693,9 +1693,10 @@ export async function runAgentContextProjectionCommand(input: RuntimeAgentContex
   const root = findRepositoryRoot(cwd);
   let projection: ReturnType<typeof buildAgentContextProjection>;
   try {
-    // One writer per path: once the committed manifest records agent-context rows, the projection
-    // writes the contract files (ADR-0056 §9).
-    if (committedManifestRecordsAgentContext(root)) return publicFailureEnvelope(channel, "AC_PRECONDITION_FAILED", "agent-context-owned-by-projection", {});
+    // The committed manifest decides, as for every projection command: a superseded one needs its
+    // re-baseline first, and under `repo-harness/v1` the projection is the one contract-file writer
+    // and a root contract file carries no region (ADR-0056 §9).
+    if (committedArchitectureDocsProfile(root) === REPO_HARNESS_PROJECTION_PROFILE) return publicFailureEnvelope(channel, "AC_PRECONDITION_FAILED", "agent-context-owned-by-projection", {});
     projection = buildAgentContextProjection(root);
   } catch (error) {
     return projectionFailureEnvelope(channel, error);
@@ -1749,16 +1750,6 @@ function buildAgentContextProjection(root: string) {
     existingFiles,
     plan: renderAgentContextProjection({ model, existingFiles })
   };
-}
-
-function committedManifestRecordsAgentContext(root: string): boolean {
-  const absolute = resolve(root, ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH);
-  if (!existsSync(absolute)) return false;
-  const body = readFileSync(absolute, "utf8");
-  // A manifest an earlier release wrote records no agent-context row.
-  if (architectureDocsProjectionManifestSchemaVersion(body) !== ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION) return false;
-  const manifest = readCommittedArchitectureDocsProjectionManifest(body);
-  return manifest !== undefined && Object.values(manifest.targets).some((row) => row.type === "agent-context");
 }
 
 /**

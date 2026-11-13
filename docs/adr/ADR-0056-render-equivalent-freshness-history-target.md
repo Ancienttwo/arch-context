@@ -20,6 +20,7 @@ supersedes: []
 > **Status**: Accepted by the owner on [#541](https://github.com/Ancienttwo/arch-context/issues/541) on 2026-11-11 (decision https://github.com/Ancienttwo/arch-context/issues/541#issuecomment-6799854742). The owner set the direction on 2026-11-11: projection freshness means "the committed documents would render differently" ([#535](https://github.com/Ancienttwo/arch-context/issues/535)), and `docs/architecture/history.md` becomes an engine-owned manifest target ([#536](https://github.com/Ancienttwo/arch-context/issues/536)). On the same day the owner decided that the model-designated agent-context contract files also become manifest rows, so the manifest lists every projection output.
 > **Amends**: [ADR-0043](ADR-0043-agent-context-provider.md) Consequences (agent-context stays outside the docs drift pipeline only for the `default` profile); [ADR-0047](ADR-0047-projection-manifest-v3.md) §2, §3 and §7, and its consequence about agent-context markers; [ADR-0048](ADR-0048-projection-writer-rolling-pr.md) §5; [ADR-0049](ADR-0049-architecture-layers-and-runtime-topology.md) §6; the Projected row of [ADR-0050](ADR-0050-architecture-ledger-authority-matrix.md).
 > **Freshness contract history**: [#259](https://github.com/Ancienttwo/arch-context/issues/259), [#327](https://github.com/Ancienttwo/arch-context/issues/327).
+> **Amended**: [#580](https://github.com/Ancienttwo/arch-context/issues/580) on 2026-11-13 (decision https://github.com/Ancienttwo/arch-context/issues/580#issuecomment-6842534344, as revised by https://github.com/Ancienttwo/arch-context/issues/580#issuecomment-6847047965): §9 gives a repository-root contract file no row and no region, `archctx agent-context` refuses by the committed manifest's profile, and the root-contract create is removed.
 
 ## Context
 
@@ -266,8 +267,15 @@ why.
   `:131-132`), which throws when `contractFiles.agents` or `contractFiles.claude` is missing
   (`:85-87`). So the primary-source-directory fallback in `agentContextTargetPaths`
   (`layout.ts:180-187`) never applies under `repo-harness/v1`, and every contract file there has a
-  row. The fallback serves only the `default` profile, where `archctx agent-context` stays the
-  writer.
+  row, except a root contract file (below). The fallback serves only the `default` profile, where
+  `archctx agent-context` stays the writer.
+  - The repository-root `AGENTS.md` and `CLAUDE.md` get no row and no region (#580). Every agent
+    session loads them, and a region there repeats the model and the capability documents for
+    each capability that names them. `agentContextTargetPaths` takes the profile, and under
+    `repo-harness/v1` it skips a `contractFiles` path that is a root contract file.
+    `contractFiles` still requires and accepts the root files, for routing. Capability-local
+    contract files keep their rows. There is no model-level setting. The `default` derivation
+    keeps the root files, for `archctx agent-context` and its write scope.
   - The row uses the existing type `agent-context`, with targetId
     `projection_target.agent-context.<agents|claude>.<node>`.
   - It has scope `{ kind: "entity", id, entityKind }`, ownership `mixed` and format `markdown`,
@@ -284,12 +292,16 @@ why.
   markers dropped the same attribute in #327.
 - **One render, one writer.** The render that writes the manifest renders the contract files.
   - `projection run`, `docs apply` and adoption write them in the same ChangeSet as the manifest,
-    through a `render_agent_context` operation. The model-derived write scope and the canonical
-    check for root contracts still apply to that operation.
-  - A path that a row names has one writer. `archctx agent-context plan|preview|apply` refuses
-    with `agent-context-owned-by-projection` when the committed manifest records an
-    `agent-context` row.
-  - In a repository whose manifest records no such row, the command is unchanged.
+    through a `render_agent_context` operation. The model-derived write scope still applies to
+    that operation.
+  - Contract files have one writer. `archctx agent-context plan|preview|apply` reads the committed
+    manifest as every projection command does (#580). A superseded manifest refuses with
+    `projection-manifest-upgrade-required`. A v4 manifest whose profile is `repo-harness/v1`
+    refuses with `agent-context-owned-by-projection`, whether or not it records an
+    `agent-context` row, so the command never writes a root region that no row owns.
+  - Without a manifest, or under a v4 `default` manifest, the command is unchanged. It writes a
+    root contract only when the file exists with its exact hash and the write equals the
+    canonical render. A root contract is never created; #572's create path is removed.
 - **Drift and freshness.** A region follows the mixed-target rules of ADR-0047, read with the
   agent-context marker parser.
   - It is fresh when the rendered region digest equals the row's `outputDigest`. The region reads
@@ -323,9 +335,10 @@ why.
   prints. They reach the rolling pull request through the existing filter: paths the apply wrote
   that are projection-owned. `PROJECTION_WRITER_TARGETS` (`projection-writer.ts:70`) already lists
   `agent-context` while `projection run` ignores it, and this section removes that inconsistency.
-- **Generated-only verdict.** A rolling pull request may now touch root `CLAUDE.md` and `AGENTS.md`.
+- **Generated-only verdict.** A rolling pull request may now touch capability-local contract files.
   `verify-pr` classifies those paths as `agent-context` rows, so a writer pull request that changes
-  only their regions still gets `generated-only-render-equivalent`. A consumer's documentation-mode
+  only their regions still gets `generated-only-render-equivalent`. A root `CLAUDE.md` or
+  `AGENTS.md` has no row (#580), so the writer never writes it. A consumer's documentation-mode
   CI keyed on that verdict still applies.
 - **Acceptance of the implementing slice.** Before its pull request, the slice proves two points by
   test:
@@ -391,8 +404,8 @@ The contracts package takes a breaking minor change in 0.14.0.
   names the target compares the file with the current history.
 - There is no re-verification signal for topology configuration files; ADR-0049 §6 records why.
 - The `default` layout does not change. It gains neither the history target nor agent-context
-  rows, and `archctx agent-context` keeps writing contract files in a repository whose manifest
-  records no `agent-context` row.
+  rows, and `archctx agent-context` keeps writing contract files in a repository without a
+  manifest or with a v4 `default` manifest.
 - The projection does not remove an orphaned contract region.
 - Nothing replaces `--changed-path`.
 
@@ -413,7 +426,10 @@ The contracts package takes a breaking minor change in 0.14.0.
 - Removing a capability or its contract designation needs a human to remove its region. Until then
   the writer stops at `human-action-required`.
 - Automation that runs `archctx agent-context apply` in a `repo-harness/v1` repository must stop.
-  The command refuses once the manifest records `agent-context` rows.
+  The command refuses once the committed v4 manifest's profile is `repo-harness/v1`.
+- Root `AGENTS.md` and `CLAUDE.md` stay human routing text under `repo-harness/v1` (#580). A
+  repository whose manifest already records root rows removes their regions by hand; the next
+  apply then drops the rows, as for any removed designation.
 - `verify-pr` reads the full architecture history on every generated-only pull request. It needs a
   full clone, as its merge base already does. A consumer that runs `verify-pr` in a shallow CI
   checkout must deepen it before 0.14.0. The history slice names the consumer's fetch depth

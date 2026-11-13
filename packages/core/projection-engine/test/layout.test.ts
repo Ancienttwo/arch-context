@@ -44,11 +44,29 @@ describe("repo-harness projection layout", () => {
       "docs/architecture/diagrams/architecture.likec4",
       "docs/architecture/changelog.md"
     ]);
-    expect(agentContextTargetPaths(model.nodes)).toEqual([
+    expect(agentContextTargetPaths(model.nodes, REPO_HARNESS_PROJECTION_PROFILE)).toEqual([
       { nodeId: "capability.runtime-harness.hook-adapters", path: "packages/runtime-harness/AGENTS.md" },
       { nodeId: "capability.runtime-harness.hook-adapters", path: "packages/runtime-harness/CLAUDE.md" },
       { nodeId: "capability.source-tree.core-index", path: "packages/source-tree/AGENTS.md" },
       { nodeId: "capability.source-tree.core-index", path: "packages/source-tree/CLAUDE.md" }
+    ]);
+  });
+
+  test("gives root contract files no agent-context target and keeps them in the default derivation (#580)", () => {
+    const rooted: NativeModel = { nodes: [...model.nodes, capability("capability.root-routing.contracts", "AGENTS.md", "CLAUDE.md")], relations: [] };
+    // The profile still parses and accepts root contractFiles; only the region is skipped.
+    const layout = resolveArchitectureDocumentationLayout({ ...rooted, profile: REPO_HARNESS_PROJECTION_PROFILE });
+    expect(layout.entityPathByNodeId.get("capability.root-routing.contracts")).toBe("docs/architecture/modules/root-routing/contracts.md");
+    expect(layout.targets.filter((target) => target.type === "agent-context").map((target) => target.path)).toEqual([
+      "packages/runtime-harness/AGENTS.md",
+      "packages/runtime-harness/CLAUDE.md",
+      "packages/source-tree/AGENTS.md",
+      "packages/source-tree/CLAUDE.md"
+    ]);
+    expect(layout.expectedPaths).not.toContain("AGENTS.md");
+    expect(agentContextTargetPaths(rooted.nodes, "default").filter((target) => !target.path.includes("/"))).toEqual([
+      { nodeId: "capability.root-routing.contracts", path: "AGENTS.md" },
+      { nodeId: "capability.root-routing.contracts", path: "CLAUDE.md" }
     ]);
   });
 
@@ -72,10 +90,10 @@ describe("repo-harness projection layout", () => {
     })).toThrow("repo-harness-profile-node-identity-invalid");
     expect(() => agentContextTargetPaths([
       capability("capability.runtime-harness.hook-adapters", "a/AGENTS.md", "a/AGENTS.md")
-    ])).toThrow("repo-harness-profile-contract-file-invalid");
+    ], REPO_HARNESS_PROJECTION_PROFILE)).toThrow("repo-harness-profile-contract-file-invalid");
     expect(() => agentContextTargetPaths([
       capability("capability.runtime-harness.hook-adapters", "a/context.md", "a/CLAUDE.md")
-    ])).toThrow("repo-harness-profile-contract-file-invalid");
+    ], REPO_HARNESS_PROJECTION_PROFILE)).toThrow("repo-harness-profile-contract-file-invalid");
   });
 
   test("exact-reads targets and recursively discovers nested orphan markdown", () => {
