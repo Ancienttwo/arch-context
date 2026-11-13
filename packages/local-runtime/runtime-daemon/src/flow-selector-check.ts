@@ -1,6 +1,7 @@
 import { FailureError, okEnvelope, type Json, type JsonEnvelope } from "@archcontext/contracts";
 import { architectureDocumentationSourceTreeDigest, checkArchitectureFlowSelectors, loadNativeModelFromArchContext } from "@archcontext/core/projection-engine";
-import { assertProjectionCodeFactsAvailable, loadCapabilityCodeGraphProjectionInputs, prepareProjectionCodeFacts, REQUIRED_CODEGRAPH_VERSION, withReadyCodeGraphIndex } from "@archcontext/local-runtime/codegraph-adapter";
+import { assertProjectionCodeFactsAvailable, loadCapabilityCodeGraphProjectionInputs, prepareProjectionCodeFacts, REQUIRED_CODEGRAPH_VERSION } from "@archcontext/local-runtime/codegraph-adapter";
+import { withReadyCodeGraphIndex } from "../../codegraph-adapter/src/ready-index-read";
 import { findRepositoryRoot, listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { selectedProducerFailureEnvelope } from "./producer-failure";
 

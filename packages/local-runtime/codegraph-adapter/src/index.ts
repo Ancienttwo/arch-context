@@ -52,7 +52,6 @@ export {
   type ProjectionCodeGraphStatusIssueCode,
   type ProjectionCodeGraphStatusIssueV1
 } from "./projection-handshake";
-export { withReadyCodeGraphIndex } from "./ready-index-read";
 export {
   CODEGRAPH_IMPORT_NODE_READ_LIMIT,
   repositoryImportPairs,
