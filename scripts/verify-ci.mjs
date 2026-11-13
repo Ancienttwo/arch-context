@@ -129,7 +129,7 @@ export function discoverTestFiles(root, bun = "bun") {
     });
     const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
     if (result.error) throw result.error;
-    // Bun 1.4.3 deliberately exits 1 when a name pattern matches no tests. Other failures are refused.
+    // Bun 1.4.4 deliberately exits 1 when a name pattern matches no tests. Other failures are refused.
     const inventoryOnly = /error: regex "a\^" matched 0 tests\. Searched (\d+) files?\b/.exec(output);
     if (!inventoryOnly || result.status !== 1 || /\(fail\)|\n\s*[1-9]\d* fail\b/.test(output)
       || (output.match(/\berror:/g) ?? []).length !== 1) {
