@@ -22,6 +22,8 @@ export interface FakeIndexFacts {
   openFails?: boolean;
   /** A read on the opened handle throws. */
   readFails?: boolean;
+  /** Each revision read reports a later index, as a sync that commits during the session would. */
+  revisionMoves?: boolean;
 }
 
 export interface FakeReadProvider extends CodeGraphReadProvider {
@@ -69,6 +71,7 @@ export function fakeReadProvider(root: string, facts: FakeIndexFacts | (() => Fa
         return answer();
       };
       const files = population();
+      let revisions = 0;
       return {
         getIndexBuildInfo: () => read(() => ({
           version: value.builtWithVersion === undefined ? REQUIRED_CODEGRAPH_VERSION : value.builtWithVersion,
@@ -79,7 +82,10 @@ export function fakeReadProvider(root: string, facts: FakeIndexFacts | (() => Fa
         isIndexStale: () => read(() => value.reindexRecommended ?? false),
         getIndexState: () => read(() => value.state === undefined ? "complete" : value.state),
         getPendingReferenceCount: () => read(() => value.pendingRefs ?? 0),
-        getIndexRevision: () => read(() => ({ lastIndexedAt: Date.UTC(2026, 0, 1), fileCount: files.fresh.length + files.modified.length + files.removed.length })),
+        getIndexRevision: () => read(() => ({
+          lastIndexedAt: Date.UTC(2026, 0, 1) + (value.revisionMoves ? revisions++ : 0),
+          fileCount: files.fresh.length + files.modified.length + files.removed.length
+        })),
         getFiles: () => read(() => [...files.fresh, ...files.modified, ...files.removed].map(path => ({ path, contentHash: `hash:${path}` }))),
         close: () => { calls.close++; }
       } as unknown as ReturnType<CodeGraphReadProvider["openReadOnly"]>;

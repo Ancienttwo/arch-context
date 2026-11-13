@@ -33,11 +33,20 @@ describe("openCodeGraphReadSession", () => {
     });
   });
 
-  test("a .codegraph without a database is not-initialized and opens nothing", () => {
+  test("a .codegraph without a database is index-missing and opens nothing", () => {
     withRoot((root) => {
       const provider = fakeReadProvider(root);
       rmSync(join(root, ".codegraph", "codegraph.db"));
-      expect(openCodeGraphReadSession(root, { provider })).toEqual({ state: "not-initialized" });
+      expect(openCodeGraphReadSession(root, { provider })).toEqual({ state: "index-missing" });
+      expect(provider.calls.open).toBe(0);
+    });
+  });
+
+  test("a dangling .codegraph link is index-open-failed, not index-missing", () => {
+    withRoot((root) => {
+      const provider = fakeReadProvider(join(root, "elsewhere"));
+      symlinkSync(join(root, "absent"), join(root, ".codegraph"), "junction");
+      expect(openCodeGraphReadSession(root, { provider })).toEqual({ state: "index-open-failed" });
       expect(provider.calls.open).toBe(0);
     });
   });
@@ -82,6 +91,24 @@ describe("openCodeGraphReadSession", () => {
         });
         expect(opened.session.revision()).toEqual({ lastIndexedAt: Date.UTC(2026, 0, 1), fileCount: 1 });
       }, { provider });
+    });
+  });
+
+  test("a revision that moves between reads is not one index state: not ready, retryable, never a pass (G4)", () => {
+    withRoot((root) => {
+      const provider = fakeReadProvider(root, { revisionMoves: true });
+      withCodeGraphReadSession(root, (opened) => {
+        if (opened.state !== "open") throw new Error(opened.state);
+        opened.session.compatibility();
+        expect(opened.session.unchangedSinceOpen()).toBe(false);
+      }, { provider });
+      expect(inspectRepositoryCodeFacts(root, { provider })).toMatchObject({
+        state: "not-ready", indexState: null, pendingChanges: null, issues: [{ code: "index-incomplete" }]
+      });
+      expect(() => assertRepositoryCodeFactsReady(root, { provider })).toThrow(expect.objectContaining({
+        code: "AC_CODE_FACTS_NOT_READY", reasonCode: "code-facts-not-ready", retryable: true
+      }));
+      expect(provider.calls.open).toBe(provider.calls.close);
     });
   });
 

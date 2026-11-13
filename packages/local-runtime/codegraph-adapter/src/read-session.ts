@@ -179,15 +179,18 @@ export interface CodeGraphReadSession {
   /** Computed once per session; the session reads one worktree state. */
   freshness(): CodeGraphIndexFreshnessV1;
   revision(): CodeGraphIndexRevisionV1;
+  /**
+   * Design G4: true when no provider build holds the writer lock now and the index revision equals
+   * the one taken at open. Reads that span a sync are only usable when this holds after them.
+   */
+  unchangedSinceOpen(): boolean;
   close(): void;
 }
 
 export type CodeGraphReadSessionOpenV1 =
   | { state: "open"; session: CodeGraphReadSession }
-  /** No `.codegraph` directory. */
+  /** No `.codegraph` directory, or one without `codegraph.db`. */
   | { state: "index-missing" }
-  /** A `.codegraph` directory without `codegraph.db`. */
-  | { state: "not-initialized" }
   /** A live provider build holds the writer lock. */
   | { state: "build-in-progress" }
   /** The read-only open failed, or `.codegraph` is a symbolic link. */
@@ -201,16 +204,33 @@ export type CodeGraphReadSessionOpenV1 =
 export function openCodeGraphReadSession(root: string, options: { provider?: CodeGraphReadProvider } = {}): CodeGraphReadSessionOpenV1 {
   const provider = options.provider ?? pinnedCodeGraphProvider();
   const indexDir = join(root, ".codegraph");
-  if (!existsSync(indexDir)) return { state: "index-missing" };
-  // A linked `.codegraph` could carry another worktree's index; it is not this root's index.
-  if (lstatSync(indexDir).isSymbolicLink()) return { state: "index-open-failed" };
-  if (!existsSync(join(indexDir, "codegraph.db"))) return { state: "not-initialized" };
+  let linked: boolean;
+  try { linked = lstatSync(indexDir).isSymbolicLink(); }
+  catch { return { state: "index-missing" }; }
+  // A linked `.codegraph`, dangling or not, could carry another worktree's index; it is not this root's.
+  if (linked) return { state: "index-open-failed" };
+  if (!existsSync(join(indexDir, "codegraph.db"))) return { state: "index-missing" };
   if (codeGraphIndexBuildInProgress(root)) return { state: "build-in-progress" };
   // The session owns the only reference to the handle, so close() can release it (see below).
   const handle: { graph?: CodeGraphIndexHandle } = {};
-  try { handle.graph = provider.openReadOnly(root); }
-  catch { return { state: "index-open-failed" }; }
-  return { state: "open", session: readSession(root, handle, provider) };
+  let atOpen: CodeGraphIndexRevisionV1;
+  try {
+    handle.graph = provider.openReadOnly(root);
+    atOpen = revisionOf(handle.graph);
+  } catch {
+    if (handle.graph !== undefined) {
+      handle.graph.close();
+      handle.graph = undefined;
+      collectReleasedCodeGraphHandles();
+    }
+    return { state: "index-open-failed" };
+  }
+  return { state: "open", session: readSession(root, handle, provider, atOpen) };
+}
+
+function revisionOf(graph: CodeGraphIndexHandle): CodeGraphIndexRevisionV1 {
+  const { lastIndexedAt, fileCount } = graph.getIndexRevision();
+  return { lastIndexedAt, fileCount };
 }
 
 /** Runs one read against a session that is closed when the read returns or throws. */
@@ -220,7 +240,7 @@ export function withCodeGraphReadSession<T>(root: string, read: (opened: CodeGra
   finally { if (opened.state === "open") opened.session.close(); }
 }
 
-function readSession(root: string, handle: { graph?: CodeGraphIndexHandle }, provider: CodeGraphReadProvider): CodeGraphReadSession {
+function readSession(root: string, handle: { graph?: CodeGraphIndexHandle }, provider: CodeGraphReadProvider, atOpen: CodeGraphIndexRevisionV1): CodeGraphReadSession {
   let freshness: CodeGraphIndexFreshnessV1 | undefined;
   const open = (): CodeGraphIndexHandle => {
     if (handle.graph === undefined) throw new Error("CodeGraph read session is closed");
@@ -247,9 +267,11 @@ function readSession(root: string, handle: { graph?: CodeGraphIndexHandle }, pro
       };
     },
     freshness: () => freshness ??= indexFreshness(root, open(), provider),
-    revision: () => {
-      const { lastIndexedAt, fileCount } = open().getIndexRevision();
-      return { lastIndexedAt, fileCount };
+    revision: () => revisionOf(open()),
+    unchangedSinceOpen: () => {
+      if (codeGraphIndexBuildInProgress(root)) return false;
+      const now = revisionOf(open());
+      return now.lastIndexedAt === atOpen.lastIndexedAt && now.fileCount === atOpen.fileCount;
     },
     close: () => {
       if (handle.graph === undefined) return;

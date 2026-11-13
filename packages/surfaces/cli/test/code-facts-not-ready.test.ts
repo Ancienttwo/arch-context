@@ -79,17 +79,13 @@ test.each(["complete", "prepare", "prepare-empty-budget", "complete-subdirectory
   } finally { await daemon.stop(); input.cleanup(); }
 });
 
-test("CLI checkpoint refuses a present uninitialized index without a runtime", async () => {
+test("CLI checkpoint refuses a .codegraph without a database as index-missing, without a runtime", async () => {
   const input = fixture();
   try {
     rmSync(join(input.root, ".codegraph", "codegraph.db"));
     const result = await runCli("checkpoint", [], input.root);
-    const doctor = inspectRepositoryCodeFacts(input.root);
-    expect("issues" in doctor && doctor.issues.map(issue => issue.code)).toContain("not-initialized");
-    // The gate reads compatibility only, so its issues omit the doctor's freshness issue.
-    expect(result).toMatchObject({ ok: false, error: { code: "AC_CODE_FACTS_NOT_READY", details: {
-      issues: "issues" in doctor ? doctor.issues.filter(issue => issue.code !== "pending-source-changes") : []
-    } } });
+    expect(inspectRepositoryCodeFacts(input.root)).toMatchObject({ state: "index-missing", indexPresent: false });
+    expect(result).toMatchObject({ ok: false, error: { code: "AC_CODE_FACTS_UNAVAILABLE", reasonCode: "index-missing" } });
     rmSync(join(input.root, ".codegraph"), { recursive: true });
     expect(await runCli("checkpoint", [], input.root)).toMatchObject({ ok: true });
   } finally { input.cleanup(); }

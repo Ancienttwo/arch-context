@@ -29,7 +29,7 @@ export function runFlowSelectorCheckCommand(cwd: string, options: { binary?: str
           getOutgoingEdges: id => graph.getOutgoingEdges(id),
           close: () => undefined
         })
-      }).selectorEvidence, { binary: options.binary });
+      }).selectorEvidence);
       return okEnvelope("flows.check", checkArchitectureFlowSelectors({
         model, selectorEvidence, codeGraph: { availability: "ready", version: REQUIRED_CODEGRAPH_VERSION }
       }) as unknown as Json);

@@ -64,7 +64,8 @@ for (const state of ["missing", "incomplete", "ready", "stale", "foreign"] as co
       if (state === "ready") {
         expect(result.ok).toBe(true);
         expect(result.data).toMatchObject({ selectors: [{ status: "proven" }] });
-        const cli = fileURLToPath(new URL("../../../surfaces/cli/src/main.ts", import.meta.url));
+        // The dev launcher, so the CLI process loads the same SQLite library as this one (#574).
+        const cli = fileURLToPath(new URL("../../../surfaces/cli/bin/archctx", import.meta.url));
         const output = execFileSync(process.execPath, [cli, "flows", "check", "--no-sync", "--json"], { cwd: target, encoding: "utf8" });
         expect(JSON.parse(output)).toEqual(result);
         expect(runFlowSelectorCheckCommand(target, { noSync: true })).toEqual(result);

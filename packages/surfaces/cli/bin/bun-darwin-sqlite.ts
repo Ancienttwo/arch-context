@@ -37,7 +37,3 @@ export async function loadDarwinSqliteForBun(): Promise<string | undefined> {
 }
 
 export const darwinSqliteLibrary = await loadDarwinSqliteForBun();
-// One line per CI test process, so a run shows which library the macOS runner provided.
-if (darwinSqliteLibrary !== undefined && process.env.CI === "true" && process.env.NODE_ENV === "test") {
-  process.stderr.write(`[bun-darwin-sqlite] ${darwinSqliteLibrary}\n`);
-}

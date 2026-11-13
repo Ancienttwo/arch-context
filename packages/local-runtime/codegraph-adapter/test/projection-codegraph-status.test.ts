@@ -197,15 +197,13 @@ describe("inspectRepositoryCodeFacts", () => {
     });
   });
 
-  test("a .codegraph directory without a database is not initialized", () => {
+  test("a .codegraph directory without a database is index-missing, as the snapshot path reports it", () => {
     withRoot((root) => {
       const provider = fakeReadProvider(root);
       rmSync(join(root, ".codegraph", "codegraph.db"));
-      const facts = inspectRepositoryCodeFacts(root, { provider });
-      expect(facts).toMatchObject({ state: "not-ready", indexPresent: true, pendingChanges: null });
-      expect("issues" in facts && facts.issues.map(issue => issue.code)).toEqual(["not-initialized", "pending-source-changes"]);
+      expect(inspectRepositoryCodeFacts(root, { provider })).toMatchObject({ state: "index-missing", indexPresent: false, issues: [] });
       expect(provider.calls.open).toBe(0);
-      expect(() => assertRepositoryCodeFactsReady(root, { provider })).toThrow(expect.objectContaining({ code: "AC_CODE_FACTS_NOT_READY" }));
+      expect(() => assertRepositoryCodeFactsReady(root, { provider })).toThrow(expect.objectContaining({ code: "AC_CODE_FACTS_UNAVAILABLE", reasonCode: "index-missing" }));
     });
   });
 

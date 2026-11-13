@@ -10,6 +10,9 @@ import { type RefImpactV1 } from "@archcontext/contracts";
 import { createNativeFixture, commitFixture, writeFixtureFile } from "../../../local-runtime/model-store-yaml/test/fixtures/native-context/fixture";
 import { packagedCodeGraphCliInvocation } from "../../../local-runtime/codegraph-adapter/src/index";
 
+// The dev launcher, so the CLI process loads the same SQLite library as the test process (#574).
+const CLI_LAUNCHER = fileURLToPath(new URL("../bin/archctx", import.meta.url));
+
 function indexBytes(root: string): Record<string, string> {
   const files: Record<string, string> = {};
   const visit = (path: string) => {
@@ -42,7 +45,7 @@ test("real CLI binds CodeGraph ranges to Git blobs without touching the source i
     execFileSync(provider.command, [...provider.argsPrefix, "init", fixture.root], { cwd: fixture.root, env: providerEnv, stdio: "pipe" });
     const frozen = indexBytes(fixture.root);
     const state = join(fixture.root, "runtime-state");
-    const invoke = () => execFileSync(process.execPath, [fileURLToPath(new URL("../src/main.ts", import.meta.url)), "impact", "--base", base, "--head", head, "--json"], {
+    const invoke = () => execFileSync(process.execPath, [CLI_LAUNCHER, "impact", "--base", base, "--head", head, "--json"], {
       cwd: fixture.root, encoding: "utf8", env: { ...providerEnv, ARCHCONTEXT_STATE_DIR: state }
     });
     const bytes = invoke();
@@ -72,7 +75,7 @@ test("real CodeGraph distinguishes ambiguous declarations from a renamed selecto
     const env = { ...process.env, DO_NOT_TRACK: "1", CODEGRAPH_NO_DOWNLOAD: "1" };
     execFileSync(provider.command, [...provider.argsPrefix, "init", fixture.root], { cwd: fixture.root, env, stdio: "pipe" });
     const frozen = indexBytes(fixture.root);
-    const invoke = (ref: string, base = ref) => JSON.parse(execFileSync(process.execPath, [fileURLToPath(new URL("../src/main.ts", import.meta.url)), "impact", "--base", base, "--head", ref, "--json"], { cwd: fixture.root, env, encoding: "utf8" }));
+    const invoke = (ref: string, base = ref) => JSON.parse(execFileSync(process.execPath, [CLI_LAUNCHER, "impact", "--base", base, "--head", ref, "--json"], { cwd: fixture.root, env, encoding: "utf8" }));
     const ambiguous = invoke(head);
     expect(ambiguous.ok).toBe(true);
     expect(ambiguous.data.touchedFlowSteps).toMatchObject({ status: "unknown", reasonCodes: ["selector-evidence-unavailable"] });
@@ -107,7 +110,7 @@ describe("impact CLI", () => {
       const text = paths.join(newline) + newline + newline;
       writeFixtureFile(fixture.root, "paths.txt", text);
       const state = join(fixture.root, "runtime-state");
-      const invoke = (source: string): RefImpactV1 => JSON.parse(execFileSync(process.execPath, [fileURLToPath(new URL("../src/main.ts", import.meta.url)), "impact", "--paths-from", source, "--json"], { cwd: fixture.root, encoding: "utf8", input: text, env: { ...process.env, ARCHCONTEXT_STATE_DIR: state } })).data;
+      const invoke = (source: string): RefImpactV1 => JSON.parse(execFileSync(process.execPath, [CLI_LAUNCHER, "impact", "--paths-from", source, "--json"], { cwd: fixture.root, encoding: "utf8", input: text, env: { ...process.env, ARCHCONTEXT_STATE_DIR: state } })).data;
       for (const source of ["paths.txt", "-"]) {
         const data = invoke(source);
         expect(data.changedPaths.map(row => row.path).sort()).toEqual([...paths].sort());
@@ -133,10 +136,10 @@ describe("impact CLI", () => {
       expect(result.ok).toBe(true);
       expect((result as any).data.touchedNodes).toEqual([{ nodeId: "component.demo.worker", pathCount: 1 }]);
       expect((result as any).data.touchedFlowSteps.status).toBe("unknown");
-      const bytes = execFileSync(process.execPath, [fileURLToPath(new URL("../src/main.ts", import.meta.url)), "impact", "--base", fixture.commit, "--head", head, "--json"], { cwd: fixture.root, encoding: "utf8" });
+      const bytes = execFileSync(process.execPath, [CLI_LAUNCHER, "impact", "--base", fixture.commit, "--head", head, "--json"], { cwd: fixture.root, encoding: "utf8" });
       const processResult = JSON.parse(bytes);
       expect(processResult).toEqual(result);
-      const help = JSON.parse(execFileSync(process.execPath, [fileURLToPath(new URL("../src/main.ts", import.meta.url)), "impact", "--help", "--json"], { cwd: fixture.root, encoding: "utf8" }));
+      const help = JSON.parse(execFileSync(process.execPath, [CLI_LAUNCHER, "impact", "--help", "--json"], { cwd: fixture.root, encoding: "utf8" }));
       expect(help.data.command).toBe("impact");
     } finally { fixture.cleanup(); }
   });
