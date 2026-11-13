@@ -245,6 +245,9 @@ function readSession(root: string, graph: CodeGraphIndexHandle, provider: CodeGr
       if (closed) return;
       closed = true;
       graph.close();
+      // Bun keeps the SDK's cached prepared statements, and with them the database file, until GC
+      // finalizes them; Windows cannot then delete or replace the file.
+      if (process.versions.bun !== undefined && process.platform === "win32") Bun.gc(true);
     }
   };
 }
@@ -252,20 +255,21 @@ function readSession(root: string, graph: CodeGraphIndexHandle, provider: CodeGr
 /**
  * The provider's full-scan change detection, without its `git status` candidate step: the source
  * population is the provider's own enumeration, and a file is modified when CodeGraph's change
- * hash differs from its record. A file that cannot be read cannot be attested, so it counts as
- * modified rather than fresh.
+ * hash differs from its record. An indexed file that left the enumeration or the disk is removed.
+ * A file that exists but cannot be read cannot be attested, so it counts as modified, not fresh.
  */
 function indexFreshness(root: string, graph: CodeGraphIndexHandle, provider: CodeGraphReadProvider): CodeGraphIndexFreshnessV1 {
   const current = new Set(provider.scanSourceFiles(root));
   const indexed = new Map(graph.getFiles().map(file => [file.path, file.contentHash] as const));
   let added = 0, modified = 0, removed = 0;
-  for (const path of indexed.keys()) if (!current.has(path)) removed++;
-  for (const path of current) {
-    const contentHash = indexed.get(path);
-    if (contentHash === undefined) { added++; continue; }
+  for (const [path, contentHash] of indexed) {
+    const absolute = join(root, path);
+    if (!current.has(path) || !existsSync(absolute)) { removed++; continue; }
     let hash: string | undefined;
-    try { hash = provider.changeHash(join(root, path)); } catch { hash = undefined; }
+    try { hash = provider.changeHash(absolute); } catch { hash = undefined; }
     if (hash !== contentHash) modified++;
   }
+  // A tracked file deleted from the worktree stays in the enumeration but is not a new source.
+  for (const path of current) if (!indexed.has(path) && existsSync(join(root, path))) added++;
   return { added, modified, removed };
 }

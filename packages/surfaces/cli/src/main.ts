@@ -3448,7 +3448,10 @@ async function startBackgroundDaemon(args: string[], cwd: string) {
     let childExit: { code: number | null; signal: NodeJS.Signals | null } | undefined;
     let childError: Error | undefined;
     const idleTimeoutFlag = readFlag(args, "--idle-timeout-ms");
+    // Under Bun the runtime flags (the dev SQLite preload, #574) carry over to the daemon. Under
+    // Node nothing extra is passed.
     const child = spawn(process.execPath, [
+      ...(process.versions.bun === undefined ? [] : process.execArgv),
       CLI_ENTRY,
       "daemon",
       "start",

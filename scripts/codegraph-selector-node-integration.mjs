@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -218,6 +219,56 @@ try {
       assert.deepEqual(indexFiles(), before, `private Node snapshot must preserve original DB and sidecars, liveWal=${liveWal}`);
     } finally { holder?.close(); }
   }
+  // ADR-0058: the read session under Node, in this process, with no holder: the writer of the
+  // last sync removed its WAL sidecars, and Node's read-only open must still succeed.
+  const gitAdded = spawnSync("git", ["add", "-A"], { cwd: fixtureRoot, encoding: "utf8" });
+  assert.equal(gitAdded.status, 0, gitAdded.stderr);
+  const gitIndex = join(fixtureRoot, ".git", "index");
+  const database = join(fixtureRoot, ".codegraph", "codegraph.db");
+  const digestOf = (path) => createHash("sha256").update(readFileSync(path)).digest("hex");
+  const beforeRead = { gitIndex: statSync(gitIndex).mtimeMs, database: digestOf(database) };
+  const spy = process.platform === "win32" ? undefined : gitSpy();
+  let gitCommands = [];
+  let readyFacts;
+  let session;
+  try {
+    readyFacts = adapter.inspectRepositoryCodeFacts(fixtureRoot);
+    adapter.assertRepositoryCodeFactsReady(fixtureRoot);
+    session = adapter.withCodeGraphReadSession(fixtureRoot, (opened) => opened.state === "open"
+      ? { version: opened.session.version(), compatibility: opened.session.compatibility(), freshness: opened.session.freshness() }
+      : { state: opened.state });
+    gitCommands = spy?.commands() ?? [];
+  } finally { spy?.restore(); }
+  assert.equal(readyFacts.state, "ready", JSON.stringify(readyFacts));
+  assert.deepEqual(readyFacts.pendingChanges, { added: 0, modified: 0, removed: 0 });
+  assert.equal(session.version, adapter.REQUIRED_CODEGRAPH_VERSION, JSON.stringify(session));
+  assert.equal(session.compatibility.state, "complete");
+  assert.equal(session.compatibility.builtWithVersion, adapter.REQUIRED_CODEGRAPH_VERSION);
+  assert.deepEqual(session.freshness, { added: 0, modified: 0, removed: 0 });
+  if (spy) {
+    assert.ok(gitCommands.some(command => command.startsWith("ls-files")), "the git spy must see the provider enumeration");
+    assert.deepEqual(gitCommands.filter(command => /^(status|diff)\b/.test(command)), [], "a read runs no git status or diff");
+  }
+  assert.deepEqual({ gitIndex: statSync(gitIndex).mtimeMs, database: digestOf(database) }, beforeRead, "a read changes neither .git/index nor the database");
+  const sources = { edited: join(fixtureRoot, "src", "util.ts"), removed: join(fixtureRoot, "src", "imported.ts"), added: join(fixtureRoot, "src", "added.ts") };
+  const originals = { edited: readFileSync(sources.edited), removed: readFileSync(sources.removed) };
+  try {
+    writeFileSync(sources.edited, "export function resolve(value: string): string { return value + value; }\n");
+    unlinkSync(sources.removed);
+    writeFileSync(sources.added, "export const added = true;\n");
+    const pending = adapter.inspectRepositoryCodeFacts(fixtureRoot);
+    assert.equal(pending.state, "not-ready");
+    assert.deepEqual(pending.pendingChanges, { added: 1, modified: 1, removed: 1 });
+    assert.deepEqual(pending.issues.map(issue => issue.code), ["pending-source-changes"]);
+    // The gate reads compatibility only, so pending edits pass it.
+    adapter.assertRepositoryCodeFactsReady(fixtureRoot);
+  } finally {
+    writeFileSync(sources.edited, originals.edited);
+    writeFileSync(sources.removed, originals.removed);
+    rmSync(sources.added, { force: true });
+  }
+  assert.equal(adapter.inspectRepositoryCodeFacts(fixtureRoot).state, "ready");
+
   const beforeStale = indexFiles();
   writeFileSync(join(fixtureRoot, "src/render.ts"), 'export function renderBlock() { return "changed"; }\n');
   assert.throws(() => adapter.withExistingCodeGraphSnapshot(fixtureRoot, { names: [], sources: [], includeFiles: false }, () => true), error => error.reasonCode === "code-facts-read-not-ready");
@@ -229,9 +280,30 @@ try {
     nodeVersion: process.version,
     codeGraphVersion: adapter.REQUIRED_CODEGRAPH_VERSION,
     privateSnapshots: "closed-and-live-wal-preserved; stale-refused",
+    readSession: "ready-without-holder; pending-counted; gate-compatibility-only; no-git-status",
     callSite: { path: "src/main.ts", line: 4 }
   }));
 } finally {
   rmSync(fixtureRoot, { recursive: true, force: true });
   rmSync(buildRoot, { recursive: true, force: true });
+}
+
+/** A `git` first on PATH that logs each command and runs the real one. POSIX only. */
+function gitSpy() {
+  const dir = mkdtempSync(join(tmpdir(), "archctx-git-spy-"));
+  const log = join(dir, "git.log");
+  const real = spawnSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).stdout.trim();
+  writeFileSync(log, "");
+  writeFileSync(join(dir, "git"), `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\nexec '${real}' "$@"\n`);
+  chmodSync(join(dir, "git"), 0o755);
+  const previous = process.env.PATH;
+  process.env.PATH = `${dir}${delimiter}${previous ?? ""}`;
+  return {
+    // `-C <dir>` is a location, not the command.
+    commands: () => readFileSync(log, "utf8").split("\n").filter(Boolean).map(line => line.replace(/^-C \S+ /, "")),
+    restore: () => {
+      process.env.PATH = previous;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
 }

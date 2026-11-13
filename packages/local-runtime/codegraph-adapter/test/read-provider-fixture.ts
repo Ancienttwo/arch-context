@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { CodeGraphReadProvider } from "../src/index";
 import { REQUIRED_CODEGRAPH_VERSION } from "../src/index";
@@ -34,17 +34,28 @@ export interface FakeReadProvider extends CodeGraphReadProvider {
  * change the index between reads. Creates `.codegraph/codegraph.db` so the session opens it.
  */
 export function fakeReadProvider(root: string, facts: FakeIndexFacts | (() => FakeIndexFacts) = {}): FakeReadProvider {
-  mkdirSync(join(root, ".codegraph"), { recursive: true });
+  mkdirSync(join(root, ".codegraph", "fake-sources"), { recursive: true });
   writeFileSync(join(root, ".codegraph", "codegraph.db"), "");
+  // As in a real index directory, Git ignores everything in it, so the fake sources below never
+  // enter the Git-visible files or a worktree digest.
+  writeFileSync(join(root, ".codegraph", ".gitignore"), "*\n");
   const current = () => typeof facts === "function" ? facts() : facts;
   const calls = { open: 0, close: 0, scan: 0, hash: 0 };
   const extractionVersion = () => current().currentExtractionVersion ?? 7;
   // The pending counts become files: `m*` indexed and changed, `r*` indexed and gone, `a*` new.
   const population = () => {
     const pending = current().pending ?? { added: 0, modified: 0, removed: 0 };
-    const name = (prefix: string, count: number) => Array.from({ length: count }, (_, index) => `src/${prefix}${index}.ts`);
-    return { fresh: ["src/fresh.ts"], modified: name("m", pending.modified), removed: name("r", pending.removed), added: name("a", pending.added) };
+    const name = (prefix: string, count: number) => Array.from({ length: count }, (_, index) => `.codegraph/fake-sources/${prefix}${index}.ts`);
+    return { fresh: [".codegraph/fake-sources/fresh.ts"], modified: name("m", pending.modified), removed: name("r", pending.removed), added: name("a", pending.added) };
   };
+  // The worktree holds what the enumeration lists; removed files are gone from both.
+  const materialize = () => {
+    const files = population();
+    for (const path of [...files.fresh, ...files.modified, ...files.added]) writeFileSync(join(root, path), `// ${path}\n`);
+    for (const path of files.removed) rmSync(join(root, path), { force: true });
+    return files;
+  };
+  materialize();
   return {
     calls,
     get version() { return current().version ?? REQUIRED_CODEGRAPH_VERSION; },
@@ -75,7 +86,7 @@ export function fakeReadProvider(root: string, facts: FakeIndexFacts | (() => Fa
     },
     scanSourceFiles: () => {
       calls.scan++;
-      const files = population();
+      const files = materialize();
       return [...files.fresh, ...files.modified, ...files.added];
     },
     changeHash: (path) => {
