@@ -72,6 +72,27 @@ describe("openCodeGraphReadSession", () => {
     });
   });
 
+  test.skipIf(process.platform === "win32" || process.getuid?.() === 0)("an unreadable .codegraph or database is index-open-failed, not index-missing", () => {
+    withRoot((root) => {
+      const project = join(root, "project");
+      const provider = fakeReadProvider(project);
+      const indexDir = join(project, ".codegraph");
+      try {
+        // The database check: .codegraph exists, but codegraph.db cannot be stat'ed.
+        chmodSync(indexDir, 0o000);
+        expect(openCodeGraphReadSession(project, { provider })).toEqual({ state: "index-open-failed" });
+        chmodSync(indexDir, 0o755);
+        // The .codegraph check: the project directory cannot be searched.
+        chmodSync(project, 0o000);
+        expect(openCodeGraphReadSession(project, { provider })).toEqual({ state: "index-open-failed" });
+      } finally {
+        chmodSync(project, 0o755);
+        chmodSync(indexDir, 0o755);
+      }
+      expect(provider.calls.open).toBe(0);
+    });
+  });
+
   test("a read-only open that throws is index-open-failed", () => {
     withRoot((root) => {
       const provider = fakeReadProvider(root, { openFails: true });

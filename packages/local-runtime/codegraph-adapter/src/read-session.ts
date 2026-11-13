@@ -1,5 +1,5 @@
 import { productVersionManifest } from "@archcontext/contracts";
-import { existsSync, lstatSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { basename, dirname, join } from "node:path";
 import type { CodeGraph } from "@colbymchenry/codegraph";
@@ -196,14 +196,11 @@ export function openCodeGraphReadSession(root: string, options: { provider?: Cod
   const indexDir = join(root, ".codegraph");
   let linked: boolean;
   try { linked = lstatSync(indexDir).isSymbolicLink(); }
-  catch (error) {
-    // Only absence proves there is no index; any other failure (permission, I/O) is an unreadable one.
-    const code = (error as NodeJS.ErrnoException).code;
-    return { state: code === "ENOENT" || code === "ENOTDIR" ? "index-missing" : "index-open-failed" };
-  }
+  catch (error) { return { state: absenceOrUnreadable(error) }; }
   // A linked `.codegraph`, dangling or not, could carry another worktree's index; it is not this root's.
   if (linked) return { state: "index-open-failed" };
-  if (!existsSync(join(indexDir, "codegraph.db"))) return { state: "index-missing" };
+  try { statSync(join(indexDir, "codegraph.db")); }
+  catch (error) { return { state: absenceOrUnreadable(error) }; }
   if (codeGraphIndexBuildInProgress(root)) return { state: "build-in-progress" };
   const handle: { graph?: CodeGraphIndexHandle } = {};
   let atOpen: CodeGraphIndexRevisionV1;
@@ -215,6 +212,12 @@ export function openCodeGraphReadSession(root: string, options: { provider?: Cod
     return { state: "index-open-failed" };
   }
   return { state: "open", session: readSession(root, handle, provider, atOpen) };
+}
+
+/** Only absence proves there is no index; any other failure (permission, I/O) is an unreadable one. */
+function absenceOrUnreadable(error: unknown): "index-missing" | "index-open-failed" {
+  const code = (error as NodeJS.ErrnoException).code;
+  return code === "ENOENT" || code === "ENOTDIR" ? "index-missing" : "index-open-failed";
 }
 
 function revisionOf(graph: CodeGraphIndexHandle): CodeGraphIndexRevisionV1 {

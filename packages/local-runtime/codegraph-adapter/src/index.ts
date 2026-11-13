@@ -1260,8 +1260,9 @@ export function withExistingCodeGraphSnapshot<T>(
       if (ready.state === "unavailable") throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", ready.reasonCode === "index-open-failed" ? "index-open-failed" : "code-facts-unavailable");
       throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-read-not-ready", { issues: ready.issues });
     }
-    // Node owns all SDK/SQLite handles. Its completed process lifetime precedes removal,
-    // including when the caller is Bun, whose statement finalizers may otherwise retain files.
+    // Readiness above opened the copied index in-process, through the read session, and closed it.
+    // The queries below still run in the provider's Node child, whose exit releases its SQLite
+    // handles before the copy is removed. S4 of #574 removes this path.
     const graph = readSnapshotQueries(codeGraphSnapshotRuntime(), snapshotRoot, queries);
     const result = callback(graph);
     if (result !== null && typeof result === "object" && "then" in result) {
