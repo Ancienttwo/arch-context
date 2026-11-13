@@ -1,15 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { createRequire } from "node:module";
+import { mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import {
+  CodeGraphProviderUnavailableError,
   REQUIRED_CODEGRAPH_VERSION,
   assertRepositoryCodeFactsReady,
   inspectRepositoryCodeFacts,
   projectionCodeGraphStatusIssues,
   type CodeGraphProjectionStatusV1
 } from "../src/index";
+import { fakeReadProvider } from "./read-provider-fixture";
 
 function freshStatus(root: string, overrides: Partial<CodeGraphProjectionStatusV1> = {}): CodeGraphProjectionStatusV1 {
   return {
@@ -116,198 +117,146 @@ describe("projectionCodeGraphStatusIssues", () => {
 });
 
 describe("inspectRepositoryCodeFacts", () => {
-  function fakeCodeGraph(root: string, options: { version?: string; status?: unknown; statusExit?: number; recordTo?: string }): string {
-    const path = join(root, "fake-codegraph.js");
-    writeFileSync(path, [
-      `const { appendFileSync } = require("node:fs");`,
-      `const args = process.argv.slice(2);`,
-      options.recordTo ? `appendFileSync(${JSON.stringify(options.recordTo)}, args[0] + "\\n");` : "",
-      `if (args[0] === "--version") { console.log(${JSON.stringify(options.version ?? REQUIRED_CODEGRAPH_VERSION)}); process.exit(0); }`,
-      `if (args[0] === "status") { ${options.statusExit ? `console.error("boom"); process.exit(${options.statusExit});` : `console.log(JSON.stringify(${JSON.stringify(options.status)})); process.exit(0);`} }`,
-      `process.exit(9);`
-    ].join("\n"), "utf8");
-    return path;
-  }
-
-  test("reports an unavailable CodeGraph without throwing or inventing values", () => {
+  test("reports a provider that cannot load as unavailable without inventing values", () => {
     withRoot((root) => {
-      const facts = inspectRepositoryCodeFacts(root, { binary: join(root, "does-not-exist") });
-      expect(facts.state).toBe("unavailable");
-      expect(facts).toMatchObject({ schemaVersion: "archcontext.repository-code-facts/v1", reasonCode: "codegraph-unavailable", requiredVersion: REQUIRED_CODEGRAPH_VERSION });
-      expect("indexPresent" in facts).toBe(false);
-      expect("codeGraphVersion" in facts).toBe(false);
+      const provider = new Proxy(fakeReadProvider(root), { get: (target, key) => {
+        if (key === "version") throw new CodeGraphProviderUnavailableError("CodeGraph platform manifest is unreadable");
+        return Reflect.get(target, key);
+      } });
+      const facts = inspectRepositoryCodeFacts(root, { provider });
+      expect(facts).toEqual({
+        schemaVersion: "archcontext.repository-code-facts/v1", state: "unavailable", requiredVersion: REQUIRED_CODEGRAPH_VERSION,
+        reasonCode: "codegraph-unavailable", message: "CodeGraph platform manifest is unreadable"
+      });
+      expect(() => assertRepositoryCodeFactsReady(root, { provider })).toThrow(expect.objectContaining({ code: "AC_CODE_FACTS_UNAVAILABLE", reasonCode: "code-facts-unavailable", action: "inspect-diagnostics" }));
     });
   });
 
-  test("reports a missing index from --version alone and never calls status or sync", () => {
+  test("reports a missing index from the provider version alone and opens nothing", () => {
     withRoot((root) => {
-      const log = join(root, "calls.log");
-      const binary = fakeCodeGraph(root, { recordTo: log });
-      const facts = inspectRepositoryCodeFacts(root, { binary });
-      expect(facts).toMatchObject({ state: "index-missing", indexPresent: false, codeGraphVersion: REQUIRED_CODEGRAPH_VERSION, issues: [] });
-      expect(require("node:fs").readFileSync(log, "utf8")).toBe("--version\n");
+      const provider = fakeReadProvider(root);
+      rmSync(join(root, ".codegraph"), { recursive: true });
+      expect(inspectRepositoryCodeFacts(root, { provider })).toEqual({
+        schemaVersion: "archcontext.repository-code-facts/v1", state: "index-missing", indexPresent: false,
+        requiredVersion: REQUIRED_CODEGRAPH_VERSION, codeGraphVersion: REQUIRED_CODEGRAPH_VERSION, issues: []
+      });
+      expect(provider.calls.open).toBe(0);
+      expect(() => assertRepositoryCodeFactsReady(root, { provider })).toThrow(expect.objectContaining({ code: "AC_CODE_FACTS_UNAVAILABLE", reasonCode: "index-missing" }));
     });
   });
 
-  test("reports a ready index and calls only --version and status", () => {
+  test("reports a ready index from one read-only session and closes it", () => {
     withRoot((root) => {
-      mkdirSync(join(root, ".codegraph"));
-      const log = join(root, "calls.log");
-      const binary = fakeCodeGraph(root, { status: freshStatus(root), recordTo: log });
-      const facts = inspectRepositoryCodeFacts(root, { binary });
-      expect(facts).toMatchObject({
+      const provider = fakeReadProvider(root);
+      expect(inspectRepositoryCodeFacts(root, { provider })).toEqual({
+        schemaVersion: "archcontext.repository-code-facts/v1",
         state: "ready",
         indexPresent: true,
+        requiredVersion: REQUIRED_CODEGRAPH_VERSION,
         codeGraphVersion: REQUIRED_CODEGRAPH_VERSION,
+        indexBuiltWithVersion: REQUIRED_CODEGRAPH_VERSION,
         extractionVersion: { builtWith: 7, current: 7 },
+        indexState: "complete",
+        reindexRecommended: false,
+        pendingRefs: 0,
         pendingChanges: { added: 0, modified: 0, removed: 0 },
         issues: []
       });
-      expect(require("node:fs").readFileSync(log, "utf8")).toBe("--version\nstatus\n");
+      expect(provider.calls).toMatchObject({ open: 1, close: 1, scan: 1 });
     });
   });
 
-  test("doctor recommends reindexing an index built with another CodeGraph version", () => {
-    withRoot(root => {
-      mkdirSync(join(root, ".codegraph"));
-      const status = freshStatus(root);
-      status.index = { ...status.index, builtWithVersion: "1.6.1", reindexRecommended: false };
-      const facts = inspectRepositoryCodeFacts(root, { binary: fakeCodeGraph(root, { status }) });
-      expect(facts).toMatchObject({
-        state: "not-ready", reindexRecommended: true,
-        issues: [{ code: "version-mismatch", message: "CodeGraph repository status version mismatch" }]
+  test("an open that fails is index-open-failed, and the gate refuses it with the C2 reason", () => {
+    withRoot((root) => {
+      const provider = fakeReadProvider(root, { openFails: true });
+      const facts = inspectRepositoryCodeFacts(root, { provider });
+      expect(facts).toMatchObject({ state: "unavailable", reasonCode: "index-open-failed" });
+      expect(JSON.stringify(facts)).not.toContain("private raw provider error");
+      expect(() => assertRepositoryCodeFactsReady(root, { provider })).toThrow(expect.objectContaining({
+        code: "AC_CODE_FACTS_UNAVAILABLE", reasonCode: "index-open-failed", action: "inspect-diagnostics", retryable: false
+      }));
+    });
+  });
+
+  test("a read that fails during the open is index-open-failed and closes the handle", () => {
+    withRoot((root) => {
+      const provider = fakeReadProvider(root, { readFails: true });
+      expect(inspectRepositoryCodeFacts(root, { provider })).toMatchObject({ state: "unavailable", reasonCode: "index-open-failed" });
+      expect(provider.calls).toMatchObject({ open: 1, close: 1 });
+    });
+  });
+
+  test("a read that fails after the open is index-open-failed and still closes the handle", () => {
+    withRoot((root) => {
+      const provider = fakeReadProvider(root, { readFailsAfterOpen: true });
+      const facts = inspectRepositoryCodeFacts(root, { provider });
+      expect(facts).toMatchObject({ state: "unavailable", reasonCode: "index-open-failed" });
+      expect(JSON.stringify(facts)).not.toContain("private raw provider error");
+      expect(provider.calls).toMatchObject({ open: 1, close: 1 });
+    });
+  });
+
+  test("a symbolic-link .codegraph is index-open-failed without an open", () => {
+    withRoot((root) => {
+      withRoot((other) => {
+        const provider = fakeReadProvider(other);
+        symlinkSync(join(other, ".codegraph"), join(root, ".codegraph"), "junction");
+        expect(inspectRepositoryCodeFacts(root, { provider })).toMatchObject({ state: "unavailable", reasonCode: "index-open-failed" });
+        expect(provider.calls.open).toBe(0);
       });
+    });
+  });
+
+  test("a .codegraph directory without a database is index-missing, as the snapshot path reports it", () => {
+    withRoot((root) => {
+      const provider = fakeReadProvider(root);
+      rmSync(join(root, ".codegraph", "codegraph.db"));
+      expect(inspectRepositoryCodeFacts(root, { provider })).toMatchObject({ state: "index-missing", indexPresent: false, issues: [] });
+      expect(provider.calls.open).toBe(0);
+      expect(() => assertRepositoryCodeFactsReady(root, { provider })).toThrow(expect.objectContaining({ code: "AC_CODE_FACTS_UNAVAILABLE", reasonCode: "index-missing" }));
     });
   });
 
   test.each([
-    ["not-initialized", true], ["index-incomplete", true], ["extraction-version-mismatch", true],
-    ["worktree-mismatch", true], ["project-path-mismatch", true], ["pending-source-changes", false]
-  ] as const)("doctor reports freshness while task guards reject unusable indexes: %s", (code, reindexRecommended) => {
-    withRoot(root => {
-      mkdirSync(join(root, ".codegraph"));
-      const status = freshStatus(root);
-      if (code === "not-initialized") status.initialized = false;
-      if (code === "index-incomplete") status.index = { ...status.index, state: "building" };
-      if (code === "extraction-version-mismatch") status.index = { ...status.index, builtWithExtractionVersion: 6 };
-      if (code === "worktree-mismatch") status.worktreeMismatch = { expected: "other" };
-      if (code === "project-path-mismatch") status.projectPath = join(root, "absent");
-      if (code === "pending-source-changes") status.pendingChanges = { added: 1, modified: 0, removed: 0 };
-      const options = { binary: fakeCodeGraph(root, { status }) };
-      const facts = inspectRepositoryCodeFacts(root, options);
-      expect(facts).toMatchObject({ state: "not-ready", reindexRecommended });
-      if (code === "pending-source-changes") {
-        expect(() => assertRepositoryCodeFactsReady(root, options)).not.toThrow();
-        return;
-      }
-      expect(() => assertRepositoryCodeFactsReady(root, options)).toThrow();
-      try { assertRepositoryCodeFactsReady(root, options); }
-      catch (error) { expect(error).toMatchObject({ code: "AC_CODE_FACTS_NOT_READY", action: "codegraph-index", details: { issues: "issues" in facts ? facts.issues : [] } }); }
+    ["bundle version", { version: "0.0.1" }, ["version-mismatch"], "install-compatible-codegraph"],
+    ["index build version", { builtWithVersion: "1.6.1" }, ["version-mismatch"], "codegraph-index"],
+    ["unknown build version", { builtWithVersion: null }, ["version-mismatch"], "codegraph-index"],
+    ["partial index", { state: "partial" }, ["index-incomplete"], "codegraph-index"],
+    ["pending references", { pendingRefs: 3 }, ["index-incomplete"], "codegraph-index"],
+    ["stale extraction", { builtWithExtractionVersion: 6 }, ["extraction-version-mismatch"], "codegraph-index"],
+    ["another project root", { projectPath: "/elsewhere/repository" }, ["project-path-mismatch"], "codegraph-index"]
+  ] as const)("an incompatible index (%s) is not ready, and the gate refuses it", (_name, facts, codes, action) => {
+    withRoot((root) => {
+      const provider = fakeReadProvider(root, facts);
+      const inspected = inspectRepositoryCodeFacts(root, { provider });
+      expect(inspected).toMatchObject({ state: "not-ready", reindexRecommended: true });
+      expect("issues" in inspected && inspected.issues.map(issue => issue.code)).toEqual([...codes]);
+      expect(() => assertRepositoryCodeFactsReady(root, { provider })).toThrow(expect.objectContaining({
+        code: "AC_CODE_FACTS_NOT_READY", reasonCode: "code-facts-not-ready", action, details: { issues: "issues" in inspected ? inspected.issues : [] }
+      }));
     });
   });
 
-  test("binary version diagnostics do not copy raw process output into issue messages", () => {
-    withRoot(root => {
-      mkdirSync(join(root, ".codegraph"));
-      const options = { binary: fakeCodeGraph(root, { version: "/private/version-output token=secret", status: freshStatus(root) }) };
-      const facts = inspectRepositoryCodeFacts(root, options);
+  test("pending source changes make the doctor not ready, while the gate reads compatibility only and passes", () => {
+    withRoot((root) => {
+      const provider = fakeReadProvider(root, { pending: { added: 1, modified: 2, removed: 3 } });
+      const facts = inspectRepositoryCodeFacts(root, { provider });
+      expect(facts).toMatchObject({ state: "not-ready", reindexRecommended: false, pendingChanges: { added: 1, modified: 2, removed: 3 } });
+      expect("issues" in facts && facts.issues.map(issue => issue.code)).toEqual(["pending-source-changes"]);
+      const scans = provider.calls.scan;
+      const hashes = provider.calls.hash;
+      expect(() => assertRepositoryCodeFactsReady(root, { provider })).not.toThrow();
+      // The gate reads no source file: no enumeration, no hash.
+      expect(provider.calls.scan).toBe(scans);
+      expect(provider.calls.hash).toBe(hashes);
+    });
+  });
+
+  test("issue messages are the closed vocabulary, never provider output", () => {
+    withRoot((root) => {
+      const provider = fakeReadProvider(root, { version: "/private/version-output token=secret" });
+      const facts = inspectRepositoryCodeFacts(root, { provider });
       expect("issues" in facts && facts.issues).toEqual([{ code: "version-mismatch", message: "CodeGraph repository status version mismatch" }]);
-      expect(() => assertRepositoryCodeFactsReady(root, options)).toThrow();
-      try { assertRepositoryCodeFactsReady(root, options); }
-      catch (error) { expect(error).toMatchObject({ action: "install-compatible-codegraph" }); }
-    });
-  });
-
-  test("reports stale extraction and pending source changes as issues", () => {
-    withRoot((root) => {
-      mkdirSync(join(root, ".codegraph"));
-      const status = freshStatus(root, { pendingChanges: { added: 1, modified: 2, removed: 0 } });
-      status.index = { ...status.index, builtWithExtractionVersion: 6 };
-      const facts = inspectRepositoryCodeFacts(root, { binary: fakeCodeGraph(root, { status }) });
-      expect(facts).toMatchObject({
-        state: "not-ready",
-        extractionVersion: { builtWith: 6, current: 7 },
-        pendingChanges: { added: 1, modified: 2, removed: 0 }
-      });
-      expect("issues" in facts && facts.issues.map((issue) => issue.code)).toEqual(["extraction-version-mismatch", "pending-source-changes"]);
-    });
-  });
-
-  test("a binary of another version is a version-mismatch issue", () => {
-    withRoot((root) => {
-      const facts = inspectRepositoryCodeFacts(root, { binary: fakeCodeGraph(root, { version: "0.0.1" }) });
-      expect(facts).toMatchObject({ state: "index-missing", codeGraphVersion: "0.0.1" });
-      expect("issues" in facts && facts.issues.map((issue) => issue.code)).toEqual(["version-mismatch"]);
-    });
-  });
-
-  test("a failing or invalid status is unavailable", () => {
-    withRoot((root) => {
-      mkdirSync(join(root, ".codegraph"));
-      expect(inspectRepositoryCodeFacts(root, { binary: fakeCodeGraph(root, { statusExit: 3 }) }).state).toBe("unavailable");
-    });
-  });
-
-  test("an existing index whose status JSON is not an object is unavailable, not index-missing", () => {
-    withRoot((root) => {
-      mkdirSync(join(root, ".codegraph"));
-      const facts = inspectRepositoryCodeFacts(root, { binary: fakeCodeGraph(root, { status: null }) });
-      expect(facts).toMatchObject({ state: "unavailable", reasonCode: "codegraph-unavailable", requiredVersion: REQUIRED_CODEGRAPH_VERSION });
-      expect("indexPresent" in facts).toBe(false);
-    });
-  });
-
-  test("always passes CODEGRAPH_NO_DOWNLOAD to both --version and status, whatever the caller environment says", () => {
-    withRoot((root) => {
-      mkdirSync(join(root, ".codegraph"));
-      const log = join(root, "env.log");
-      const binary = join(root, "env-codegraph.js");
-      writeFileSync(binary, [
-        `const { appendFileSync } = require("node:fs");`,
-        `const args = process.argv.slice(2);`,
-        `appendFileSync(${JSON.stringify(log)}, args[0] + "=" + String(process.env.CODEGRAPH_NO_DOWNLOAD) + "\\n");`,
-        `if (args[0] === "--version") { console.log(${JSON.stringify(REQUIRED_CODEGRAPH_VERSION)}); process.exit(0); }`,
-        `if (args[0] === "status") { console.log(${JSON.stringify(JSON.stringify(freshStatus(root)))}); process.exit(0); }`,
-        `process.exit(9);`
-      ].join("\n"), "utf8");
-      const previous = process.env.CODEGRAPH_NO_DOWNLOAD;
-      process.env.CODEGRAPH_NO_DOWNLOAD = "";
-      try {
-        expect(inspectRepositoryCodeFacts(root, { binary }).state).toBe("ready");
-      } finally {
-        if (previous === undefined) delete process.env.CODEGRAPH_NO_DOWNLOAD;
-        else process.env.CODEGRAPH_NO_DOWNLOAD = previous;
-      }
-      expect(readFileSync(log, "utf8")).toBe("--version=1\nstatus=1\n");
-    });
-  });
-
-  test("the packaged shim with no platform bundle is unavailable and does not download", () => {
-    withRoot((root) => {
-      const shimDir = join(root, "shim");
-      mkdirSync(shimDir);
-      // An existing node_modules keeps Bun's resolver from auto-installing the missing platform package.
-      mkdirSync(join(shimDir, "node_modules"));
-      const packageRoot = dirname(createRequire(import.meta.url).resolve("@colbymchenry/codegraph/package.json"));
-      copyFileSync(join(packageRoot, "npm-shim.js"), join(shimDir, "npm-shim.js"));
-      copyFileSync(join(packageRoot, "package.json"), join(shimDir, "package.json"));
-      const installDir = join(root, "install");
-      mkdirSync(installDir);
-      const saved = { dir: process.env.CODEGRAPH_INSTALL_DIR, base: process.env.CODEGRAPH_DOWNLOAD_BASE };
-      process.env.CODEGRAPH_INSTALL_DIR = installDir;
-      // A download attempt would announce itself on stderr and fail against this closed local port.
-      process.env.CODEGRAPH_DOWNLOAD_BASE = "http://127.0.0.1:1";
-      try {
-        const facts = inspectRepositoryCodeFacts(root, { binary: join(shimDir, "npm-shim.js") });
-        expect(facts).toMatchObject({ state: "unavailable", reasonCode: "codegraph-unavailable" });
-        expect("message" in facts && facts.message).toContain("network fallback is disabled");
-        expect("message" in facts && facts.message).not.toContain("downloading");
-      } finally {
-        if (saved.dir === undefined) delete process.env.CODEGRAPH_INSTALL_DIR;
-        else process.env.CODEGRAPH_INSTALL_DIR = saved.dir;
-        if (saved.base === undefined) delete process.env.CODEGRAPH_DOWNLOAD_BASE;
-        else process.env.CODEGRAPH_DOWNLOAD_BASE = saved.base;
-      }
     });
   });
 });

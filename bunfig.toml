@@ -1,2 +1,2 @@
 [test]
-preload = ["./scripts/check-bun-version.mjs"]
+preload = ["./scripts/check-bun-version.mjs", "./packages/surfaces/cli/bin/bun-darwin-sqlite.ts"]

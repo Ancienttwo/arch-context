@@ -52,13 +52,12 @@ describe("archctx doctor code facts", () => {
       });
       expect(withoutIndex.ok).toBe(expectedOk(withoutIndex));
 
-      // An empty `.codegraph` directory makes `codegraph status -j` report `initialized: false`, so
-      // code facts are deterministically not-ready. It is informational: doctor's own `ok` must not move.
+      // An empty `.codegraph` directory holds no database, so code facts are index-missing (ADR-0058).
+      // It is informational: doctor's own `ok` must not move.
       mkdirSync(join(root, ".codegraph"));
       const brokenIndex = doctorJson(root, stateDir).data;
-      expect(brokenIndex.codeFacts.state).toBe("not-ready");
-      expect(brokenIndex.codeFacts.indexPresent).toBe(true);
-      expect(brokenIndex.codeFacts.issues.map((issue: { code: string }) => issue.code)).toContain("not-initialized");
+      expect(brokenIndex.codeFacts.state).toBe("index-missing");
+      expect(brokenIndex.codeFacts.indexPresent).toBe(false);
       expect(brokenIndex.ok).toBe(withoutIndex.ok);
       expect(brokenIndex.ok).toBe(expectedOk(brokenIndex));
     } finally {

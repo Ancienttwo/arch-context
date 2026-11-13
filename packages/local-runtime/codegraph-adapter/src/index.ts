@@ -8,6 +8,17 @@ import { createRequire } from "node:module";
 import { basename, delimiter, dirname, isAbsolute, join, posix, relative, resolve } from "node:path";
 import type { Edge as CodeGraphEdge, Node as CodeGraphNode } from "@colbymchenry/codegraph";
 import { codeGraphChildEnv } from "./child-env";
+import {
+  REQUIRED_CODEGRAPH_PACKAGE,
+  REQUIRED_CODEGRAPH_VERSION,
+  codeGraphBundle,
+  codeGraphIndexBuildInProgress,
+  CodeGraphProviderUnavailableError,
+  pinnedCodeGraphProvider,
+  withCodeGraphReadSession,
+  type CodeGraphReadProvider,
+  type CodeGraphSdk
+} from "./read-session";
 import { readSnapshotQueries, type SnapshotQueryRequest, type SnapshotQueryReader } from "./snapshot-query";
 import { buildArchitectureCandidateDelta, type ArchitectureDeltaDeclaredGraph, type ArchitectureDeltaGitChangeMetadata } from "@archcontext/core/architecture-delta";
 import { parseJsonOrStableYaml, repoScopedArchitectureId, type CrossRepoRelation } from "@archcontext/core/architecture-domain";
@@ -27,42 +38,55 @@ import {
   type ArchitectureDocumentationProjectionRuntimeSnapshot,
   type NativeModel
 } from "@archcontext/core/projection-engine";
-import { digestJson, productVersionManifest, type ArchitectureCandidateDeltaV1, type ArchitectureDocumentationProjectionProvenanceV3, type ArchitectureRepositoryIdentityV1, type ArchitectureWorktreeIdentityV1, type CodeFactsPort, type CodeFactsSnapshot, type ImpactQuery, type Json, type NormalizedCodeContext, type NormalizedEdge, type NormalizedImpact, type NormalizedSymbol, type ObservedEvidence, type SourceSelector, type SymbolQuery, type WorkspaceRef } from "@archcontext/contracts";
+import { digestJson, type ArchitectureCandidateDeltaV1, type ArchitectureDocumentationProjectionProvenanceV3, type ArchitectureRepositoryIdentityV1, type ArchitectureWorktreeIdentityV1, type CodeFactsPort, type CodeFactsSnapshot, type ImpactQuery, type Json, type NormalizedCodeContext, type NormalizedEdge, type NormalizedImpact, type NormalizedSymbol, type ObservedEvidence, type SourceSelector, type SymbolQuery, type WorkspaceRef } from "@archcontext/contracts";
 
-export const REQUIRED_CODEGRAPH_PACKAGE = "@colbymchenry/codegraph";
-export const REQUIRED_CODEGRAPH_VERSION: string = productVersionManifest().runtime.codeGraph.requiredVersion;
+export {
+  CODEGRAPH_PROVIDER_INTERNAL_EXPORTS,
+  CodeGraphProviderUnavailableError,
+  REQUIRED_CODEGRAPH_PACKAGE,
+  REQUIRED_CODEGRAPH_VERSION,
+  openCodeGraphReadSession,
+  pinnedCodeGraphProvider,
+  withCodeGraphReadSession,
+  type CodeGraphIndexCompatibilityV1,
+  type CodeGraphIndexFreshnessV1,
+  type CodeGraphIndexRevisionV1,
+  type CodeGraphReadProvider,
+  type CodeGraphReadSession,
+  type CodeGraphReadSessionOpenV1
+} from "./read-session";
 export const CODEGRAPH_TELEMETRY_ENV = "DO_NOT_TRACK";
 export const CODEGRAPH_TELEMETRY_DISABLED_VALUE = "1";
 const DEFAULT_CODEGRAPH_BINARY = "codegraph";
 const requireFromAdapter = createRequire(import.meta.url);
-// Keep the CommonJS SDK in its installed package so its platform/cache resolver stays relocatable.
-type CodeGraphSdk = typeof import("@colbymchenry/codegraph");
-let installedCodeGraphSdk: CodeGraphSdk | undefined;
+// The SDK stays in its installed package so its platform/cache resolver stays relocatable. It is
+// resolved only when a CodeGraph operation needs it; the stateless native export never loads it.
 function codeGraphSdk(): CodeGraphSdk {
-  // Stateless native export shares the CLI entry but does not use code facts.
-  // Resolve the installed SDK only when a CodeGraph operation actually needs it.
-  return installedCodeGraphSdk ??= requireFromAdapter(REQUIRED_CODEGRAPH_PACKAGE) as CodeGraphSdk;
+  return codeGraphBundle().sdk;
 }
 
-/** The SDK and its Node executable must come from the same provider-selected platform bundle. */
+/**
+ * The SDK and its Node executable must come from the same provider-selected platform bundle.
+ * Only the private snapshot reader uses it; S4 of #574 removes both.
+ */
 export function codeGraphSnapshotRuntime(): { node: string; sdk: string } {
-  const sdk = codeGraphSdk();
-  // Reuse the SDK shim's platform/cache resolution. The pinned platform ships this typed export
-  // but the thin npm facade does not re-export it; never reconstruct its ignore/extension rules.
-  const platformEntry = Object.values(requireFromAdapter.cache).find(module => module?.exports === sdk && basename(module.filename) === "index.js");
-  if (!platformEntry) throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-unavailable");
-  const dist = dirname(platformEntry.filename);
-  const manifest = JSON.parse(readFileSync(join(dirname(dirname(dist)), "package.json"), "utf8")) as { version?: string };
-  if (manifest.version !== REQUIRED_CODEGRAPH_VERSION) throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-unavailable");
-  const node = join(dirname(dirname(dist)), process.platform === "win32" ? "node.exe" : "node");
+  let bundle: ReturnType<typeof codeGraphBundle>;
+  let version: string;
+  try {
+    bundle = codeGraphBundle();
+    version = pinnedCodeGraphProvider().version;
+  } catch {
+    throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-unavailable");
+  }
+  if (version !== REQUIRED_CODEGRAPH_VERSION) throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-unavailable");
+  const node = join(bundle.platformRoot, process.platform === "win32" ? "node.exe" : "node");
   if (!isExecutablePath(node)) throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-unavailable");
-  return { node, sdk: platformEntry.filename };
+  return { node, sdk: join(bundle.dist, "index.js") };
 }
 
 function codeGraphSourceScanner(): (root: string) => string[] {
-  const dist = dirname(codeGraphSnapshotRuntime().sdk);
-  const provider = requireFromAdapter(join(dist, "extraction/index.js")) as { scanDirectory(root: string): string[] };
-  return provider.scanDirectory;
+  try { return pinnedCodeGraphProvider().scanSourceFiles; }
+  catch { throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-unavailable"); }
 }
 
 type MutableEnv = Record<string, string | undefined>;
@@ -92,7 +116,11 @@ export class CodeGraphCliProvider implements CodeGraphProvider {
   capabilities = ["index", "context", "impact"];
   private workspaceRoot: string;
 
-  constructor(workspaceRoot = process.cwd(), private readonly binary = DEFAULT_CODEGRAPH_BINARY) {
+  /**
+   * `binary` builds the index (`sync`); reads never start it. `readProvider` is the read-only
+   * provider readiness reads through, the pinned one unless a test injects one.
+   */
+  constructor(workspaceRoot = process.cwd(), private readonly binary = DEFAULT_CODEGRAPH_BINARY, private readonly readProvider?: CodeGraphReadProvider) {
     this.workspaceRoot = workspaceRoot;
   }
 
@@ -104,7 +132,7 @@ export class CodeGraphCliProvider implements CodeGraphProvider {
   }
 
   assertReady(workspaceRoot: string): void {
-    assertRepositoryCodeFactsReady(workspaceRoot, this.binary === DEFAULT_CODEGRAPH_BINARY ? {} : { binary: this.binary });
+    assertRepositoryCodeFactsReady(workspaceRoot, this.readProvider ? { provider: this.readProvider } : {});
   }
 
   assertCanSync(workspaceRoot: string): void {
@@ -804,20 +832,23 @@ export function prepareArchitectureDocumentationProjectionSnapshot(
     binary?: string;
     importNodeLimit?: number;
     timeouts?: { versionMs?: number; statusMs?: number; syncMs?: number };
+    /** The read-only provider the readiness gate reads through; the pinned one unless injected. */
+    readProvider?: CodeGraphReadProvider;
   } = {}
 ): PreparedArchitectureDocumentationProjectionSnapshot {
   // Classify repository readiness with the same doctor evaluator the task commands use, before
   // any code-facts read. A present but incompatible index is a typed refusal; pending-only
   // freshness is accepted and cleared by the sync below. An absent index keeps its existing
   // AC_CODE_FACTS_UNAVAILABLE contract.
-  if (codeGraphIndexAvailable(root)) assertRepositoryCodeFactsReady(root, options.binary ? { binary: options.binary } : {});
+  const { readProvider, ...projectionOptions } = options;
+  if (codeGraphIndexAvailable(root)) assertRepositoryCodeFactsReady(root, readProvider ? { provider: readProvider } : {});
   const baseHeadSha = readProjectionHeadSha(root);
   const sourceFiles = listGitVisibleFiles(root);
   const worktreeDigest = architectureDocumentationProjectionWorktreeDigest(root, model, sourceFiles);
   const footprints = loadCapabilitySourceFootprints(root, model, sourceFiles);
   const sourceTreeDigest = digestArchitectureDocumentationSourceTree(root, model, footprints);
   const modelDigest = digestJson(model as unknown as Json);
-  const prepared = prepareProjectionCodeFacts(root, model, { ...options, sourceTreeDigest, sourceFiles, footprints });
+  const prepared = prepareProjectionCodeFacts(root, model, { ...projectionOptions, sourceTreeDigest, sourceFiles, footprints });
   if (architectureDocumentationProjectionWorktreeDigest(root, model, listGitVisibleFiles(root)) !== worktreeDigest) {
     throw new Error("architecture-docs-projection-worktree-changed-during-codegraph-sync");
   }
@@ -1009,25 +1040,6 @@ class CodeGraphIndexBuildInProgressError extends Error {
   }
 }
 
-/** True while the provider's writer lock names a live build of this workspace's index. */
-function codeGraphIndexBuildInProgress(workspaceRoot: string): boolean {
-  let raw: string;
-  try {
-    raw = readFileSync(join(workspaceRoot, ".codegraph", "codegraph.lock"), "utf8").trim();
-  } catch {
-    return false;
-  }
-  const pid = Number.parseInt(raw, 10);
-  if (!Number.isSafeInteger(pid) || pid <= 0 || String(pid) !== raw) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    // EPERM means the process exists but belongs to another user.
-    return (error as NodeJS.ErrnoException).code === "EPERM";
-  }
-}
-
 function readProjectionCodeGraphStatus(
   invocation: CodeGraphCliInvocation,
   root: string,
@@ -1182,10 +1194,6 @@ function digestFile(path: string): string {
   }
 }
 
-export interface RepositoryCodeFactsInspectionOptions {
-  binary?: string;
-  timeouts?: { versionMs?: number; statusMs?: number };
-}
 
 /** Bytes bound the copied source/config, Git metadata, database and WAL; entries also count the uncopied Git objects. */
 export const CODEGRAPH_SNAPSHOT_MAX_BYTES = 512 * 1024 * 1024;
@@ -1213,8 +1221,7 @@ export function codeGraphSnapshotQueries(nodes: NativeModel["nodes"], purpose: "
 export function withExistingCodeGraphSnapshot<T>(
   root: string,
   queries: SnapshotQueryRequest,
-  callback: (graph: SnapshotQueryReader) => T,
-  options: RepositoryCodeFactsInspectionOptions = {}
+  callback: (graph: SnapshotQueryReader) => T
 ): T {
   const originalRoot = realpathSync.native(root);
   const redirectedGitInputs = ["GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_CONFIG", "GIT_CONFIG_SYSTEM", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS"];
@@ -1247,13 +1254,15 @@ export function withExistingCodeGraphSnapshot<T>(
     if (JSON.stringify([...scan(originalRoot)].sort()) !== JSON.stringify([...scan(snapshotRoot)].sort())) {
       throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-snapshot-layout-unsupported");
     }
-    const ready = inspectRepositoryCodeFacts(snapshotRoot, options);
+    const ready = inspectRepositoryCodeFacts(snapshotRoot);
     if (ready.state !== "ready") {
-      if (ready.state === "unavailable") throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-unavailable");
+      // C2: an unopenable index keeps its own reason; any other unavailable answer is code-facts-unavailable.
+      if (ready.state === "unavailable") throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", ready.reasonCode === "index-open-failed" ? "index-open-failed" : "code-facts-unavailable");
       throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-read-not-ready", { issues: ready.issues });
     }
-    // Node owns all SDK/SQLite handles. Its completed process lifetime precedes removal,
-    // including when the caller is Bun, whose statement finalizers may otherwise retain files.
+    // Readiness above opened the copied index in-process, through the read session, and closed it.
+    // The queries below still run in the provider's Node child, whose exit releases its SQLite
+    // handles before the copy is removed. S4 of #574 removes this path.
     const graph = readSnapshotQueries(codeGraphSnapshotRuntime(), snapshotRoot, queries);
     const result = callback(graph);
     if (result !== null && typeof result === "object" && "then" in result) {
@@ -1454,17 +1463,18 @@ export interface RepositoryCodeFactsPendingChangesV1 {
 }
 
 /**
- * Read-only state of this repository's CodeGraph index. `unavailable` means CodeGraph could not be
- * run or its output could not be read; no other field is then reported. `index-missing` means the
- * binary answered but the repository has no `.codegraph` index. `ready` and `not-ready` carry the
- * `codegraph status -j` values, and `issues` lists why `not-ready` is not ready.
+ * Read-only state of this repository's CodeGraph index (ADR-0058). `unavailable` means the pinned
+ * CodeGraph provider could not load (`codegraph-unavailable`) or the index exists but could not be
+ * opened and read read-only (`index-open-failed`); no other field is then reported. `index-missing`
+ * means the provider loaded but the repository has no `.codegraph` index. `ready` and `not-ready`
+ * carry the index facts, and `issues` lists why `not-ready` is not ready.
  */
 export type RepositoryCodeFactsV1 =
   | {
       schemaVersion: "archcontext.repository-code-facts/v1";
       state: "unavailable";
       requiredVersion: typeof REQUIRED_CODEGRAPH_VERSION;
-      reasonCode: "codegraph-unavailable";
+      reasonCode: "codegraph-unavailable" | "index-open-failed";
       message: string;
     }
   | {
@@ -1486,7 +1496,7 @@ export type RepositoryCodeFactsV1 =
       indexState: string | null;
       reindexRecommended: boolean | null;
       pendingRefs: number | null;
-      /** Source changes the index has not synced yet; `null` when `status` reported none. */
+      /** Source changes the index has not synced yet; `null` when they were not measured. */
       pendingChanges: RepositoryCodeFactsPendingChangesV1 | null;
       issues: ProjectionCodeGraphStatusIssueV1[];
     };
@@ -1494,82 +1504,33 @@ export type RepositoryCodeFactsV1 =
 /**
  * The packaged CodeGraph npm shim downloads its platform bundle from GitHub Releases when the
  * optional platform package is absent. `CODEGRAPH_NO_DOWNLOAD` (read by the shim's selfHealBundle)
- * turns that fetch off, so the read-only probe stays local whatever the egress mode is.
+ * turns that fetch off, so the snapshot's CLI probe stays local whatever the egress mode is.
  */
 const CODEGRAPH_NO_DOWNLOAD_ENV: Record<string, string> = { CODEGRAPH_NO_DOWNLOAD: "1" };
 
-/**
- * Inspects the repository's code-facts state with `codegraph --version` and `codegraph status -j`
- * only. It never runs `sync`, never writes the index and never throws for an unavailable CodeGraph.
- * While a provider build holds the index it does not run `status` at all, because that command
- * opens the live database writable and repairs it mid-build (#426).
- */
-export function inspectRepositoryCodeFacts(root: string, options: RepositoryCodeFactsInspectionOptions = {}): RepositoryCodeFactsV1 {
-  const schemaVersion = "archcontext.repository-code-facts/v1" as const;
-  let codeGraphVersion = "";
-  let status: CodeGraphProjectionStatusV1 | undefined;
-  let indexBuildInProgress = false;
-  const indexPresent = codeGraphIndexAvailable(root);
-  try {
-    const invocation = options.binary
-      ? codeGraphCliInvocation(options.binary, root, "")
-      : packagedCodeGraphCliInvocation();
-    codeGraphVersion = runProjectionCodeGraph(invocation, root, ["--version"], options.timeouts?.versionMs ?? 10_000, CODEGRAPH_NO_DOWNLOAD_ENV).trim();
-    if (indexPresent) status = readProjectionCodeGraphStatus(invocation, root, options.timeouts?.statusMs ?? 10_000, CODEGRAPH_NO_DOWNLOAD_ENV);
-  } catch (error) {
-    if (!(error instanceof CodeGraphIndexBuildInProgressError)) {
-      return {
-        schemaVersion,
-        state: "unavailable",
-        requiredVersion: REQUIRED_CODEGRAPH_VERSION,
-        reasonCode: "codegraph-unavailable",
-        message: (error instanceof Error ? error.message : String(error)).replace(/\s+/g, " ").trim().slice(0, 400)
-      };
-    }
-    indexBuildInProgress = true;
-  }
-  const versionIssues: ProjectionCodeGraphStatusIssueV1[] = codeGraphVersion === REQUIRED_CODEGRAPH_VERSION
-    ? []
-    : [{ code: "version-mismatch", message: CODE_FACTS_ISSUE_MESSAGES["version-mismatch"] }];
-  if (!indexPresent) {
-    return { schemaVersion, state: "index-missing", indexPresent: false, requiredVersion: REQUIRED_CODEGRAPH_VERSION, codeGraphVersion, issues: versionIssues };
-  }
-  if (indexBuildInProgress) {
-    // Every index field would be a mid-build guess, and reading it is exactly the writable open
-    // this guard exists to avoid. `null` is the contract's unknown value.
-    return {
-      schemaVersion,
-      state: "not-ready",
-      indexPresent: true,
-      requiredVersion: REQUIRED_CODEGRAPH_VERSION,
-      codeGraphVersion,
-      indexBuiltWithVersion: null,
-      extractionVersion: { builtWith: null, current: null },
-      indexState: null,
-      reindexRecommended: null,
-      pendingRefs: null,
-      pendingChanges: null,
-      issues: [...versionIssues, { code: "index-incomplete", message: CODE_FACTS_ISSUE_MESSAGES["index-incomplete"] }]
-    };
-  }
-  if (typeof status !== "object" || status === null || Array.isArray(status)) {
-    return {
-      schemaVersion,
-      state: "unavailable",
-      requiredVersion: REQUIRED_CODEGRAPH_VERSION,
-      reasonCode: "codegraph-unavailable",
-      message: "CodeGraph status JSON is not an object"
-    };
-  }
-  const issues = [...versionIssues, ...projectionCodeGraphStatusIssues(status, root, "repository")];
+const REPOSITORY_CODE_FACTS_SCHEMA = "archcontext.repository-code-facts/v1" as const;
+const PENDING_SOURCE_CHANGES_ISSUE: ProjectionCodeGraphStatusIssueV1 = {
+  code: "pending-source-changes",
+  message: CODE_FACTS_ISSUE_MESSAGES["pending-source-changes"]
+};
+const INDEX_OPEN_FAILED_MESSAGE = "CodeGraph index could not be opened and read read-only";
+
+/** Facts every repository-code-facts reader reports the same way, from one status snapshot. */
+function repositoryCodeFactsFromStatus(
+  root: string,
+  codeGraphVersion: string,
+  status: CodeGraphProjectionStatusV1,
+  measuresFreshness: boolean
+): RepositoryCodeFactsV1 {
+  const issues = projectionCodeGraphStatusIssues(status, root, "repository");
   const pending = status.pendingChanges;
   // A projection runs `sync` first, so pending changes are not a projection-status issue; for a
   // read-only inspection they mean the index lags the worktree.
-  if (!pending || pending.added !== 0 || pending.modified !== 0 || pending.removed !== 0) {
-    issues.push({ code: "pending-source-changes", message: "CodeGraph repository index has pending or unreported source changes" });
+  if (measuresFreshness && (!pending || pending.added !== 0 || pending.modified !== 0 || pending.removed !== 0)) {
+    issues.push(PENDING_SOURCE_CHANGES_ISSUE);
   }
   return {
-    schemaVersion,
+    schemaVersion: REPOSITORY_CODE_FACTS_SCHEMA,
     state: issues.length === 0 ? "ready" : "not-ready",
     indexPresent: true,
     requiredVersion: REQUIRED_CODEGRAPH_VERSION,
@@ -1587,16 +1548,121 @@ export function inspectRepositoryCodeFacts(root: string, options: RepositoryCode
   };
 }
 
-/** Read-only usability check. Pending edits affect freshness, not index compatibility. */
+function buildInProgressCodeFacts(codeGraphVersion: string, versionIssues: ProjectionCodeGraphStatusIssueV1[]): RepositoryCodeFactsV1 {
+  // Every index field would be a mid-build guess. `null` is the contract's unknown value.
+  return {
+    schemaVersion: REPOSITORY_CODE_FACTS_SCHEMA,
+    state: "not-ready",
+    indexPresent: true,
+    requiredVersion: REQUIRED_CODEGRAPH_VERSION,
+    codeGraphVersion,
+    indexBuiltWithVersion: null,
+    extractionVersion: { builtWith: null, current: null },
+    indexState: null,
+    reindexRecommended: null,
+    pendingRefs: null,
+    pendingChanges: null,
+    issues: [...versionIssues, { code: "index-incomplete", message: CODE_FACTS_ISSUE_MESSAGES["index-incomplete"] }]
+  };
+}
+
+function versionIssuesOf(codeGraphVersion: string): ProjectionCodeGraphStatusIssueV1[] {
+  return codeGraphVersion === REQUIRED_CODEGRAPH_VERSION ? [] : [{ code: "version-mismatch", message: CODE_FACTS_ISSUE_MESSAGES["version-mismatch"] }];
+}
+
+function unavailableCodeFacts(reasonCode: "codegraph-unavailable" | "index-open-failed", message: string): RepositoryCodeFactsV1 {
+  return { schemaVersion: REPOSITORY_CODE_FACTS_SCHEMA, state: "unavailable", requiredVersion: REQUIRED_CODEGRAPH_VERSION, reasonCode, message };
+}
+
+export interface RepositoryCodeFactsInspectionOptions {
+  /** The pinned provider of this installation unless a test injects one. */
+  provider?: CodeGraphReadProvider;
+}
+
+/**
+ * Inspects the repository's code-facts state through one read-only session (ADR-0058): no CodeGraph
+ * command, no `git status`, no writable open. It measures freshness with CodeGraph's own change
+ * test and never throws for an unavailable provider or index. While a provider build holds the
+ * writer lock it does not open the index (#426).
+ */
+export function inspectRepositoryCodeFacts(root: string, options: RepositoryCodeFactsInspectionOptions = {}): RepositoryCodeFactsV1 {
+  return inspectRepositoryCodeFactsTier(root, "freshness", options).facts;
+}
+
+/**
+ * When a provider build held the writer lock, at open or after the reads, or the index revision
+ * changed while the session read it (design G4), the facts are the not-ready build-in-progress
+ * answer and nothing read is reported. `retryable` is true then, unless the loaded provider has the
+ * wrong version: a retry after the build cannot fix that.
+ */
+function inspectRepositoryCodeFactsTier(root: string, tier: "compatibility" | "freshness", options: RepositoryCodeFactsInspectionOptions): { facts: RepositoryCodeFactsV1; retryable: boolean } {
+  let provider: CodeGraphReadProvider;
+  let codeGraphVersion: string;
+  try {
+    provider = options.provider ?? pinnedCodeGraphProvider();
+    codeGraphVersion = provider.version;
+  } catch (error) {
+    return { facts: unavailableCodeFacts("codegraph-unavailable", error instanceof CodeGraphProviderUnavailableError ? error.message : "CodeGraph provider could not be loaded"), retryable: false };
+  }
+  const versionIssues = versionIssuesOf(codeGraphVersion);
+  const moving = { facts: buildInProgressCodeFacts(codeGraphVersion, versionIssues), retryable: versionIssues.length === 0 };
+  try {
+    return withCodeGraphReadSession(root, (opened): { facts: RepositoryCodeFactsV1; retryable: boolean } => {
+      switch (opened.state) {
+        case "index-missing":
+          return { facts: { schemaVersion: REPOSITORY_CODE_FACTS_SCHEMA, state: "index-missing", indexPresent: false, requiredVersion: REQUIRED_CODEGRAPH_VERSION, codeGraphVersion, issues: versionIssues }, retryable: false };
+        case "index-open-failed":
+          return { facts: unavailableCodeFacts("index-open-failed", INDEX_OPEN_FAILED_MESSAGE), retryable: false };
+        case "build-in-progress":
+          return moving;
+        case "open": {
+          const compatibility = opened.session.compatibility();
+          const pendingChanges = tier === "freshness" ? opened.session.freshness() : undefined;
+          // Facts read across a build or a sync are not one index state (design G4).
+          if (!opened.session.unchangedSinceOpen()) return moving;
+          const status: CodeGraphProjectionStatusV1 = {
+            initialized: true,
+            version: compatibility.version,
+            projectPath: compatibility.projectPath,
+            lastIndexed: compatibility.lastIndexed,
+            ...(pendingChanges === undefined ? {} : { pendingChanges }),
+            // `openSync(root)` never walks up to another worktree's index (ADR-0058).
+            worktreeMismatch: null,
+            index: {
+              ...(compatibility.builtWithVersion === null ? {} : { builtWithVersion: compatibility.builtWithVersion }),
+              ...(compatibility.builtWithExtractionVersion === null ? {} : { builtWithExtractionVersion: compatibility.builtWithExtractionVersion }),
+              currentExtractionVersion: compatibility.currentExtractionVersion,
+              reindexRecommended: compatibility.reindexRecommended,
+              ...(compatibility.state === null ? {} : { state: compatibility.state }),
+              pendingRefs: compatibility.pendingRefs
+            }
+          };
+          return { facts: repositoryCodeFactsFromStatus(root, codeGraphVersion, status, tier === "freshness"), retryable: false };
+        }
+      }
+    }, { provider });
+  } catch {
+    // The index opened but a read of it failed; no provider text crosses this boundary.
+    return { facts: unavailableCodeFacts("index-open-failed", INDEX_OPEN_FAILED_MESSAGE), retryable: false };
+  }
+}
+
+/**
+ * Read-only usability gate (ADR-0058): compatibility facts only. Pending edits affect freshness, not
+ * index compatibility, so the gate reads no source file.
+ */
 export function assertRepositoryCodeFactsReady(root: string, options: RepositoryCodeFactsInspectionOptions = {}): void {
-  const facts = inspectRepositoryCodeFacts(root, options);
+  const { facts, retryable } = inspectRepositoryCodeFactsTier(root, "compatibility", options);
   if (facts.state === "index-missing") throw new ProjectionCodeFactsUnavailableError("index-missing");
-  if (facts.state === "unavailable") throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-unavailable", {}, { action: "inspect-diagnostics", retryable: false });
+  if (facts.state === "unavailable") {
+    if (facts.reasonCode === "index-open-failed") throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "index-open-failed");
+    throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-unavailable", {}, { action: "inspect-diagnostics", retryable: false });
+  }
+  // The compatibility tier never measures pending changes, so every not-ready answer refuses.
   if (facts.state === "not-ready") {
-    if (facts.issues.every(issue => issue.code === "pending-source-changes")) return;
     const action = facts.codeGraphVersion !== REQUIRED_CODEGRAPH_VERSION ? "install-compatible-codegraph"
       : "codegraph-index";
-    throw new FailureError("AC_CODE_FACTS_NOT_READY", "code-facts-not-ready", { issues: facts.issues }, { action });
+    throw new FailureError("AC_CODE_FACTS_NOT_READY", "code-facts-not-ready", { issues: facts.issues }, { action, ...(retryable ? { retryable: true } : {}) });
   }
 }
 

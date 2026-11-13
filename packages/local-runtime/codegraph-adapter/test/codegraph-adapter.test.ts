@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { digestJson, type Json } from "@archcontext/contracts";
 import { CODEGRAPH_TELEMETRY_ENV, CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, REQUIRED_CODEGRAPH_VERSION, codeGraphCliInvocation, disableCodeGraphTelemetryByDefault, openCodeGraphSymbolReader, packagedCodeGraphCliInvocation, prepareProjectionCodeFacts } from "../src/index";
+import { fakeReadProvider } from "./read-provider-fixture";
 import { MockCodeGraphProvider } from "./factories";
 
 // Mirrors the synthetic id CodeGraphCliProvider assigns to a CLI node that has no hash id
@@ -231,7 +232,7 @@ writeFileSync(${JSON.stringify(logPath)}, JSON.stringify({
 }));
 `);
 
-      const provider = new CodeGraphCliProvider(root, shimPath);
+      const provider = new CodeGraphCliProvider(root, shimPath, fakeReadProvider(root));
       await provider.indexAll(root);
 
       expect(existsSync(logPath)).toBe(true);
@@ -338,7 +339,7 @@ console.error("unexpected fake codegraph args", args);
 process.exit(2);
 `);
 
-      const adapter = new CodeGraphAdapter(new CodeGraphCliProvider(root, shimPath));
+      const adapter = new CodeGraphAdapter(new CodeGraphCliProvider(root, shimPath, fakeReadProvider(root)));
       await adapter.sync({
         workspace: { root, repositoryId: "repo.test", headSha: "abc" },
         changedPaths: [" src\\web\\page.ts", "../escape.ts", "/tmp/escape.ts"]

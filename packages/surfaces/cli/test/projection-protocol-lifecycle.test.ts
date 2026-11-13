@@ -292,7 +292,8 @@ async function withProtocolFixture(prefix: string, run: (context: {
   } finally {
     await daemon.stop();
     rmSync(stateRoot, { recursive: true, force: true });
-    rmSync(root, { recursive: true, force: true });
+    // This process holds no file under root after stop(); a transient Windows hold outside it is retried.
+    rmSync(root, { recursive: true, force: true, maxRetries: process.platform === "win32" ? 5 : 0, retryDelay: 100 });
   }
 }
 

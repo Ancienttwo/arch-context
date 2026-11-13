@@ -13,55 +13,57 @@ import { ArchctxDaemon } from "@archcontext/local-runtime/runtime-daemon";
 import { runArchitectureDebtCommand } from "@archcontext/local-runtime/architecture-debt";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
 import { incompleteCodeGraphFixture } from "../../../local-runtime/codegraph-adapter/test/real-index";
+import { fakeReadProvider, type FakeIndexFacts } from "../../../local-runtime/codegraph-adapter/test/read-provider-fixture";
 import { runCli } from "../src/main";
 
+/**
+ * Readiness reads the index through the injected read-only provider (ADR-0058); it starts no
+ * CodeGraph process. The fake binary only builds (`sync`), and logs every start, so a test proves
+ * that no readiness probe spawned anything. `facts.json` is the index the provider reports; the
+ * fake `sync` rewrites it, as a real sync rewrites the index.
+ */
 function fixture(allowSync = false, clearPending = false) {
   const root = realpathSync.native(mkdtempSync(join(tmpdir(), "archctx-code-facts-not-ready-")));
   execFileSync("git", ["init", "-q"], { cwd: root });
   initializeArchContextModel(root, "Code facts readiness");
   execFileSync("git", ["add", "."], { cwd: root });
   execFileSync("git", ["-c", `core.hooksPath=${join(root, ".git/no-hooks")}`, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "-qm", "fixture"], { cwd: root });
-  mkdirSync(join(root, ".codegraph"));
   const calls = join(root, "calls.log");
+  writeFileSync(calls, "");
   const binary = join(root, "codegraph-fixture.cjs");
-  const status = {
-    initialized: true, version: REQUIRED_CODEGRAPH_VERSION, projectPath: root,
-    pendingChanges: { added: 0, modified: 0, removed: 0 }, worktreeMismatch: null,
-    index: { builtWithVersion: "1.6.1", builtWithExtractionVersion: 24, currentExtractionVersion: 24, reindexRecommended: false, state: "complete", pendingRefs: 0 }
-  };
-  const statusPath = join(root, "codegraph-status.json");
-  writeFileSync(statusPath, JSON.stringify(status));
+  const facts: FakeIndexFacts = { builtWithVersion: "1.6.1", builtWithExtractionVersion: 24, currentExtractionVersion: 24 };
+  const factsPath = join(root, "codegraph-facts.json");
+  writeFileSync(factsPath, JSON.stringify(facts));
+  const provider = fakeReadProvider(root, () => JSON.parse(readFileSync(factsPath, "utf8")) as FakeIndexFacts);
   writeFileSync(binary, `
 const {appendFileSync, readFileSync, writeFileSync} = require("node:fs");
 const command = process.argv[2];
 appendFileSync(${JSON.stringify(calls)}, command + "\\n");
-if (command === "--version") { console.log(${JSON.stringify(REQUIRED_CODEGRAPH_VERSION)}); }
-else if (command === "status") { process.stdout.write(readFileSync(${JSON.stringify(statusPath)}, "utf8")); }
-else if (command === "sync" && ${allowSync}) {
+if (command === "sync" && ${allowSync}) {
   if (${clearPending}) {
-    const status = JSON.parse(readFileSync(${JSON.stringify(statusPath)}, "utf8"));
-    status.pendingChanges = {added: 0, modified: 0, removed: 0};
-    writeFileSync(${JSON.stringify(statusPath)}, JSON.stringify(status));
+    const facts = JSON.parse(readFileSync(${JSON.stringify(factsPath)}, "utf8"));
+    facts.pending = {added: 0, modified: 0, removed: 0};
+    writeFileSync(${JSON.stringify(factsPath)}, JSON.stringify(facts));
   }
   process.exit(0);
 }
-else { console.error("private raw process output /outside/repository"); process.exit(1); }
+console.error("private raw process output /outside/repository"); process.exit(1);
 `);
-  return { root, calls, binary, status, statusPath, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+  const setFacts = (next: FakeIndexFacts) => writeFileSync(factsPath, JSON.stringify(next));
+  return { root, calls, binary, facts, setFacts, provider, cleanup: () => rmSync(root, { recursive: true, force: true }) };
 }
 
 test.each(["complete", "prepare", "prepare-empty-budget", "complete-subdirectory", "prepare-subdirectory", "checkpoint"])("%s refuses a version-mismatched index with the doctor issues", async command => {
   const input = fixture();
   const store = new TestLocalStore();
-  const daemon = new ArchctxDaemon({ localStore: store, codeFacts: new CodeGraphAdapter(new CodeGraphCliProvider(input.root, input.binary)) });
+  const daemon = new ArchctxDaemon({ localStore: store, codeFacts: new CodeGraphAdapter(new CodeGraphCliProvider(input.root, input.binary, input.provider)) });
   try {
-    const doctor = inspectRepositoryCodeFacts(input.root, { binary: input.binary });
-    writeFileSync(input.calls, "");
+    const doctor = inspectRepositoryCodeFacts(input.root, { provider: input.provider });
     await daemon.start();
     const cwd = command.endsWith("subdirectory") ? join(input.root, "nested") : input.root;
     mkdirSync(cwd, { recursive: true });
     const result = command === "checkpoint"
-      ? runArchitectureDebtCommand(input.root, {}, { binary: input.binary })
+      ? runArchitectureDebtCommand(input.root, {}, { provider: input.provider })
       : await runCli(command.startsWith("prepare") ? "prepare" : "complete",
         command === "prepare-empty-budget" ? ["--task", "Inspect readiness", "--max-items", "0"] : command.startsWith("prepare") ? ["--task", "Inspect readiness"] : [], cwd, { runtimeClient: daemon });
     expect(result).toMatchObject({ ok: false, error: {
@@ -71,20 +73,19 @@ test.each(["complete", "prepare", "prepare-empty-budget", "complete-subdirectory
     expect(failureIssues("error" in result ? result.error : undefined)).toEqual([]);
     expect(JSON.stringify(result)).not.toContain("private raw process output");
     expect(JSON.stringify(result)).not.toContain(input.root);
-    expect(readFileSync(input.calls, "utf8")).toBe("--version\nstatus\n");
+    // Readiness started no CodeGraph process.
+    expect(readFileSync(input.calls, "utf8")).toBe("");
     expect(await store.listRepositorySessions()).toEqual([]);
   } finally { await daemon.stop(); input.cleanup(); }
 });
 
-test("CLI checkpoint refuses a present uninitialized index without a runtime", async () => {
+test("CLI checkpoint refuses a .codegraph without a database as index-missing, without a runtime", async () => {
   const input = fixture();
   try {
+    rmSync(join(input.root, ".codegraph", "codegraph.db"));
     const result = await runCli("checkpoint", [], input.root);
-    const doctor = inspectRepositoryCodeFacts(input.root);
-    expect("issues" in doctor && doctor.issues.map(issue => issue.code)).toContain("not-initialized");
-    expect(result).toMatchObject({ ok: false, error: { code: "AC_CODE_FACTS_NOT_READY", details: {
-      issues: "issues" in doctor ? doctor.issues : []
-    } } });
+    expect(inspectRepositoryCodeFacts(input.root)).toMatchObject({ state: "index-missing", indexPresent: false });
+    expect(result).toMatchObject({ ok: false, error: { code: "AC_CODE_FACTS_UNAVAILABLE", reasonCode: "index-missing" } });
     rmSync(join(input.root, ".codegraph"), { recursive: true });
     expect(await runCli("checkpoint", [], input.root)).toMatchObject({ ok: true });
   } finally { input.cleanup(); }
@@ -93,39 +94,37 @@ test("CLI checkpoint refuses a present uninitialized index without a runtime", a
 test("checkpoint accepts pending edits without sync but still refuses an incompatible index", () => {
   const input = fixture();
   try {
-    const pending = { ...input.status, pendingChanges: { added: 1, modified: 1, removed: 0 },
-      index: { ...input.status.index, builtWithVersion: REQUIRED_CODEGRAPH_VERSION } };
-    writeFileSync(input.statusPath, JSON.stringify(pending));
-    const doctor = inspectRepositoryCodeFacts(input.root, { binary: input.binary });
+    const pending = { ...input.facts, builtWithVersion: REQUIRED_CODEGRAPH_VERSION, pending: { added: 1, modified: 1, removed: 0 } };
+    input.setFacts(pending);
+    const doctor = inspectRepositoryCodeFacts(input.root, { provider: input.provider });
     expect(doctor).toMatchObject({ state: "not-ready", reindexRecommended: false });
-    writeFileSync(input.calls, "");
-    expect(runArchitectureDebtCommand(input.root, {}, { binary: input.binary })).toMatchObject({ ok: true });
-    expect(readFileSync(input.calls, "utf8")).toBe("--version\nstatus\n");
+    expect(runArchitectureDebtCommand(input.root, {}, { provider: input.provider })).toMatchObject({ ok: true });
 
-    writeFileSync(input.statusPath, JSON.stringify({ ...pending, index: input.status.index }));
-    const mixedDoctor = inspectRepositoryCodeFacts(input.root, { binary: input.binary });
+    input.setFacts({ ...pending, builtWithVersion: "1.6.1" });
+    const mixedDoctor = inspectRepositoryCodeFacts(input.root, { provider: input.provider });
     expect("issues" in mixedDoctor && mixedDoctor.issues.map(issue => issue.code)).toEqual(["version-mismatch", "pending-source-changes"]);
-    writeFileSync(input.calls, "");
-    expect(runArchitectureDebtCommand(input.root, {}, { binary: input.binary })).toMatchObject({ ok: false, error: {
+    // The gate reads compatibility only: it refuses with the compatibility issue and reads no source.
+    const hashes = input.provider.calls.hash;
+    expect(runArchitectureDebtCommand(input.root, {}, { provider: input.provider })).toMatchObject({ ok: false, error: {
       code: "AC_CODE_FACTS_NOT_READY", action: "codegraph-index",
-      details: { issues: "issues" in mixedDoctor ? mixedDoctor.issues : [] }
+      details: { issues: [{ code: "version-mismatch", message: "CodeGraph repository status version mismatch" }] }
     } });
-    expect(readFileSync(input.calls, "utf8")).toBe("--version\nstatus\n");
+    expect(input.provider.calls.hash).toBe(hashes);
+    expect(readFileSync(input.calls, "utf8")).toBe("");
   } finally { input.cleanup(); }
 });
 
 test("a cached code-facts snapshot cannot hide a later index version mismatch", async () => {
   const input = fixture(true);
   try {
-    const adapter = new CodeGraphAdapter(new CodeGraphCliProvider(input.root, input.binary));
+    const adapter = new CodeGraphAdapter(new CodeGraphCliProvider(input.root, input.binary, input.provider));
     const workspace = { root: input.root, repositoryId: "repo.fixture", headSha: "a".repeat(40) };
-    const ready = { ...input.status, index: { ...input.status.index, builtWithVersion: REQUIRED_CODEGRAPH_VERSION } };
-    writeFileSync(input.statusPath, JSON.stringify(ready));
+    input.setFacts({ ...input.facts, builtWithVersion: REQUIRED_CODEGRAPH_VERSION });
     await adapter.ensureReady(workspace);
-    writeFileSync(input.statusPath, JSON.stringify(input.status));
+    input.setFacts(input.facts);
     writeFileSync(input.calls, "");
     await expect(adapter.ensureReady(workspace)).rejects.toMatchObject({ code: "AC_CODE_FACTS_NOT_READY" });
-    expect(readFileSync(input.calls, "utf8")).toBe("--version\nstatus\n");
+    expect(readFileSync(input.calls, "utf8")).toBe("");
   } finally { input.cleanup(); }
 });
 
@@ -133,20 +132,19 @@ for (const cached of [false, true]) {
   test.each([false, true])(`pending edits preserve cold sync and cached reads (cached=${cached}, clears=%s)`, async clearPending => {
     const input = fixture(true, clearPending);
     try {
-      const adapter = new CodeGraphAdapter(new CodeGraphCliProvider(input.root, input.binary));
+      const adapter = new CodeGraphAdapter(new CodeGraphCliProvider(input.root, input.binary, input.provider));
       const workspace = { root: input.root, repositoryId: "repo.fixture", headSha: "a".repeat(40) };
-      const ready = { ...input.status, index: { ...input.status.index, builtWithVersion: REQUIRED_CODEGRAPH_VERSION } };
-      writeFileSync(input.statusPath, JSON.stringify(ready));
+      const ready = { ...input.facts, builtWithVersion: REQUIRED_CODEGRAPH_VERSION };
+      input.setFacts(ready);
       if (cached) await adapter.ensureReady(workspace);
-      writeFileSync(input.statusPath, JSON.stringify({ ...ready, pendingChanges: { added: 1, modified: 0, removed: 0 } }));
+      input.setFacts({ ...ready, pending: { added: 1, modified: 0, removed: 0 } });
       writeFileSync(input.calls, "");
       await expect(adapter.ensureReady(workspace)).resolves.toMatchObject({ provider: "codegraph" });
-      expect(readFileSync(input.calls, "utf8").trim().split("\n")).toEqual(cached
-        ? ["--version", "status"] : ["--version", "status", "sync", "--version", "status"]);
+      // Only the build starts CodeGraph; readiness reads the index in process.
+      expect(readFileSync(input.calls, "utf8")).toBe(cached ? "" : "sync\n");
       if (cached) {
-        writeFileSync(input.calls, "");
         await expect(adapter.sync({ workspace })).resolves.toMatchObject({ provider: "codegraph" });
-        expect(readFileSync(input.calls, "utf8").trim().split("\n")).toEqual(["--version", "status", "sync", "--version", "status"]);
+        expect(readFileSync(input.calls, "utf8")).toBe("sync\n");
       }
     } finally { input.cleanup(); }
   });
@@ -180,15 +178,11 @@ test("projection snapshot preparation refuses an indexing version-mismatched ind
   const input = fixture();
   try {
     // The reported #425 state: an index still being built, with no compatible build version.
-    writeFileSync(input.statusPath, JSON.stringify({
-      ...input.status,
-      index: { ...input.status.index, state: "indexing", pendingRefs: 128 }
-    }));
-    const doctor = inspectRepositoryCodeFacts(input.root, { binary: input.binary });
+    input.setFacts({ ...input.facts, state: "indexing", pendingRefs: 128 });
+    const doctor = inspectRepositoryCodeFacts(input.root, { provider: input.provider });
     expect("issues" in doctor && doctor.issues.map(issue => issue.code)).toEqual(["version-mismatch", "index-incomplete"]);
-    writeFileSync(input.calls, "");
     let failure: unknown;
-    try { prepareArchitectureDocumentationProjectionSnapshot(input.root, loadNativeModelFromArchContext(input.root), { binary: input.binary }); }
+    try { prepareArchitectureDocumentationProjectionSnapshot(input.root, loadNativeModelFromArchContext(input.root), { binary: input.binary, readProvider: input.provider }); }
     catch (error) { failure = error; }
     expect(failure).toMatchObject({
       code: "AC_CODE_FACTS_NOT_READY", reasonCode: "code-facts-not-ready", retryable: false, action: "codegraph-index",
@@ -197,14 +191,15 @@ test("projection snapshot preparation refuses an indexing version-mismatched ind
     expect(failureIssues((failure as { failure?: any })?.failure)).toEqual([]);
     expect(JSON.stringify(failure)).not.toContain("private raw process output");
     expect(JSON.stringify(failure)).not.toContain(input.root);
-    // The readiness probe runs version and status only: no sync, rebuild or retry.
-    expect(readFileSync(input.calls, "utf8")).toBe("--version\nstatus\n");
+    // The readiness gate starts no process: no version probe, status, sync, rebuild or retry.
+    expect(readFileSync(input.calls, "utf8")).toBe("");
   } finally { input.cleanup(); }
 });
 
 test("CLI projection run check classifies an incomplete index instead of failing unclassified", async () => {
   const input = fixture();
   try {
+    rmSync(join(input.root, ".codegraph"), { recursive: true, force: true });
     trimProjectionFixtureModel(input.root);
     // A real package-local index with no completed extraction stamps reproduces the reported
     // not-ready state: version-mismatch and index-incomplete, without a shim.
@@ -217,7 +212,8 @@ test("CLI projection run check classifies an incomplete index instead of failing
     const result = await runCli("projection", ["run", "--request-json", JSON.stringify(projectionCheckRequest(input.root, "projection_request.code_facts_not_ready"))], input.root);
     expect(result).toMatchObject({ ok: false, error: {
       code: "AC_CODE_FACTS_NOT_READY", reasonCode: "code-facts-not-ready", retryable: false, action: "codegraph-index",
-      details: { issues: "issues" in doctor ? doctor.issues : [] }
+      // The gate reads compatibility only, so its issues omit the doctor's freshness issue.
+      details: { issues: "issues" in doctor ? doctor.issues.filter(issue => issue.code !== "pending-source-changes") : [] }
     } });
     expect((result as { error?: { code?: string } }).error?.code).not.toBe("AC_UNCLASSIFIED_FAILURE");
     expect(JSON.stringify(result)).not.toContain(input.root);

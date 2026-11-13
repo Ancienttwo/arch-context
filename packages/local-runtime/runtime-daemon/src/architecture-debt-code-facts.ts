@@ -3,14 +3,14 @@ import { checkArchitectureFlowSelectors, loadCapabilitySourceFootprints, type Na
 import type { ArchitectureDebtEvidence } from "@archcontext/core/review-engine";
 import {
   inspectRepositoryCodeFacts, loadCapabilityCodeGraphProjectionInputs,
-  type RepositoryCodeFactsV1
+  type CodeGraphReadProvider, type RepositoryCodeFactsV1
 } from "@archcontext/local-runtime/codegraph-adapter";
 import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { projectionArchitectureDebt } from "./projection-architecture-debt";
 
 type CodeFactsDebtEvidence = Pick<ArchitectureDebtEvidence, "dependencies" | "flows" | "unavailable">;
 type ReadOptions = Pick<NonNullable<Parameters<typeof loadCapabilityCodeGraphProjectionInputs>[2]>,
-  "binary" | "selectorIndexFactory" | "importNodeLimit">;
+  "binary" | "selectorIndexFactory" | "importNodeLimit"> & { provider?: CodeGraphReadProvider };
 
 /**
  * Full dependency/flow evidence for the completion consumer. Deliberately separate from the
@@ -18,21 +18,23 @@ type ReadOptions = Pick<NonNullable<Parameters<typeof loadCapabilityCodeGraphPro
  * S2 owns readiness; an unavailable producer yields coverage gaps, never invented clean facts.
  */
 export function readArchitectureDebtCodeFacts(root: string, model: NativeModel, options: ReadOptions = {}): CodeFactsDebtEvidence {
+  const { provider, ...readOptions } = options;
+  const inspection = provider ? { provider } : {};
   const sourceFiles = listGitVisibleFiles(root);
   const worktreeDigest = computeWorktreeDigest(root, sourceFiles);
-  const before = inspectRepositoryCodeFacts(root, { binary: options.binary });
+  const before = inspectRepositoryCodeFacts(root, inspection);
   if (before.state !== "ready") return unavailable(inspectionReasons(before));
   let inputs: ReturnType<typeof loadCapabilityCodeGraphProjectionInputs>;
   try {
     inputs = loadCapabilityCodeGraphProjectionInputs(root, model, {
-      ...options, readOnly: true, sourceFiles,
+      ...readOptions, readOnly: true, sourceFiles,
       footprints: loadCapabilitySourceFootprints(root, model, sourceFiles)
     });
   } catch {
     // Read-only open/query refusal is observable. Never retry with a writable handle or sync.
     return unavailable(["codegraph-read-failed"]);
   }
-  const after = inspectRepositoryCodeFacts(root, { binary: options.binary });
+  const after = inspectRepositoryCodeFacts(root, inspection);
   if (after.state !== "ready") return unavailable(inspectionReasons(after));
   if (worktreeDigest !== computeWorktreeDigest(root, listGitVisibleFiles(root))) {
     return unavailable(["worktree-changed-during-read"]);
