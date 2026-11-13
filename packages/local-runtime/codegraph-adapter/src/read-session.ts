@@ -133,6 +133,16 @@ export function codeGraphIndexBuildInProgress(workspaceRoot: string): boolean {
   }
 }
 
+/**
+ * Bun keeps the SDK's cached prepared statements, and with them the database file, open after
+ * `close()` until GC finalizes them, which it can do only once the handle is unreachable; Windows
+ * cannot delete or replace an open file. Call this after dropping the last reference to a closed
+ * handle. It acts only under Bun on Windows.
+ */
+export function collectReleasedCodeGraphHandles(): void {
+  if (process.versions.bun !== undefined && process.platform === "win32") Bun.gc(true);
+}
+
 /** The compatibility facts of an open index, read from the handle. */
 export interface CodeGraphIndexCompatibilityV1 {
   /** The loaded provider bundle version. */
@@ -245,10 +255,7 @@ function readSession(root: string, handle: { graph?: CodeGraphIndexHandle }, pro
       if (handle.graph === undefined) return;
       handle.graph.close();
       handle.graph = undefined;
-      // Bun keeps the SDK's cached prepared statements, and with them the database file, open until
-      // GC finalizes them, which it can do only once the handle is unreachable; Windows cannot
-      // delete or replace an open file.
-      if (process.versions.bun !== undefined && process.platform === "win32") Bun.gc(true);
+      collectReleasedCodeGraphHandles();
     }
   };
 }

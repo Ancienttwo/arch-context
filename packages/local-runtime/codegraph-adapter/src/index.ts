@@ -13,6 +13,7 @@ import {
   REQUIRED_CODEGRAPH_VERSION,
   codeGraphBundle,
   codeGraphIndexBuildInProgress,
+  collectReleasedCodeGraphHandles,
   CodeGraphProviderUnavailableError,
   pinnedCodeGraphProvider,
   withCodeGraphReadSession,
@@ -1822,7 +1823,12 @@ export function openCodeGraphSymbolReader(
         }
         return result;
       },
-      close: () => graph.close()
+      close: () => {
+        graph.close();
+        // Drop the only reference so the closed handle can be collected (see collectReleasedCodeGraphHandles).
+        graph = undefined as unknown as typeof graph;
+        collectReleasedCodeGraphHandles();
+      }
     }
   };
 }
@@ -1895,7 +1901,7 @@ export function loadCapabilityCodeGraphProjectionInputs(
       options.readOnly ? CODEGRAPH_NO_DOWNLOAD_ENV : undefined)
     : undefined;
   const importGraphs = imports?.importGraphs ?? [];
-  const selectorIndex = entrypointNodes.length > 0
+  let selectorIndex = entrypointNodes.length > 0
     ? (options.selectorIndexFactory ?? ((path, openOptions) => codeGraphSdk().CodeGraph.openSync(path, openOptions)))(root, { readOnly: options.readOnly === true })
     : undefined;
   let selectorEvidence: ArchitectureSelectorEvidenceV1[];
@@ -1912,6 +1918,8 @@ export function loadCapabilityCodeGraphProjectionInputs(
       })))));
   } finally {
     selectorIndex?.close();
+    selectorIndex = undefined;
+    collectReleasedCodeGraphHandles();
   }
   return { importGraphs, selectorEvidence, ...(imports ? { importPopulation: imports.importPopulation } : {}) };
 }
