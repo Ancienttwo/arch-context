@@ -39,7 +39,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.3
+          bun-version: 1.4.4
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -68,7 +68,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.3
+          bun-version: 1.4.4
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -79,7 +79,7 @@ jobs:
           bun test packages/core/changeset-engine/test/changeset-engine.test.ts
 
   verify:
-    # Full verify runs once per OS at Node 22.22.x; Node 24.x and 25.x run only Node-runtime checks because Bun 1.4.3 executes the test suite.
+    # Full verify runs once per OS at Node 22.22.x; Node 24.x and 25.x run only Node-runtime checks because Bun 1.4.4 executes the test suite.
     if: github.event_name != 'workflow_dispatch' && needs.verify-topology.outputs.lane == 'matrix'
     needs: verify-topology
     name: "Verify execution: ${{ matrix.os }} / Node ${{ matrix.node-version }} / node compat"
@@ -111,7 +111,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.3
+          bun-version: 1.4.4
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -179,7 +179,7 @@ jobs:
         name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.3
+          bun-version: 1.4.4
       - &split-install
         name: Install dependencies
         run: bun install --frozen-lockfile
@@ -242,7 +242,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.3
+          bun-version: 1.4.4
       - name: Install dependencies
         run: bun install --frozen-lockfile
       - &split-plan-download
@@ -292,7 +292,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.3
+          bun-version: 1.4.4
       - name: Install dependencies
         run: bun install --frozen-lockfile
       - name: Download run-bound discovery plan
