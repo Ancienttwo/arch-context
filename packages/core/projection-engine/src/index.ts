@@ -1440,7 +1440,9 @@ function freshnessEvaluation(
 
 /**
  * Repo-relative path patterns the projection itself writes: the architecture documentation tree
- * (including its manifest) and every agent-context contract file the model designates.
+ * (including its manifest) and every agent-context contract file the model designates. The contract
+ * files come from the `default` derivation, so under `repo-harness/v1` this is a superset: it also
+ * lists the root contract files, which only the default-profile `archctx agent-context` writes.
  *
  * Footprint digests subtract these. An agent-context target lands inside its own capability's
  * declared `source.include` footprint, so counting the projection's own output as capability

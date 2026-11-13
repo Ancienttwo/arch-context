@@ -1397,6 +1397,14 @@ setInterval(() => undefined, 1 << 30);
         expect(await daemon.agentContextProjection(root, { action, approved: true })).toMatchObject({ ok: false, error: { reasonCode: "agent-context-owned-by-projection" } });
       }
       gitCommitAll(root, "project without root contract regions");
+      // Nor does a raw ChangeSet write a root region: the default-profile canonical render is refused.
+      const raw = agentContextProjectionOperation(root);
+      expect(raw.projectionFiles.map((file) => file.path)).toEqual(["AGENTS.md", "CLAUDE.md"]);
+      const rawPlanned = await daemon.planUpdate(root, { id: "changeset.root-raw", reason: { taskSessionId: "task.root-raw" }, operations: [raw] });
+      expect((rawPlanned.data as any).preview.allowed).toBe(false);
+      expect((rawPlanned.data as any).preview.findings.join("\n")).toContain("Root contract has no agent-context region under repo-harness/v1");
+      await expect(daemon.applyUpdate(root, { id: "changeset.root-raw", approved: true, expectedWorktreeDigest: (rawPlanned.data as any).draft.base.worktreeDigest })).rejects.toThrow();
+      for (const path of contracts) expect(readText(join(root, path))).toBe(human);
 
       // One ChangeSet carries the manifest and both capability-local contracts.
       designate("context/AGENTS.md", "context/CLAUDE.md");

@@ -1766,9 +1766,8 @@ function architectureDocsRenderProjectionOperations(
   carriedPaths: readonly string[] = []
 ) {
   const renderInput = projection.loaded.existingFiles;
-  // Contract files go through `render_agent_context`, whose model-derived write scope and
-  // root-contract canonical check apply to them; they render on every run and are never carried
-  // as guards (ADR-0056 §9).
+  // Contract files go through `render_agent_context`, whose model-derived write scope applies to
+  // them; they render on every run and are never carried as guards (ADR-0056 §9).
   const agentContextPaths = new Set(projection.plan.targets.filter((target) => target.type === "agent-context").map((target) => target.path));
   const agentContextFiles = files.filter((file) => agentContextPaths.has(file.path));
   return [

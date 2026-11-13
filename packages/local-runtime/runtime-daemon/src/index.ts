@@ -21,7 +21,7 @@ export type { RuntimeBookInput } from "./architecture-book";
 import { AuditService, AUDIT_APPROVE_GH_TOKEN_ENV, type RuntimeAuditRunInput, type RuntimeAuditApproveInput } from "./audit";
 export { AUDIT_RUN_DEFAULT_TIMEOUT_MS, AUDIT_APPROVE_GH_TOKEN_ENV, type RuntimeAuditRunInput, type RuntimeAuditApproveInput } from "./audit";
 import { ProjectionApplyService } from "./projection-apply";
-import { architectureHistoryRenderInput, ignoredArchitectureModelPaths, runArchitectureDocsProjectionCommand, runAgentContextProjectionCommand, runProjectionProtocolCommand, validateProjectionInvocation, validateDocsProjectionInput, validateAgentContextProjectionInput, type RuntimeDocsProjectionInput, type RuntimeAgentContextProjectionInput, type RuntimeProjectionInvocation, type ProjectionServiceHost } from "./projection-service";
+import { architectureHistoryRenderInput, committedArchitectureDocsProfile, ignoredArchitectureModelPaths, runArchitectureDocsProjectionCommand, runAgentContextProjectionCommand, runProjectionProtocolCommand, validateProjectionInvocation, validateDocsProjectionInput, validateAgentContextProjectionInput, type RuntimeDocsProjectionInput, type RuntimeAgentContextProjectionInput, type RuntimeProjectionInvocation, type ProjectionServiceHost } from "./projection-service";
 import { readCurrentBranch } from "./projection-inputs";
 export type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./projection-service";
 export { runProjectionCheckInvocation, runProjectionFreshnessCommand, runProjectionSnapshotCommand } from "./projection-service";
@@ -74,7 +74,7 @@ import { type CommandInvestigationRunnerTransport } from "@archcontext/core/agen
 import { loadPracticeCatalog, type PracticeCatalogCommandInput } from "@archcontext/core/practice-catalog";
 import { evaluatePracticeEnforcement, loadPracticeEnforcementPolicy, loadPracticeWaiverOwnerRegistry, loadPracticeWaivers, shouldEvaluatePracticeEnforcement } from "@archcontext/core/practice-engine";
 import { reconcileArchitectureLedgerDrift } from "@archcontext/core/reconcile-engine";
-import { ProjectionPreconditionError, renderAgentContextProjection, loadAgentContextProjectionFiles, agentContextProjectionTargetPaths, architectureDocumentationSourceDigest, loadArchitectureDocumentationInputs, loadArchitectureDocumentationProfile, loadNativeModelFromArchContext, measureCapabilitySourceScaleSignals, projectionOwnedWriteBody, renderArchitectureDocumentationProjection } from "@archcontext/core/projection-engine";
+import { ProjectionPreconditionError, REPO_HARNESS_PROJECTION_PROFILE, renderAgentContextProjection, loadAgentContextProjectionFiles, agentContextProjectionTargetPaths, architectureDocumentationSourceDigest, loadArchitectureDocumentationInputs, loadArchitectureDocumentationProfile, loadNativeModelFromArchContext, measureCapabilitySourceScaleSignals, projectionOwnedWriteBody, renderArchitectureDocumentationProjection } from "@archcontext/core/projection-engine";
 import { completeTaskGate, type CompleteTaskInput, type CompleteTaskProjectionDriftInput, type CompleteTaskProjectionFreshnessInput } from "@archcontext/core/review-engine";
 import { CodeGraphAdapter, CodeGraphCliProvider, ProjectionCodeFactsUnavailableError, assertProjectionCodeFactsAvailable, prepareArchitectureDocumentationProjectionSnapshot, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { CONTEXT7_ENABLED_ENV, CONTEXT7_MODE_ENV, Context7ExternalDocumentationAdapter } from "@archcontext/local-runtime/context7-adapter";
@@ -328,12 +328,15 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
           agentContextProjectionTargetPaths(loadNativeModelFromArchContext(root)).map((target) => target.path)
         ),
         validateRootWrite: (root, file) => {
+          // Under repo-harness/v1 a root contract file carries no agent-context region, so no
+          // ChangeSet writes one there, whoever plans it (ADR-0056 §9, #580).
+          if (committedArchitectureDocsProfile(root) === REPO_HARNESS_PROJECTION_PROFILE) {
+            throw new Error(`Root contract has no agent-context region under ${REPO_HARNESS_PROJECTION_PROFILE}: ${file.path}`);
+          }
           const model = loadNativeModelFromArchContext(root);
           const canonical = renderAgentContextProjection({ model, existingFiles: loadAgentContextProjectionFiles(root, model) });
           const canonicalBody = canonical.files.find(candidate => candidate.path === file.path)?.body;
-          const absolute = resolve(root, file.path);
-          const onDisk = existsSync(absolute) ? readFileSync(absolute, "utf8") : undefined;
-          if (canonicalBody === undefined || projectionOwnedWriteBody(canonicalBody, onDisk) !== file.body) {
+          if (canonicalBody === undefined || projectionOwnedWriteBody(canonicalBody, readFileSync(resolve(root, file.path), "utf8")) !== file.body) {
             throw new Error(`Root contract requires canonical marker-only content: ${file.path}`);
           }
         }

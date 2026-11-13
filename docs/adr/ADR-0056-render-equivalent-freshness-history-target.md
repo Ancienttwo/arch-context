@@ -298,7 +298,9 @@ why.
     manifest as every projection command does (#580). A superseded manifest refuses with
     `projection-manifest-upgrade-required`. A v4 manifest whose profile is `repo-harness/v1`
     refuses with `agent-context-owned-by-projection`, whether or not it records an
-    `agent-context` row, so the command never writes a root region that no row owns.
+    `agent-context` row, so the command never writes a root region that no row owns. The
+    root-contract canonical check refuses every root contract write under the same profile, so
+    a raw `render_agent_context` ChangeSet cannot write one either.
   - Without a manifest, or under a v4 `default` manifest, the command is unchanged. It writes a
     root contract only when the file exists with its exact hash and the write equals the
     canonical render. A root contract is never created; #572's create path is removed.
@@ -343,7 +345,8 @@ why.
 - **Acceptance of the implementing slice.** Before its pull request, the slice proves two points by
   test:
   - a ChangeSet that carries both `render_projection` and `render_agent_context` passes the
-    root-contract canonical check at apply;
+    root-contract canonical check at apply. Superseded by #580: under `repo-harness/v1` no
+    ChangeSet writes a root contract file, and the check refuses one;
   - an orphaned contract region outside `docs/architecture/` stops the request at
     `orphaned-document-review`, as described above.
 
