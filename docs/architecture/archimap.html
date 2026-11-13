@@ -413,9 +413,9 @@ agent jobs · freshness</p>
     </div>
     <div class="remark medium">
       <div class="meta">R-A4 · Medium · stale references <span class="tag">needs owner decision</span></div>
-      <h3>Harness contract still names retired architecture paths</h3>
-      <p>.ai/harness/policy.json and .ai/harness/workflow-contract.json declare the retired requests/snapshots/domains directories and require docs/architecture/index.md; .ai/context/capabilities.json points at deleted module pages. Byte projections of the repo-harness contract — not edited here (#434). Direction: refresh the contract from the repo-harness template.</p>
-      <div class="ref">.ai/harness/policy.json:332 · .ai/context/capabilities.json:15</div>
+      <h3>Capability context still names deleted module pages</h3>
+      <p>.ai/context/capabilities.json points at deleted module pages under docs/architecture/modules/. The repo-harness 0.32 refresh removed the docs/architecture/index.md requirement from .ai/harness/policy.json. Direction: refresh capabilities.json from the repo-harness template.</p>
+      <div class="ref">.ai/context/capabilities.json:15</div>
     </div>
     <div class="remark medium">
       <div class="meta">R-A5 · Medium · model gap <span class="tag">needs owner decision</span></div>
