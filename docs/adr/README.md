@@ -83,3 +83,4 @@ The set below mirrors PRD §28 and is intentionally complete before package work
 | ADR-0055 | Governance Receipt Spans the Run Attempts of One SHA |
 | ADR-0056 | Render-Equivalent Projection Freshness and the Complete Projection Manifest |
 | ADR-0057 | The Default Layout Drops the Architecture Changelog Target |
+| ADR-0058 | CodeGraph Code Facts Are Read Only Through the In-Process Read-Only Handle |
