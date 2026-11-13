@@ -20,8 +20,10 @@ export interface FakeIndexFacts {
   pending?: { added: number; modified: number; removed: number };
   /** The read-only open throws. */
   openFails?: boolean;
-  /** A read on the opened handle throws. */
+  /** Every read on the opened handle throws, including the revision read during the open. */
   readFails?: boolean;
+  /** Only reads after the open throw: the build info, which `compatibility()` reads first. */
+  readFailsAfterOpen?: boolean;
   /** Each revision read reports a later index, as a sync that commits during the session would. */
   revisionMoves?: boolean;
 }
@@ -73,10 +75,13 @@ export function fakeReadProvider(root: string, facts: FakeIndexFacts | (() => Fa
       const files = population();
       let revisions = 0;
       return {
-        getIndexBuildInfo: () => read(() => ({
+        getIndexBuildInfo: () => read(() => {
+          if (value.readFailsAfterOpen) throw new Error("private raw provider error /outside/repository");
+          return {
           version: value.builtWithVersion === undefined ? REQUIRED_CODEGRAPH_VERSION : value.builtWithVersion,
           extractionVersion: value.builtWithExtractionVersion === undefined ? extractionVersion() : value.builtWithExtractionVersion
-        })),
+          };
+        }),
         getLastIndexedAt: () => read(() => value.lastIndexedAt === undefined ? Date.UTC(2026, 0, 1) : value.lastIndexedAt),
         getProjectRoot: () => read(() => value.projectPath ?? openedRoot),
         isIndexStale: () => read(() => value.reindexRecommended ?? false),

@@ -178,10 +178,20 @@ describe("inspectRepositoryCodeFacts", () => {
     });
   });
 
-  test("a read that fails after the open is index-open-failed and still closes the handle", () => {
+  test("a read that fails during the open is index-open-failed and closes the handle", () => {
     withRoot((root) => {
       const provider = fakeReadProvider(root, { readFails: true });
       expect(inspectRepositoryCodeFacts(root, { provider })).toMatchObject({ state: "unavailable", reasonCode: "index-open-failed" });
+      expect(provider.calls).toMatchObject({ open: 1, close: 1 });
+    });
+  });
+
+  test("a read that fails after the open is index-open-failed and still closes the handle", () => {
+    withRoot((root) => {
+      const provider = fakeReadProvider(root, { readFailsAfterOpen: true });
+      const facts = inspectRepositoryCodeFacts(root, { provider });
+      expect(facts).toMatchObject({ state: "unavailable", reasonCode: "index-open-failed" });
+      expect(JSON.stringify(facts)).not.toContain("private raw provider error");
       expect(provider.calls).toMatchObject({ open: 1, close: 1 });
     });
   });

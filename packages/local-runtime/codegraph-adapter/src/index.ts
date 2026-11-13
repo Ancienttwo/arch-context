@@ -1257,7 +1257,8 @@ export function withExistingCodeGraphSnapshot<T>(
     }
     const ready = inspectRepositoryCodeFacts(snapshotRoot);
     if (ready.state !== "ready") {
-      if (ready.state === "unavailable") throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-unavailable");
+      // C2: an unopenable index keeps its own reason; any other unavailable answer is code-facts-unavailable.
+      if (ready.state === "unavailable") throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", ready.reasonCode === "index-open-failed" ? "index-open-failed" : "code-facts-unavailable");
       throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-read-not-ready", { issues: ready.issues });
     }
     // Node owns all SDK/SQLite handles. Its completed process lifetime precedes removal,
@@ -1589,27 +1590,29 @@ export function inspectRepositoryCodeFacts(root: string, options: RepositoryCode
 }
 
 /**
- * `moving` is true when a provider build held the writer lock, at open or after the reads, or the
- * index revision changed while the session read it (design G4). The facts are then the not-ready
- * build-in-progress answer: a retry after the build can succeed, and nothing read is reported.
+ * When a provider build held the writer lock, at open or after the reads, or the index revision
+ * changed while the session read it (design G4), the facts are the not-ready build-in-progress
+ * answer and nothing read is reported. `retryable` is true then, unless the loaded provider has the
+ * wrong version: a retry after the build cannot fix that.
  */
-function inspectRepositoryCodeFactsTier(root: string, tier: "compatibility" | "freshness", options: RepositoryCodeFactsInspectionOptions): { facts: RepositoryCodeFactsV1; moving: boolean } {
+function inspectRepositoryCodeFactsTier(root: string, tier: "compatibility" | "freshness", options: RepositoryCodeFactsInspectionOptions): { facts: RepositoryCodeFactsV1; retryable: boolean } {
   let provider: CodeGraphReadProvider;
   let codeGraphVersion: string;
   try {
     provider = options.provider ?? pinnedCodeGraphProvider();
     codeGraphVersion = provider.version;
   } catch (error) {
-    return { facts: unavailableCodeFacts("codegraph-unavailable", error instanceof CodeGraphProviderUnavailableError ? error.message : "CodeGraph provider could not be loaded"), moving: false };
+    return { facts: unavailableCodeFacts("codegraph-unavailable", error instanceof CodeGraphProviderUnavailableError ? error.message : "CodeGraph provider could not be loaded"), retryable: false };
   }
-  const moving = { facts: buildInProgressCodeFacts(codeGraphVersion, versionIssuesOf(codeGraphVersion)), moving: true };
+  const versionIssues = versionIssuesOf(codeGraphVersion);
+  const moving = { facts: buildInProgressCodeFacts(codeGraphVersion, versionIssues), retryable: versionIssues.length === 0 };
   try {
-    return withCodeGraphReadSession(root, (opened): { facts: RepositoryCodeFactsV1; moving: boolean } => {
+    return withCodeGraphReadSession(root, (opened): { facts: RepositoryCodeFactsV1; retryable: boolean } => {
       switch (opened.state) {
         case "index-missing":
-          return { facts: { schemaVersion: REPOSITORY_CODE_FACTS_SCHEMA, state: "index-missing", indexPresent: false, requiredVersion: REQUIRED_CODEGRAPH_VERSION, codeGraphVersion, issues: versionIssuesOf(codeGraphVersion) }, moving: false };
+          return { facts: { schemaVersion: REPOSITORY_CODE_FACTS_SCHEMA, state: "index-missing", indexPresent: false, requiredVersion: REQUIRED_CODEGRAPH_VERSION, codeGraphVersion, issues: versionIssues }, retryable: false };
         case "index-open-failed":
-          return { facts: unavailableCodeFacts("index-open-failed", INDEX_OPEN_FAILED_MESSAGE), moving: false };
+          return { facts: unavailableCodeFacts("index-open-failed", INDEX_OPEN_FAILED_MESSAGE), retryable: false };
         case "build-in-progress":
           return moving;
         case "open": {
@@ -1634,13 +1637,13 @@ function inspectRepositoryCodeFactsTier(root: string, tier: "compatibility" | "f
               pendingRefs: compatibility.pendingRefs
             }
           };
-          return { facts: repositoryCodeFactsFromStatus(root, codeGraphVersion, status, tier === "freshness"), moving: false };
+          return { facts: repositoryCodeFactsFromStatus(root, codeGraphVersion, status, tier === "freshness"), retryable: false };
         }
       }
     }, { provider });
   } catch {
     // The index opened but a read of it failed; no provider text crosses this boundary.
-    return { facts: unavailableCodeFacts("index-open-failed", INDEX_OPEN_FAILED_MESSAGE), moving: false };
+    return { facts: unavailableCodeFacts("index-open-failed", INDEX_OPEN_FAILED_MESSAGE), retryable: false };
   }
 }
 
@@ -1649,7 +1652,7 @@ function inspectRepositoryCodeFactsTier(root: string, tier: "compatibility" | "f
  * index compatibility, so the gate reads no source file.
  */
 export function assertRepositoryCodeFactsReady(root: string, options: RepositoryCodeFactsInspectionOptions = {}): void {
-  const { facts, moving } = inspectRepositoryCodeFactsTier(root, "compatibility", options);
+  const { facts, retryable } = inspectRepositoryCodeFactsTier(root, "compatibility", options);
   if (facts.state === "index-missing") throw new ProjectionCodeFactsUnavailableError("index-missing");
   if (facts.state === "unavailable") {
     if (facts.reasonCode === "index-open-failed") throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "index-open-failed");
@@ -1659,7 +1662,7 @@ export function assertRepositoryCodeFactsReady(root: string, options: Repository
   if (facts.state === "not-ready") {
     const action = facts.codeGraphVersion !== REQUIRED_CODEGRAPH_VERSION ? "install-compatible-codegraph"
       : "codegraph-index";
-    throw new FailureError("AC_CODE_FACTS_NOT_READY", "code-facts-not-ready", { issues: facts.issues }, { action, ...(moving ? { retryable: true } : {}) });
+    throw new FailureError("AC_CODE_FACTS_NOT_READY", "code-facts-not-ready", { issues: facts.issues }, { action, ...(retryable ? { retryable: true } : {}) });
   }
 }
 

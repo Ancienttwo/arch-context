@@ -206,7 +206,11 @@ export function openCodeGraphReadSession(root: string, options: { provider?: Cod
   const indexDir = join(root, ".codegraph");
   let linked: boolean;
   try { linked = lstatSync(indexDir).isSymbolicLink(); }
-  catch { return { state: "index-missing" }; }
+  catch (error) {
+    // Only absence proves there is no index; any other failure (permission, I/O) is an unreadable one.
+    const code = (error as NodeJS.ErrnoException).code;
+    return { state: code === "ENOENT" || code === "ENOTDIR" ? "index-missing" : "index-open-failed" };
+  }
   // A linked `.codegraph`, dangling or not, could carry another worktree's index; it is not this root's.
   if (linked) return { state: "index-open-failed" };
   if (!existsSync(join(indexDir, "codegraph.db"))) return { state: "index-missing" };
