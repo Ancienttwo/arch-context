@@ -3,11 +3,12 @@ import { execFileSync } from "node:child_process";
 import { accessSync, closeSync, constants as fsConstants, existsSync, openSync, readFileSync, readSync, realpathSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
-import { basename, delimiter, dirname, isAbsolute, join, resolve } from "node:path";
+import { delimiter, dirname, isAbsolute, join, resolve } from "node:path";
+import type { Edge as CodeGraphEdge, Node as CodeGraphNode, NodeKind as CodeGraphNodeKind } from "@colbymchenry/codegraph";
 import { codeGraphChildEnv } from "./child-env";
-import { REQUIRED_CODEGRAPH_PACKAGE, REQUIRED_CODEGRAPH_VERSION, type CodeGraphReadProvider } from "./read-session";
+import { REQUIRED_CODEGRAPH_PACKAGE, REQUIRED_CODEGRAPH_VERSION, openCodeGraphReadSession, type CodeGraphIndexHandle, type CodeGraphReadProvider, type CodeGraphReadSessionOpenV1 } from "./read-session";
 import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
-import { digestJson, type Json, type NormalizedCodeContext, type NormalizedEdge, type NormalizedImpact, type NormalizedSymbol, type SymbolQuery } from "@archcontext/contracts";
+import { CODE_FACTS_ISSUE_MESSAGES, FailureError, digestJson, type Json, type NormalizedCodeContext, type NormalizedEdge, type NormalizedImpact, type NormalizedSymbol, type SymbolQuery } from "@archcontext/contracts";
 import { importEdgesFromQueryNodes, importQuery, uniqueStrings } from "./import-population";
 import { assertRepositoryCodeFactsReady } from "./repository-code-facts";
 
@@ -38,23 +39,46 @@ export interface CodeGraphProvider {
   getImpactRadius(symbolId: string, depth: number): Promise<NormalizedImpact>;
 }
 
+/**
+ * Builds the index with the CodeGraph CLI. `sync` is the only command it starts (ADR-0058 Decision
+ * 2), under `codeGraphChildEnv`; no read goes through it.
+ */
+class CodeGraphCliIndexBuilder {
+  constructor(private readonly binary: string) {}
+
+  sync(workspaceRoot: string): void {
+    const invocation = this.binary === DEFAULT_CODEGRAPH_BINARY ? packagedCodeGraphCliInvocation() : codeGraphCliInvocation(this.binary, workspaceRoot);
+    runCodeGraphInvocation(invocation, workspaceRoot, ["sync", workspaceRoot], CODEGRAPH_OUTPUT_MAX_BYTES);
+  }
+}
+
+/** Edge kinds that make a caller or a callee: a call, or a construction, which calls the constructor. */
+const CALL_EDGE_KINDS: CodeGraphEdge["kind"][] = ["calls", "instantiates"];
+
+/**
+ * The CodeGraph provider: a CLI builder for the index and SDK reads through one read-only session
+ * per read (ADR-0058). A read starts no CodeGraph command and never opens the index writable.
+ */
 export class CodeGraphCliProvider implements CodeGraphProvider {
   version: string = REQUIRED_CODEGRAPH_VERSION;
   capabilities = ["index", "context", "impact"];
   private workspaceRoot: string;
+  private readonly builder: CodeGraphCliIndexBuilder;
 
   /**
    * `binary` builds the index (`sync`); reads never start it. `readProvider` is the read-only
-   * provider readiness reads through, the pinned one unless a test injects one.
+   * provider every read and readiness check opens the index through, the pinned one unless a test
+   * injects one.
    */
-  constructor(workspaceRoot = process.cwd(), private readonly binary = DEFAULT_CODEGRAPH_BINARY, private readonly readProvider?: CodeGraphReadProvider) {
+  constructor(workspaceRoot = process.cwd(), binary = DEFAULT_CODEGRAPH_BINARY, private readonly readProvider?: CodeGraphReadProvider) {
     this.workspaceRoot = workspaceRoot;
+    this.builder = new CodeGraphCliIndexBuilder(binary);
   }
 
   async indexAll(workspaceRoot: string): Promise<void> {
     this.workspaceRoot = workspaceRoot;
     this.assertCanSync(workspaceRoot);
-    this.run(["sync", workspaceRoot]);
+    this.builder.sync(workspaceRoot);
     this.assertReady(workspaceRoot);
   }
 
@@ -66,85 +90,103 @@ export class CodeGraphCliProvider implements CodeGraphProvider {
     this.assertReady(workspaceRoot);
   }
 
+  /**
+   * C6 (#574): the file set comes from `findRelevantContext(query)`, the query nodes from
+   * `searchNodes`, both read in one session. Symbols are the query nodes, then the file nodes of the
+   * relevant files in relevance order, capped at `maxSymbols`.
+   */
   async buildContext(task: string, options: { maxSymbols: number; includeSource: boolean; changedPaths?: string[] }): Promise<NormalizedCodeContext> {
-    const query = scopedTaskQuery(task, options.changedPaths ?? []);
-    const output = this.run(["explore", "-p", this.workspaceRoot, "--max-files", String(options.maxSymbols), query]);
-    const queryNodes = this.queryNodes(query, Math.max(options.maxSymbols * 4, 12));
-    const importNodes = this.importNodesForChangedPaths(options.changedPaths ?? []);
+    const changedPaths = options.changedPaths ?? [];
+    const query = scopedTaskQuery(task, changedPaths);
+    const scopedImportQuery = importQuery(changedPaths);
+    const read = await this.read(async (graph) => {
+      const relevantFiles = relevantFilesOf(await graph.findRelevantContext(query)).slice(0, options.maxSymbols);
+      return {
+        relevantFiles,
+        fileNodes: fileNodesOf(graph, relevantFiles),
+        queryNodes: rankedSearch(graph, query, Math.max(options.maxSymbols * 4, 12)),
+        importNodes: scopedImportQuery ? rankedSearch(graph, scopedImportQuery, Math.max(changedPaths.length * 8, 12), ["import"]) : []
+      };
+    });
     const symbols = uniqueSymbols([
-      ...queryNodes.filter((node) => node.kind !== "import").map(normalizeCliNode),
-      ...parseExploreSymbols(output, options.maxSymbols)
-    ]).slice(0, options.maxSymbols);
-    const fallback = symbols.length > 0 ? symbols : await this.findSymbols({ query, limit: options.maxSymbols });
-    const edges = uniqueEdges(importEdgesFromQueryNodes(new Set(listGitVisibleFiles(this.workspaceRoot)), importNodes.length > 0 ? importNodes : queryNodes));
+      ...read.queryNodes.filter((node) => node.kind !== "import"),
+      ...read.fileNodes
+    ].map(normalizeNode)).slice(0, options.maxSymbols);
+    const edges = uniqueEdges(importEdgesFromQueryNodes(new Set(listGitVisibleFiles(this.workspaceRoot)), read.importNodes.length > 0 ? read.importNodes : read.queryNodes));
     return {
       task,
-      symbols: fallback,
+      symbols,
       edges,
-      evidence: fallback.map((symbol, index) => ({
+      evidence: symbols.map((symbol, index) => ({
         id: `evidence_${index + 1}`,
         selector: { path: symbol.path, symbolId: symbol.id, startLine: symbol.range?.startLine, endLine: symbol.range?.endLine },
-        summary: `Observed by codegraph explore for task: ${task}`,
+        summary: `Observed by CodeGraph for task: ${task}`,
         confidence: "observed",
         snapshot: {
           repositoryId: "codegraph",
           headSha: "codegraph",
-          worktreeDigest: digestJson({ task, path: symbol.path, output } as unknown as Json)
+          worktreeDigest: digestJson({ task, path: symbol.path, relevantFiles: read.relevantFiles } as unknown as Json)
         }
       })),
-      digest: digestJson({ task, symbols: fallback, edges, includeSource: options.includeSource, outputDigest: digestJson(output as unknown as Json) } as unknown as Json)
+      digest: digestJson({ task, symbols, edges, includeSource: options.includeSource, relevantFiles: read.relevantFiles } as unknown as Json)
     };
   }
 
+  /** `searchNodes`, restricted to `query.kinds` when given, ranked deterministically. */
   async findSymbols(query: SymbolQuery): Promise<NormalizedSymbol[]> {
-    return this.queryNodes(query.query, query.limit ?? 10, query.kinds).map(normalizeCliNode);
+    const nodes = await this.read((graph) => rankedSearch(graph, query.query, query.limit ?? 10, query.kinds));
+    return nodes.map(normalizeNode);
   }
 
-  private queryNodes(query: string, limit: number, kinds: string[] = []): CodeGraphCliNode[] {
-    const args = ["query", "-p", this.workspaceRoot, "-j", "-l", String(limit)];
-    for (const kind of kinds) args.push("-k", kind);
-    args.push(query);
-    const output = this.run(args);
-    const parsed = JSON.parse(output) as { node: CodeGraphCliNode }[];
-    return parsed.map(({ node }) => node);
-  }
-
-  private importNodesForChangedPaths(changedPaths: string[]): CodeGraphCliNode[] {
-    const query = importQuery(changedPaths);
-    if (!query) return [];
-    return this.queryNodes(query, Math.max(changedPaths.length * 8, 12), ["import"]);
-  }
-
+  /**
+   * `symbolId` names a node id, else exact qualified names or names; every definition it names takes
+   * part, so an ambiguous name gives the union over its definitions and an unknown one an empty
+   * result. `affectedPaths` are the files of CodeGraph's impact radius at `depth`; callers and
+   * callees are the direct `calls` and `instantiates` edges of the definitions.
+   */
   async getImpactRadius(symbolId: string, depth: number): Promise<NormalizedImpact> {
-    const output = this.run(["impact", "-p", this.workspaceRoot, "-j", "-d", String(depth), symbolId]);
-    const parsed = JSON.parse(output) as { affected?: CodeGraphCliNode[] };
-    const affected = (parsed.affected ?? []).map(normalizeCliNode);
-    const trail = parseNodeTrail(this.run(["node", symbolId, "-p", this.workspaceRoot]), symbolId);
-    return {
-      symbolId,
-      callers: trail.callers,
-      callees: trail.callees,
-      affectedPaths: affected.map((symbol) => symbol.path)
-    };
+    return this.read((graph) => impactOf(graph, symbolId, depth));
   }
 
-  private run(args: string[]): string {
-    disableCodeGraphTelemetryByDefault();
-    const invocation = this.binary === DEFAULT_CODEGRAPH_BINARY ? packagedCodeGraphCliInvocation() : codeGraphCliInvocation(this.binary, this.workspaceRoot);
+  /**
+   * Runs `read` against one read-only session that is closed when it settles. A refusal by the
+   * handle, including a write the read-only open refuses inside an SDK call, is a read failure; the
+   * read is never retried, and never with a writable open. Facts read across a build or a sync are
+   * not one index state, so they are refused as retryable (design G4).
+   */
+  private async read<T>(read: (graph: CodeGraphIndexHandle) => T | Promise<T>): Promise<T> {
+    const opened = openCodeGraphReadSession(this.workspaceRoot, this.readProvider ? { provider: this.readProvider } : {});
+    if (opened.state !== "open") throw readRefusal(opened.state);
+    const { session } = opened;
     try {
-      return execFileSync(invocation.command, [...invocation.argsPrefix, ...args], {
-        cwd: this.workspaceRoot,
-        env: codeGraphChildEnv(),
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "pipe"],
-        maxBuffer: CODEGRAPH_OUTPUT_MAX_BYTES,
-        timeout: CODEGRAPH_QUERY_TIMEOUT_MS
-      });
-    } catch (error) {
-      const stderr = error && typeof error === "object" && "stderr" in error ? String((error as { stderr?: unknown }).stderr ?? "") : "";
-      const message = stderr.trim() || (error instanceof Error ? error.message : String(error));
-      throw new Error(`CodeGraph CLI failed: ${message}`);
+      let result: T;
+      let unchanged: boolean;
+      try {
+        result = await read(session.graph);
+        unchanged = session.unchangedSinceOpen();
+      } catch {
+        // No provider text crosses this boundary.
+        throw readRefusal("index-open-failed");
+      }
+      // A build or sync that committed during the read: refused as a build in progress is.
+      if (!unchanged) throw readRefusal("build-in-progress");
+      return result;
+    } finally {
+      session.close();
     }
+  }
+}
+
+function readRefusal(state: Exclude<CodeGraphReadSessionOpenV1["state"], "open">): FailureError {
+  switch (state) {
+    case "index-missing":
+      return new FailureError("AC_CODE_FACTS_UNAVAILABLE", "index-missing");
+    case "index-open-failed":
+      return new FailureError("AC_CODE_FACTS_UNAVAILABLE", "index-open-failed");
+    case "build-in-progress":
+      return new FailureError("AC_CODE_FACTS_NOT_READY", "code-facts-not-ready", {
+        issues: [{ code: "index-incomplete", message: CODE_FACTS_ISSUE_MESSAGES["index-incomplete"] }]
+      }, { action: "codegraph-index", retryable: true });
   }
 }
 
@@ -286,17 +328,13 @@ export interface CodeGraphCliNode {
   endLine?: number;
 }
 
-function syntheticSymbolId(name: string, path: string): string {
-  return `codegraph.${digestJson({ name, path } as unknown as Json).slice(7, 19)}`;
-}
-
-function normalizeCliNode(node: CodeGraphCliNode): NormalizedSymbol {
+function normalizeNode(node: CodeGraphNode): NormalizedSymbol {
   return {
-    id: node.id ?? syntheticSymbolId(node.name, node.filePath),
+    id: node.id,
     name: node.name,
     kind: node.kind,
     path: node.filePath,
-    range: node.startLine ? { startLine: node.startLine, endLine: node.endLine ?? node.startLine } : undefined
+    range: { startLine: node.startLine, endLine: node.endLine }
   };
 }
 
@@ -304,35 +342,62 @@ function scopedTaskQuery(task: string, changedPaths: string[]): string {
   return uniqueStrings([task, ...changedPaths]).join(" ");
 }
 
-// The "Calls →" trail mixes real call sites with type references (parameter/return
-// annotations), so every entry is a best-effort "calls" edge, not a verified runtime call.
-function parseNodeTrail(output: string, symbolId: string): { callers: NormalizedEdge[]; callees: NormalizedEdge[] } {
-  const callees = trailEntries(output, "**Calls →**").map((entry) => ({
-    source: symbolId,
-    target: syntheticSymbolId(entry.name, entry.path),
-    kind: "calls" as const,
-    confidence: "high" as const
-  }));
-  const callers = trailEntries(output, "**Called by ←**").map((entry) => ({
-    source: syntheticSymbolId(entry.name, entry.path),
-    target: symbolId,
-    kind: "calls" as const,
-    confidence: "high" as const
-  }));
-  return { callers: uniqueEdges(callers), callees: uniqueEdges(callees) };
+function compareNodes(a: CodeGraphNode, b: CodeGraphNode): number {
+  return a.filePath.localeCompare(b.filePath) || a.startLine - b.startLine || a.id.localeCompare(b.id);
 }
 
-function trailEntries(output: string, marker: string): { name: string; path: string; line: number }[] {
-  const line = output.split("\n").find((candidate) => candidate.includes(marker));
-  if (!line) return [];
-  const rest = line.slice(line.indexOf(marker) + marker.length);
-  return rest.split(",")
-    .map((entry) => entry.trim())
-    .flatMap((entry) => {
-      const match = entry.match(/^(.+)\s\(([^()]+):(\d+)\)$/);
-      if (!match) return [];
-      return [{ name: match[1].trim(), path: match[2].trim(), line: Number(match[3]) }];
-    });
+/**
+ * `searchNodes` in a total order: hand-written before generated files, as the CodeGraph CLI ranks
+ * (`generatedFilePredicate`), then by score, then by location, so equal scores never reorder.
+ */
+function rankedSearch(graph: CodeGraphIndexHandle, query: string, limit: number, kinds: string[] = []): CodeGraphNode[] {
+  const results = graph.searchNodes(query, { limit, ...(kinds.length > 0 ? { kinds: kinds as CodeGraphNodeKind[] } : {}) });
+  const generated = graph.generatedFilePredicate(results.map((result) => result.node.filePath));
+  return results
+    .map((result) => ({ result, generated: generated(result.node.filePath) ? 1 : 0 }))
+    .sort((a, b) => a.generated - b.generated || b.result.score - a.result.score || compareNodes(a.result.node, b.result.node))
+    .map(({ result }) => result.node);
+}
+
+/** The files of a relevant-context subgraph: its entry points' files first, then in node order. */
+function relevantFilesOf(subgraph: { nodes: Map<string, CodeGraphNode>; roots: string[] }): string[] {
+  const roots = subgraph.roots.flatMap((id) => subgraph.nodes.get(id) ?? []);
+  return uniqueStrings([...roots, ...subgraph.nodes.values()].map((node) => node.filePath));
+}
+
+/** The index's file node of each path, in the order of `paths`. */
+function fileNodesOf(graph: CodeGraphIndexHandle, paths: string[]): CodeGraphNode[] {
+  if (paths.length === 0) return [];
+  const byPath = new Map(graph.getNodesInFiles(paths).filter((node) => node.kind === "file").map((node) => [node.filePath, node] as const));
+  return paths.flatMap((path) => byPath.get(path) ?? []);
+}
+
+/** The node with id `symbol`, else every node whose exact qualified name or name is `symbol`. */
+function definitionsOf(graph: CodeGraphIndexHandle, symbol: string): CodeGraphNode[] {
+  const node = graph.getNode(symbol);
+  if (node) return [node];
+  const definitions = new Map<string, CodeGraphNode>();
+  for (const definition of [...graph.getNodesByQualifiedName(symbol), ...graph.getNodesByName(symbol)]) definitions.set(definition.id, definition);
+  return [...definitions.values()];
+}
+
+function impactOf(graph: CodeGraphIndexHandle, symbolId: string, depth: number): NormalizedImpact {
+  const definitions = definitionsOf(graph, symbolId);
+  if (definitions.length === 0) return { symbolId, callers: [], callees: [], affectedPaths: [] };
+  const ids = definitions.map((definition) => definition.id);
+  const affected = new Set<string>();
+  for (const id of ids) for (const node of graph.getImpactRadius(id, depth).nodes.values()) affected.add(node.filePath);
+  return {
+    symbolId,
+    callers: callEdges(graph.getIncomingEdgesTo(ids, CALL_EDGE_KINDS)),
+    callees: callEdges(graph.getOutgoingEdgesFrom(ids, CALL_EDGE_KINDS)),
+    affectedPaths: [...affected].sort()
+  };
+}
+
+function callEdges(edges: CodeGraphEdge[]): NormalizedEdge[] {
+  return uniqueEdges(edges.map((edge) => ({ source: edge.source, target: edge.target, kind: "calls" as const, confidence: "high" as const })))
+    .sort((a, b) => a.source.localeCompare(b.source) || a.target.localeCompare(b.target));
 }
 
 function uniqueSymbols(symbols: NormalizedSymbol[]): NormalizedSymbol[] {
@@ -364,8 +429,11 @@ export function digestFile(path: string): string {
 }
 
 export function runCodeGraphCli(binary: string, workspaceRoot: string, args: string[], maxBuffer = CODEGRAPH_OUTPUT_MAX_BYTES, envOverrides?: Record<string, string>): string {
+  return runCodeGraphInvocation(codeGraphCliInvocation(binary, workspaceRoot), workspaceRoot, args, maxBuffer, envOverrides);
+}
+
+function runCodeGraphInvocation(invocation: CodeGraphCliInvocation, workspaceRoot: string, args: string[], maxBuffer: number, envOverrides?: Record<string, string>): string {
   disableCodeGraphTelemetryByDefault();
-  const invocation = codeGraphCliInvocation(binary, workspaceRoot);
   try {
     return execFileSync(invocation.command, [...invocation.argsPrefix, ...args], {
       cwd: workspaceRoot,
@@ -380,18 +448,4 @@ export function runCodeGraphCli(binary: string, workspaceRoot: string, args: str
     const message = stderr.trim() || (error instanceof Error ? error.message : String(error));
     throw new Error(`CodeGraph CLI failed: ${message}`);
   }
-}
-
-function parseExploreSymbols(output: string, maxSymbols: number): NormalizedSymbol[] {
-  return [...output.matchAll(/^####\s+(.+?)\s+—/gm)]
-    .slice(0, maxSymbols)
-    .map((match, index) => {
-      const path = match[1].trim();
-      return {
-        id: `codegraph.explore.${index + 1}.${digestJson(path as unknown as Json).slice(7, 15)}`,
-        name: basename(path),
-        kind: "file",
-        path
-      };
-    });
 }
