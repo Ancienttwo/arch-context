@@ -43,6 +43,22 @@ function validate(root: string) {
   return new YamlModelStore().validateModel({ root, repositoryId: "repo.test", headSha: "abc" });
 }
 
+describe("YamlModelStore required files (#576)", () => {
+  test("a model without its product file fails with a missing-file diagnostic", async () => {
+    const root = modelRoot();
+    try {
+      rmSync(join(root, ".archcontext/product.yaml"));
+      expect(await validate(root)).toMatchObject({
+        valid: false,
+        errors: ["missing .archcontext/product.yaml"],
+        diagnostics: [{ path: ".archcontext/product.yaml", code: "missing-file", error: "missing .archcontext/product.yaml" }]
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("YamlModelStore flow mapping schema versions", () => {
   test.each([",", ", ", ",\n"])("accepts supported flow mappings separated by %j", async separator => {
     const root = modelRoot();

@@ -47,11 +47,8 @@ import { join, resolve } from "node:path";
 import {
   bindRepository,
   computeWorktreeDigest,
-  readDependencyConstraints,
-  manifestDecisionDiagnostics,
   readReviewPolicy,
   repositoryFingerprint,
-  validateAdrAppliesTo,
   type Landscape,
   type RepositoryRegistration
 } from "@archcontext/core/architecture-domain";
@@ -83,7 +80,7 @@ import { assertNoCallerProvidedAttestationFields, digestJson, errorEnvelope, fai
 import { type ProjectionRequestV1, type ProjectionApplyRecoveryIntentV1 } from "@archcontext/contracts";
 import { findRepositoryRoot, listGitVisibleFiles, readHeadSha } from "@archcontext/local-runtime/git-adapter";
 import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeAgentJobQueueScope, type RuntimeLocalStore, type UnresolvedChangeSetJournal } from "@archcontext/local-runtime/local-store-sqlite";
-import { ArchContextInitRefusedError, initializeArchContextModel, listModelFiles, planGeneratedProjection, rebuildGeneratedProjection, YamlModelStore, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
+import { ArchContextInitRefusedError, extractSchemaVersion, initializeArchContextModel, listModelFiles, planGeneratedProjection, rebuildGeneratedProjection, validateModelFiles, YamlModelStore, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
 import { createNodeInvestigationTransport } from "./investigation-transport";
 import { auditConsentRequiredEnvelope, readAuditConsent } from "./audit-consent";
 import { localEgressStatus } from "./egress";
@@ -214,15 +211,8 @@ class ArchitectureLedgerReadModelStore implements ModelStorePort {
   async validateModel(workspace: WorkspaceRef): Promise<ModelValidationResult> {
     if (this.architectureLedger.readAuthority !== "ledger") return this.fallback.validateModel(workspace);
     const readback = await this.loadLedgerModel(workspace);
-    const { errors, referenceErrors, warnings, layerOrderErrors, diagnostics } = validateLedgerModelFiles(readback.files);
     const result: ArchitectureLedgerReadModelValidation = {
-      valid: errors.length === 0,
-      errors,
-      ...(diagnostics?.length ? { diagnostics } : {}),
-      ...(referenceErrors.length > 0 ? { referenceErrors } : {}),
-      ...(layerOrderErrors.length > 0 ? { layerOrderErrors } : {}),
-      ...(warnings.length > 0 ? { warnings } : {}),
-      modelDigest: modelDigestForFiles(readback.files),
+      ...validateModelFiles(readback.files),
       architectureLedger: {
         ...this.architectureLedger,
         readAuthority: "ledger",
@@ -245,7 +235,7 @@ class ArchitectureLedgerReadModelStore implements ModelStorePort {
     const projectedFiles: ModelFile[] = projectArchitectureLedgerStateToYamlFiles(state).map((file) => ({
       path: file.path,
       body: file.body,
-      schemaVersion: schemaVersionFromModelBody(file.body),
+      schemaVersion: extractSchemaVersion(file.body, file.path),
       digest: file.digest
     }));
     const fallbackFiles = (await this.fallback.loadModel(workspace))
@@ -1403,41 +1393,6 @@ function architectureLedgerScopeForWorkspace(workspace: WorkspaceRef): Architect
   };
 }
 
-export function validateLedgerModelFiles(files: ModelFile[]): { errors: string[]; referenceErrors: string[]; warnings: string[]; layerOrderErrors: string[]; diagnostics?: ModelValidationResult["diagnostics"] } {
-  const errors: string[] = [];
-  const diagnostics: NonNullable<ModelValidationResult["diagnostics"]> = [];
-  const paths = new Set(files.map((file) => file.path));
-  for (const required of [".archcontext/manifest.yaml", ".archcontext/product.yaml"]) {
-    if (!paths.has(required)) {
-      const error = `missing ${required}`;
-      errors.push(error);
-      diagnostics.push({ path: required, code: "missing-file", error });
-    }
-  }
-  for (const file of files) {
-    if (!file.schemaVersion.startsWith("archcontext.")) {
-      const error = `${file.path}: missing schemaVersion`;
-      errors.push(error);
-      diagnostics.push({ path: file.path, code: "schema-version-missing", error });
-    }
-  }
-  const adr = validateAdrAppliesTo(files);
-  const constraints = readDependencyConstraints(files);
-  const reviewPolicy = readReviewPolicy(files);
-  errors.push(...adr.errors, ...constraints.errors, ...reviewPolicy.errors);
-  return {
-    errors,
-    referenceErrors: [...adr.referenceErrors, ...constraints.referenceErrors],
-    ...(diagnostics.length ? { diagnostics } : {}),
-    layerOrderErrors: constraints.layerOrderErrors,
-    warnings: [...constraints.warnings, ...reviewPolicy.warnings, ...manifestDecisionDiagnostics(files)]
-  };
-}
-
-function modelDigestForFiles(files: ModelFile[]): string {
-  return digestJson(files.map((file) => ({ path: file.path, digest: file.digest })) as unknown as Json);
-}
-
 function isModelFile(value: unknown): value is ModelFile {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const file = value as Partial<ModelFile>;
@@ -1451,18 +1406,6 @@ function isArchitectureLedgerManagedModelPath(path: string): boolean {
   return path.startsWith(".archcontext/model/nodes/")
     || path.startsWith(".archcontext/model/relations/")
     || path.startsWith(".archcontext/model/constraints/");
-}
-
-function schemaVersionFromModelBody(body: string): string {
-  const match = body.match(/schemaVersion:\s*"?([^"\n]+)"?/);
-  if (match) return match[1].trim();
-  try {
-    const parsed = JSON.parse(body) as { schemaVersion?: unknown };
-    if (typeof parsed.schemaVersion === "string") return parsed.schemaVersion;
-  } catch {
-    // Stable YAML projection files are handled by the regex path above.
-  }
-  return "";
 }
 
 

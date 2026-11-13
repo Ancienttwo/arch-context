@@ -7,7 +7,8 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
-import { ARCHITECTURE_DOCS_RENDERER_VERSION, digestJson, projectionApplyReadbackRequestFromReceipt, type ProjectionApplyReceiptV1, type ProjectionRequestV1, type ProjectionResultV3, type StateMachineV1, type CodeFactsPort, type Json, type ModelStorePort, type NormalizedCodeContext } from "@archcontext/contracts";
+import { emptyArchitectureLedgerEvidenceState, planYamlToArchitectureLedgerImport } from "@archcontext/core/architecture-ledger";
+import { ARCHITECTURE_DOCS_RENDERER_VERSION, digestJson, projectionApplyReadbackRequestFromReceipt, stableYaml, type ProjectionApplyReceiptV1, type ProjectionRequestV1, type ProjectionResultV3, type StateMachineV1, type CodeFactsPort, type Json, type ModelStorePort, type NormalizedCodeContext } from "@archcontext/contracts";
 import { assertNoCodeGraphInternalPathAccess, CodeGraphAdapter, REQUIRED_CODEGRAPH_VERSION, loadCapabilityCodeGraphProjectionInputs, prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
 import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { MockCodeGraphProvider, declareOptionalCodeFacts } from "@archcontext/local-runtime/test/codegraph-factories";
@@ -2326,6 +2327,68 @@ setInterval(() => undefined, 1 << 30);
       expect(unresolved.errors).toEqual([`${adrPath}: ADR appliesTo references unknown node package.bogus`]);
     } finally {
       removeTempRepo(root);
+    }
+  });
+
+  test("ledger read mode validates with the YAML validator: a rejected model fails the same way and a valid model passes (#576)", async () => {
+    const fixture = (path: string) => JSON.parse(readFileSync(join(import.meta.dir, "../../../contracts/fixtures", path), "utf8"));
+    const topology = fixture("model/valid/runtime-topology.json") as { nodes: Record<string, Json>[]; relations: Record<string, Json>[] };
+    const machine = { ...fixture("valid/architecture-state-machine.json"), capabilityId: "capability.architecture.context" };
+    const mountPath = ".archcontext/model/nodes/mount.shop.tmp.yaml";
+    const relationPath = ".archcontext/model/relations/relation.shop.api-runs-in-container.yaml";
+    const nestedPath = ".archcontext/model/state-machines/sub/x.yaml";
+    const cases: Array<{ name: string; write: (root: string) => void; errors: string[] }> = [
+      { name: "valid model", write: () => {}, errors: [] },
+      {
+        name: "node schema violation",
+        write: (root) => writeFileSync(join(root, mountPath), stableYaml({ schemaVersion: "archcontext.node/v2", id: "mount.shop.tmp", kind: "mount", name: "Scratch", status: "active", summary: "Scratch.", mount: { mode: "rw", order: 0 } }), "utf8"),
+        errors: [`${mountPath}: $.mount.target: required`]
+      },
+      {
+        name: "topology error",
+        write: (root) => writeFileSync(join(root, relationPath), stableYaml({ ...topology.relations.find((relation) => relation.id === "relation.shop.api-runs-in-container")!, target: "component.shop.api" }), "utf8"),
+        errors: [`${relationPath}: target: topology-relation-target-kind-invalid`]
+      },
+      {
+        name: "nested state machine",
+        write: (root) => {
+          mkdirSync(join(root, dirname(nestedPath)), { recursive: true });
+          writeFileSync(join(root, nestedPath), stableYaml({ ...machine, id: "state-machine.checkout.nested" }), "utf8");
+        },
+        errors: [`${nestedPath}: state-machine-path-nested: a state machine must be a direct child of .archcontext/model/state-machines/`]
+      }
+    ];
+    for (const { name, write, errors } of cases) {
+      const root = tempRepo();
+      try {
+        initializeArchContextModel(root, "Ledger Validation Parity");
+        mkdirSync(join(root, ".archcontext/model/relations"), { recursive: true });
+        mkdirSync(join(root, ".archcontext/model/state-machines"), { recursive: true });
+        for (const [directory, records] of [["nodes", topology.nodes], ["relations", topology.relations]] as const) {
+          for (const record of records) writeFileSync(join(root, `.archcontext/model/${directory}/${record.id}.yaml`), stableYaml(record), "utf8");
+        }
+        writeFileSync(join(root, ".archcontext/model/state-machines/state-machine.checkout.order.yaml"), stableYaml(machine), "utf8");
+        write(root);
+        const yaml = await new YamlModelStore().validateModel({ root, repositoryId: "repo.test", headSha: "abc" });
+        expect({ name, valid: yaml.valid, errors: yaml.errors }).toEqual({ name, valid: errors.length === 0, errors });
+
+        // The ledger holds the nodes and relations; Git keeps only the files the ledger does not own.
+        const ledgerFiles = listModelFiles(root);
+        rmSync(join(root, ".archcontext/model/nodes"), { recursive: true, force: true });
+        rmSync(join(root, ".archcontext/model/relations"), { recursive: true, force: true });
+        class ImportedLedgerStore extends TestLocalStore {
+          override async readArchitectureLedgerState(scope: Parameters<TestLocalStore["readArchitectureLedgerState"]>[0]) {
+            return planYamlToArchitectureLedgerImport({ ...scope, files: ledgerFiles, previousEvidenceState: emptyArchitectureLedgerEvidenceState(), createdAt: "2026-11-13T00:00:00.000Z" }).state;
+          }
+        }
+        const daemon = await createStartedTestDaemon({ localStore: new ImportedLedgerStore(), architectureLedger: { rolloutMode: "ledger-authoritative" } });
+        const ledger = (await daemon.validate(root)).data as any;
+        expect(ledger.architectureLedger.readAuthority).toBe("ledger");
+        expect(ledger.architectureLedger.entityCount).toBe(topology.nodes.length + 1);
+        expect({ name, valid: ledger.valid, errors: ledger.errors }).toEqual({ name, valid: yaml.valid, errors: yaml.errors });
+      } finally {
+        removeTempRepo(root);
+      }
     }
   });
 
