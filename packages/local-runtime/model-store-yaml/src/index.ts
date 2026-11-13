@@ -289,90 +289,98 @@ export class YamlModelStore implements ModelStorePort {
   }
 
   async validateModel(workspace: WorkspaceRef): Promise<ModelValidationResult> {
-    const errors: string[] = [];
-    const diagnostics: NonNullable<ModelValidationResult["diagnostics"]> = [];
-    const nodeSchemaErrors: NonNullable<ModelValidationResult["nodeSchemaErrors"]> = [];
-    for (const required of [".archcontext/manifest.yaml", ".archcontext/product.yaml"]) {
-      try {
-        readFileSync(resolve(workspace.root, required), "utf8");
-      } catch {
-        const error = `missing ${required}`;
-        errors.push(error);
-        diagnostics.push({ path: required, code: "missing-file", error });
-      }
-    }
-    const files = listModelFiles(workspace.root);
-    // Parsed node and relation records with their paths, for the cross-entity topology rules.
-    const topologyRecords: { nodes: Record<string, Json>[]; relations: Record<string, Json>[] } = { nodes: [], relations: [] };
-    const topologyRecordPaths = new Map<string, string>();
-    const stateMachineFiles: { path: string; value: Json }[] = [];
-    for (const file of files) {
-      if (file.path.startsWith(".archcontext/model/") && /\.ya?ml$/.test(file.path)) {
-        try {
-          const value = parseJsonOrStableYaml(file.body, file.path);
-          for (const [directory, records] of [["nodes", topologyRecords.nodes], ["relations", topologyRecords.relations]] as const) {
-            if (!file.path.startsWith(`.archcontext/model/${directory}/`) || !isJsonRecord(value)) continue;
-            records.push(value);
-            if (typeof value.id === "string") topologyRecordPaths.set(value.id, file.path);
-          }
-          if (file.path.startsWith(".archcontext/model/nodes/")) {
-            const { issues } = validateJsonSchema(nodeSchema, value);
-            for (const issue of issues) {
-              const error = `${file.path}: ${issue.path}: ${issue.message}`;
-              errors.push(error);
-              nodeSchemaErrors.push({ path: file.path, error });
-            }
-            continue;
-          }
-          if (isStateMachineModelPath(file.path)) {
-            stateMachineFiles.push({ path: file.path, value });
-            continue;
-          }
-          // The loader reads only direct children, so a model file in a subdirectory would be a
-          // machine nothing checks. Parse and schemaVersion failures keep their generic errors.
-          if (file.path.startsWith(`${STATE_MACHINES_MODEL_DIRECTORY}/`) && file.schemaVersion.startsWith("archcontext.")) {
-            errors.push(`${file.path}: state-machine-path-nested: a state machine must be a direct child of ${STATE_MACHINES_MODEL_DIRECTORY}/`);
-          }
-        } catch (error) {
-          errors.push(`${file.path}: invalid model YAML: ${error instanceof Error ? error.message : String(error)}`);
-          continue;
-        }
-      }
-      if (!file.schemaVersion.startsWith("archcontext.")) {
-        const error = `${file.path}: missing schemaVersion`;
-        errors.push(error);
-        diagnostics.push({ path: file.path, code: "schema-version-missing", error });
-      }
-      if (file.path.startsWith(".archcontext/model/flows/") && file.schemaVersion !== "archcontext.flow/v1") {
-        errors.push(`${file.path}: expected archcontext.flow/v1, got ${file.schemaVersion || "missing"}`);
-      }
-    }
-    for (const issue of runtimeTopologyModelIssues(topologyRecords)) {
-      errors.push(`${topologyRecordPaths.get(issue.entityId) ?? issue.entityId}: ${issue.field}: ${issue.invariant}`);
-    }
-    errors.push(...stateMachinesFromModelFiles(stateMachineFiles, topologyRecords.nodes).issues);
-    const adr = validateAdrAppliesTo(files);
-    const constraints = readDependencyConstraints(files);
-    const reviewPolicy = readReviewPolicy(files);
-    errors.push(...adr.errors, ...constraints.errors, ...reviewPolicy.errors);
-    const referenceErrors = [...adr.referenceErrors, ...constraints.referenceErrors];
-    const warnings = [...constraints.warnings, ...reviewPolicy.warnings, ...manifestDecisionDiagnostics(files)];
-    const modelDigest = digestJson(files.map((file) => ({ path: file.path, digest: file.digest })));
-    return {
-      valid: errors.length === 0,
-      errors,
-      ...(diagnostics.length > 0 ? { diagnostics } : {}),
-      ...(referenceErrors.length > 0 ? { referenceErrors } : {}),
-      ...(nodeSchemaErrors.length > 0 ? { nodeSchemaErrors } : {}),
-      ...(constraints.layerOrderErrors.length > 0 ? { layerOrderErrors: constraints.layerOrderErrors } : {}),
-      ...(warnings.length > 0 ? { warnings } : {}),
-      modelDigest
-    };
+    return validateModelFiles(listModelFiles(workspace.root));
   }
 
   async writeChangeSetPreview(changeSet: unknown): Promise<{ digest: string; summary: string }> {
     return { digest: digestJson(changeSet as Json), summary: "ChangeSet preview generated" };
   }
+}
+
+/**
+ * The one model validator (#576). It validates a set of model files, whatever their source: the
+ * YAML store passes the files on disk, and the ledger read path passes the ledger projection merged
+ * with the files the ledger does not own. Both read modes therefore apply the same checks. It
+ * orders its input itself, so the error order and the model digest never depend on the caller.
+ */
+export function validateModelFiles(input: ModelFile[]): ModelValidationResult {
+  const files = orderModelFiles(input);
+  const errors: string[] = [];
+  const diagnostics: NonNullable<ModelValidationResult["diagnostics"]> = [];
+  const nodeSchemaErrors: NonNullable<ModelValidationResult["nodeSchemaErrors"]> = [];
+  const paths = new Set(files.map((file) => file.path));
+  for (const required of [".archcontext/manifest.yaml", ".archcontext/product.yaml"]) {
+    if (paths.has(required)) continue;
+    const error = `missing ${required}`;
+    errors.push(error);
+    diagnostics.push({ path: required, code: "missing-file", error });
+  }
+  // Parsed node and relation records with their paths, for the cross-entity topology rules.
+  const topologyRecords: { nodes: Record<string, Json>[]; relations: Record<string, Json>[] } = { nodes: [], relations: [] };
+  const topologyRecordPaths = new Map<string, string>();
+  const stateMachineFiles: { path: string; value: Json }[] = [];
+  for (const file of files) {
+    if (file.path.startsWith(".archcontext/model/") && /\.ya?ml$/.test(file.path)) {
+      try {
+        const value = parseJsonOrStableYaml(file.body, file.path);
+        for (const [directory, records] of [["nodes", topologyRecords.nodes], ["relations", topologyRecords.relations]] as const) {
+          if (!file.path.startsWith(`.archcontext/model/${directory}/`) || !isJsonRecord(value)) continue;
+          records.push(value);
+          if (typeof value.id === "string") topologyRecordPaths.set(value.id, file.path);
+        }
+        if (file.path.startsWith(".archcontext/model/nodes/")) {
+          const { issues } = validateJsonSchema(nodeSchema, value);
+          for (const issue of issues) {
+            const error = `${file.path}: ${issue.path}: ${issue.message}`;
+            errors.push(error);
+            nodeSchemaErrors.push({ path: file.path, error });
+          }
+          continue;
+        }
+        if (isStateMachineModelPath(file.path)) {
+          stateMachineFiles.push({ path: file.path, value });
+          continue;
+        }
+        // The loader reads only direct children, so a model file in a subdirectory would be a
+        // machine nothing checks. Parse and schemaVersion failures keep their generic errors.
+        if (file.path.startsWith(`${STATE_MACHINES_MODEL_DIRECTORY}/`) && file.schemaVersion.startsWith("archcontext.")) {
+          errors.push(`${file.path}: state-machine-path-nested: a state machine must be a direct child of ${STATE_MACHINES_MODEL_DIRECTORY}/`);
+        }
+      } catch (error) {
+        errors.push(`${file.path}: invalid model YAML: ${error instanceof Error ? error.message : String(error)}`);
+        continue;
+      }
+    }
+    if (!file.schemaVersion.startsWith("archcontext.")) {
+      const error = `${file.path}: missing schemaVersion`;
+      errors.push(error);
+      diagnostics.push({ path: file.path, code: "schema-version-missing", error });
+    }
+    if (file.path.startsWith(".archcontext/model/flows/") && file.schemaVersion !== "archcontext.flow/v1") {
+      errors.push(`${file.path}: expected archcontext.flow/v1, got ${file.schemaVersion || "missing"}`);
+    }
+  }
+  for (const issue of runtimeTopologyModelIssues(topologyRecords)) {
+    errors.push(`${topologyRecordPaths.get(issue.entityId) ?? issue.entityId}: ${issue.field}: ${issue.invariant}`);
+  }
+  errors.push(...stateMachinesFromModelFiles(stateMachineFiles, topologyRecords.nodes).issues);
+  const adr = validateAdrAppliesTo(files);
+  const constraints = readDependencyConstraints(files);
+  const reviewPolicy = readReviewPolicy(files);
+  errors.push(...adr.errors, ...constraints.errors, ...reviewPolicy.errors);
+  const referenceErrors = [...adr.referenceErrors, ...constraints.referenceErrors];
+  const warnings = [...constraints.warnings, ...reviewPolicy.warnings, ...manifestDecisionDiagnostics(files)];
+  const modelDigest = digestJson(files.map((file) => ({ path: file.path, digest: file.digest })));
+  return {
+    valid: errors.length === 0,
+    errors,
+    ...(diagnostics.length > 0 ? { diagnostics } : {}),
+    ...(referenceErrors.length > 0 ? { referenceErrors } : {}),
+    ...(nodeSchemaErrors.length > 0 ? { nodeSchemaErrors } : {}),
+    ...(constraints.layerOrderErrors.length > 0 ? { layerOrderErrors: constraints.layerOrderErrors } : {}),
+    ...(warnings.length > 0 ? { warnings } : {}),
+    modelDigest
+  };
 }
 
 /**
@@ -426,6 +434,15 @@ export function listModelFiles(root: string): ModelFile[] {
   });
 }
 
+/** The one model file order: by path in UTF-16 code unit order, as `Array.prototype.sort` orders strings. */
+export function orderModelFiles(files: ModelFile[]): ModelFile[] {
+  return [...files].sort((left, right) => compareModelPaths(left.path, right.path));
+}
+
+function compareModelPaths(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 function collectArchContextFiles(root: string, entries: string[]): string[] {
   const files: string[] = [];
   for (const entry of entries) {
@@ -438,7 +455,7 @@ function collectArchContextFiles(root: string, entries: string[]): string[] {
     }
     for (const child of walk(entry)) files.push(child);
   }
-  return [...new Set(files)].sort();
+  return [...new Set(files)].sort(compareModelPaths);
 
   function walk(relativeDir: string): string[] {
     const out: string[] = [];
@@ -466,7 +483,8 @@ function readdirOrFile(path: string): "directory" | "file" {
   }
 }
 
-function extractSchemaVersion(body: string, path: string): string {
+/** The schemaVersion of a model file body, as every ModelFile producer derives it for the validator. */
+export function extractSchemaVersion(body: string, path: string): string {
   if (path.startsWith(".archcontext/model/") && /\.ya?ml$/.test(path)) {
     try {
       const parsed = parseJsonOrStableYaml(body, path) as { schemaVersion?: unknown } | null;
