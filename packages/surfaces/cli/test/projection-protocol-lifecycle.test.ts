@@ -292,6 +292,8 @@ async function withProtocolFixture(prefix: string, run: (context: {
   } finally {
     await daemon.stop();
     rmSync(stateRoot, { recursive: true, force: true });
+    // Bun keeps a closed CodeGraph handle's database file open until GC; Windows cannot then delete it.
+    if (process.versions.bun !== undefined && process.platform === "win32") Bun.gc(true);
     rmSync(root, { recursive: true, force: true });
   }
 }
