@@ -254,6 +254,8 @@ function readSession(root: string, handle: { graph?: CodeGraphIndexHandle }, pro
     close: () => {
       if (handle.graph === undefined) return;
       handle.graph.close();
+      // Bun keeps cached statements, and the database file, open until GC can collect the handle;
+      // Windows cannot then delete it. Drop the only reference, then collect (Bun on win32 only).
       handle.graph = undefined;
       collectReleasedCodeGraphHandles();
     }

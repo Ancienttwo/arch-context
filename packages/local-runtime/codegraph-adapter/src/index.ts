@@ -1825,7 +1825,8 @@ export function openCodeGraphSymbolReader(
       },
       close: () => {
         graph.close();
-        // Drop the only reference so the closed handle can be collected (see collectReleasedCodeGraphHandles).
+        // Bun keeps cached statements, and the database file, open until GC can collect the handle;
+        // Windows cannot then delete it. Drop the only reference, then collect (Bun on win32 only).
         graph = undefined as unknown as typeof graph;
         collectReleasedCodeGraphHandles();
       }
@@ -1918,6 +1919,8 @@ export function loadCapabilityCodeGraphProjectionInputs(
       })))));
   } finally {
     selectorIndex?.close();
+    // Bun keeps cached statements, and the database file, open until GC can collect the handle;
+    // Windows cannot then delete it. Drop the only reference, then collect (Bun on win32 only).
     selectorIndex = undefined;
     collectReleasedCodeGraphHandles();
   }
