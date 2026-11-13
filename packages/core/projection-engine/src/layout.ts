@@ -169,7 +169,7 @@ export function resolveArchitectureDocumentationLayout(input: {
   ));
   const topologyTargets = hasRuntimeTopologyNodes(input.nodes) ? RUNTIME_TOPOLOGY_TARGETS : [];
   // repo-harness/v1 requires `contractFiles` on every capability, so each contract file it
-  // designates is a row the projection writes (ADR-0056 §9). The default profile keeps
+  // designates outside the repository root is a row the projection writes (ADR-0056 §9). The default profile keeps
   // `archctx agent-context` as their writer.
   const agentContextTargets = profile === REPO_HARNESS_PROJECTION_PROFILE ? agentContextLayoutTargets(targetNodes) : [];
   // repo-harness/v1 publishes one projection per fact class (repo-harness#1222 D9): the capability
@@ -204,7 +204,7 @@ export function agentContextTargetId(path: string, nodeId: string): string {
 
 function agentContextLayoutTargets(capabilities: readonly ProjectionLayoutNode[]): ProjectionLayoutTargetDraft[] {
   const kindById = new Map(capabilities.map((node) => [node.id, node.kind]));
-  return agentContextTargetPaths([...capabilities]).map(({ nodeId, path }) => layoutTarget(
+  return agentContextTargetPaths([...capabilities], REPO_HARNESS_PROJECTION_PROFILE).map(({ nodeId, path }) => layoutTarget(
     agentContextTargetId(path, nodeId),
     "agent-context",
     { kind: "entity", id: nodeId, entityKind: kindById.get(nodeId)! },
@@ -214,14 +214,23 @@ function agentContextLayoutTargets(capabilities: readonly ProjectionLayoutNode[]
   ));
 }
 
-export function agentContextTargetPaths(nodes: ProjectionLayoutNode[]): { nodeId: string; path: string }[] {
+/**
+ * The contract files that carry each capability's agent-context region. Under `repo-harness/v1` a
+ * repository-root `AGENTS.md` or `CLAUDE.md` carries none: every session loads it, so it stays
+ * human routing text, though `contractFiles` still names it (ADR-0056 §9, #580). The `default`
+ * derivation keeps the root, where `archctx agent-context` writes an existing root contract.
+ */
+export function agentContextTargetPaths(nodes: ProjectionLayoutNode[], profile: ArchitectureProjectionProfile): { nodeId: string; path: string }[] {
   const targets: { nodeId: string; path: string }[] = [];
   for (const node of [...nodes].sort((left, right) => left.id.localeCompare(right.id))) {
     if (node.kind !== "capability") continue;
     const extensions = record(node.extensions);
     if ("contractFiles" in extensions) {
-      const profile = parseRepoHarnessNodeProfile(node);
-      targets.push({ nodeId: node.id, path: profile.contractFiles.agents }, { nodeId: node.id, path: profile.contractFiles.claude });
+      const { contractFiles } = parseRepoHarnessNodeProfile(node);
+      for (const path of [contractFiles.agents, contractFiles.claude]) {
+        if (profile === REPO_HARNESS_PROJECTION_PROFILE && (path === "AGENTS.md" || path === "CLAUDE.md")) continue;
+        targets.push({ nodeId: node.id, path });
+      }
       continue;
     }
     const include = projectionNodeSource(node)?.include?.[0];

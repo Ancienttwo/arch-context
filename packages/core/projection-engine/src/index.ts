@@ -1076,7 +1076,7 @@ export function architectureDocumentationProjectionWorktreeDigest(
     ignore: [
       ".ai/harness",
       "docs/architecture",
-      ...agentContextTargetPaths(model.nodes).map((target) => target.path)
+      ...agentContextTargetPaths(model.nodes, "default").map((target) => target.path)
     ]
   });
 }
@@ -1440,7 +1440,9 @@ function freshnessEvaluation(
 
 /**
  * Repo-relative path patterns the projection itself writes: the architecture documentation tree
- * (including its manifest) and every agent-context contract file the model designates.
+ * (including its manifest) and every agent-context contract file the model designates. The contract
+ * files come from the `default` derivation, so under `repo-harness/v1` this is a superset: it also
+ * lists the root contract files, which only the default-profile `archctx agent-context` writes.
  *
  * Footprint digests subtract these. An agent-context target lands inside its own capability's
  * declared `source.include` footprint, so counting the projection's own output as capability
@@ -3023,10 +3025,11 @@ export interface AgentContextProjectionTargetPath {
  *
  * A capability whose primary source directory resolves to the repository root is rejected rather
  * than inferred. Explicit contractFiles may designate existing root contracts; ChangeSetEngine
- * requires exact preimage hashes and canonical marker-only content for those writes.
+ * requires exact preimage hashes and canonical marker-only content for those writes. This is the
+ * `default` derivation, so it keeps the root contracts the `repo-harness/v1` layout skips.
  */
 export function agentContextProjectionTargetPaths(model: NativeModel): AgentContextProjectionTargetPath[] {
-  return agentContextTargetPaths(model.nodes).map(({ nodeId, path }) => {
+  return agentContextTargetPaths(model.nodes, "default").map(({ nodeId, path }) => {
     const slash = path.lastIndexOf("/");
     return { nodeId, path, primarySourceDir: slash < 0 ? "." : path.slice(0, slash) };
   });

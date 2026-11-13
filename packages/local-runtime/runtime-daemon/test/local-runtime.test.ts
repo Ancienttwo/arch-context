@@ -1360,12 +1360,14 @@ setInterval(() => undefined, 1 << 30);
     } finally { await daemon?.stop(); removeTempRepo(root); }
   });
 
-  test("repo-harness/v1 docs apply owns root contract regions through render_agent_context (ADR-0056 §9)", async () => {
+  test("repo-harness/v1 docs apply owns capability-local contract regions and writes none at the root (ADR-0056 §9, #580)", async () => {
     const root = createInitializedGitRepo();
     let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
     try {
       const nodePath = join(root, ".archcontext/model/nodes/capability.architecture.context.yaml");
-      writeFileSync(nodePath, `${readText(nodePath)}extensions:\n  contractFiles:\n    agents: "AGENTS.md"\n    claude: "CLAUDE.md"\n`);
+      const baseNode = readText(nodePath);
+      const designate = (agents: string, claude: string) => writeFileSync(nodePath, `${baseNode}extensions:\n  contractFiles:\n    agents: "${agents}"\n    claude: "${claude}"\n`);
+      designate("AGENTS.md", "CLAUDE.md");
       const relationPath = join(root, ".archcontext/model/relations/relation.context-journal.yaml");
       const relation = (intent: string) => JSON.stringify({ schemaVersion: "archcontext.relation/v1", id: "relation.context-journal", kind: "writes", source: "capability.architecture.context", target: "capability.architecture.context", intent });
       mkdirSync(dirname(relationPath), { recursive: true });
@@ -1374,36 +1376,64 @@ setInterval(() => undefined, 1 << 30);
       mkdirSync(dirname(flowPath), { recursive: true });
       writeFileSync(flowPath, JSON.stringify({ schemaVersion: "archcontext.flow/v1", id: "flow.context-fixture", capabilityId: "capability.architecture.context", name: "Context fixture", applicability: "not-applicable", rationale: "Model-only contract file fixture." }), "utf8");
       const human = "# Human routing\n\nKeep these trailing spaces.  \n";
-      for (const path of ["AGENTS.md", "CLAUDE.md"]) writeFileSync(join(root, path), human);
+      const contracts = ["AGENTS.md", "CLAUDE.md", "context/AGENTS.md", "context/CLAUDE.md"];
+      mkdirSync(join(root, "context"), { recursive: true });
+      for (const path of contracts) writeFileSync(join(root, path), human);
       gitCommitAll(root, "declare root contracts");
       execFileSync("codegraph", ["init", root], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
       daemon = await createStartedTestDaemon();
       const docs = (action: "plan" | "apply" | "drift") => runArchitectureDocsProjectionCommand({ action, profile: "repo-harness/v1", approved: true }, root, daemon!);
+      const manifestRows = () => Object.values(JSON.parse(readText(join(root, "docs/architecture/.projection-manifest.json"))).targets as Record<string, { type: string; path: string }>)
+        .filter((row) => row.type === "agent-context").map((row) => row.path);
 
-      // One ChangeSet carries the manifest and both root contracts, and passes the canonical check.
+      // Root contract files are routing text: the profile accepts them, and the projection writes no region there.
+      const rootPlanned = await docs("plan");
+      expect((rootPlanned.data as any).draft.operations.map((operation: { op: string }) => operation.op)).toEqual(["render_projection"]);
+      expect((await docs("apply")).ok).toBe(true);
+      for (const path of contracts) expect(readText(join(root, path))).toBe(human);
+      expect(manifestRows()).toEqual([]);
+      // The committed repo-harness/v1 manifest makes the projection the one writer, with no agent-context row.
+      for (const action of ["plan", "preview", "apply"] as const) {
+        expect(await daemon.agentContextProjection(root, { action, approved: true })).toMatchObject({ ok: false, error: { reasonCode: "agent-context-owned-by-projection" } });
+      }
+      gitCommitAll(root, "project without root contract regions");
+      // Nor does a raw ChangeSet write a root region: the default-profile canonical render is refused.
+      const raw = agentContextProjectionOperation(root);
+      expect(raw.projectionFiles.map((file) => file.path)).toEqual(["AGENTS.md", "CLAUDE.md"]);
+      const rawPlanned = await daemon.planUpdate(root, { id: "changeset.root-raw", reason: { taskSessionId: "task.root-raw" }, operations: [raw] });
+      expect((rawPlanned.data as any).preview.allowed).toBe(false);
+      expect((rawPlanned.data as any).preview.findings.join("\n")).toContain("Root contract has no agent-context region under repo-harness/v1");
+      await expect(daemon.applyUpdate(root, { id: "changeset.root-raw", approved: true, expectedWorktreeDigest: (rawPlanned.data as any).draft.base.worktreeDigest })).rejects.toThrow();
+      for (const path of contracts) expect(readText(join(root, path))).toBe(human);
+
+      // One ChangeSet carries the manifest and both capability-local contracts.
+      designate("context/AGENTS.md", "context/CLAUDE.md");
       const planned = await docs("plan");
       expect((planned.data as any).draft.operations.map((operation: { op: string }) => operation.op)).toEqual(["render_projection", "render_agent_context"]);
       expect((planned.data as any).preview).toMatchObject({ allowed: true, findings: [] });
       expect((await docs("apply")).ok).toBe(true);
-      const projected = { agents: readText(join(root, "AGENTS.md")), claude: readText(join(root, "CLAUDE.md")) };
-      expect(projected.agents.startsWith(human)).toBe(true);
+      expect(manifestRows()).toEqual(["context/AGENTS.md", "context/CLAUDE.md"]);
+      for (const path of ["AGENTS.md", "CLAUDE.md"]) expect(readText(join(root, path))).toBe(human);
+      const projected = { agents: readText(join(root, "context/AGENTS.md")), claude: readText(join(root, "context/CLAUDE.md")) };
+      // A contract file outside the root gets its region after the trimmed human text.
+      expect(projected.agents.startsWith(`${human.trimEnd()}\n\n`)).toBe(true);
       expect(projected.agents).toContain('rendererVersion="archcontext.agent-context-renderer/v2"');
       expect(projected.agents).not.toContain("sourceDigest=");
-      gitCommitAll(root, "project root contracts");
+      gitCommitAll(root, "project capability-local contracts");
 
       // A model edit that changes no region body leaves both contract files byte-identical.
       writeFileSync(relationPath, relation("Persist context lifecycle events"), "utf8");
       expect((await docs("apply")).ok).toBe(true);
-      expect(readText(join(root, "AGENTS.md"))).toBe(projected.agents);
-      expect(readText(join(root, "CLAUDE.md"))).toBe(projected.claude);
+      expect(readText(join(root, "context/AGENTS.md"))).toBe(projected.agents);
+      expect(readText(join(root, "context/CLAUDE.md"))).toBe(projected.claude);
 
       // A hand-edited region is drift that apply rewrites, not a renderer error.
-      writeFileSync(join(root, "AGENTS.md"), projected.agents.replace("# Agent Context: Architecture Context", "# Agent Context: Tampered"), "utf8");
+      writeFileSync(join(root, "context/AGENTS.md"), projected.agents.replace("# Agent Context: Architecture Context", "# Agent Context: Tampered"), "utf8");
       const drift = await docs("drift");
       expect(drift.ok, JSON.stringify(drift)).toBe(true);
-      expect((drift.data as any).drift.diffs).toContainEqual(expect.objectContaining({ path: "AGENTS.md", reasonCode: "projection-generated-region-manually-edited" }));
+      expect((drift.data as any).drift.diffs).toContainEqual(expect.objectContaining({ path: "context/AGENTS.md", reasonCode: "projection-generated-region-manually-edited" }));
       expect((await docs("apply")).ok).toBe(true);
-      expect(readText(join(root, "AGENTS.md"))).toBe(projected.agents);
+      expect(readText(join(root, "context/AGENTS.md"))).toBe(projected.agents);
 
       // A v1 marker and a reordered v2 marker are the node's region, stale until apply rewrites the canonical bytes (#572 R3-F2, G3-F1).
       const v2 = 'rendererVersion="archcontext.agent-context-renderer/v2"';
@@ -1412,15 +1442,20 @@ setInterval(() => undefined, 1 << 30);
         projected.agents.replace(v2, `sourceDigest="sha256:${"1".repeat(64)}" rendererVersion="archcontext.agent-context-renderer/v1"`),
         projected.agents.replace(`${idAttribute} ${v2}`, `${v2} ${idAttribute}`)
       ]) {
-        writeFileSync(join(root, "AGENTS.md"), stale, "utf8");
-        expect(((await docs("drift")).data as any).drift.diffs).toContainEqual(expect.objectContaining({ path: "AGENTS.md", reasonCode: "projection-generated-region-stale" }));
+        writeFileSync(join(root, "context/AGENTS.md"), stale, "utf8");
+        expect(((await docs("drift")).data as any).drift.diffs).toContainEqual(expect.objectContaining({ path: "context/AGENTS.md", reasonCode: "projection-generated-region-stale" }));
         expect((await docs("apply")).ok).toBe(true);
-        expect(readText(join(root, "AGENTS.md"))).toBe(projected.agents);
+        expect(readText(join(root, "context/AGENTS.md"))).toBe(projected.agents);
       }
 
-      // The manifest records agent-context rows, so the projection is the one writer of these paths.
-      const refused = await daemon.agentContextProjection(root, { action: "apply", approved: true });
-      expect(refused).toMatchObject({ ok: false, error: { reasonCode: "agent-context-owned-by-projection" } });
+      // A superseded manifest is refused as by every projection command, before the re-baseline.
+      const manifestPath = join(root, "docs/architecture/.projection-manifest.json");
+      const committed = JSON.parse(readText(manifestPath));
+      writeFileSync(manifestPath, JSON.stringify({ ...committed, schemaVersion: "archcontext.architecture-docs-projection-manifest/v3" }), "utf8");
+      expect(await daemon.agentContextProjection(root, { action: "plan" })).toMatchObject({ ok: false, error: { reasonCode: "projection-manifest-upgrade-required" } });
+      // Under a v4 `default` manifest the command plans as it does without one.
+      writeFileSync(manifestPath, JSON.stringify({ ...committed, profile: "default" }), "utf8");
+      expect(await daemon.agentContextProjection(root, { action: "plan" })).toMatchObject({ ok: true });
     } finally { await daemon?.stop(); removeTempRepo(root); }
   }, 120_000);
 
