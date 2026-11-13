@@ -2,7 +2,7 @@
 schemaVersion: archcontext.adr/v1
 id: adr.0058.codegraph-reads-in-process-read-only
 title: CodeGraph Code Facts Are Read Only Through the In-Process Read-Only Handle
-status: proposed
+status: accepted
 decidedAt: 2026-11-13
 appliesTo:
   - module.architecture-context.local-runtime
@@ -14,7 +14,7 @@ supersedes: []
 
 # ADR-0058: CodeGraph Code Facts Are Read Only Through the In-Process Read-Only Handle
 
-> **Status**: Proposed on [#574](https://github.com/Ancienttwo/arch-context/issues/574). The owner accepts it on its pull request.
+> **Status**: Accepted by the owner on [#586](https://github.com/Ancienttwo/arch-context/pull/586) on 2026-11-13 (decision https://github.com/Ancienttwo/arch-context/pull/586#issuecomment-6846913570), for [#574](https://github.com/Ancienttwo/arch-context/issues/574).
 > **Amends**:
 > - [ADR-0002](ADR-0002-codegraph-required-code-facts-engine.md), Decision and Consequences: how runtime code reaches CodeGraph for reads, and which provider modules may be called beside the public SDK (Decisions 1 and 7 below). The ADR-0002 rule "No direct reads of CodeGraph internal SQLite or file layout" stays in force for the database.
 > - [ADR-0054](ADR-0054-state-machine-model-kind.md) §7 and §8: the sentences saying that the checkpoint readiness gate "runs `codegraph --version` and `codegraph status`", and that §8 counts those commands in the edit-time read. The gate reads compatibility from the read-only handle instead (Consequences below).
@@ -60,7 +60,7 @@ Measured on main against a prototype that reads in-process:
    - `file-limits.js`: `readBoundedSourceSync`, `oversizeStamp`
    - `extraction/extraction-version.js`: `EXTRACTION_VERSION`
 
-   A contract test pins these module paths and export names, so a provider version bump fails at test time and never at runtime. If colbymchenry/codegraph ships a public, git-free change API, it replaces these internal calls. Reading the SQLite file or its tables directly remains forbidden (ADR-0002).
+   A contract test pins these module paths and export names, so a provider version bump fails at test time and never at runtime. If colbymchenry/codegraph ships a public, git-free change API (requested in [colbymchenry/codegraph#3287](https://github.com/colbymchenry/codegraph/issues/3287)), it replaces these internal calls. Reading the SQLite file or its tables directly remains forbidden (ADR-0002).
 8. **Runtime.** Node is the supported runtime for code-facts reads; it is the packaged runtime, with engines ≥22.22. If the read-only open fails, the read fails closed with `index-open-failed`. One known case is Bun on macOS, which uses the system SQLite and cannot open the index read-only before the WAL sidecar files exist. A read never retries with a writable handle or a child process. Before the first implementation slice merges, CI runs the real-index suite under Node on macOS, Linux and Windows.
 9. **Failure vocabulary.**
    - `AC_CODE_FACTS_UNAVAILABLE` with `index-missing`, or with `index-open-failed` (a new, additive failure reason).
