@@ -1,10 +1,15 @@
 #!/usr/bin/env bun
+// First: under Bun on darwin, load the read-only-capable SQLite before anything opens SQLite.
+import { darwinSqliteLibrary } from "./bun-darwin-sqlite.ts";
 import { spawn } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runFastHookEnqueue } from "../src/hook-fast.ts";
 
-const entry = resolve(dirname(fileURLToPath(import.meta.url)), "../src/main.ts");
+const binDir = dirname(fileURLToPath(import.meta.url));
+const entry = resolve(binDir, "../src/main.ts");
+// The CLI process loads the same SQLite library through a preload of the same module.
+const runtimeArgs = darwinSqliteLibrary === undefined ? [] : ["--preload", resolve(binDir, "bun-darwin-sqlite.ts")];
 
 if (process.argv[2] === "hook" && (process.argv[3] ?? "enqueue") === "enqueue") {
   const result = await runFastHookEnqueue(process.argv.slice(2), process.cwd());
@@ -14,7 +19,7 @@ if (process.argv[2] === "hook" && (process.argv[3] ?? "enqueue") === "enqueue") 
   }
 }
 
-const child = spawn(process.execPath, [entry, ...process.argv.slice(2)], {
+const child = spawn(process.execPath, [...runtimeArgs, entry, ...process.argv.slice(2)], {
   stdio: "inherit",
   env: process.env
 });

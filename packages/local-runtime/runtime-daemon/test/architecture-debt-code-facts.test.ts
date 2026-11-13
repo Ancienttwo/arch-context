@@ -1,6 +1,6 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,6 +9,7 @@ import type { NativeModel } from "@archcontext/core/projection-engine";
 import { evaluateArchitectureDebt } from "@archcontext/core/review-engine";
 import { loadCapabilityCodeGraphProjectionInputs, REQUIRED_CODEGRAPH_VERSION, type CodeGraphSelectorIndex } from "@archcontext/local-runtime/codegraph-adapter";
 import { readArchitectureDebtCodeFacts } from "../src/architecture-debt-code-facts";
+import { fakeReadProvider } from "../../codegraph-adapter/test/read-provider-fixture";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -34,23 +35,20 @@ function fixture(options: { missing?: boolean; stale?: boolean; queryFails?: boo
   mkdirSync(join(root, "src"));
   writeFileSync(join(root, "src/a.ts"), 'import { sink } from "./b";\nexport function entry() { return sink(); }\n');
   writeFileSync(join(root, "src/b.ts"), "export function sink() { return 1; }\n");
-  if (!options.missing) mkdirSync(join(root, ".codegraph"));
   const log = join(base, "calls.log");
+  writeFileSync(log, "");
   const stale = join(base, "stale");
   if (options.stale) writeFileSync(stale, "stale");
+  // Readiness reads the index through the read-only provider (ADR-0058); `stale` is its change test.
+  const provider = fakeReadProvider(root, () => ({ pending: { added: 0, modified: existsSync(stale) ? 1 : 0, removed: 0 } }));
+  if (options.missing) rmSync(join(root, ".codegraph"), { recursive: true, force: true });
+  // The import population is still a CLI query until S2 of #574; nothing else starts CodeGraph.
   const binary = join(base, "codegraph.cjs");
   writeFileSync(binary, `
-const { appendFileSync, existsSync, writeFileSync } = require("node:fs");
+const { appendFileSync, writeFileSync } = require("node:fs");
 const args = process.argv.slice(2);
 appendFileSync(${JSON.stringify(log)}, args[0] + "=" + process.env.CODEGRAPH_NO_DOWNLOAD + "\\n");
 if (process.env.CODEGRAPH_NO_DOWNLOAD !== "1") throw new Error("download guard missing");
-if (args[0] === "--version") { console.log(${JSON.stringify(REQUIRED_CODEGRAPH_VERSION)}); process.exit(0); }
-if (args[0] === "status") {
-  console.log(JSON.stringify({ initialized: true, version: ${JSON.stringify(REQUIRED_CODEGRAPH_VERSION)}, projectPath: ${JSON.stringify(root)},
-    worktreeMismatch: null, pendingChanges: { added: 0, modified: existsSync(${JSON.stringify(stale)}) ? 1 : 0, removed: 0 },
-    index: { builtWithVersion: ${JSON.stringify(REQUIRED_CODEGRAPH_VERSION)}, builtWithExtractionVersion: 7,
-      currentExtractionVersion: 7, reindexRecommended: false, state: "complete", pendingRefs: 0 } })); process.exit(0);
-}
 if (args[0] === "query") {
   if (${Boolean(options.queryFails)}) throw new Error("private raw producer error");
   if (${Boolean(options.queryMakesStale)}) writeFileSync(${JSON.stringify(stale)}, "stale");
@@ -58,7 +56,7 @@ if (args[0] === "query") {
 }
 throw new Error("unexpected command " + args[0]);
 `);
-  return { root, binary, calls: () => readFileSync(log, "utf8") };
+  return { root, binary, provider, calls: () => readFileSync(log, "utf8") };
 }
 
 function selectorIndex(): CodeGraphSelectorIndex {
@@ -76,13 +74,13 @@ function selectorIndex(): CodeGraphSelectorIndex {
 }
 
 test("full debt reads S2 readiness, guards every shim spawn and closes the readonly selector", () => {
-  const { root, binary, calls } = fixture();
+  const { root, binary, provider, calls } = fixture();
   const index = selectorIndex();
   const close = spyOn(index, "close");
   const old = process.env.CODEGRAPH_NO_DOWNLOAD;
   process.env.CODEGRAPH_NO_DOWNLOAD = "0";
   try {
-    const evidence = readArchitectureDebtCodeFacts(root, model, { binary, selectorIndexFactory: (path, options) => {
+    const evidence = readArchitectureDebtCodeFacts(root, model, { binary, provider, selectorIndexFactory: (path, options) => {
       expect(path).toBe(root);
       expect(options).toEqual({ readOnly: true });
       return index;
@@ -92,7 +90,9 @@ test("full debt reads S2 readiness, guards every shim spawn and closes the reado
     ] });
     expect(evidence.flows?.selectors[0]?.status).toBe("proven");
     expect(close).toHaveBeenCalledTimes(1);
-    expect(calls()).toBe("--version=1\nstatus=1\nquery=1\n--version=1\nstatus=1\n");
+    // Readiness opened the index read-only twice, around the reads, and started no process.
+    expect(provider.calls).toMatchObject({ open: 2, close: 2 });
+    expect(calls()).toBe("query=1\n");
     expect(process.env.CODEGRAPH_NO_DOWNLOAD).toBe("0");
   } finally {
     close.mockRestore();
@@ -101,13 +101,13 @@ test("full debt reads S2 readiness, guards every shim spawn and closes the reado
 });
 
 for (const [name, options, reason, expectedCalls] of [
-  ["missing index", { missing: true }, "index-missing", "--version=1\n"],
-  ["stale index", { stale: true }, "pending-source-changes", "--version=1\nstatus=1\n"],
-  ["query refusal", { queryFails: true }, "codegraph-read-failed", "--version=1\nstatus=1\nquery=1\n"],
-  ["index becomes stale during query", { queryMakesStale: true }, "pending-source-changes", "--version=1\nstatus=1\nquery=1\n--version=1\nstatus=1\n"]
+  ["missing index", { missing: true }, "index-missing", ""],
+  ["stale index", { stale: true }, "pending-source-changes", ""],
+  ["query refusal", { queryFails: true }, "codegraph-read-failed", "query=1\n"],
+  ["index becomes stale during query", { queryMakesStale: true }, "pending-source-changes", "query=1\n"]
 ] as const) test(`${name} is unknown coverage without invented dependency/flow debt`, () => {
-  const { root, binary, calls } = fixture(options);
-  const evidence = readArchitectureDebtCodeFacts(root, model, { binary, selectorIndexFactory: () => {
+  const { root, binary, provider, calls } = fixture(options);
+  const evidence = readArchitectureDebtCodeFacts(root, model, { binary, provider, selectorIndexFactory: () => {
     if (options.missing || options.stale || options.queryFails) throw new Error("selector must not open");
     return selectorIndex();
   } });
@@ -120,9 +120,9 @@ for (const [name, options, reason, expectedCalls] of [
 });
 
 test("read-only selector refusal is reported without a writable retry", () => {
-  const { root, binary } = fixture();
+  const { root, binary, provider } = fixture();
   let opens = 0;
-  const result = readArchitectureDebtCodeFacts(root, model, { binary, selectorIndexFactory: (_path, options) => {
+  const result = readArchitectureDebtCodeFacts(root, model, { binary, provider, selectorIndexFactory: (_path, options) => {
     opens++;
     expect(options.readOnly).toBe(true);
     throw new Error("readonly open refused");
@@ -132,11 +132,11 @@ test("read-only selector refusal is reported without a writable retry", () => {
 });
 
 test("source edits during selector reads invalidate otherwise ready facts and still close the index", () => {
-  const { root, binary } = fixture();
+  const { root, binary, provider } = fixture();
   const index = selectorIndex();
   const close = spyOn(index, "close");
   try {
-    const result = readArchitectureDebtCodeFacts(root, model, { binary, selectorIndexFactory: () => {
+    const result = readArchitectureDebtCodeFacts(root, model, { binary, provider, selectorIndexFactory: () => {
       writeFileSync(join(root, "src/b.ts"), "export function sink() { return 2; }\n");
       return index;
     } });
