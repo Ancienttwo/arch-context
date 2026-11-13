@@ -133,16 +133,6 @@ export function codeGraphIndexBuildInProgress(workspaceRoot: string): boolean {
   }
 }
 
-/**
- * Bun keeps the SDK's cached prepared statements, and with them the database file, open after
- * `close()` until GC finalizes them, which it can do only once the handle is unreachable; Windows
- * cannot delete or replace an open file. Call this after dropping the last reference to a closed
- * handle. It acts only under Bun on Windows.
- */
-export function collectReleasedCodeGraphHandles(): void {
-  if (process.versions.bun !== undefined && process.platform === "win32") Bun.gc(true);
-}
-
 /** The compatibility facts of an open index, read from the handle. */
 export interface CodeGraphIndexCompatibilityV1 {
   /** The loaded provider bundle version. */
@@ -215,18 +205,13 @@ export function openCodeGraphReadSession(root: string, options: { provider?: Cod
   if (linked) return { state: "index-open-failed" };
   if (!existsSync(join(indexDir, "codegraph.db"))) return { state: "index-missing" };
   if (codeGraphIndexBuildInProgress(root)) return { state: "build-in-progress" };
-  // The session owns the only reference to the handle, so close() can release it (see below).
   const handle: { graph?: CodeGraphIndexHandle } = {};
   let atOpen: CodeGraphIndexRevisionV1;
   try {
     handle.graph = provider.openReadOnly(root);
     atOpen = revisionOf(handle.graph);
   } catch {
-    if (handle.graph !== undefined) {
-      handle.graph.close();
-      handle.graph = undefined;
-      collectReleasedCodeGraphHandles();
-    }
+    handle.graph?.close();
     return { state: "index-open-failed" };
   }
   return { state: "open", session: readSession(root, handle, provider, atOpen) };
@@ -280,10 +265,7 @@ function readSession(root: string, handle: { graph?: CodeGraphIndexHandle }, pro
     close: () => {
       if (handle.graph === undefined) return;
       handle.graph.close();
-      // Bun keeps cached statements, and the database file, open until GC can collect the handle;
-      // Windows cannot then delete it. Drop the only reference, then collect (Bun on win32 only).
       handle.graph = undefined;
-      collectReleasedCodeGraphHandles();
     }
   };
 }

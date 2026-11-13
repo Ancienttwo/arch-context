@@ -13,7 +13,6 @@ import {
   REQUIRED_CODEGRAPH_VERSION,
   codeGraphBundle,
   codeGraphIndexBuildInProgress,
-  collectReleasedCodeGraphHandles,
   CodeGraphProviderUnavailableError,
   pinnedCodeGraphProvider,
   withCodeGraphReadSession,
@@ -1799,13 +1798,7 @@ export function openCodeGraphSymbolReader(
         }
         return result;
       },
-      close: () => {
-        graph.close();
-        // Bun keeps cached statements, and the database file, open until GC can collect the handle;
-        // Windows cannot then delete it. Drop the only reference, then collect (Bun on win32 only).
-        graph = undefined as unknown as typeof graph;
-        collectReleasedCodeGraphHandles();
-      }
+      close: () => graph.close()
     }
   };
 }
@@ -1878,7 +1871,7 @@ export function loadCapabilityCodeGraphProjectionInputs(
       options.readOnly ? CODEGRAPH_NO_DOWNLOAD_ENV : undefined)
     : undefined;
   const importGraphs = imports?.importGraphs ?? [];
-  let selectorIndex = entrypointNodes.length > 0
+  const selectorIndex = entrypointNodes.length > 0
     ? (options.selectorIndexFactory ?? ((path, openOptions) => codeGraphSdk().CodeGraph.openSync(path, openOptions)))(root, { readOnly: options.readOnly === true })
     : undefined;
   let selectorEvidence: ArchitectureSelectorEvidenceV1[];
@@ -1894,13 +1887,7 @@ export function loadCapabilityCodeGraphProjectionInputs(
         sinkSymbol: sink.symbol
       })))));
   } finally {
-    if (selectorIndex) {
-      selectorIndex.close();
-      // Bun keeps cached statements, and the database file, open until GC can collect the handle;
-      // Windows cannot then delete it. Drop the only reference, then collect (Bun on win32 only).
-      selectorIndex = undefined;
-      collectReleasedCodeGraphHandles();
-    }
+    selectorIndex?.close();
   }
   return { importGraphs, selectorEvidence, ...(imports ? { importPopulation: imports.importPopulation } : {}) };
 }
