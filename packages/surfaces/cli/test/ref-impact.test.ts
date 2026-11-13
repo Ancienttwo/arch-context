@@ -7,19 +7,24 @@ import { describe, expect, test } from "bun:test";
 import { runRefImpactCommand } from "../src/ref-impact";
 import { runCli } from "../src/main";
 import { type RefImpactV1 } from "@archcontext/contracts";
-import { createNativeFixture, commitFixture, writeFixtureFile } from "../../../local-runtime/model-store-yaml/test/fixtures/native-context/fixture";
+import { createNativeFixture, commitFixture, fixtureGit, writeFixtureFile } from "../../../local-runtime/model-store-yaml/test/fixtures/native-context/fixture";
 import { packagedCodeGraphCliInvocation } from "../../../local-runtime/codegraph-adapter/src/index";
+import { gitCommandsOutsideCodeFactsRead, gitSpy } from "../../../local-runtime/codegraph-adapter/test/git-spy";
 
 // The dev launcher, so the CLI process loads the same SQLite library as the test process (#574).
 const CLI_LAUNCHER = fileURLToPath(new URL("../bin/archctx", import.meta.url));
 
+/** ADR-0058 Decision 4: a read may add SQLite's shared-memory file and an empty WAL, nothing else. */
 function indexBytes(root: string): Record<string, string> {
   const files: Record<string, string> = {};
   const visit = (path: string) => {
     for (const entry of readdirSync(join(root, path), { withFileTypes: true })) {
       const name = `${path}/${entry.name}`;
+      const bytes = entry.isDirectory() ? undefined : readFileSync(join(root, name));
       if (entry.isDirectory()) visit(name);
-      else files[name] = createHash("sha256").update(readFileSync(join(root, name))).digest("hex");
+      else if (name !== ".codegraph/codegraph.db-shm" && !(name === ".codegraph/codegraph.db-wal" && bytes!.length === 0)) {
+        files[name] = createHash("sha256").update(bytes!).digest("hex");
+      }
     }
   };
   visit(".codegraph");
@@ -100,6 +105,40 @@ test("real CodeGraph distinguishes ambiguous declarations from a renamed selecto
     expect(deleted.data.touchedFlowSteps.items).toContainEqual({ flowId: "flow.demo.primary", stepId: "request", outcomeId: null, reasonCodes: ["selector-evidence-unavailable"] });
     expect(indexBytes(fixture.root)).toEqual(frozenDeleted);
   } finally { fixture.cleanup(); }
+}, 120_000);
+
+test("a configured clean filter still gets evidence, and the read runs no filter, config, check-attr or status", () => {
+  const fixture = createNativeFixture();
+  const spy = process.platform === "win32" ? undefined : gitSpy();
+  try {
+    const marker = join(fixture.root, "runtime-state-filter-ran");
+    writeFixtureFile(fixture.root, ".gitignore", ".codegraph/\nruntime-state-filter-ran\n");
+    // An identity clean filter that records each run. The private snapshot refused any selected filter.
+    fixtureGit(fixture.root, ["config", "filter.spy.clean", `sh -c 'echo ran >> "${marker.replaceAll("\\", "/")}"; cat'`]);
+    writeFixtureFile(fixture.root, ".gitattributes", "*.ts filter=spy\n");
+    writeFixtureFile(fixture.root, "src/done.ts", "export function finish() { return 1; }\n");
+    const before = "import { finish } from './done';\nexport function run() {\n  return finish();\n}\n";
+    writeFixtureFile(fixture.root, "src/worker.ts", before);
+    const base = commitFixture(fixture.root);
+    writeFixtureFile(fixture.root, "src/worker.ts", before.replace("  return", "  const touched = 1;\n  void touched;\n  return"));
+    const head = commitFixture(fixture.root);
+    const provider = packagedCodeGraphCliInvocation();
+    const env = { ...(spy?.env ?? process.env), DO_NOT_TRACK: "1", CODEGRAPH_NO_DOWNLOAD: "1" };
+    execFileSync(provider.command, [...provider.argsPrefix, "init", fixture.root], { cwd: fixture.root, env: { ...process.env, DO_NOT_TRACK: "1", CODEGRAPH_NO_DOWNLOAD: "1" }, stdio: "pipe" });
+    expect(existsSync(marker)).toBe(true);
+    rmSync(marker);
+    const frozen = indexBytes(fixture.root);
+    const result = JSON.parse(execFileSync(process.execPath, [CLI_LAUNCHER, "impact", "--base", base, "--head", head, "--json"], { cwd: fixture.root, env, encoding: "utf8" }));
+    expect(result.data.touchedFlowSteps.status).toBe("known");
+    expect(result.data.touchedFlowSteps.items).toContainEqual({ flowId: "flow.demo.primary", stepId: "request", outcomeId: null, reasonCodes: ["head-lines-changed"] });
+    expect(existsSync(marker)).toBe(false);
+    expect(indexBytes(fixture.root)).toEqual(frozen);
+    if (spy) {
+      expect(spy.subcommands().some(command => command.startsWith("cat-file"))).toBe(true);
+      // Decision 3 plus the immutable ref reads of impact itself.
+      expect(gitCommandsOutsideCodeFactsRead(spy.subcommands(), ["ls-tree", "cat-file", "log"])).toEqual([]);
+    }
+  } finally { spy?.restore(); fixture.cleanup(); }
 }, 120_000);
 
 describe("impact CLI", () => {

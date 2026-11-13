@@ -1,21 +1,23 @@
 import { createHash } from "node:crypto";
-import { createRequire } from "node:module";
 import { isRepoRelativePosixPath, REF_IMPACT_LIMITS, type NativeContextModel, type NativeContextSnapshot } from "@archcontext/contracts";
-import { nativeNodeSource, type NativeNode, type NativeModel } from "@archcontext/core/projection-engine";
+import { nativeNodeSource, type NativeNode } from "@archcontext/core/projection-engine";
 import { decodeUtf8, readGitBlobs, readGitBlobTree } from "../../git-adapter/src/blob-reader";
 import type { RefImpactFacts } from "../../model-store-yaml/src/ref-impact";
-import { codeGraphSnapshotQueries, withExistingCodeGraphSnapshot } from "./index";
-type Sdk = typeof import("@colbymchenry/codegraph");
-type SnapshotGraph = Pick<ReturnType<Sdk["CodeGraph"]["openSync"]>, "getFiles" | "getNodesByName">;
+import { codeGraphBundle, type CodeGraphIndexHandle } from "./read-session";
+import { withReadyCodeGraphIndex } from "./ready-index-read";
+type RefImpactGraph = Pick<CodeGraphIndexHandle, "getFiles" | "getNodesByName">;
 const nonDeclarations = new Set(["file", "import", "export", "parameter"]);
-const requireFromAdapter = createRequire(import.meta.url);
 
-/** Both refs are compared against one provider-authenticated private snapshot; no original DB open. */
+/**
+ * Both refs are bound against the repository's own ready index, read in-process and read-only
+ * (ADR-0058). Every failure, including an index that is missing or behind the worktree, leaves the
+ * facts unknown.
+ */
 export function readRefImpactFacts(root: string, base: { model: NativeContextModel; snapshot: NativeContextSnapshot }, head: { model: NativeContextModel; snapshot: NativeContextSnapshot }): { baseFacts?: RefImpactFacts; headFacts?: RefImpactFacts } {
   try {
-    return withExistingCodeGraphSnapshot(root, codeGraphSnapshotQueries([...base.model.nodes, ...head.model.nodes] as unknown as NativeModel["nodes"], "ref"), graph => {
+    return withReadyCodeGraphIndex(root, graph => {
       const bind = (input: typeof head) => input.snapshot.source === "ref"
-        ? bindSnapshotRefImpactFacts(root, input.model, input.snapshot, graph) : undefined;
+        ? bindRefImpactFacts(root, input.model, input.snapshot, graph) : undefined;
       return { baseFacts: bind(base), headFacts: bind(head) };
     });
   } catch {
@@ -24,20 +26,19 @@ export function readRefImpactFacts(root: string, base: { model: NativeContextMod
 }
 
 /**
- * Called only inside withExistingCodeGraphSnapshot's authenticated ready callback.
- * Every indexed file must match an immutable
+ * Called only inside withReadyCodeGraphIndex's read. Every indexed file must match an immutable
  * blob, not just the current HEAD label. CodeGraph 1.6.2 stores SHA-256 of UTF-8 source text;
  * strict UTF-8 and the 1 MiB extraction ceiling exclude replacement decoding and oversize stamps.
  * A supported, error-free indexed file permits an authoritative exact-name no-match.
  * That means the selector does not resolve in CodeGraph, not that no runtime code can exist.
  * Missing files, unsupported languages and ambiguous declarations remain unknown.
  */
-function bindSnapshotRefImpactFacts(
-  root: string, model: NativeContextModel, ref: { commitSha: string; treeOid: string }, graph: SnapshotGraph
+function bindRefImpactFacts(
+  root: string, model: NativeContextModel, ref: { commitSha: string; treeOid: string }, graph: RefImpactGraph
 ): RefImpactFacts | undefined {
   try {
     const files = graph.getFiles();
-    const sdk = requireFromAdapter("@colbymchenry/codegraph") as Sdk;
+    const { sdk } = codeGraphBundle();
     const supportedPaths = new Set(files.filter(file => sdk.isLanguageSupported(file.language)).map(file => file.path));
     if (files.length > REF_IMPACT_LIMITS.codeFactFiles) return undefined;
     const tree = new Map(readGitBlobTree(root, ref.treeOid, { sizes: true, trees: false }).map(entry => [entry.path, entry]));

@@ -1,5 +1,16 @@
 import { execFileSync, spawn } from "node:child_process";
-import { codeGraphSnapshotRuntime, packagedCodeGraphCliInvocation } from "../src/index";
+import { join } from "node:path";
+import { packagedCodeGraphCliInvocation } from "../src/index";
+import { codeGraphBundle } from "../src/read-session";
+
+/**
+ * The Node executable and SDK entry of the pinned platform bundle. The fixtures below run in it, so
+ * their SQLite handles end with the child process; production reads never use it (ADR-0058).
+ */
+function codeGraphNodeRuntime(): { node: string; sdk: string } {
+  const bundle = codeGraphBundle();
+  return { node: join(bundle.platformRoot, process.platform === "win32" ? "node.exe" : "node"), sdk: join(bundle.dist, "index.js") };
+}
 
 /** Index construction owns native parser resources; subprocess exit bounds their lifetime. */
 export function indexCodeGraphFixture(root: string): void {
@@ -20,14 +31,14 @@ export function syncCodeGraphFixture(root: string): void {
 }
 
 export function incompleteCodeGraphFixture(root: string): void {
-  const runtime = codeGraphSnapshotRuntime();
+  const runtime = codeGraphNodeRuntime();
   execFileSync(runtime.node, ["-e", 'const {CodeGraph}=require(process.argv[1]); const graph=CodeGraph.initSync(process.argv[2]); graph.close();', runtime.sdk, root], {
     cwd: root, stdio: "pipe", timeout: 30_000, env: { ...process.env, DO_NOT_TRACK: "1" }
   });
 }
 
 export function fixtureNameCounts(root: string, names: string[]): number[] {
-  const runtime = codeGraphSnapshotRuntime();
+  const runtime = codeGraphNodeRuntime();
   const script = 'const {CodeGraph}=require(process.argv[1]); const names=JSON.parse(require("node:fs").readFileSync(0,"utf8")); const graph=CodeGraph.openSync(process.argv[2]); try { process.stdout.write(JSON.stringify(names.map(name=>graph.getNodesByName(name).length))); } finally { graph.close(); }';
   return JSON.parse(execFileSync(runtime.node, ["-e", script, runtime.sdk, root], {
     cwd: root, input: JSON.stringify(names), encoding: "utf8", timeout: 30_000,
@@ -36,7 +47,7 @@ export function fixtureNameCounts(root: string, names: string[]): number[] {
 }
 
 export async function holdCodeGraphFixture(root: string): Promise<{ isRunning(): boolean; close(): Promise<void> }> {
-  const runtime = codeGraphSnapshotRuntime();
+  const runtime = codeGraphNodeRuntime();
   const script = 'const {CodeGraph}=require(process.argv[1]); const graph=CodeGraph.openSync(process.argv[2]); graph.getFiles(); process.stdin.resume(); process.stdin.once("end",()=>graph.close()); process.stdout.write("ready\\n");';
   const child = spawn(runtime.node, ["-e", script, runtime.sdk, root], { cwd: root, stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, DO_NOT_TRACK: "1" } });
   const closed = new Promise<number | null>(resolve => child.once("close", resolve));

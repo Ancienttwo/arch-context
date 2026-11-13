@@ -20,12 +20,14 @@ whitespace belongs to the path and is preserved, including whitespace-only paths
 
 ## Ref-bound flow evidence
 
-The CLI reads the existing CodeGraph index through a disposable private snapshot.
-It never syncs or opens the original index. CodeGraph's own source enumeration and
-readiness checks validate the snapshot. Indexed source hashes must match the
-selected immutable Git blobs before declaration ranges are bound to that ref.
-Only matching refs receive evidence; historical refs without matching facts stay
-unknown. Hunk coordinates come from bounded comparisons of the same raw blobs.
+The CLI reads the repository's existing CodeGraph index in-process through one
+read-only handle (ADR-0058). It never syncs the index, opens it writable or copies
+it, and it starts no CodeGraph process. The index must be ready first: compatible
+with the pinned CodeGraph, and current with the worktree by CodeGraph's own change
+test. Indexed source hashes must then match the selected immutable Git blobs before
+declaration ranges are bound to that ref. Only matching refs receive evidence;
+historical refs without matching facts stay unknown. Hunk coordinates come from
+bounded comparisons of the same raw blobs.
 
 Changed head ranges report the affected flow step. An authoritative zero-match
 lookup in an indexed, supported, error-free file reports
@@ -34,29 +36,20 @@ ranges identify the step with `selector-evidence-unavailable`. Partial positive
 findings remain visible while aggregate coverage stays unknown. Deleted base
 lines require separately bound base evidence.
 
-The snapshot uses CodeGraph 1.6.2's shipped source scanner, including its include,
-includeIgnored and extension settings. The selected source/configuration files,
-Git metadata and DB/WAL copy are limited to 512 MiB and 100,000 entries. Unsafe
-symlinks in selected inputs, external Git object stores, unsupported path/config
-overrides and changing inputs refuse evidence. Impact summarizes these snapshot
-refusals as `ref-code-facts-unavailable`; it does not distinguish a missing index
-from an unsupported snapshot layout. `flows check --no-sync` exposes the specific
-snapshot failure reason. Ordinary ignored dependency trees
-are not copied. Private temporary files are removed after reading.
+The source population is CodeGraph 1.6.2's own file enumeration, including its
+include, includeIgnored and extension settings. Impact summarizes every code-facts
+refusal as `ref-code-facts-unavailable`: a missing index, an index that cannot be
+opened, an index behind the worktree and an index that moved during the read.
+`flows check --no-sync` reads the same way and exposes the specific reason:
+`index-missing`, `index-open-failed` or `code-facts-read-not-ready`.
 
-SDK queries run in the Node executable shipped with the same pinned CodeGraph
-platform bundle. The caller receives complete query-result tables, without live
-SQLite handles; the worker must exit successfully before strict snapshot removal.
-The query boundary accepts at most 1 MiB of requests, 10,000 keys per table,
-100,000 result items and 32 MiB of output, with a 30-second deadline. Missing or
-malformed query coverage fails closed; an unrequested lookup is never an empty match.
-
-Installed Git filter definitions alone do not prevent a snapshot. Git's effective
-attributes are checked across all tracked paths, including embedded repositories;
-selected clean/process filters are refused before provider status can run them.
-Configured drivers named `unset` or `unspecified` are also refused when their names
-make Git's attribute response ambiguous. The provider's name-status diff does not
-request patches, so diff/textconv configuration alone does not execute a callback.
+The read runs only the git commands ADR-0058 allows: `ls-files`, `rev-parse`,
+`check-ignore` and `config --get core.excludesFile`, plus the `rev-parse`,
+`ls-tree`, `cat-file` and `log` reads of the immutable refs. It never runs `git
+status` or `git diff`, so configured clean/process filters, `core.fsmonitor` and
+index hooks are not executed, and a repository that uses them still gets evidence.
+SQLite may leave the `codegraph.db-wal` and `codegraph.db-shm` sidecar files in
+`.codegraph/`; nothing else is written.
 
 Consumers must inspect reason codes, dependency coverage and truncation fields;
 unknown or truncated output is not proof that no impact exists. Limits are

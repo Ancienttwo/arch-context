@@ -12,8 +12,7 @@ import {
   inspectRepositoryCodeFacts,
   openCodeGraphReadSession,
   pinnedCodeGraphProvider,
-  withCodeGraphReadSession,
-  withExistingCodeGraphSnapshot
+  withCodeGraphReadSession
 } from "../src/index";
 import { codeGraphBundle } from "../src/read-session";
 import { fakeReadProvider } from "./read-provider-fixture";
@@ -286,22 +285,6 @@ describe("read session over a real index", () => {
       rmSync(added, { force: true });
     }
     expect(inspectRepositoryCodeFacts(root)).toMatchObject({ state: "ready" });
-  });
-});
-
-describe("private snapshot readiness mapping (C2)", () => {
-  test("an index the session cannot open keeps index-open-failed through the snapshot", () => {
-    withRoot((root) => {
-      execFileSync("git", ["init", "-q"], { cwd: root });
-      writeFileSync(join(root, ".gitignore"), ".codegraph/\n");
-      mkdirSync(join(root, "src"));
-      writeFileSync(join(root, "src/a.ts"), "export const a = 1;\n");
-      mkdirSync(join(root, ".codegraph"));
-      // Not a SQLite database: the snapshot copies it, and the session cannot open or read it.
-      writeFileSync(join(root, ".codegraph", "codegraph.db"), "not a sqlite database\n");
-      expect(() => withExistingCodeGraphSnapshot(root, { names: [], sources: [], includeFiles: false }, () => true))
-        .toThrow(expect.objectContaining({ code: "AC_CODE_FACTS_UNAVAILABLE", reasonCode: "index-open-failed" }));
-    });
   });
 });
 

@@ -52,13 +52,7 @@ export {
   type ProjectionCodeGraphStatusIssueCode,
   type ProjectionCodeGraphStatusIssueV1
 } from "./projection-handshake";
-export {
-  CODEGRAPH_SNAPSHOT_MAX_BYTES,
-  CODEGRAPH_SNAPSHOT_MAX_ENTRIES,
-  codeGraphSnapshotQueries,
-  codeGraphSnapshotRuntime,
-  withExistingCodeGraphSnapshot
-} from "./snapshot";
+export { withReadyCodeGraphIndex } from "./ready-index-read";
 export {
   CODEGRAPH_IMPORT_NODE_READ_LIMIT,
   repositoryImportPairs,

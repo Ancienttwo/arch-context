@@ -206,17 +206,20 @@ try {
   assert.equal(proof.duplicate.ambiguous, true);
   assert.equal(proof.duplicate.matched, false);
 
-  const indexFiles = (directory = join(fixtureRoot, ".codegraph")) => readdirSync(directory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name)).map(entry => {
-    const path = join(directory, entry.name);
-    return entry.isDirectory() ? [entry.name, indexFiles(path)] : [entry.name, readFileSync(path).toString("base64"), statSync(path).mtimeMs];
-  });
+  // ADR-0058 Decision 4: a read may add SQLite's shared-memory file and an empty WAL, nothing else.
+  const indexFiles = (directory = join(fixtureRoot, ".codegraph")) => readdirSync(directory, { withFileTypes: true })
+    .filter(entry => entry.name !== "codegraph.db-shm" && !(entry.name === "codegraph.db-wal" && statSync(join(directory, entry.name)).size === 0))
+    .sort((a, b) => a.name.localeCompare(b.name)).map(entry => {
+      const path = join(directory, entry.name);
+      return entry.isDirectory() ? [entry.name, indexFiles(path)] : [entry.name, readFileSync(path).toString("base64"), statSync(path).mtimeMs];
+    });
   const { CodeGraph } = createRequire(import.meta.url)("@colbymchenry/codegraph");
   for (const liveWal of [false, true]) {
     const holder = liveWal ? CodeGraph.openSync(fixtureRoot) : undefined;
     try {
       const before = indexFiles();
-      assert.equal(adapter.withExistingCodeGraphSnapshot(fixtureRoot, { names: ["renderMain"], sources: [], includeFiles: false }, graph => graph.getNodesByName("renderMain").length), 1);
-      assert.deepEqual(indexFiles(), before, `private Node snapshot must preserve original DB and sidecars, liveWal=${liveWal}`);
+      assert.equal(adapter.withReadyCodeGraphIndex(fixtureRoot, graph => graph.getNodesByName("renderMain").length), 1);
+      assert.deepEqual(indexFiles(), before, `the in-process read must preserve the database and its WAL, liveWal=${liveWal}`);
     } finally { holder?.close(); }
   }
   // ADR-0058: the read session under Node, in this process, with no holder: the writer of the
@@ -271,15 +274,15 @@ try {
 
   const beforeStale = indexFiles();
   writeFileSync(join(fixtureRoot, "src/render.ts"), 'export function renderBlock() { return "changed"; }\n');
-  assert.throws(() => adapter.withExistingCodeGraphSnapshot(fixtureRoot, { names: [], sources: [], includeFiles: false }, () => true), error => error.reasonCode === "code-facts-read-not-ready");
-  assert.deepEqual(indexFiles(), beforeStale, "stale Node snapshot must not sync the original index");
+  assert.throws(() => adapter.withReadyCodeGraphIndex(fixtureRoot, () => true), error => error.reasonCode === "code-facts-read-not-ready");
+  assert.deepEqual(indexFiles(), beforeStale, "a stale index is refused, never synced");
 
   console.log(JSON.stringify({
     schemaVersion: "archcontext.codegraph-selector-node-integration/v1",
     status: "verified",
     nodeVersion: process.version,
     codeGraphVersion: adapter.REQUIRED_CODEGRAPH_VERSION,
-    privateSnapshots: "closed-and-live-wal-preserved; stale-refused",
+    readyIndexReads: "closed-and-live-wal-preserved; stale-refused",
     readSession: "ready-without-holder; pending-counted; gate-compatibility-only; no-git-status",
     callSite: { path: "src/main.ts", line: 4 }
   }));
