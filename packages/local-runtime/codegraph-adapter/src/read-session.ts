@@ -196,10 +196,11 @@ export function openCodeGraphReadSession(root: string, options: { provider?: Cod
   if (lstatSync(indexDir).isSymbolicLink()) return { state: "index-open-failed" };
   if (!existsSync(join(indexDir, "codegraph.db"))) return { state: "not-initialized" };
   if (codeGraphIndexBuildInProgress(root)) return { state: "build-in-progress" };
-  let graph: CodeGraphIndexHandle;
-  try { graph = provider.openReadOnly(root); }
+  // The session owns the only reference to the handle, so close() can release it (see below).
+  const handle: { graph?: CodeGraphIndexHandle } = {};
+  try { handle.graph = provider.openReadOnly(root); }
   catch { return { state: "index-open-failed" }; }
-  return { state: "open", session: readSession(root, graph, provider) };
+  return { state: "open", session: readSession(root, handle, provider) };
 }
 
 /** Runs one read against a session that is closed when the read returns or throws. */
@@ -209,31 +210,30 @@ export function withCodeGraphReadSession<T>(root: string, read: (opened: CodeGra
   finally { if (opened.state === "open") opened.session.close(); }
 }
 
-function readSession(root: string, graph: CodeGraphIndexHandle, provider: CodeGraphReadProvider): CodeGraphReadSession {
-  let closed = false;
+function readSession(root: string, handle: { graph?: CodeGraphIndexHandle }, provider: CodeGraphReadProvider): CodeGraphReadSession {
   let freshness: CodeGraphIndexFreshnessV1 | undefined;
-  const open = () => {
-    if (closed) throw new Error("CodeGraph read session is closed");
-    return graph;
+  const open = (): CodeGraphIndexHandle => {
+    if (handle.graph === undefined) throw new Error("CodeGraph read session is closed");
+    return handle.graph;
   };
   return {
     root,
     get graph() { return open(); },
     version: () => provider.version,
     compatibility: () => {
-      const handle = open();
-      const build = handle.getIndexBuildInfo();
-      const lastIndexed = handle.getLastIndexedAt();
+      const graph = open();
+      const build = graph.getIndexBuildInfo();
+      const lastIndexed = graph.getLastIndexedAt();
       return {
         version: provider.version,
-        projectPath: handle.getProjectRoot(),
+        projectPath: graph.getProjectRoot(),
         lastIndexed: lastIndexed === null ? null : new Date(lastIndexed).toISOString(),
         builtWithVersion: build.version,
         builtWithExtractionVersion: build.extractionVersion,
         currentExtractionVersion: provider.extractionVersion,
-        reindexRecommended: handle.isIndexStale(),
-        state: handle.getIndexState(),
-        pendingRefs: handle.getPendingReferenceCount()
+        reindexRecommended: graph.isIndexStale(),
+        state: graph.getIndexState(),
+        pendingRefs: graph.getPendingReferenceCount()
       };
     },
     freshness: () => freshness ??= indexFreshness(root, open(), provider),
@@ -242,11 +242,12 @@ function readSession(root: string, graph: CodeGraphIndexHandle, provider: CodeGr
       return { lastIndexedAt, fileCount };
     },
     close: () => {
-      if (closed) return;
-      closed = true;
-      graph.close();
-      // Bun keeps the SDK's cached prepared statements, and with them the database file, until GC
-      // finalizes them; Windows cannot then delete or replace the file.
+      if (handle.graph === undefined) return;
+      handle.graph.close();
+      handle.graph = undefined;
+      // Bun keeps the SDK's cached prepared statements, and with them the database file, open until
+      // GC finalizes them, which it can do only once the handle is unreachable; Windows cannot
+      // delete or replace an open file.
       if (process.versions.bun !== undefined && process.platform === "win32") Bun.gc(true);
     }
   };
