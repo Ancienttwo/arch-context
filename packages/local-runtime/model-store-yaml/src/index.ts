@@ -300,9 +300,11 @@ export class YamlModelStore implements ModelStorePort {
 /**
  * The one model validator (#576). It validates a set of model files, whatever their source: the
  * YAML store passes the files on disk, and the ledger read path passes the ledger projection merged
- * with the files the ledger does not own. Both read modes therefore apply the same checks.
+ * with the files the ledger does not own. Both read modes therefore apply the same checks. It
+ * orders its input itself, so the error order and the model digest never depend on the caller.
  */
-export function validateModelFiles(files: ModelFile[]): ModelValidationResult {
+export function validateModelFiles(input: ModelFile[]): ModelValidationResult {
+  const files = orderModelFiles(input);
   const errors: string[] = [];
   const diagnostics: NonNullable<ModelValidationResult["diagnostics"]> = [];
   const nodeSchemaErrors: NonNullable<ModelValidationResult["nodeSchemaErrors"]> = [];
@@ -432,6 +434,15 @@ export function listModelFiles(root: string): ModelFile[] {
   });
 }
 
+/** The one model file order: by path in UTF-16 code unit order, as `Array.prototype.sort` orders strings. */
+export function orderModelFiles(files: ModelFile[]): ModelFile[] {
+  return [...files].sort((left, right) => compareModelPaths(left.path, right.path));
+}
+
+function compareModelPaths(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 function collectArchContextFiles(root: string, entries: string[]): string[] {
   const files: string[] = [];
   for (const entry of entries) {
@@ -444,7 +455,7 @@ function collectArchContextFiles(root: string, entries: string[]): string[] {
     }
     for (const child of walk(entry)) files.push(child);
   }
-  return [...new Set(files)].sort();
+  return [...new Set(files)].sort(compareModelPaths);
 
   function walk(relativeDir: string): string[] {
     const out: string[] = [];

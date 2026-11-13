@@ -6,7 +6,7 @@ import { REVIEW_FAIL_ON_CATEGORIES, digestJson, stableYaml, type Json } from "@a
 import { ChangeSetEngine } from "@archcontext/core/changeset-engine";
 import { CONSTRAINT_RULE_TYPES, readDependencyConstraints, readReviewPolicy } from "@archcontext/core/architecture-domain";
 import { loadStateMachinesFromArchContext } from "@archcontext/core/state-machine-engine";
-import { initializeArchContextModel, listModelFiles, planGeneratedProjection, YamlModelStore } from "../src/index";
+import { initializeArchContextModel, listModelFiles, planGeneratedProjection, validateModelFiles, YamlModelStore } from "../src/index";
 
 const NODE_PATH = ".archcontext/model/nodes/module.api.yaml";
 const NODE_BODY = "schemaVersion: archcontext.node/v2\nid: module.api\nkind: module\nname: API\nstatus: active\nparent: capability.architecture.context\nsummary: Serves API requests.\n";
@@ -43,7 +43,7 @@ function validate(root: string) {
   return new YamlModelStore().validateModel({ root, repositoryId: "repo.test", headSha: "abc" });
 }
 
-describe("YamlModelStore required files (#576)", () => {
+describe("validateModelFiles required files and file order (#576)", () => {
   test("a model without its product file fails with a missing-file diagnostic", async () => {
     const root = modelRoot();
     try {
@@ -53,6 +53,19 @@ describe("YamlModelStore required files (#576)", () => {
         errors: ["missing .archcontext/product.yaml"],
         diagnostics: [{ path: ".archcontext/product.yaml", code: "missing-file", error: "missing .archcontext/product.yaml" }]
       });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("validateModelFiles orders its input, so the caller's order changes neither errors nor digest", () => {
+    const root = modelRoot();
+    try {
+      for (const name of ["a", "B"]) writeFileSync(join(root, `.archcontext/model/nodes/${name}.yaml`), "id: broken\n", "utf8");
+      const files = listModelFiles(root);
+      const result = validateModelFiles(files);
+      expect(result.errors[0]).toStartWith(".archcontext/model/nodes/B.yaml: ");
+      expect(validateModelFiles([...files].sort((left, right) => right.path.localeCompare(left.path)))).toEqual(result);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

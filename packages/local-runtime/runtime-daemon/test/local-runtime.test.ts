@@ -7,7 +7,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
-import { emptyArchitectureLedgerEvidenceState, planYamlToArchitectureLedgerImport } from "@archcontext/core/architecture-ledger";
+import { emptyArchitectureLedgerEvidenceState, planYamlToArchitectureLedgerImport, projectArchitectureLedgerStateToYamlFiles, type ArchitectureLedgerGraphState } from "@archcontext/core/architecture-ledger";
 import { ARCHITECTURE_DOCS_RENDERER_VERSION, digestJson, projectionApplyReadbackRequestFromReceipt, stableYaml, type ProjectionApplyReceiptV1, type ProjectionRequestV1, type ProjectionResultV3, type StateMachineV1, type CodeFactsPort, type Json, type ModelStorePort, type NormalizedCodeContext } from "@archcontext/contracts";
 import { assertNoCodeGraphInternalPathAccess, CodeGraphAdapter, REQUIRED_CODEGRAPH_VERSION, loadCapabilityCodeGraphProjectionInputs, prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
 import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
@@ -15,7 +15,7 @@ import { MockCodeGraphProvider, declareOptionalCodeFacts } from "@archcontext/lo
 import { migrationSql, assertNoSourceStorageSchema, SQLITE_PRAGMAS, SqliteLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
 import { runArchitectureDebtCommand } from "@archcontext/local-runtime/architecture-debt";
-import { initializeArchContextModel, listModelFiles, planGeneratedProjection, YamlModelStore } from "@archcontext/local-runtime/model-store-yaml";
+import { extractSchemaVersion, initializeArchContextModel, listModelFiles, planGeneratedProjection, YamlModelStore } from "@archcontext/local-runtime/model-store-yaml";
 import { ChangeSetEngine, type ApplyOptions, type ChangeSetDraft } from "@archcontext/core/changeset-engine";
 import { createNodeInvestigationTransport } from "../src/investigation-transport";
 import { createNodeGithubIssueExecutor, preflightGithubIssueDrafts, withGithubIssueBodyFile, type GithubIssueExecutorPort, type GithubIssuePreflightDraft } from "../src/github-issue-executor";
@@ -2330,35 +2330,36 @@ setInterval(() => undefined, 1 << 30);
     }
   });
 
-  test("ledger read mode validates with the YAML validator: a rejected model fails the same way and a valid model passes (#576)", async () => {
+  describe("ledger read mode validates with the YAML validator: a rejected model fails the same way and a valid model passes (#576)", () => {
     const fixture = (path: string) => JSON.parse(readFileSync(join(import.meta.dir, "../../../contracts/fixtures", path), "utf8"));
     const topology = fixture("model/valid/runtime-topology.json") as { nodes: Record<string, Json>[]; relations: Record<string, Json>[] };
     const machine = { ...fixture("valid/architecture-state-machine.json"), capabilityId: "capability.architecture.context" };
     const mountPath = ".archcontext/model/nodes/mount.shop.tmp.yaml";
     const relationPath = ".archcontext/model/relations/relation.shop.api-runs-in-container.yaml";
-    const nestedPath = ".archcontext/model/state-machines/sub/x.yaml";
-    const cases: Array<{ name: string; write: (root: string) => void; errors: string[] }> = [
-      { name: "valid model", write: () => {}, errors: [] },
-      {
-        name: "node schema violation",
+    const nested = (name: string) => `.archcontext/model/state-machines/sub/${name}`;
+    const misplaced = (name: string) => `${nested(name)}: state-machine-path-nested: a state machine must be a direct child of .archcontext/model/state-machines/`;
+    const writeNested = (root: string, name: string) => {
+      mkdirSync(join(root, dirname(nested(name))), { recursive: true });
+      writeFileSync(join(root, nested(name)), stableYaml({ ...machine, id: `state-machine.checkout.${name.toLowerCase().replace(".yaml", "")}` }), "utf8");
+    };
+    const cases: Array<[string, { write: (root: string) => void; errors: string[] }]> = [
+      ["valid model", { write: () => {}, errors: [] }],
+      ["node schema violation", {
         write: (root) => writeFileSync(join(root, mountPath), stableYaml({ schemaVersion: "archcontext.node/v2", id: "mount.shop.tmp", kind: "mount", name: "Scratch", status: "active", summary: "Scratch.", mount: { mode: "rw", order: 0 } }), "utf8"),
         errors: [`${mountPath}: $.mount.target: required`]
-      },
-      {
-        name: "topology error",
+      }],
+      ["topology error", {
         write: (root) => writeFileSync(join(root, relationPath), stableYaml({ ...topology.relations.find((relation) => relation.id === "relation.shop.api-runs-in-container")!, target: "component.shop.api" }), "utf8"),
         errors: [`${relationPath}: target: topology-relation-target-kind-invalid`]
-      },
-      {
-        name: "nested state machine",
-        write: (root) => {
-          mkdirSync(join(root, dirname(nestedPath)), { recursive: true });
-          writeFileSync(join(root, nestedPath), stableYaml({ ...machine, id: "state-machine.checkout.nested" }), "utf8");
-        },
-        errors: [`${nestedPath}: state-machine-path-nested: a state machine must be a direct child of .archcontext/model/state-machines/`]
-      }
+      }],
+      ["nested state machine", { write: (root) => writeNested(root, "x.yaml"), errors: [misplaced("x.yaml")] }],
+      // Code unit order puts B before a; localeCompare puts a before B.
+      ["two invalid files whose paths sort differently under localeCompare", {
+        write: (root) => { writeNested(root, "a.yaml"); writeNested(root, "B.yaml"); },
+        errors: [misplaced("B.yaml"), misplaced("a.yaml")]
+      }]
     ];
-    for (const { name, write, errors } of cases) {
+    test.each(cases)("%s", async (name, { write, errors }) => {
       const root = tempRepo();
       try {
         initializeArchContextModel(root, "Ledger Validation Parity");
@@ -2377,19 +2378,33 @@ setInterval(() => undefined, 1 << 30);
         rmSync(join(root, ".archcontext/model/nodes"), { recursive: true, force: true });
         rmSync(join(root, ".archcontext/model/relations"), { recursive: true, force: true });
         class ImportedLedgerStore extends TestLocalStore {
+          state?: ArchitectureLedgerGraphState;
           override async readArchitectureLedgerState(scope: Parameters<TestLocalStore["readArchitectureLedgerState"]>[0]) {
-            return planYamlToArchitectureLedgerImport({ ...scope, files: ledgerFiles, previousEvidenceState: emptyArchitectureLedgerEvidenceState(), createdAt: "2026-11-13T00:00:00.000Z" }).state;
+            this.state = planYamlToArchitectureLedgerImport({ ...scope, files: ledgerFiles, previousEvidenceState: emptyArchitectureLedgerEvidenceState(), createdAt: "2026-11-13T00:00:00.000Z" }).state;
+            return this.state;
           }
         }
-        const daemon = await createStartedTestDaemon({ localStore: new ImportedLedgerStore(), architectureLedger: { rolloutMode: "ledger-authoritative" } });
+        const store = new ImportedLedgerStore();
+        const daemon = await createStartedTestDaemon({ localStore: store, architectureLedger: { rolloutMode: "ledger-authoritative" } });
         const ledger = (await daemon.validate(root)).data as any;
         expect(ledger.architectureLedger.readAuthority).toBe("ledger");
         expect(ledger.architectureLedger.entityCount).toBe(topology.nodes.length + 1);
         expect({ name, valid: ledger.valid, errors: ledger.errors }).toEqual({ name, valid: yaml.valid, errors: yaml.errors });
+        // The two modes hash different file bodies, so their digests differ; each mode hashes its files in the one order.
+        const ledgerSet = [
+          ...listModelFiles(root),
+          ...projectArchitectureLedgerStateToYamlFiles(store.state!).map((file) => ({ path: file.path, body: file.body, digest: file.digest, schemaVersion: extractSchemaVersion(file.body, file.path) }))
+        ];
+        const digestInPathOrder = (files: Array<{ path: string; digest: string }>) => {
+          const byPath = new Map(files.map((file) => [file.path, file.digest]));
+          return digestJson([...byPath.keys()].sort().map((path) => ({ path, digest: byPath.get(path)! })));
+        };
+        expect(ledger.modelDigest).toBe(digestInPathOrder(ledgerSet));
+        expect(yaml.modelDigest).toBe(digestInPathOrder(ledgerFiles));
       } finally {
         removeTempRepo(root);
       }
-    }
+    });
   });
 
   test("apply_update restores a hand-deleted node that an ADR references (#163)", async () => {

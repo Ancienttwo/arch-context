@@ -80,7 +80,7 @@ import { assertNoCallerProvidedAttestationFields, digestJson, errorEnvelope, fai
 import { type ProjectionRequestV1, type ProjectionApplyRecoveryIntentV1 } from "@archcontext/contracts";
 import { findRepositoryRoot, listGitVisibleFiles, readHeadSha } from "@archcontext/local-runtime/git-adapter";
 import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeAgentJobQueueScope, type RuntimeLocalStore, type UnresolvedChangeSetJournal } from "@archcontext/local-runtime/local-store-sqlite";
-import { ArchContextInitRefusedError, extractSchemaVersion, initializeArchContextModel, listModelFiles, planGeneratedProjection, rebuildGeneratedProjection, validateModelFiles, YamlModelStore, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
+import { ArchContextInitRefusedError, extractSchemaVersion, initializeArchContextModel, listModelFiles, orderModelFiles, planGeneratedProjection, rebuildGeneratedProjection, validateModelFiles, YamlModelStore, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
 import { createNodeInvestigationTransport } from "./investigation-transport";
 import { auditConsentRequiredEnvelope, readAuditConsent } from "./audit-consent";
 import { localEgressStatus } from "./egress";
@@ -241,9 +241,8 @@ class ArchitectureLedgerReadModelStore implements ModelStorePort {
     const fallbackFiles = (await this.fallback.loadModel(workspace))
       .filter(isModelFile)
       .filter((file) => !isArchitectureLedgerManagedModelPath(file.path));
-    const files = [...fallbackFiles, ...projectedFiles].sort((left, right) => left.path.localeCompare(right.path));
     return {
-      files,
+      files: orderModelFiles([...fallbackFiles, ...projectedFiles]),
       state,
       graphDigest: architectureLedgerStateDigest(state)
     };
