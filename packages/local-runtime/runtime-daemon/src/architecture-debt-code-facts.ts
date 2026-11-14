@@ -26,7 +26,7 @@ export function readArchitectureDebtCodeFacts(root: string, model: NativeModel, 
   let inputs: ReturnType<typeof loadCapabilityCodeGraphProjectionInputs>;
   try {
     inputs = loadCapabilityCodeGraphProjectionInputs(root, model, {
-      ...options, readOnly: true, sourceFiles,
+      ...options, sourceFiles,
       footprints: loadCapabilitySourceFootprints(root, model, sourceFiles)
     });
   } catch {

@@ -36,6 +36,7 @@ export {
   codeGraphIndexAvailable,
   inspectRepositoryCodeFacts,
   type RepositoryCodeFactsInspectionOptions,
+  type RepositoryCodeFactsIssueV1,
   type RepositoryCodeFactsPendingChangesV1,
   type RepositoryCodeFactsV1
 } from "./repository-code-facts";
@@ -45,13 +46,9 @@ export {
   prepareArchitectureDocumentationProjectionSnapshot,
   prepareProjectionCodeFacts,
   projectionCodeFactsRequired,
-  projectionCodeGraphStatusIssues,
   type CodeGraphProjectionHandshakeV1,
-  type CodeGraphProjectionStatusV1,
   type PreparedArchitectureDocumentationProjectionSnapshot,
-  type PreparedProjectionCodeFacts,
-  type ProjectionCodeGraphStatusIssueCode,
-  type ProjectionCodeGraphStatusIssueV1
+  type PreparedProjectionCodeFacts
 } from "./projection-handshake";
 export {
   CODEGRAPH_IMPORT_NODE_READ_LIMIT,

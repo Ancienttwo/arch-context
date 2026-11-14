@@ -1,36 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   CodeGraphProviderUnavailableError,
   REQUIRED_CODEGRAPH_VERSION,
   assertRepositoryCodeFactsReady,
-  inspectRepositoryCodeFacts,
-  projectionCodeGraphStatusIssues,
-  type CodeGraphProjectionStatusV1
+  inspectRepositoryCodeFacts
 } from "../src/index";
+import { CODE_FACTS_ISSUE_MESSAGES } from "@archcontext/contracts";
 import { fakeReadProvider } from "./read-provider-fixture";
-
-function freshStatus(root: string, overrides: Partial<CodeGraphProjectionStatusV1> = {}): CodeGraphProjectionStatusV1 {
-  return {
-    initialized: true,
-    version: REQUIRED_CODEGRAPH_VERSION,
-    projectPath: root,
-    lastIndexed: "2026-01-01T00:00:00.000Z",
-    pendingChanges: { added: 0, modified: 0, removed: 0 },
-    worktreeMismatch: null,
-    index: {
-      builtWithVersion: REQUIRED_CODEGRAPH_VERSION,
-      builtWithExtractionVersion: 7,
-      currentExtractionVersion: 7,
-      reindexRecommended: false,
-      state: "complete",
-      pendingRefs: 0
-    },
-    ...overrides
-  };
-}
 
 function withRoot<T>(run: (root: string) => T): T {
   const root = realpathSync.native(mkdtempSync(join(tmpdir(), "archctx-codegraph-status-")));
@@ -41,77 +20,25 @@ function withRoot<T>(run: (root: string) => T): T {
   }
 }
 
-describe("projectionCodeGraphStatusIssues", () => {
-  test("a fresh complete index has no issues", () => {
+describe("compatibility issues of an open index", () => {
+  // Each row is one index fact away from a ready index, read through one read-only session.
+  for (const [name, facts, codes] of [
+    ["a loaded provider of another version", { version: "0.0.1" }, ["version-mismatch"]],
+    ["an index built by another version", { builtWithVersion: "0.0.1" }, ["version-mismatch"]],
+    ["an index with no build version", { builtWithVersion: null }, ["version-mismatch"]],
+    ["an index of another project", { projectPath: "elsewhere" }, ["project-path-mismatch"]],
+    ["an index whose project path does not resolve", { projectPath: "missing" }, ["project-path-mismatch"]],
+    ["an index still building", { state: "building" }, ["index-incomplete"]],
+    ["an index with no state", { state: null }, ["index-incomplete"]],
+    ["an index with pending references", { pendingRefs: 3 }, ["index-incomplete"]],
+    ["an index the provider would rebuild", { reindexRecommended: true }, ["index-incomplete"]],
+    ["an index of an older extraction version", { builtWithExtractionVersion: 6 }, ["extraction-version-mismatch"]]
+  ] as const) test(`${name} is not ready`, () => {
     withRoot((root) => {
-      expect(projectionCodeGraphStatusIssues(freshStatus(root), root, "pre-sync")).toEqual([]);
-    });
-  });
-
-  test("an uninitialized index returns only that issue, with the phase in the message", () => {
-    withRoot((root) => {
-      expect(projectionCodeGraphStatusIssues(freshStatus(root, { initialized: false }), root, "pre-sync")).toEqual([
-        { code: "not-initialized", message: "CodeGraph pre-sync status is not initialized" }
-      ]);
-    });
-  });
-
-  test("version mismatch is reported for the tool and for the index build", () => {
-    withRoot((root) => {
-      expect(projectionCodeGraphStatusIssues(freshStatus(root, { version: "0.0.1" }), root, "post-sync"))
-        .toEqual([{ code: "version-mismatch", message: "CodeGraph post-sync status version mismatch" }]);
-      const status = freshStatus(root);
-      status.index = { ...status.index, builtWithVersion: "0.0.1" };
-      expect(projectionCodeGraphStatusIssues(status, root, "post-sync").map((issue) => issue.code)).toEqual(["version-mismatch"]);
-    });
-  });
-
-  test("project path mismatch and an unresolvable project path are issues", () => {
-    withRoot((root) => {
-      withRoot((other) => {
-        expect(projectionCodeGraphStatusIssues(freshStatus(root, { projectPath: other }), root, "pre-sync").map((issue) => issue.code))
-          .toEqual(["project-path-mismatch"]);
-      });
-      expect(projectionCodeGraphStatusIssues(freshStatus(root, { projectPath: join(root, "missing") }), root, "pre-sync").map((issue) => issue.code))
-        .toEqual(["project-path-mismatch"]);
-    });
-  });
-
-  test("an incomplete, pending-ref or reindex-recommended index is not complete and compatible", () => {
-    withRoot((root) => {
-      for (const index of [
-        { state: "building" },
-        { pendingRefs: 3 },
-        { reindexRecommended: true }
-      ]) {
-        const status = freshStatus(root);
-        status.index = { ...status.index, ...index };
-        expect(projectionCodeGraphStatusIssues(status, root, "post-query")).toEqual([
-          { code: "index-incomplete", message: "CodeGraph post-query index is not complete and compatible" }
-        ]);
-      }
-      expect(projectionCodeGraphStatusIssues(freshStatus(root, { index: undefined }), root, "post-query").map((issue) => issue.code))
-        .toEqual(["version-mismatch", "index-incomplete"]);
-    });
-  });
-
-  test("an extraction version that differs from the current one is stale", () => {
-    withRoot((root) => {
-      const status = freshStatus(root);
-      status.index = { ...status.index, builtWithExtractionVersion: 6 };
-      expect(projectionCodeGraphStatusIssues(status, root, "pre-sync")).toEqual([
-        { code: "extraction-version-mismatch", message: "CodeGraph pre-sync extraction version mismatch" }
-      ]);
-    });
-  });
-
-  test("a worktree mismatch is an issue and an absent field is not silently fresh", () => {
-    withRoot((root) => {
-      expect(projectionCodeGraphStatusIssues(freshStatus(root, { worktreeMismatch: { expected: "a" } }), root, "pre-sync"))
-        .toEqual([{ code: "worktree-mismatch", message: "CodeGraph pre-sync worktree mismatch" }]);
-      const absent = freshStatus(root);
-      delete (absent as { worktreeMismatch?: unknown }).worktreeMismatch;
-      expect(projectionCodeGraphStatusIssues(absent, root, "pre-sync").map((issue) => issue.code)).toEqual(["worktree-mismatch"]);
+      mkdirSync(join(root, "elsewhere"));
+      const projectPath = "projectPath" in facts ? { projectPath: join(root, facts.projectPath) } : {};
+      const inspected = inspectRepositoryCodeFacts(root, { provider: fakeReadProvider(root, { ...facts, ...projectPath }) });
+      expect(inspected).toMatchObject({ state: "not-ready", issues: codes.map((code) => ({ code, message: CODE_FACTS_ISSUE_MESSAGES[code] })) });
     });
   });
 });

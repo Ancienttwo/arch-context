@@ -15,7 +15,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { digestJson, type Json } from "@archcontext/contracts";
@@ -263,34 +263,22 @@ describe("RF0 baseline: normalized task-context import edges", () => {
 
 // --- projection handshake ---
 
+/** Fake CLI whose only command is `sync`, which marks the workspace synced. */
 const HANDSHAKE_CLI = `
-import { existsSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 const argv = process.argv.slice(2);
-const marker = join(process.cwd(), ".rf0-synced");
-if (argv[0] === "--version") { process.stdout.write("1.6.2\\n"); process.exit(0); }
-if (argv[0] === "sync") { writeFileSync(marker, "ok"); process.exit(0); }
-if (argv[0] === "status") {
-  const clean = existsSync(marker);
-  process.stdout.write(JSON.stringify({
-    initialized: true,
-    version: "1.6.2",
-    projectPath: process.cwd(),
-    lastIndexed: clean ? "2026-08-08T09:00:00.000Z" : "2026-08-08T08:00:00.000Z",
-    fileCount: 2,
-    nodeCount: 4,
-    edgeCount: 3,
-    nodesByKind: { file: 2, function: 2 },
-    languages: ["typescript"],
-    pendingChanges: { added: 0, modified: clean ? 0 : 1, removed: 0 },
-    worktreeMismatch: null,
-    index: { builtWithVersion: "1.6.2", builtWithExtractionVersion: 24, currentExtractionVersion: 24, reindexRecommended: false, state: "complete", pendingRefs: 0 }
-  }));
-  process.exit(0);
-}
+if (argv[0] === "sync") { writeFileSync(join(process.cwd(), ".rf0-synced"), "ok"); process.exit(0); }
 process.stderr.write("unexpected invocation " + JSON.stringify(argv));
 process.exit(2);
 `;
+
+/** The read-only index: one pending change and an earlier index time until the CLI has synced. */
+function handshakeIndex(root: string): CodeGraphReadProvider {
+  return fakeReadProvider(root, () => existsSync(join(root, ".rf0-synced"))
+    ? {}
+    : { lastIndexedAt: Date.UTC(2025, 0, 1), pending: { added: 0, modified: 1, removed: 0 } });
+}
 
 /** Reduces a digest to its shape; the value itself hashes the absolute path and the fake binary. */
 function shape(value: string | null): string | null {
@@ -324,11 +312,11 @@ describe("RF0 baseline: projection handshake field list", () => {
     test(`${fixture.id} — ${fixture.description}`, () => {
       const root = mkdtempSync(join(tmpdir(), "archctx-rf0-handshake-"));
       try {
-        if (fixture.input.withIndex) mkdirSync(join(root, ".codegraph"));
         const binary = join(root, "fake-codegraph.js");
         writeFileSync(binary, HANDSHAKE_CLI, "utf8");
         const prepared = prepareProjectionCodeFacts(root, { nodes: [], relations: [] }, {
           binary,
+          ...(fixture.input.withIndex ? { readProvider: handshakeIndex(root) } : {}),
           sourceTreeDigest: `sha256:${"9".repeat(64)}`
         });
         expectFrozen(normalizeHandshake(prepared.handshake), fixture);

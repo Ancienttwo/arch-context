@@ -58,41 +58,47 @@ describe("@archcontext/local-runtime/codegraph-adapter multi-repo", () => {
     }
   });
 
-  test("binds actual version, public status, sync, and source snapshot into one projection handshake", () => {
-    const root = mkdtempSync(join(tmpdir(), "archctx-codegraph-projection-handshake-"));
+  /**
+   * A fake CLI that appends each subcommand to `calls`, marks the workspace synced on `sync` and
+   * exits 0, or, with `syncExit`, writes `stderr` and exits with that code. With `syncDelayMs` the
+   * sync outlasts its deadline.
+   */
+  function handshakeCli(root: string, options: { syncExit?: number; syncDelayMs?: number } = {}): { binary: string; calls(): string[] } {
     const binary = join(root, "fake-codegraph.js");
-    const synced = join(root, "synced");
-    const actualRoot = realpathSync.native(root);
-    try {
-      mkdirSync(join(root, ".codegraph"));
-      writeFileSync(binary, `
-import { existsSync, writeFileSync } from "node:fs";
-const argv = process.argv.slice(2);
-if (argv[0] === "--version") { process.stdout.write("1.6.2\\n"); process.exit(0); }
-if (argv[0] === "sync") { writeFileSync(${JSON.stringify(synced)}, "ok"); process.exit(0); }
-if (argv[0] === "status") {
-  const clean = existsSync(${JSON.stringify(synced)});
-  process.stdout.write(JSON.stringify({
-    initialized: true,
-    version: "1.6.2",
-    projectPath: ${JSON.stringify(actualRoot)},
-    lastIndexed: clean ? "2026-08-08T09:00:00.000Z" : "2026-08-08T08:00:00.000Z",
-    fileCount: 2,
-    nodeCount: 4,
-    edgeCount: 3,
-    nodesByKind: { file: 2, function: 2 },
-    languages: ["typescript"],
-    pendingChanges: { added: 0, modified: clean ? 0 : 1, removed: 0 },
-    worktreeMismatch: null,
-    index: { builtWithVersion: "1.6.2", builtWithExtractionVersion: 24, currentExtractionVersion: 24, reindexRecommended: false, state: "complete", pendingRefs: 0 }
-  }));
-  process.exit(0);
-}
-process.stderr.write("unexpected invocation " + JSON.stringify(argv));
-process.exit(2);
+    const calls = join(root, "calls");
+    writeFileSync(binary, `
+import { appendFileSync, writeFileSync } from "node:fs";
+appendFileSync(${JSON.stringify(calls)}, process.argv[2] + "\\n");
+if (process.argv[2] !== "sync") process.exit(2);
+${options.syncExit === undefined ? "" : `process.stderr.write("sync rejected"); process.exit(${options.syncExit});`}
+${options.syncDelayMs === undefined ? "" : `await new Promise((resolve) => setTimeout(resolve, ${options.syncDelayMs}));`}
+writeFileSync(${JSON.stringify(join(root, "synced"))}, "ok");
 `);
+    return { binary, calls: () => existsSync(calls) ? readFileSync(calls, "utf8").split("\n").filter(Boolean) : [] };
+  }
+
+  /** A read-only index that lags by one modified file, at an earlier index time, until the CLI synced. */
+  function syncedIndex(root: string, facts: FakeIndexFacts = {}): FakeReadProvider {
+    return fakeReadProvider(root, () => existsSync(join(root, "synced"))
+      ? facts
+      : { ...facts, lastIndexedAt: Date.UTC(2025, 0, 1), pending: { added: 0, modified: 1, removed: 0 } });
+  }
+
+  function handshakeFailure(run: () => unknown): { message: string; details: Record<string, unknown> } {
+    let failure: unknown;
+    try { run(); } catch (error) { failure = error; }
+    expect(failure).toBeInstanceOf(Error);
+    const message = (failure as Error).message;
+    return { message, details: JSON.parse(message.split("\nCodeGraph handshake diagnostics: ")[1]!) };
+  }
+
+  test("binds the loaded version, the read-only index state, the sync and the source snapshot into one handshake", () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-codegraph-projection-handshake-"));
+    try {
+      const cli = handshakeCli(root);
       const prepared = prepareProjectionCodeFacts(root, { nodes: [], relations: [] }, {
-        binary,
+        binary: cli.binary,
+        readProvider: syncedIndex(root),
         sourceTreeDigest: `sha256:${"1".repeat(64)}`
       });
       expect(prepared.importGraphs).toEqual([]);
@@ -101,6 +107,8 @@ process.exit(2);
         availability: "ready",
         requiredVersion: "1.6.2"
       });
+      // `sync` is the only CodeGraph process the handshake starts.
+      expect(cli.calls()).toEqual(["sync"]);
       expect(prepared.handshake.binaryDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
       expect(prepared.handshake.preSyncStatusDigest).not.toBe(prepared.handshake.postSyncStatusDigest);
       expect(prepared.handshake.indexedWorktreeDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
@@ -110,41 +118,55 @@ process.exit(2);
     }
   });
 
-  test("fails closed on actual-version and post-sync snapshot mismatches", () => {
-    const root = mkdtempSync(join(tmpdir(), "archctx-codegraph-projection-mismatch-"));
-    const binary = join(root, "fake-codegraph.js");
+  test("a command that already synced the index starts no second sync and still fails closed on a stale index (#584)", () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-codegraph-projection-synced-"));
     try {
-      mkdirSync(join(root, ".codegraph"));
-      for (const version of ["1.4.0", "1.6.1"]) {
-        writeFileSync(binary, `if (process.argv[2] === '--version') process.stdout.write('${version}\\n');\n`);
-        expect(() => prepareProjectionCodeFacts(root, { nodes: [], relations: [] }, {
-          binary,
-          sourceTreeDigest: `sha256:${"2".repeat(64)}`
-        })).toThrow(`actual binary ${version}`);
-      }
+      const cli = handshakeCli(root);
+      writeFileSync(join(root, "synced"), "ok");
+      const prepared = prepareProjectionCodeFacts(root, { nodes: [], relations: [] }, {
+        binary: cli.binary, readProvider: syncedIndex(root), indexSynced: true, sourceTreeDigest: `sha256:${"1".repeat(64)}`
+      });
+      expect(prepared.handshake.availability).toBe("ready");
+      expect(prepared.handshake.preSyncStatusDigest).toBe(prepared.handshake.postSyncStatusDigest);
+      rmSync(join(root, "synced"));
+      expect(() => prepareProjectionCodeFacts(root, { nodes: [], relations: [] }, {
+        binary: cli.binary, readProvider: syncedIndex(root), indexSynced: true, sourceTreeDigest: `sha256:${"1".repeat(64)}`
+      })).toThrow("post-sync index still has pending source changes");
+      expect(cli.calls()).toEqual([]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
   });
 
-  test("fails closed when the package-local handshake exceeds its bounded deadline", () => {
-    const root = mkdtempSync(join(tmpdir(), "archctx-codegraph-projection-timeout-"));
-    const binary = join(root, "fake-codegraph.js");
+  test("fails closed on a loaded provider of another version, before any sync", () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-codegraph-projection-mismatch-"));
     try {
-      writeFileSync(binary, "setTimeout(() => process.stdout.write('1.6.2\\n'), 500);\n");
-      let failure: unknown;
-      try {
-        prepareProjectionCodeFacts(root, { nodes: [], relations: [] }, {
-          binary,
-          sourceTreeDigest: `sha256:${"3".repeat(64)}`,
-          timeouts: { versionMs: 20 }
-        });
-      } catch (error) { failure = error; }
-      expect(failure).toBeInstanceOf(Error);
-      const message = (failure as Error).message;
+      const cli = handshakeCli(root);
+      for (const version of ["1.4.0", "1.6.1"]) {
+        expect(() => prepareProjectionCodeFacts(root, { nodes: [], relations: [] }, {
+          binary: cli.binary,
+          readProvider: syncedIndex(root, { version }),
+          sourceTreeDigest: `sha256:${"2".repeat(64)}`
+        })).toThrow(`got loaded provider ${version}`);
+      }
+      expect(cli.calls()).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("fails closed when the sync exceeds its bounded deadline", () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-codegraph-projection-timeout-"));
+    try {
+      const cli = handshakeCli(root, { syncDelayMs: 500 });
+      const { message, details } = handshakeFailure(() => prepareProjectionCodeFacts(root, { nodes: [], relations: [] }, {
+        binary: cli.binary,
+        readProvider: syncedIndex(root),
+        sourceTreeDigest: `sha256:${"3".repeat(64)}`,
+        timeouts: { syncMs: 20 }
+      }));
       expect(message).toContain("CodeGraph projection handshake failed:");
-      const details = JSON.parse(message.split("\nCodeGraph handshake diagnostics: ")[1]!);
-      expect(details).toMatchObject({ subcommand: "--version", deadlineMs: 20, code: "ETIMEDOUT" });
+      expect(details).toMatchObject({ subcommand: "sync", deadlineMs: 20, code: "ETIMEDOUT" });
       expect(Number.isFinite(details.elapsedMs)).toBe(true);
       expect(details.elapsedMs).toBeGreaterThanOrEqual(0);
       expect(details).toHaveProperty("exitCode");
@@ -154,67 +176,92 @@ process.exit(2);
     }
   });
 
-  test("handshake diagnostics distinguish a status exit from a spawn failure without retry", () => {
+  test("handshake diagnostics distinguish a sync exit from a spawn failure without retry", () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-handshake-diagnostics-"));
-    const binary = join(root, "fake-codegraph.js");
-    const calls = join(root, "calls");
-    const failureDetails = (binary: string) => {
-      let failure: unknown;
-      try {
-        prepareProjectionCodeFacts(root, { nodes: [], relations: [] }, {
-          binary, sourceTreeDigest: `sha256:${"3".repeat(64)}`
-        });
-      } catch (error) { failure = error; }
-      expect(failure).toBeInstanceOf(Error);
-      return { message: (failure as Error).message, details: JSON.parse((failure as Error).message.split("\nCodeGraph handshake diagnostics: ")[1]!) };
-    };
     try {
-      mkdirSync(join(root, ".codegraph"));
-      writeFileSync(binary, `
-import { appendFileSync } from "node:fs";
-appendFileSync(${JSON.stringify(calls)}, process.argv[2] + "\\n");
-if (process.argv[2] === "--version") { process.stdout.write("1.6.2\\n"); process.exit(0); }
-process.stderr.write("status probe rejected");
-process.exit(7);
-`);
-      const exited = failureDetails(binary);
-      expect(exited.message).toContain("CodeGraph projection handshake failed: status probe rejected");
-      expect(exited.details).toMatchObject({ subcommand: "status", deadlineMs: 10000, exitCode: 7, signal: null });
+      const cli = handshakeCli(root, { syncExit: 7 });
+      const prepare = (binary: string) => () => prepareProjectionCodeFacts(root, { nodes: [], relations: [] }, {
+        binary, readProvider: syncedIndex(root), sourceTreeDigest: `sha256:${"3".repeat(64)}`
+      });
+      const exited = handshakeFailure(prepare(cli.binary));
+      expect(exited.message).toContain("CodeGraph projection handshake failed: sync rejected");
+      expect(exited.details).toMatchObject({ subcommand: "sync", deadlineMs: 120000, exitCode: 7, signal: null });
       expect(exited.details.elapsedMs).toBeGreaterThanOrEqual(0);
-      expect(readFileSync(calls, "utf8")).toBe("--version\nstatus\n");
-      const missing = failureDetails(join(root, "missing-codegraph"));
-      expect(missing.details).toMatchObject({ subcommand: "--version", deadlineMs: 10000, code: "ENOENT", exitCode: null, signal: null });
+      expect(cli.calls()).toEqual(["sync"]);
+      const missing = handshakeFailure(prepare(join(root, "missing-codegraph")));
+      expect(missing.details).toMatchObject({ subcommand: "sync", deadlineMs: 120000, code: "ENOENT", exitCode: null, signal: null });
       expect(missing.details.elapsedMs).toBeGreaterThanOrEqual(0);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
   });
 
-  test("fails closed when sync leaves the public index status stale", () => {
+  /** A capability whose footprint and entrypoint make the handshake read both imports and selectors. */
+  const readingModel = { nodes: [{ id: "capability.reads", kind: "capability", name: "Reads", source: {
+    include: ["src/**"],
+    entrypoints: [{ id: "entrypoint.reads", path: "src/main.ts", symbols: [{ name: "main", sinks: [{ id: "sink.reads", path: "src/main.ts", symbol: "helper" }] }] }]
+  } }], relations: [] } as unknown as Parameters<typeof prepareProjectionCodeFacts>[1];
+
+  /**
+   * The index of `readingModel`, ready until `during` reads the index (the import or the selector
+   * read), where `change` lands one added, modified or removed source.
+   */
+  function editedDuringRead(root: string, during: "imports" | "selectors", change: "added" | "modified" | "removed"): FakeReadProvider {
+    let edited = false;
+    const base = fakeReadProvider(root, () => edited ? { pending: { added: 0, modified: 0, removed: 0, [change]: 1 } } : {});
+    return {
+      ...base,
+      openReadOnly: (openedRoot) => Object.assign(base.openReadOnly(openedRoot), {
+        getStats: () => ({ nodesByKind: { import: 0 } }),
+        getNodesByKind: () => { if (during === "imports") edited = true; return []; },
+        getNodesByName: () => { if (during === "selectors") edited = true; return []; },
+        getNodesInFile: () => [],
+        getNode: () => null,
+        getOutgoingEdges: () => []
+      })
+    };
+  }
+
+  const editsDuringReads = (["imports", "selectors"] as const).flatMap((during) => (["added", "modified", "removed"] as const).flatMap((change) =>
+    [false, true].map((indexSynced) => ({
+      name: `a source ${change} during the ${during} read${indexSynced ? " of a reused sync" : ""}`,
+      model: readingModel,
+      provider: (root: string) => editedDuringRead(root, during, change),
+      indexSynced,
+      expected: "post-query index still has pending source changes"
+    }))));
+
+  for (const row of [
+    { name: "sync leaves the index stale", model: { nodes: [], relations: [] }, indexSynced: false, expected: "post-sync index still has pending source changes",
+      provider: (root: string) => fakeReadProvider(root, { pending: { added: 0, modified: 1, removed: 0 } }) },
+    // Only the session that spans the projection reads (the third open) sees the index move.
+    { name: "the index moves during the projection reads", model: { nodes: [], relations: [] }, indexSynced: false, expected: "CodeGraph indexed snapshot changed during projection queries",
+      provider: (root: string) => {
+        let provider: FakeReadProvider | undefined;
+        provider = fakeReadProvider(root, () => ({ revisionMoves: provider?.calls.open === 3 }));
+        return provider;
+      } },
+    ...editsDuringReads
+  ]) test(`fails closed when ${row.name}`, () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-codegraph-projection-stale-"));
-    const binary = join(root, "fake-codegraph.js");
-    const actualRoot = realpathSync.native(root);
     try {
-      mkdirSync(join(root, ".codegraph"));
-      writeFileSync(binary, `
-const argv = process.argv.slice(2);
-if (argv[0] === "--version") process.stdout.write("1.6.2\\n");
-else if (argv[0] === "sync") process.exit(0);
-else if (argv[0] === "status") process.stdout.write(JSON.stringify({
-  initialized: true, version: "1.6.2", projectPath: ${JSON.stringify(actualRoot)}, lastIndexed: "2026-08-08T09:00:00.000Z",
-  pendingChanges: { added: 0, modified: 1, removed: 0 }, worktreeMismatch: null,
-  index: { builtWithVersion: "1.6.2", builtWithExtractionVersion: 24, currentExtractionVersion: 24, reindexRecommended: false, state: "complete", pendingRefs: 0 }
-}));
-else process.exit(2);
-`);
-      expect(() => prepareProjectionCodeFacts(root, { nodes: [], relations: [] }, {
-        binary,
+      execFileSync("git", ["init", "-q"], { cwd: root });
+      mkdirSync(join(root, "src"));
+      writeFileSync(join(root, "src/main.ts"), "export function main() { return helper(); }\nexport function helper() { return 1; }\n");
+      const cli = handshakeCli(root);
+      if (row.indexSynced) writeFileSync(join(root, "synced"), "ok");
+      expect(() => prepareProjectionCodeFacts(root, row.model, {
+        binary: cli.binary,
+        readProvider: row.provider(root),
+        indexSynced: row.indexSynced,
         sourceTreeDigest: `sha256:${"4".repeat(64)}`
-      })).toThrow("post-sync index still has pending source changes");
+      })).toThrow(row.expected);
+      expect(cli.calls()).toEqual(row.indexSynced ? [] : ["sync"]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
   test("disables CodeGraph telemetry by default without overriding explicit env", () => {
     const defaultEnv: Record<string, string | undefined> = {};
     expect(disableCodeGraphTelemetryByDefault(defaultEnv)).toBe("1");
