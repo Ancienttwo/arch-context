@@ -6,7 +6,7 @@ import { createRequire } from "node:module";
 import { delimiter, dirname, isAbsolute, join, resolve } from "node:path";
 import type { Edge as CodeGraphEdge, Node as CodeGraphNode, NodeKind as CodeGraphNodeKind } from "@colbymchenry/codegraph";
 import { codeGraphChildEnv } from "./child-env";
-import { REQUIRED_CODEGRAPH_PACKAGE, REQUIRED_CODEGRAPH_VERSION, openCodeGraphReadSession, type CodeGraphIndexHandle, type CodeGraphReadProvider, type CodeGraphReadSessionOpenV1 } from "./read-session";
+import { REQUIRED_CODEGRAPH_PACKAGE, REQUIRED_CODEGRAPH_VERSION, openCodeGraphReadSession, type CodeGraphIndexHandle, type CodeGraphReadProvider, type CodeGraphReadSession, type CodeGraphReadSessionOpenV1 } from "./read-session";
 import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { CODE_FACTS_ISSUE_MESSAGES, FailureError, digestJson, type Json, type NormalizedCodeContext, type NormalizedEdge, type NormalizedImpact, type NormalizedSymbol, type SymbolQuery } from "@archcontext/contracts";
 import { importEdgesFromQueryNodes, importQuery, uniqueStrings } from "./import-population";
@@ -142,39 +142,63 @@ export class CodeGraphCliProvider implements CodeGraphProvider {
    * `symbolId` names a node id, else exact qualified names or names; every definition it names takes
    * part, so an ambiguous name gives the union over its definitions and an unknown one an empty
    * result. `affectedPaths` are the files of CodeGraph's impact radius at `depth`; callers and
-   * callees are the direct `calls` and `instantiates` edges of the definitions.
+   * callees are the direct `calls` and `instantiates` edges of the definitions. A type reference is
+   * no call, so it reaches only `affectedPaths` (#574 design amendment).
    */
   async getImpactRadius(symbolId: string, depth: number): Promise<NormalizedImpact> {
     return this.read((graph) => impactOf(graph, symbolId, depth));
   }
 
   /**
-   * Runs `read` against one read-only session that is closed when it settles. A refusal by the
-   * handle, including a write the read-only open refuses inside an SDK call, is a read failure; the
-   * read is never retried, and never with a writable open. Facts read across a build or a sync are
-   * not one index state, so they are refused as retryable (design G4).
+   * Runs `read` against one read-only session that is closed when it settles. Every failure leaves
+   * as a `FailureError` without provider text, and the read is never retried, never with a writable
+   * open:
+   * - the pinned provider cannot load: `code-facts-unavailable`, as the readiness gate maps it;
+   * - the session does not open: its state's refusal;
+   * - the index moved during the read, whether the read then threw or not: retryable not-ready,
+   *   because facts read across a build or a sync are not one index state (design G4);
+   * - any other throw inside the read, including a write the read-only handle refuses:
+   *   `index-open-failed`.
+   * A failing `close()` never replaces the read's own error; after a good read it is `index-open-failed`.
    */
   private async read<T>(read: (graph: CodeGraphIndexHandle) => T | Promise<T>): Promise<T> {
-    const opened = openCodeGraphReadSession(this.workspaceRoot, this.readProvider ? { provider: this.readProvider } : {});
+    let opened: CodeGraphReadSessionOpenV1;
+    try {
+      opened = openCodeGraphReadSession(this.workspaceRoot, this.readProvider ? { provider: this.readProvider } : {});
+    } catch {
+      throw codeGraphUnavailable();
+    }
     if (opened.state !== "open") throw readRefusal(opened.state);
     const { session } = opened;
+    let outcome: { value: T } | { error: FailureError };
     try {
-      let result: T;
-      let unchanged: boolean;
-      try {
-        result = await read(session.graph);
-        unchanged = session.unchangedSinceOpen();
-      } catch {
-        // No provider text crosses this boundary.
-        throw readRefusal("index-open-failed");
-      }
-      // A build or sync that committed during the read: refused as a build in progress is.
-      if (!unchanged) throw readRefusal("build-in-progress");
-      return result;
-    } finally {
-      session.close();
+      const value = await read(session.graph);
+      outcome = session.unchangedSinceOpen() ? { value } : { error: readRefusal("build-in-progress") };
+    } catch {
+      outcome = { error: readRefusal(indexMoved(session) ? "build-in-progress" : "index-open-failed") };
     }
+    try {
+      session.close();
+    } catch {
+      if ("value" in outcome) outcome = { error: readRefusal("index-open-failed") };
+    }
+    if ("error" in outcome) throw outcome.error;
+    return outcome.value;
   }
+}
+
+/** True only when the session can still tell that the index moved; a failing check proves nothing. */
+function indexMoved(session: CodeGraphReadSession): boolean {
+  try {
+    return !session.unchangedSinceOpen();
+  } catch {
+    return false;
+  }
+}
+
+/** The pinned provider could not load: the readiness gate's `codegraph-unavailable` refusal. */
+function codeGraphUnavailable(): FailureError {
+  return new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-unavailable", {}, { action: "inspect-diagnostics", retryable: false });
 }
 
 function readRefusal(state: Exclude<CodeGraphReadSessionOpenV1["state"], "open">): FailureError {

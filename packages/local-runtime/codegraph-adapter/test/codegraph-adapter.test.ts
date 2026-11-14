@@ -1,11 +1,12 @@
 import { execFileSync } from "node:child_process";
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { FailureError, digestJson, type Json } from "@archcontext/contracts";
 import { CODEGRAPH_TELEMETRY_ENV, CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, REQUIRED_CODEGRAPH_VERSION, codeGraphCliInvocation, disableCodeGraphTelemetryByDefault, openCodeGraphSymbolReader, packagedCodeGraphCliInvocation, pinnedCodeGraphProvider, prepareProjectionCodeFacts, type CodeGraphReadProvider } from "../src/index";
-import { codeGraphBundle } from "../src/read-session";
+import * as readSessionModule from "../src/read-session";
+import { CodeGraphProviderUnavailableError, codeGraphBundle } from "../src/read-session";
 import { fakeReadProvider, type FakeIndexFacts, type FakeReadProvider } from "./read-provider-fixture";
 import { MockCodeGraphProvider } from "./factories";
 import { indexCodeGraphFixture } from "./real-index";
@@ -479,12 +480,17 @@ process.exit(2);
 
   test("a read the session refuses fails closed, and an index that moves during the read is retryable", async () => {
     const graph = { searchNodes: () => [], generatedFilePredicate: () => () => false };
+    const failingRead = () => { throw new Error("private raw provider error /outside/repository"); };
     // [label, provider, code, reason, retryable, handles opened, handles closed]
     const cases: [string, (root: string) => FakeReadProvider, string, string, boolean, number, number][] = [
       ["no index", (root) => { const provider = sdkReadProvider(root, graph); rmSync(join(root, ".codegraph"), { recursive: true, force: true }); return provider; }, "AC_CODE_FACTS_UNAVAILABLE", "index-missing", true, 0, 0],
       ["open fails", (root) => sdkReadProvider(root, graph, { openFails: true }), "AC_CODE_FACTS_UNAVAILABLE", "index-open-failed", false, 1, 0],
       ["build lock", (root) => { const provider = sdkReadProvider(root, graph); writeFileSync(join(root, ".codegraph", "codegraph.lock"), String(process.pid)); return provider; }, "AC_CODE_FACTS_NOT_READY", "code-facts-not-ready", true, 0, 0],
-      ["revision moves", (root) => sdkReadProvider(root, graph, { revisionMoves: true }), "AC_CODE_FACTS_NOT_READY", "code-facts-not-ready", true, 1, 1]
+      ["revision moves", (root) => sdkReadProvider(root, graph, { revisionMoves: true }), "AC_CODE_FACTS_NOT_READY", "code-facts-not-ready", true, 1, 1],
+      // A read that throws because the index moved under it is the same retryable refusal (G4).
+      ["read throws while the index moves", (root) => sdkReadProvider(root, { ...graph, searchNodes: failingRead }, { revisionMoves: true }), "AC_CODE_FACTS_NOT_READY", "code-facts-not-ready", true, 1, 1],
+      // A failing close keeps the read's own error.
+      ["read and close throw", (root) => sdkReadProvider(root, { ...graph, searchNodes: failingRead, close: failingRead }), "AC_CODE_FACTS_UNAVAILABLE", "index-open-failed", false, 1, 0]
     ];
     for (const [label, provide, code, reasonCode, retryable, opened, closed] of cases) {
       const root = mkdtempSync(join(tmpdir(), "archctx-codegraph-read-refusal-"));
@@ -493,9 +499,26 @@ process.exit(2);
         const failure = await readFailure(new CodeGraphCliProvider(root, undefined, provider).findSymbols({ query: "render" }));
         expect([label, failure.code, failure.reasonCode, failure.retryable]).toEqual([label, code, reasonCode, retryable]);
         expect([label, provider.calls.open, provider.calls.close]).toEqual([label, opened, closed]);
+        expect(failure.message).not.toContain("outside");
       } finally {
         rmSync(root, { recursive: true, force: true });
       }
+    }
+  });
+
+  test("a provider that cannot load is code-facts-unavailable, as the readiness gate maps it", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-codegraph-provider-unavailable-"));
+    const open = spyOn(readSessionModule, "openCodeGraphReadSession").mockImplementation(() => {
+      throw new CodeGraphProviderUnavailableError("CodeGraph SDK could not be loaded from /outside/repository");
+    });
+    try {
+      const failure = await readFailure(new CodeGraphCliProvider(root).findSymbols({ query: "render" }));
+      expect([failure.code, failure.reasonCode, failure.action, failure.retryable]).toEqual(["AC_CODE_FACTS_UNAVAILABLE", "code-facts-unavailable", "inspect-diagnostics", false]);
+      expect(failure.message).not.toContain("outside");
+      expect(open).toHaveBeenCalledTimes(1);
+    } finally {
+      open.mockRestore();
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });
@@ -506,7 +529,9 @@ describe("CodeGraphCliProvider SDK reads on a real index (#574)", () => {
     "src/pricing/tax.ts": "import { basePrice } from \"./leaf\";\n\nexport function taxedPrice(sku: string): number {\n  return basePrice(sku) * 2;\n}\n",
     "src/checkout/cart.ts": "import { taxedPrice } from \"../pricing/tax\";\n\nexport function cartTotal(skus: string[]): number {\n  return skus.reduce((sum, sku) => sum + taxedPrice(sku), 0);\n}\n",
     "src/views/page.ts": "export function render(): string {\n  return \"page\";\n}\n\nexport function showPage(): string {\n  return render();\n}\n",
-    "src/views/widget.ts": "export class Widget {\n  render(): string {\n    return \"widget\";\n  }\n}\n\nexport function showWidget(widget: Widget): string {\n  return widget.render();\n}\n"
+    "src/views/widget.ts": "export class Widget {\n  render(): string {\n    return \"widget\";\n  }\n}\n\nexport function showWidget(widget: Widget): string {\n  return widget.render();\n}\n",
+    "src/pricing/sku.ts": "export interface Sku {\n  code: string;\n}\n",
+    "src/checkout/label.ts": "import type { Sku } from \"../pricing/sku\";\n\nexport function label(sku: Sku): string {\n  return sku.code;\n}\n"
   };
   let root = "";
   beforeAll(() => {
@@ -547,6 +572,11 @@ describe("CodeGraphCliProvider SDK reads on a real index (#574)", () => {
       { id: expect.stringMatching(/^method:[0-9a-f]{32}$/), name: "render", kind: "method", path: "src/views/widget.ts", range: { startLine: 2, endLine: 4 } }
     ]);
     expect((await provider.findSymbols({ query: "render", kinds: ["function"] })).map((symbol) => [symbol.kind, symbol.path])).toEqual([["function", "src/views/page.ts"]]);
+    // Unfiltered, both definitions tie on the search; the file path breaks the tie.
+    expect((await provider.findSymbols({ query: "render" })).map((symbol) => [symbol.kind, symbol.path])).toEqual([
+      ["function", "src/views/page.ts"],
+      ["method", "src/views/widget.ts"]
+    ]);
   });
 
   test("impact widens with depth; callers are the direct call edges", async () => {
@@ -564,6 +594,13 @@ describe("CodeGraphCliProvider SDK reads on a real index (#574)", () => {
     expect((await provider.getImpactRadius("taxedPrice", 1)).callees).toEqual([calls(await symbolId("taxedPrice", "function"), basePrice)]);
   });
 
+  test("a type reference reaches affectedPaths but is no caller", async () => {
+    // `label` uses `Sku` only as its parameter type.
+    expect(await new CodeGraphCliProvider(root).getImpactRadius("Sku", 1)).toEqual({
+      symbolId: "Sku", callers: [], callees: [], affectedPaths: ["src/checkout/label.ts", "src/pricing/sku.ts"]
+    });
+  });
+
   test("an unknown symbol has an empty impact", async () => {
     expect(await new CodeGraphCliProvider(root).getImpactRadius("noSuchSymbol", 2)).toEqual({ symbolId: "noSuchSymbol", callers: [], callees: [], affectedPaths: [] });
   });
@@ -574,9 +611,8 @@ describe("CodeGraphCliProvider SDK reads on a real index (#574)", () => {
     const fn = calls(await symbolId("showPage", "function"), await symbolId("render", "function"));
     const impact = await provider.getImpactRadius("render", 1);
     expect(impact.affectedPaths).toEqual(["src/views/page.ts", "src/views/widget.ts"]);
-    expect(impact.callers).toHaveLength(2);
-    expect(impact.callers).toContainEqual(method);
-    expect(impact.callers).toContainEqual(fn);
+    // Callers are ordered by source id: showWidget's id (`function:5d5d…`) sorts before showPage's (`function:b00b…`).
+    expect(impact.callers).toEqual([method, fn]);
     expect(await provider.getImpactRadius("Widget::render", 1)).toEqual({
       symbolId: "Widget::render", callers: [method], callees: [], affectedPaths: ["src/views/widget.ts"]
     });
@@ -596,7 +632,8 @@ describe("CodeGraphCliProvider SDK reads on a real index (#574)", () => {
         const close = graph.close.bind(graph);
         graph.close = () => { closes++; close(); };
         const findRelevantContext = graph.findRelevantContext.bind(graph);
-        // As a segment-vocabulary heal would: a real write through the read-only handle's database.
+        // Fault injection: CodeGraph 1.6.2's findRelevantContext makes no heal write, so this wrapper
+        // makes one, a real write through the read-only handle's database, which SQLite refuses.
         graph.findRelevantContext = async (query, options) => {
           try { (graph as unknown as { queries: { insertNameSegmentsBatch(names: string[]): void } }).queries.insertNameSegmentsBatch(["healed"]); }
           catch (error) { refusals.push(String(error)); throw error; }
