@@ -1,7 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
-import { codeGraphChildEnv } from "./child-env";
 import { REQUIRED_CODEGRAPH_PACKAGE, REQUIRED_CODEGRAPH_VERSION, pinnedCodeGraphProvider, withCodeGraphReadSession, type CodeGraphReadProvider, type CodeGraphReadSession } from "./read-session";
 import { parseJsonOrStableYaml } from "@archcontext/core/architecture-domain";
 import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
@@ -17,15 +16,7 @@ import {
   type NativeModel
 } from "@archcontext/core/projection-engine";
 import { digestJson, type ArchitectureDocumentationProjectionProvenanceV3, type Json } from "@archcontext/contracts";
-import {
-  CODEGRAPH_OUTPUT_MAX_BYTES,
-  codeGraphCliInvocation,
-  digestFile,
-  disableCodeGraphTelemetryByDefault,
-  packagedCodeGraphCliInvocation,
-  packagedCodeGraphRuntimeDigest,
-  type CodeGraphCliInvocation
-} from "./cli-invocation";
+import { codeGraphSyncInvocation, digestFile, packagedCodeGraphRuntimeDigest, syncCodeGraphIndex } from "./cli-invocation";
 import { assertRepositoryCodeFactsReady, codeGraphIndexAvailable, type RepositoryCodeFactsV1 } from "./repository-code-facts";
 import { codeFactsReadinessAfterRead } from "./ready-index-read";
 import { loadCapabilityCodeGraphProjectionInputs, type CapabilityCodeGraphProjectionInputs } from "./selector-index";
@@ -205,7 +196,7 @@ export function prepareProjectionCodeFacts(
   }
   // Taken after the sync, so a binary that cannot start fails as a sync with its diagnostics.
   const binaryDigest = () => options.binary
-    ? digestFile(codeGraphCliInvocation(options.binary, root, "").argsPrefix[0] ?? options.binary)
+    ? digestFile(codeGraphSyncInvocation(root, options.binary).argsPrefix[0] ?? options.binary)
     : packagedCodeGraphRuntimeDigest();
   if (!codeGraphIndexAvailable(root)) {
     const graphDigest = digestJson({
@@ -235,8 +226,7 @@ export function prepareProjectionCodeFacts(
   // after the reads: a fresh change test, then an unchanged revision of the reading session.
   assertRepositoryCodeFactsReady(root, { provider });
   if (!options.indexSynced) {
-    const invocation = options.binary ? codeGraphCliInvocation(options.binary, root, "") : packagedCodeGraphCliInvocation();
-    runProjectionCodeGraph(invocation, root, ["sync", root, "--quiet"], options.timeouts?.syncMs ?? 120_000);
+    syncCodeGraphIndex(root, { ...(options.binary ? { binary: options.binary } : {}), timeoutMs: options.timeouts?.syncMs ?? 120_000 });
   }
   const { indexDigest, inputs } = withProjectionIndexSession(root, provider, (session) => {
     const digest = projectionIndexStateDigest(session);
@@ -318,40 +308,5 @@ function readProjectionHeadSha(root: string): string {
     return headSha;
   } catch (error) {
     throw new Error(`Architecture projection HEAD is unreadable: ${error instanceof Error ? error.message : String(error)}`);
-  }
-}
-
-function runProjectionCodeGraph(
-  invocation: CodeGraphCliInvocation,
-  root: string,
-  args: string[],
-  timeout: number,
-  envOverrides?: Record<string, string>
-): string {
-  disableCodeGraphTelemetryByDefault();
-  const startedAt = performance.now();
-  try {
-    return execFileSync(invocation.command, [...invocation.argsPrefix, ...args], {
-      cwd: root,
-      env: codeGraphChildEnv(envOverrides),
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-      maxBuffer: CODEGRAPH_OUTPUT_MAX_BYTES,
-      timeout
-    });
-  } catch (error) {
-    const stderr = error && typeof error === "object" && "stderr" in error ? String((error as { stderr?: unknown }).stderr ?? "") : "";
-    const message = stderr.trim() || (error instanceof Error ? error.message : String(error));
-    const childError = error as { code?: string | number; status?: number | null; signal?: string | null } | null;
-    // Only the fixed subcommand is recorded; arguments may contain repository paths.
-    const diagnostics = {
-      subcommand: args[0],
-      deadlineMs: timeout,
-      elapsedMs: Math.round(performance.now() - startedAt),
-      code: childError?.code ?? null,
-      exitCode: childError?.status ?? null,
-      signal: childError?.signal ?? null
-    };
-    throw new Error(`CodeGraph projection handshake failed: ${message}\nCodeGraph handshake diagnostics: ${JSON.stringify(diagnostics)}`);
   }
 }

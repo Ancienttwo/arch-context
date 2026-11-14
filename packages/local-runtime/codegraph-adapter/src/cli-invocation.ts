@@ -26,7 +26,7 @@ export function disableCodeGraphTelemetryByDefault(env: MutableEnv = process.env
   return env[CODEGRAPH_TELEMETRY_ENV] ?? CODEGRAPH_TELEMETRY_DISABLED_VALUE;
 }
 
-/** Bound on one `sync` of the index. */
+/** Default bound on one `sync` of the index; the projection handshake passes its own. */
 const CODEGRAPH_SYNC_TIMEOUT_MS = 30_000;
 
 export interface CodeGraphCliInvocation {
@@ -167,25 +167,45 @@ export function digestFile(path: string): string {
 }
 
 /**
- * Brings the index of `workspaceRoot` up to its sources with the CodeGraph CLI. `sync` is the only
- * command archctx starts for the provider (ADR-0058 Decision 2), under `codeGraphChildEnv`; no read
- * goes through the CLI. `binary` is the packaged CLI unless the caller names another one.
+ * The CLI that runs `sync`: the packaged one unless the caller names another binary. PATH is not
+ * an authority here; a named binary is resolved as a path, then spawned as given.
  */
-export function syncCodeGraphIndex(workspaceRoot: string, binary: string = DEFAULT_CODEGRAPH_BINARY): void {
-  const invocation = binary === DEFAULT_CODEGRAPH_BINARY ? packagedCodeGraphCliInvocation() : codeGraphCliInvocation(binary, workspaceRoot);
+export function codeGraphSyncInvocation(workspaceRoot: string, binary: string = DEFAULT_CODEGRAPH_BINARY): CodeGraphCliInvocation {
+  return binary === DEFAULT_CODEGRAPH_BINARY ? packagedCodeGraphCliInvocation() : codeGraphCliInvocation(binary, workspaceRoot, "");
+}
+
+/**
+ * Brings the index of `workspaceRoot` up to its sources with the CodeGraph CLI. `sync` is the only
+ * command archctx starts (ADR-0058 Decision 2), under `codeGraphChildEnv`; no read goes through
+ * the CLI. A failure carries the deadline, the elapsed time and how the child ended, never its
+ * arguments, which may contain repository paths.
+ */
+export function syncCodeGraphIndex(workspaceRoot: string, options: { binary?: string; timeoutMs?: number } = {}): void {
+  const invocation = codeGraphSyncInvocation(workspaceRoot, options.binary);
+  const timeout = options.timeoutMs ?? CODEGRAPH_SYNC_TIMEOUT_MS;
   disableCodeGraphTelemetryByDefault();
+  const startedAt = performance.now();
   try {
-    execFileSync(invocation.command, [...invocation.argsPrefix, "sync", workspaceRoot], {
+    execFileSync(invocation.command, [...invocation.argsPrefix, "sync", workspaceRoot, "--quiet"], {
       cwd: workspaceRoot,
       env: codeGraphChildEnv(),
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
       maxBuffer: CODEGRAPH_OUTPUT_MAX_BYTES,
-      timeout: CODEGRAPH_SYNC_TIMEOUT_MS
+      timeout
     });
   } catch (error) {
     const stderr = error && typeof error === "object" && "stderr" in error ? String((error as { stderr?: unknown }).stderr ?? "") : "";
     const message = stderr.trim() || (error instanceof Error ? error.message : String(error));
-    throw new Error(`CodeGraph CLI failed: ${message}`);
+    const child = error as { code?: string | number; status?: number | null; signal?: string | null } | null;
+    const diagnostics = {
+      subcommand: "sync",
+      deadlineMs: timeout,
+      elapsedMs: Math.round(performance.now() - startedAt),
+      code: child?.code ?? null,
+      exitCode: child?.status ?? null,
+      signal: child?.signal ?? null
+    };
+    throw new Error(`CodeGraph sync failed: ${message}\nCodeGraph sync diagnostics: ${JSON.stringify(diagnostics)}`);
   }
 }

@@ -37,7 +37,7 @@ export class CodeGraphSdkProvider implements CodeGraphProvider {
   async indexAll(workspaceRoot: string): Promise<void> {
     this.workspaceRoot = workspaceRoot;
     this.assertCanSync(workspaceRoot);
-    syncCodeGraphIndex(workspaceRoot, this.binary);
+    syncCodeGraphIndex(workspaceRoot, { binary: this.binary });
     this.assertReady(workspaceRoot);
   }
 

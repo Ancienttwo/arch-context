@@ -89,7 +89,7 @@ writeFileSync(${JSON.stringify(join(root, "synced"))}, "ok");
     try { run(); } catch (error) { failure = error; }
     expect(failure).toBeInstanceOf(Error);
     const message = (failure as Error).message;
-    return { message, details: JSON.parse(message.split("\nCodeGraph handshake diagnostics: ")[1]!) };
+    return { message, details: JSON.parse(message.split("\nCodeGraph sync diagnostics: ")[1]!) };
   }
 
   test("binds the loaded version, the read-only index state, the sync and the source snapshot into one handshake", () => {
@@ -163,7 +163,7 @@ writeFileSync(${JSON.stringify(join(root, "synced"))}, "ok");
         sourceTreeDigest: `sha256:${"3".repeat(64)}`,
         timeouts: { syncMs: 20 }
       }));
-      expect(message).toContain("CodeGraph projection handshake failed:");
+      expect(message).toContain("CodeGraph sync failed:");
       expect(details).toMatchObject({ subcommand: "sync", deadlineMs: 20, code: "ETIMEDOUT" });
       expect(Number.isFinite(details.elapsedMs)).toBe(true);
       expect(details.elapsedMs).toBeGreaterThanOrEqual(0);
@@ -182,7 +182,7 @@ writeFileSync(${JSON.stringify(join(root, "synced"))}, "ok");
         binary, readProvider: syncedIndex(root), sourceTreeDigest: `sha256:${"3".repeat(64)}`
       });
       const exited = handshakeFailure(prepare(cli.binary));
-      expect(exited.message).toContain("CodeGraph projection handshake failed: sync rejected");
+      expect(exited.message).toContain("CodeGraph sync failed: sync rejected");
       expect(exited.details).toMatchObject({ subcommand: "sync", deadlineMs: 120000, exitCode: 7, signal: null });
       expect(exited.details.elapsedMs).toBeGreaterThanOrEqual(0);
       expect(cli.calls()).toEqual(["sync"]);
@@ -304,7 +304,7 @@ writeFileSync(${JSON.stringify(logPath)}, JSON.stringify({
 
       expect(existsSync(logPath)).toBe(true);
       const log = JSON.parse(readFileSync(logPath, "utf8")) as { argv: string[]; cwd: string; execPath: string };
-      expect(log.argv).toEqual(["sync", root]);
+      expect(log.argv).toEqual(["sync", root, "--quiet"]);
       expect(realpathSync.native(log.cwd)).toBe(realpathSync.native(root));
       expect(log.execPath).toBe(process.execPath);
     } finally {

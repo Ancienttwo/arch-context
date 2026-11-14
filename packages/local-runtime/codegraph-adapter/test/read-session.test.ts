@@ -384,10 +384,10 @@ describe("withReadyCodeGraphIndex: readiness and the read on one session", () =>
     ["a source modified during the query", editDuringQuery("modified"), notReady(false), true, 2],
     ["a source removed during the query", editDuringQuery("removed"), notReady(false), true, 2],
     ["a writer lock that appears during the query", lockDuringQuery, notReady(true), true, 1],
-    ["a query that throws a non-FailureError", failingRead, { code: "AC_CODE_FACTS_UNAVAILABLE", reasonCode: "code-facts-unavailable" }, true, 1],
+    ["a query that throws a non-FailureError", failingRead, { code: "AC_CODE_FACTS_UNAVAILABLE", reasonCode: "code-facts-unavailable", action: "inspect-diagnostics", retryable: false }, true, 1],
     ["an index removed during the query", indexRemovedDuringQuery, { code: "AC_CODE_FACTS_UNAVAILABLE", reasonCode: "index-missing" }, true, 1],
     ["an index that stops reading during the query", unreadableAfterQuery, { code: "AC_CODE_FACTS_UNAVAILABLE", reasonCode: "index-open-failed" }, true, 2],
-    ["a provider that stops loading during the query", providerLostDuringQuery, { code: "AC_CODE_FACTS_UNAVAILABLE", reasonCode: "code-facts-unavailable", retryable: false }, true, 1]
+    ["a provider that stops loading during the query", providerLostDuringQuery, { code: "AC_CODE_FACTS_UNAVAILABLE", reasonCode: "code-facts-unavailable", action: "inspect-diagnostics", retryable: false }, true, 1]
   ] as const)("%s is refused, and the handle is closed", (_name, setup, error, queried, opens) => {
     withRoot((root) => {
       const { provider, calls, during } = setup(root);
