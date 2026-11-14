@@ -1,8 +1,9 @@
 import { REQUIRED_CODEGRAPH_PACKAGE, REQUIRED_CODEGRAPH_VERSION } from "./read-session";
 import { buildArchitectureCandidateDelta, type ArchitectureDeltaDeclaredGraph, type ArchitectureDeltaGitChangeMetadata } from "@archcontext/core/architecture-delta";
 import { repoScopedArchitectureId, type CrossRepoRelation } from "@archcontext/core/architecture-domain";
-import { digestJson, type ArchitectureCandidateDeltaV1, type ArchitectureRepositoryIdentityV1, type ArchitectureWorktreeIdentityV1, type CodeFactsPort, type CodeFactsSnapshot, type ImpactQuery, type NormalizedCodeContext, type NormalizedEdge, type NormalizedImpact, type NormalizedSymbol, type ObservedEvidence, type SourceSelector, type SymbolQuery, type WorkspaceRef } from "@archcontext/contracts";
-import { disableCodeGraphTelemetryByDefault, type CodeGraphProvider } from "./cli-provider";
+import { digestJson, type ArchitectureCandidateDeltaV1, type ArchitectureRepositoryIdentityV1, type ArchitectureWorktreeIdentityV1, type CodeFactsPort, type CodeFactsSnapshot, type NormalizedCodeContext, type NormalizedEdge, type NormalizedSymbol, type ObservedEvidence, type SourceSelector, type SymbolQuery, type WorkspaceRef } from "@archcontext/contracts";
+import { disableCodeGraphTelemetryByDefault } from "./cli-invocation";
+import type { CodeGraphProvider } from "./sdk-provider";
 import { normalizeChangedPaths, uniqueStrings } from "./import-population";
 
 export {
@@ -23,14 +24,13 @@ export {
 export {
   CODEGRAPH_TELEMETRY_DISABLED_VALUE,
   CODEGRAPH_TELEMETRY_ENV,
-  CodeGraphCliProvider,
   codeGraphCliInvocation,
   disableCodeGraphTelemetryByDefault,
   packagedCodeGraphCliInvocation,
   packagedCodeGraphRuntimeDigest,
-  type CodeGraphCliInvocation,
-  type CodeGraphProvider
-} from "./cli-provider";
+  type CodeGraphCliInvocation
+} from "./cli-invocation";
+export { CodeGraphSdkProvider, type CodeGraphProvider } from "./sdk-provider";
 export {
   assertRepositoryCodeFactsReady,
   codeGraphIndexAvailable,
@@ -146,19 +146,6 @@ export class CodeGraphAdapter implements CodeFactsPort {
     return this.provider.findSymbols(query);
   }
 
-  async getImpact(input: ImpactQuery): Promise<NormalizedImpact> {
-    this.assertCompatible();
-    return this.provider.getImpactRadius(input.symbolId, input.depth);
-  }
-
-  async getCallers(symbolId: string): Promise<NormalizedEdge[]> {
-    return (await this.getImpact({ symbolId, depth: 1 })).callers;
-  }
-
-  async getCallees(symbolId: string): Promise<NormalizedEdge[]> {
-    return (await this.getImpact({ symbolId, depth: 1 })).callees;
-  }
-
   async resolveEvidence(selectors: SourceSelector[]): Promise<ObservedEvidence[]> {
     const snapshot = this.#snapshot;
     if (!snapshot) throw new Error("CodeGraph snapshot unavailable; call ensureReady first");
@@ -180,7 +167,7 @@ export class CodeGraphAdapter implements CodeFactsPort {
     if (this.provider.version !== REQUIRED_CODEGRAPH_VERSION) {
       throw new Error(`CodeGraph ${REQUIRED_CODEGRAPH_VERSION} required, got ${this.provider.version}`);
     }
-    for (const capability of ["index", "context", "impact"]) {
+    for (const capability of ["index", "context"]) {
       if (!this.provider.capabilities.includes(capability)) {
         throw new Error(`CodeGraph capability missing: ${capability}`);
       }

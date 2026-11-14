@@ -56,15 +56,6 @@ function codeFacts(): CodeFactsPort {
     async findSymbols() {
       return [];
     },
-    async getImpact() {
-      return { symbolId: "symbol.none", callers: [], callees: [], affectedPaths: [] };
-    },
-    async getCallers() {
-      return [];
-    },
-    async getCallees() {
-      return [];
-    },
     async resolveEvidence() {
       return [];
     }
@@ -227,15 +218,6 @@ describe("@archcontext/core/context-compiler", () => {
       async findSymbols() {
         return [];
       },
-      async getImpact() {
-        return { symbolId: "symbol.none", callers: [], callees: [], affectedPaths: [] };
-      },
-      async getCallers() {
-        return [];
-      },
-      async getCallees() {
-        return [];
-      },
       async resolveEvidence() {
         return [];
       }
@@ -289,15 +271,6 @@ describe("@archcontext/core/context-compiler", () => {
         throw new Error("CodeGraph should not build context");
       },
       async findSymbols() {
-        return [];
-      },
-      async getImpact() {
-        return { symbolId: "symbol.none", callers: [], callees: [], affectedPaths: [] };
-      },
-      async getCallers() {
-        return [];
-      },
-      async getCallees() {
         return [];
       },
       async resolveEvidence() {

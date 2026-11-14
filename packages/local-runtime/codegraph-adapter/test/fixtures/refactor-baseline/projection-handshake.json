@@ -13,11 +13,8 @@
         "graphDigest",
         "indexedWorktreeDigest",
         "packageName",
-        "postSyncStatusDigest",
-        "preSyncStatusDigest",
         "requiredVersion",
-        "schemaVersion",
-        "syncDigest"
+        "schemaVersion"
       ],
       "schemaVersion": "archcontext.codegraph-projection-handshake/v1",
       "packageName": "@colbymchenry/codegraph",
@@ -27,14 +24,11 @@
       "reasonCode": null,
       "digestShapes": {
         "binaryDigest": "sha256",
-        "preSyncStatusDigest": "sha256",
-        "postSyncStatusDigest": "sha256",
-        "syncDigest": "sha256",
         "indexedWorktreeDigest": "sha256",
         "graphDigest": "sha256"
       }
     },
-    "digest": "sha256:d5c8b05ffcf49149e8bb476fdbd76c1ae832b3c7ab9c3794c61b4fa6096decf4"
+    "digest": "sha256:e5276cdd8c63a185776286cb0c2a415cd23bef19fea6693e2de844bf6b8bbd28"
   },
   {
     "id": "index-missing-handshake-field-list",
@@ -50,12 +44,9 @@
         "graphDigest",
         "indexedWorktreeDigest",
         "packageName",
-        "postSyncStatusDigest",
-        "preSyncStatusDigest",
         "reasonCode",
         "requiredVersion",
-        "schemaVersion",
-        "syncDigest"
+        "schemaVersion"
       ],
       "schemaVersion": "archcontext.codegraph-projection-handshake/v1",
       "packageName": "@colbymchenry/codegraph",
@@ -65,13 +56,10 @@
       "reasonCode": "index-missing",
       "digestShapes": {
         "binaryDigest": "sha256",
-        "preSyncStatusDigest": null,
-        "postSyncStatusDigest": null,
-        "syncDigest": null,
         "indexedWorktreeDigest": null,
         "graphDigest": "sha256"
       }
     },
-    "digest": "sha256:da341a0ecb4bb6f0f8ec5d5e611a3ed4a07eee2d10066ba542546727b49cd2e4"
+    "digest": "sha256:105c26f1aab159cdd5be6bcd5e2ebb8b36f3d8e24115afa556559220a6fbffae"
   }
 ]

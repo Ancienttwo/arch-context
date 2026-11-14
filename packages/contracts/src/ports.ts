@@ -95,22 +95,10 @@ export interface NormalizedCodeContext {
   digest: string;
 }
 
-export interface NormalizedImpact {
-  symbolId: string;
-  callers: NormalizedEdge[];
-  callees: NormalizedEdge[];
-  affectedPaths: string[];
-}
-
 export interface SymbolQuery {
   query: string;
   kinds?: string[];
   limit?: number;
-}
-
-export interface ImpactQuery {
-  symbolId: string;
-  depth: number;
 }
 
 export interface SourceSelector {
@@ -127,9 +115,6 @@ export interface CodeFactsPort {
   sync(input: { workspace: WorkspaceRef; changedPaths?: string[] }): Promise<CodeFactsSnapshot>;
   buildTaskContext(input: { task: string; maxSymbols: number; includeSource: boolean; changedPaths?: string[] }): Promise<NormalizedCodeContext>;
   findSymbols(query: SymbolQuery): Promise<NormalizedSymbol[]>;
-  getImpact(input: ImpactQuery): Promise<NormalizedImpact>;
-  getCallers(symbolId: string): Promise<NormalizedEdge[]>;
-  getCallees(symbolId: string): Promise<NormalizedEdge[]>;
   resolveEvidence(selectors: SourceSelector[]): Promise<ObservedEvidence[]>;
 }
 

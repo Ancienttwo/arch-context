@@ -65,9 +65,6 @@ function structuralCompatibilityFacts(): CodeFactsPort {
       } satisfies NormalizedCodeContext;
     },
     async findSymbols() { return []; },
-    async getImpact() { return { symbolId: "symbol.none", callers: [], callees: [], affectedPaths: [] }; },
-    async getCallers() { return []; },
-    async getCallees() { return []; },
     async resolveEvidence() { return []; }
   };
 }
@@ -82,9 +79,6 @@ function quietFacts(): CodeFactsPort {
       return { task: input.task, symbols: [], edges: [], evidence: [], digest: digestJson({ task: input.task } as unknown as Json) } satisfies NormalizedCodeContext;
     },
     async findSymbols() { return []; },
-    async getImpact() { return { symbolId: "symbol.none", callers: [], callees: [], affectedPaths: [] }; },
-    async getCallers() { return []; },
-    async getCallees() { return []; },
     async resolveEvidence() { return []; }
   };
 }

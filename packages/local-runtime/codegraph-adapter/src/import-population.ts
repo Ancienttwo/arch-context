@@ -1,7 +1,6 @@
 import { posix } from "node:path";
 import type { CapabilitySourceFootprint, CapabilityImportEdge, CapabilityImportGraph } from "@archcontext/core/projection-engine";
 import type { NormalizedEdge } from "@archcontext/contracts";
-import type { CodeGraphCliNode } from "./cli-provider";
 import { withCodeGraphReadSession, type CodeGraphReadProvider, type CodeGraphReadSession } from "./read-session";
 
 const SOURCE_EXTENSIONS = [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".json"];
@@ -12,7 +11,7 @@ export function importQuery(changedPaths: string[]): string | undefined {
   return uniqueStrings(["import", ...scoped]).join(" ");
 }
 
-export function importEdgesFromQueryNodes(gitVisibleFiles: ReadonlySet<string>, nodes: CodeGraphCliNode[]): NormalizedEdge[] {
+export function importEdgesFromQueryNodes(gitVisibleFiles: ReadonlySet<string>, nodes: readonly ImportNode[]): NormalizedEdge[] {
   return resolvedImportPairs(gitVisibleFiles, nodes).map((pair) => ({
     source: fileSymbolId(pair.from),
     target: fileSymbolId(pair.to),
@@ -26,7 +25,7 @@ export function importEdgesFromQueryNodes(gitVisibleFiles: ReadonlySet<string>, 
  * to such a file (bare package name, workspace alias, missing or ignored target) yields no pair:
  * the caller gets fewer edges, never a guessed one.
  */
-function resolvedImportPairs(gitVisibleFiles: ReadonlySet<string>, nodes: CodeGraphCliNode[]): { from: string; to: string }[] {
+function resolvedImportPairs(gitVisibleFiles: ReadonlySet<string>, nodes: readonly ImportNode[]): { from: string; to: string }[] {
   return nodes
     .filter((node) => node.kind === "import")
     .flatMap((node) => {
@@ -180,8 +179,13 @@ function assertImportNodeLimit(limit: number): void {
   if (!Number.isInteger(limit) || limit < 1) throw new Error(`import node limit must be a positive integer, got ${limit}`);
 }
 
-/** The fields of an import node this producer reads; the SDK node and the CLI node both carry them. */
-type ImportNode = Pick<CodeGraphCliNode, "kind" | "name" | "filePath" | "startLine">;
+/** The fields of an index node this producer reads. */
+interface ImportNode {
+  kind: string;
+  name: string;
+  filePath: string;
+  startLine?: number;
+}
 
 /** Import nodes as repo-relative pairs, unresolved specifiers kept as `to: null`, sorted by file then specifier. */
 function importPairsOf(gitVisibleFiles: ReadonlySet<string>, imports: readonly ImportNode[]): RepositoryImportPairV1[] {
