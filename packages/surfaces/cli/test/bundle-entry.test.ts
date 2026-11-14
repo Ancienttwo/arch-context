@@ -254,7 +254,11 @@ interface BundleRunOptions {
 /** Runs the bundle with Node by default, the runtime the published `bin/archctx.mjs` targets. */
 function runBundle(cwd: string, args: string[], options: BundleRunOptions = {}): Promise<any> {
   return new Promise((resolvePromise, rejectPromise) => {
-    const child = spawn(options.runtime ?? "node", [...(options.nodeArgs ?? []), bundlePath, ...args], { cwd, env: options.env ?? process.env });
+    const childArgs = [...(options.nodeArgs ?? []), bundlePath, ...args];
+    const childOptions = { cwd, env: options.env ?? process.env };
+    const child = options.runtime === "bun"
+      ? spawn("bun", childArgs, childOptions)
+      : spawn("node", childArgs, childOptions);
     let stdout = "";
     let stderr = "";
     const timeout = setTimeout(() => {
