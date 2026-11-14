@@ -411,9 +411,13 @@ test("each platform family is selected by a path it owns; shared-core and packag
   expect(selectImpact(SCOPE, WORKSPACES, ["packages/core/policy-engine/src/index.ts"])).toEqual({ families: [],
     workspaces: ["archcontext", "@archcontext/core", "@archcontext/local-runtime", "@archcontext/cloud", "@archcontext/surfaces"] });
   expect(selectImpact(SCOPE, WORKSPACES, ["docs/runbooks/verify-sharding.md", "README.md"])).toEqual({ families: [], workspaces: [] });
-  for (const path of ["bun.lock", "package.json", "packages/core/package.json", ".github/workflows/verify.yml", "scripts/verify-ci.mjs"]) {
+  for (const path of ["bun.lock", "package.json", "packages/core/package.json", ".github/workflows/verify.yml", "scripts/verify-ci.mjs",
+    "packages/surfaces/cli/package.json", "packages/core/policy-engine/bunfig.toml", "tsconfig.build.json", "packages/core/tsconfig.json",
+    "packages/local-runtime/runtime-daemon/tsconfig.test.json"]) {
     expect(families(path)).toEqual(["platform", "node-compat", "linux-arm64"]);
   }
+  // CLI test fixture manifests are workspace content, not manifests of this repository.
+  expect(families("packages/surfaces/cli/test/fixtures/monorepo-basic/packages/lib/package.json")).toEqual([]);
 });
 
 test("every tracked path has a reviewed mapping and no routine selection contains the complete-suite family", () => {
@@ -564,7 +568,12 @@ test("the impact and gate commands plan each event from its base and gate the sa
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-/** Resolve a family job's commands to the tracked files that it runs. A command it cannot resolve throws. */
+/**
+ * Resolve a family job's commands to the tracked files that it runs, with Bun's own argument meaning:
+ * a `./` argument is a file or directory path, any other argument is a substring filter over test file
+ * paths, and no argument at all runs the whole discovered suite. A targeted family may never run the
+ * whole suite, so that and every command the resolver cannot map to an exact input set throw.
+ */
 function resolveJobInputs(job: any, scripts: Record<string, string>, tracked: Set<string>): string[] {
   const files: string[] = [];
   const isTest = (path: string) => /[._](?:test|spec)\.[cm]?[jt]sx?$/.test(path);
@@ -574,13 +583,19 @@ function resolveJobInputs(job: any, scripts: Record<string, string>, tracked: Se
     if (words[0] === "node" && words[1] === "-e") return; // inline runner guard: runs no repository file
     if (words[0] === "bun" && words[1] === "run" && words.length === 3 && scripts[words[2]]) return scripts[words[2]].split("&&").forEach(resolveCommand);
     if (words[0] === "bun" && words[1] === "test") {
+      let positional = 0;
       for (let index = 2; index < words.length; index++) {
-        if (words[index] === "--timeout") { index++; continue; }
-        const path = words[index].replace(/^\.\//, "");
-        const matched = tracked.has(path) ? [path] : [...tracked].filter(file => file.startsWith(`${path}/`) && isTest(file));
-        if (words[index].startsWith("-") || matched.length === 0) throw new Error(`cannot resolve ${words[index]} in ${command}`);
+        if (words[index] === "--timeout" && /^\d+$/.test(words[index + 1] ?? "")) { index++; continue; }
+        const arg = words[index];
+        const path = arg.slice(2);
+        const matched = arg.startsWith("./")
+          ? (tracked.has(path) ? [path] : [...tracked].filter(file => file.startsWith(`${path}/`) && isTest(file)))
+          : [...tracked].filter(file => file.includes(arg) && isTest(file));
+        if (arg.startsWith("-") || path === "" || matched.length === 0) throw new Error(`cannot resolve ${arg} in ${command}`);
         files.push(...matched);
+        positional++;
       }
+      if (positional === 0) throw new Error(`cannot resolve ${command}: an unfiltered bun test runs the whole discovered suite`);
       return;
     }
     if (words[0] === "node" && tracked.has(words[1]) && (words.length === 2 || (words.length === 4 && words[2] === ">"))) return void files.push(words[1]);
@@ -614,9 +629,16 @@ test("owner drift contract: each targeted family owns every test file and script
   }
   expect(failures).toEqual([]);
   expect(checked).toBeGreaterThanOrEqual(45);
-  for (const run of ["bun x unknown", "bun test ./missing/dir", "bun test --bail ./scripts", "bun run no-such-script", "node scripts/missing.mjs"]) {
-    expect(() => resolveJobInputs({ steps: [{ run }] }, scripts, tracked)).toThrow("cannot resolve");
+  for (const run of ["bun x unknown", "bun test ./missing/dir", "bun test --bail ./scripts", "bun run no-such-script", "node scripts/missing.mjs",
+    "bun test", "bun test --timeout 60000", "bun test --timeout", "bun test ./", "bun test ./.", "bun run unfiltered"]) {
+    expect(() => resolveJobInputs({ steps: [{ run }] }, { ...scripts, unfiltered: "bun test --timeout 60000" }, tracked)).toThrow("cannot resolve");
   }
+  // An unfiltered suite appended to an otherwise valid family job cannot leave the contract green.
+  const widened = { ...workflow.jobs["verify-platform"], steps: [...workflow.jobs["verify-platform"].steps, { run: "bun test --timeout 60000" }] };
+  expect(() => resolveJobInputs(widened, scripts, tracked)).toThrow("unfiltered bun test");
+  // A filter without `./` is Bun's substring match, so it resolves every test path that contains it.
+  expect(resolveJobInputs({ steps: [{ run: "bun test git-adapter/test/" }] }, scripts, tracked))
+    .toEqual(TRACKED.filter(file => file.includes("git-adapter/test/") && file.endsWith(".test.ts")));
 });
 
 test("the reviewed workspace graph equals the workspace manifests: every workspace and local dependency edge", () => {

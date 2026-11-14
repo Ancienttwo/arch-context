@@ -23,8 +23,8 @@ const SCOPE_PATH = new URL(`../${SCOPE_FILE}`, import.meta.url);
 const WORKSPACES_PATH = new URL(`../${WORKSPACES_FILE}`, import.meta.url);
 
 /**
- * A provider snapshot can land while an expected job is still in flight: the collector or Governance
- * reader then reads a nonterminal job and treats it as a final failed receipt (issue #492). Re-read a
+ * A provider snapshot can land while an expected job is still in flight: the Governance reader then
+ * reads a nonterminal job and treats it as a final failed receipt (issue #492). Re-read a
  * bounded number of times before failing closed, and never treat nonterminal as success.
  */
 export const RECEIPT_READ_ATTEMPTS = 6;
