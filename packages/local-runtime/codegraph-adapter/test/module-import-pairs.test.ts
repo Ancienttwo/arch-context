@@ -17,6 +17,8 @@ interface FakeImportIndex {
   withLines?: boolean;
   /** Return this many fewer nodes than the count reports, as an index that changed mid-read. */
   queryShortBy?: number;
+  /** Report this many fewer nodes in the count than the read returns, as an index that grew mid-read. */
+  countShortBy?: number;
   /** Readiness facts of the injected index (pending changes, a moving revision). */
   facts?: FakeIndexFacts;
 }
@@ -48,7 +50,7 @@ function importProvider(root: string, index: FakeImportIndex = {}): CodeGraphRea
   return {
     ...base,
     openReadOnly: (openedRoot) => Object.assign(base.openReadOnly(openedRoot), {
-      getStats: () => ({ nodesByKind: { file: 5, import: nodes.length } }),
+      getStats: () => ({ nodesByKind: { file: 5, import: nodes.length - (index.countShortBy ?? 0) } }),
       getNodesByKind: (kind: string) => kind === "import" ? nodes.slice(0, nodes.length - (index.queryShortBy ?? 0)).reverse() : []
     })
   };
@@ -224,6 +226,27 @@ describe("repository-wide import pairs", () => {
       expect(result.importNodeLimitExceeded).toBe(true);
       expect(result.truncated).toBe(true);
       expect(result.importNodeCount).toBe(7);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // The kept prefix is the first `limit` sorted nodes whatever the count said, and a count that
+  // disagrees with the read stays truncated. Seven nodes are returned unless the read is short.
+  for (const row of [
+    { name: "grows from below the cap across it", index: { countShortBy: 5 }, limit: 3, count: 2 },
+    { name: "grows from the cap across it", index: { countShortBy: 4 }, limit: 3, count: 3 },
+    { name: "grows while above the cap", index: { countShortBy: 2 }, limit: 3, count: 5 },
+    { name: "shrinks while above the cap", index: { queryShortBy: 2 }, limit: 3, count: 7 }
+  ]) test(`an index that ${row.name} during the read keeps a capped prefix and is truncated`, () => {
+    const { root, provider } = seedWorkspace(row.index);
+    try {
+      const result = pairsOf(root, provider, row.limit);
+      expect(result).toMatchObject({ truncated: true, importNodeCount: row.count, importNodeLimit: row.limit, importNodeLimitExceeded: true });
+      expect(result.pairs).toEqual([
+        { from: "packages/docs/src/main.ts", specifier: "./render", to: "packages/docs/src/render.ts" },
+        { from: "packages/docs/src/main.ts", specifier: "@archcontext/contracts", to: null }
+      ]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

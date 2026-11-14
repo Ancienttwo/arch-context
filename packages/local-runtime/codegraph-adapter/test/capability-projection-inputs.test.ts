@@ -44,11 +44,20 @@ const IMPORT_NODES = [
 
 /**
  * An injected read-only provider whose handle answers the import read: `getStats` reports `count`
- * import nodes (the six nodes when omitted) and `getNodesByKind("import")` returns the six, or
- * throws `failure`. `importReads` counts the node reads.
+ * import nodes (the six nodes when omitted) and `getNodesByKind("import")` returns `returned` nodes
+ * (the six, then unresolved extras from `main.ts`), or throws `failure`. `revisionMoves` moves the
+ * index revision after the open; `writerStartsDuringRead` takes the provider writer lock inside
+ * the node read. `importReads` counts the node reads.
  */
-function importIndex(root: string, options: { count?: number; failure?: string } = {}): FakeReadProvider & { importReads(): number } {
-  const base = fakeReadProvider(root);
+function importIndex(
+  root: string,
+  options: { count?: number; returned?: number; failure?: string; revisionMoves?: boolean; writerStartsDuringRead?: boolean } = {}
+): FakeReadProvider & { importReads(): number } {
+  const base = fakeReadProvider(root, { revisionMoves: options.revisionMoves ?? false });
+  const returned = options.returned ?? IMPORT_NODES.length;
+  const extras = Array.from({ length: Math.max(0, returned - IMPORT_NODES.length) }, (_, i) =>
+    ({ id: `import:packages/docs/src/main.ts:./extra-${i}`, kind: "import", name: `./extra-${i}`, filePath: "packages/docs/src/main.ts" }));
+  const nodes = [...IMPORT_NODES, ...extras].slice(0, returned);
   let reads = 0;
   return {
     ...base,
@@ -59,7 +68,8 @@ function importIndex(root: string, options: { count?: number; failure?: string }
       getNodesByKind: (kind: string) => {
         reads++;
         if (options.failure) throw new Error(options.failure);
-        return kind === "import" ? IMPORT_NODES : [];
+        if (options.writerStartsDuringRead) writeFileSync(join(root, ".codegraph", "codegraph.lock"), String(process.pid));
+        return kind === "import" ? nodes : [];
       }
     })
   };
@@ -566,6 +576,34 @@ describe("capability documentation projection inputs from the code index", () =>
       expect(inputs.importGraphs[0].importNodeLimitExceeded).toBe(true);
       expect(inputs.importGraphs[0].truncated).toBe(false);
       expect(inputs.importPopulation).toMatchObject({ importNodeCount: 6, importNodeLimit: 5, importNodeLimitExceeded: true, truncated: false });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // An index that moves during the read, or a population that disagrees with its count, is
+  // truncated in the population and in every graph; the kept prefix never exceeds the limit.
+  for (const row of [
+    { name: "same-count revision movement", index: { revisionMoves: true }, limit: 100, exceeded: false },
+    { name: "a writer starting during the read below the cap", index: { writerStartsDuringRead: true }, limit: 7, exceeded: false },
+    { name: "a writer starting during the read at the cap", index: { writerStartsDuringRead: true }, limit: 6, exceeded: false },
+    { name: "a writer starting during the read above the cap", index: { writerStartsDuringRead: true }, limit: 5, exceeded: true },
+    { name: "count growth across the cap", index: { count: 6, returned: 8 }, limit: 6, exceeded: true },
+    { name: "growth while above the cap", index: { count: 7, returned: 8 }, limit: 5, exceeded: true },
+    { name: "shrink while above the cap", index: { count: 8, returned: 7 }, limit: 5, exceeded: true }
+  ]) test(`marks the import read truncated on ${row.name}`, () => {
+    const { root } = seedWorkspace({ withIndex: true });
+    try {
+      const capabilities = { nodes: [footprintOnly.nodes[0], { ...model.nodes[1], source: { include: ["packages/other/**"] } }], relations: [] };
+      const inputs = loadCapabilityCodeGraphProjectionInputs(root, capabilities, { provider: importIndex(root, row.index), importNodeLimit: row.limit });
+      const returned = row.index.returned ?? IMPORT_NODES.length;
+      expect(inputs.importPopulation).toMatchObject({ truncated: true, importNodeLimit: row.limit, importNodeLimitExceeded: row.exceeded });
+      expect(inputs.importPopulation!.pairs).toHaveLength(Math.min(returned, row.limit));
+      expect(inputs.importGraphs).toHaveLength(2);
+      for (const graph of inputs.importGraphs) {
+        expect(graph.truncated).toBe(true);
+        expect(graph.importNodeLimitExceeded).toBe(row.exceeded ? true : undefined);
+      }
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

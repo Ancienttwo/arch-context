@@ -107,9 +107,10 @@ export interface RepositoryImportPairsV1 {
   /** The read limit this call applied. */
   importNodeLimit: number;
   /**
-   * True when the index holds more import nodes than `importNodeLimit`. The pairs then come from
-   * the first `importNodeLimit` nodes in (filePath, name, startLine) order. This is a configured
-   * limit, not an incomplete index, so `truncated` stays false.
+   * True when the index holds more import nodes than `importNodeLimit`, by its count or by the
+   * nodes the read returned. The pairs then come from the first `importNodeLimit` nodes in
+   * (filePath, name, startLine) order. The limit is configured, not an incomplete index, so on its
+   * own it leaves `truncated` false.
    */
   importNodeLimitExceeded: boolean;
 }
@@ -202,10 +203,11 @@ function importPairsOf(gitVisibleFiles: ReadonlySet<string>, imports: readonly I
 /**
  * Reads the whole import population from the session's handle. The count comes first
  * (`getStats`), then the nodes; each is one statement, so a node list longer or shorter than the
- * count means the index changed between them, which is real truncation. Above `limit` the kept
- * prefix is the first `limit` nodes in (filePath, name, startLine) order, so the cut does not
- * depend on the order the index stores them in. `getStats` counts kinds with a `GROUP BY`, so an
- * absent `import` key is zero import nodes.
+ * count means the index changed between them, which is real truncation. The kept prefix is always
+ * at most `limit` nodes in (filePath, name, startLine) order, whatever the count said, so a
+ * population that grew after the count cannot escape the cap and the cut does not depend on the
+ * order the index stores them in. The limit counts as exceeded when either observation is above
+ * it. `getStats` counts kinds with a `GROUP BY`, so an absent `import` key is zero import nodes.
  */
 function codeGraphImportPopulation(
   session: CodeGraphReadSession,
@@ -213,12 +215,11 @@ function codeGraphImportPopulation(
 ): { imports: ImportNode[]; count: number; truncated: boolean; limitExceeded: boolean } {
   const count = session.graph.getStats().nodesByKind.import ?? 0;
   const imports: ImportNode[] = session.graph.getNodesByKind("import").sort(compareImportNodes);
-  const limitExceeded = count > limit;
   return {
-    imports: limitExceeded ? imports.slice(0, limit) : imports,
+    imports: imports.slice(0, limit),
     count,
     truncated: imports.length !== count,
-    limitExceeded
+    limitExceeded: Math.max(count, imports.length) > limit
   };
 }
 
@@ -232,8 +233,8 @@ function compareStrings(left: string, right: string): number {
 }
 
 /**
- * Per-capability import graphs over the session's import population. A session that the caller
- * opened for several reads gives them one index state.
+ * Per-capability import graphs over the session's import population. An index that moved since
+ * the session opened (revision or writer lock) marks the population and every graph truncated.
  */
 export function capabilityImportGraphs(
   session: CodeGraphReadSession,
@@ -243,6 +244,8 @@ export function capabilityImportGraphs(
 ): { importGraphs: CapabilityImportGraph[]; importPopulation: ProjectionImportPopulationV1 } {
   assertImportNodeLimit(limit);
   const nodes = codeGraphImportPopulation(session, limit);
+  // As in `repositoryImportPairs`: facts read across a sync are not one index state (design G4).
+  const truncated = nodes.truncated || !session.unchangedSinceOpen();
   const population = importPairsOf(gitVisibleFiles, nodes.imports);
   // The graphs keep their resolved-only edge set, which the capability projection fixtures pin.
   const resolved = population.flatMap((pair) => pair.to === null ? [] : [{ from: pair.from, to: pair.to }]);
@@ -257,7 +260,7 @@ export function capabilityImportGraphs(
       nodeId: footprint.nodeId,
       files: footprint.files,
       edges: [...edges.values()].sort((left, right) => left.from.localeCompare(right.from) || left.to.localeCompare(right.to)),
-      truncated: nodes.truncated,
+      truncated,
       ...(nodes.limitExceeded ? { importNodeLimitExceeded: true as const } : {})
     };
   });
@@ -265,7 +268,7 @@ export function capabilityImportGraphs(
     importGraphs,
     importPopulation: {
       pairs: population,
-      truncated: nodes.truncated,
+      truncated,
       importNodeCount: nodes.count,
       importNodeLimit: limit,
       importNodeLimitExceeded: nodes.limitExceeded
