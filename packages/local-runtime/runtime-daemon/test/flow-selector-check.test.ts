@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { failureIssues } from "@archcontext/contracts";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { runFlowSelectorCheckCommand } from "../src/flow-selector-check";
+import { gitCommandsOutsideCodeFactsRead, gitSpy } from "../../codegraph-adapter/test/git-spy";
 import { incompleteCodeGraphFixture, indexCodeGraphFixture } from "../../codegraph-adapter/test/real-index";
 
 function fixture() {
@@ -35,20 +36,31 @@ function fixture() {
   return root;
 }
 
+/**
+ * ADR-0058 Decision 4: a read may add SQLite's shared-memory file and an empty WAL to `.codegraph/`,
+ * and nothing else. Adding them changes only that directory's own stat.
+ */
 function snapshot(root: string): unknown[] {
-  return readdirSync(root).sort().map(name => {
+  return readdirSync(root).sort().filter(name => {
+    const path = join(root, name);
+    return name !== "codegraph.db-shm" && !(name === "codegraph.db-wal" && statSync(path).size === 0);
+  }).map(name => {
     const path = join(root, name);
     const stat = statSync(path, { bigint: true });
+    if (name === ".codegraph" && stat.isDirectory()) return [name, snapshot(path)];
     return [name, stat.ino, stat.size, stat.mtimeNs, stat.ctimeNs, stat.isDirectory() ? snapshot(path) : readFileSync(path).toString("base64")];
   });
 }
 
-for (const state of ["missing", "incomplete", "ready", "stale", "foreign"] as const) {
+for (const state of ["missing", "incomplete", "ready", "stale", "foreign", "unopenable"] as const) {
   test(`no-sync preserves original checkout and index for ${state}`, async () => {
     const root = fixture();
     let other: string | undefined;
     try {
-      if (state !== "missing") {
+      if (state === "unopenable") {
+        mkdirSync(join(root, ".codegraph"));
+        writeFileSync(join(root, ".codegraph/codegraph.db"), "not a sqlite database\n");
+      } else if (state !== "missing") {
         if (state === "incomplete") incompleteCodeGraphFixture(root);
         else indexCodeGraphFixture(root);
         Bun.gc(true);
@@ -66,12 +78,20 @@ for (const state of ["missing", "incomplete", "ready", "stale", "foreign"] as co
         expect(result.data).toMatchObject({ selectors: [{ status: "proven" }] });
         // The dev launcher, so the CLI process loads the same SQLite library as this one (#574).
         const cli = fileURLToPath(new URL("../../../surfaces/cli/bin/archctx", import.meta.url));
-        const output = execFileSync(process.execPath, [cli, "flows", "check", "--no-sync", "--json"], { cwd: target, encoding: "utf8" });
-        expect(JSON.parse(output)).toEqual(result);
+        const spy = process.platform === "win32" ? undefined : gitSpy();
+        try {
+          const output = execFileSync(process.execPath, [cli, "flows", "check", "--no-sync", "--json"], { cwd: target, encoding: "utf8", env: spy?.env ?? process.env });
+          expect(JSON.parse(output)).toEqual(result);
+          if (spy) {
+            // No `status`, `diff`, `check-attr` or other `config`: the read runs no filter and refreshes no index.
+            expect(spy.subcommands().some(command => command.startsWith("ls-files"))).toBe(true);
+            expect(gitCommandsOutsideCodeFactsRead(spy.subcommands())).toEqual([]);
+          }
+        } finally { spy?.restore(); }
         expect(runFlowSelectorCheckCommand(target, { noSync: true })).toEqual(result);
       } else {
         expect(result).toMatchObject({ ok: false, error: { code: "AC_CODE_FACTS_UNAVAILABLE", reasonCode:
-          state === "missing" ? "index-missing" : state === "foreign" ? "code-facts-snapshot-layout-unsupported" : "code-facts-read-not-ready"
+          state === "missing" ? "index-missing" : state === "foreign" || state === "unopenable" ? "index-open-failed" : "code-facts-read-not-ready"
         } });
         expect(failureIssues(result.error)).toEqual([]);
       }
