@@ -1,17 +1,26 @@
 import { execFileSync } from "node:child_process";
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { digestJson, type Json } from "@archcontext/contracts";
-import { CODEGRAPH_TELEMETRY_ENV, CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, REQUIRED_CODEGRAPH_VERSION, codeGraphCliInvocation, disableCodeGraphTelemetryByDefault, openCodeGraphSymbolReader, packagedCodeGraphCliInvocation, prepareProjectionCodeFacts } from "../src/index";
-import { fakeReadProvider } from "./read-provider-fixture";
+import { dirname, join } from "node:path";
+import { FailureError, digestJson, type Json } from "@archcontext/contracts";
+import { CODEGRAPH_TELEMETRY_ENV, CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, REQUIRED_CODEGRAPH_VERSION, codeGraphCliInvocation, disableCodeGraphTelemetryByDefault, openCodeGraphSymbolReader, packagedCodeGraphCliInvocation, pinnedCodeGraphProvider, prepareProjectionCodeFacts, type CodeGraphReadProvider } from "../src/index";
+import * as readSessionModule from "../src/read-session";
+import { CodeGraphProviderUnavailableError, codeGraphBundle } from "../src/read-session";
+import { fakeReadProvider, type FakeIndexFacts, type FakeReadProvider } from "./read-provider-fixture";
 import { MockCodeGraphProvider } from "./factories";
+import { indexCodeGraphFixture } from "./real-index";
 
-// Mirrors the synthetic id CodeGraphCliProvider assigns to a CLI node that has no hash id
-// of its own (e.g. entries parsed from the `codegraph node` text trail).
-function expectedSyntheticId(name: string, path: string): string {
-  return `codegraph.${digestJson({ name, path } as unknown as Json).slice(7, 19)}`;
+/** `fakeReadProvider`, with the SDK reads of `graph` on every handle it opens. */
+function sdkReadProvider(root: string, graph: Record<string, unknown>, facts: FakeIndexFacts = {}): FakeReadProvider {
+  const base = fakeReadProvider(root, facts);
+  return { ...base, openReadOnly: (openedRoot) => Object.assign(base.openReadOnly(openedRoot), graph) };
+}
+
+async function readFailure(read: Promise<unknown>): Promise<FailureError> {
+  const failure = await read.then(() => undefined, (error: unknown) => error);
+  expect(failure).toBeInstanceOf(FailureError);
+  return failure as FailureError;
 }
 
 function readyStatusCommands(root: string): string {
@@ -301,45 +310,29 @@ writeFileSync(${JSON.stringify(logPath)}, JSON.stringify({
       writeFileSync(join(root, "src", "domain", "order-service.ts"), "export const orderService = true;\n", "utf8");
       writeFileSync(join(root, "src", "web", "page.ts"), "import { orderService } from \"../domain/order-service\";\nexport const page = orderService;\n", "utf8");
       writeFileSync(shimPath, `
-import { writeFileSync } from "node:fs";
 const args = process.argv.slice(2);
 ${readyStatusCommands(root)}
 if (args[0] === "sync") process.exit(0);
-if (args[0] === "explore") {
-  console.log("## Exploration: fake\\n\\n#### src/web/page.ts — page.ts(file)\\n");
-  process.exit(0);
-}
-if (args[0] === "query") {
-  writeFileSync(${JSON.stringify(logPath)}, JSON.stringify({ argv: args }));
-  console.log(JSON.stringify([
-    { node: {
-      id: "import:order-service",
-      kind: "import",
-      name: "../domain/order-service",
-      qualifiedName: "../domain/order-service",
-      filePath: "src/web/page.ts",
-      language: "typescript",
-      startLine: 1,
-      endLine: 1
-    } },
-    { node: {
-      id: "file:src/web/page.ts",
-      kind: "file",
-      name: "page.ts",
-      qualifiedName: "src/web/page.ts",
-      filePath: "src/web/page.ts",
-      language: "typescript",
-      startLine: 1,
-      endLine: 2
-    } }
-  ]));
-  process.exit(0);
-}
 console.error("unexpected fake codegraph args", args);
 process.exit(2);
 `);
+      const searches: { query: string; options: unknown }[] = [];
+      const nodes = [
+        { id: "import:order-service", kind: "import", name: "../domain/order-service", qualifiedName: "../domain/order-service", filePath: "src/web/page.ts", language: "typescript", startLine: 1, endLine: 1 },
+        { id: "file:src/web/page.ts", kind: "file", name: "page.ts", qualifiedName: "src/web/page.ts", filePath: "src/web/page.ts", language: "typescript", startLine: 1, endLine: 2 }
+      ];
+      const provider = sdkReadProvider(root, {
+        findRelevantContext: async () => ({ nodes: new Map([[nodes[1]!.id, nodes[1]]]), edges: [], roots: [nodes[1]!.id] }),
+        getNodesInFiles: () => [nodes[1]],
+        generatedFilePredicate: () => () => false,
+        searchNodes: (query: string, options: unknown) => {
+          searches.push({ query, options });
+          writeFileSync(logPath, JSON.stringify(searches));
+          return nodes.map((node) => ({ node, score: 1 }));
+        }
+      });
 
-      const adapter = new CodeGraphAdapter(new CodeGraphCliProvider(root, shimPath, fakeReadProvider(root)));
+      const adapter = new CodeGraphAdapter(new CodeGraphCliProvider(root, shimPath, provider));
       await adapter.sync({
         workspace: { root, repositoryId: "repo.test", headSha: "abc" },
         changedPaths: [" src\\web\\page.ts", "../escape.ts", "/tmp/escape.ts"]
@@ -358,12 +351,12 @@ process.exit(2);
         confidence: "high"
       }]);
       expect(context.digest).toMatch(/^sha256:/);
-      const log = JSON.parse(readFileSync(logPath, "utf8")) as { argv: string[] };
-      expect(log.argv).toEqual(expect.arrayContaining(["-k", "import"]));
-      expect(log.argv.at(-1)).toContain("src/web/page.ts");
-      expect(log.argv.at(-1)).toContain("import");
-      expect(log.argv.at(-1)).not.toContain("respect dependency layer import");
-      expect(log.argv.at(-1)).not.toContain("escape.ts");
+      const log = JSON.parse(readFileSync(logPath, "utf8")) as { query: string; options: { kinds?: string[] } }[];
+      expect(log.at(-1)!.options.kinds).toEqual(["import"]);
+      expect(log.at(-1)!.query).toContain("src/web/page.ts");
+      expect(log.at(-1)!.query).toContain("import");
+      expect(log.at(-1)!.query).not.toContain("respect dependency layer import");
+      expect(log.at(-1)!.query).not.toContain("escape.ts");
 
       const git = {
         schemaVersion: "archcontext.git-change-metadata/v1" as const,
@@ -440,113 +433,6 @@ process.exit(2);
     }
   });
 
-  test("extracts callers and callees from the CodeGraph node trail", async () => {
-    const root = mkdtempSync(join(tmpdir(), "archctx-codegraph-trail-"));
-    const shimPath = join(root, "fake-codegraph.js");
-    try {
-      writeFileSync(shimPath, `
-const args = process.argv.slice(2);
-if (args[0] === "impact") {
-  console.log(JSON.stringify({
-    symbol: args[args.length - 1],
-    depth: 1,
-    nodeCount: 1,
-    edgeCount: 0,
-    affected: [
-      { name: "getImpact", kind: "method", filePath: "packages/local-runtime/codegraph-adapter/src/index.ts", startLine: 274 }
-    ]
-  }));
-  process.exit(0);
-}
-if (args[0] === "node") {
-  console.log("**getImpact** (method)");
-  console.log("");
-  console.log("**Location:** packages/local-runtime/codegraph-adapter/src/index.ts:274");
-  console.log("**Calls →** assertCompatible (packages/local-runtime/codegraph-adapter/src/index.ts:303), assertCompatible (packages/local-runtime/codegraph-adapter/src/index.ts:303), ImpactQuery (packages/contracts/src/ports.ts:111)");
-  console.log("**Called by ←** getCallers (packages/local-runtime/codegraph-adapter/src/index.ts:279), getCallees (packages/local-runtime/codegraph-adapter/src/index.ts:283), +28 more");
-  process.exit(0);
-}
-console.error("unexpected fake codegraph args", args);
-process.exit(2);
-`);
-
-      const adapter = new CodeGraphAdapter(new CodeGraphCliProvider(root, shimPath));
-      const impact = await adapter.getImpact({ symbolId: "CodeGraphAdapter::getImpact", depth: 1 });
-
-      expect(impact.affectedPaths).toEqual(["packages/local-runtime/codegraph-adapter/src/index.ts"]);
-      // Duplicate "assertCompatible" entry in the canned trail above must collapse to one
-      // edge, proving uniqueEdges() is applied before the result is returned.
-      expect(impact.callees).toEqual([
-        {
-          source: "CodeGraphAdapter::getImpact",
-          target: expectedSyntheticId("assertCompatible", "packages/local-runtime/codegraph-adapter/src/index.ts"),
-          kind: "calls",
-          confidence: "high"
-        },
-        {
-          source: "CodeGraphAdapter::getImpact",
-          target: expectedSyntheticId("ImpactQuery", "packages/contracts/src/ports.ts"),
-          kind: "calls",
-          confidence: "high"
-        }
-      ]);
-      // The trailing "+28 more" truncation marker must not be parsed as a third entry.
-      expect(impact.callers).toEqual([
-        {
-          source: expectedSyntheticId("getCallers", "packages/local-runtime/codegraph-adapter/src/index.ts"),
-          target: "CodeGraphAdapter::getImpact",
-          kind: "calls",
-          confidence: "high"
-        },
-        {
-          source: expectedSyntheticId("getCallees", "packages/local-runtime/codegraph-adapter/src/index.ts"),
-          target: "CodeGraphAdapter::getImpact",
-          kind: "calls",
-          confidence: "high"
-        }
-      ]);
-
-      const callers = await adapter.getCallers("CodeGraphAdapter::getImpact");
-      const callees = await adapter.getCallees("CodeGraphAdapter::getImpact");
-      expect(callers).toEqual(impact.callers);
-      expect(callees).toEqual(impact.callees);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
-
-  test("resolves callers and callees to empty arrays when the CLI node trail has no recognizable calls", async () => {
-    const root = mkdtempSync(join(tmpdir(), "archctx-codegraph-trail-empty-"));
-    const shimPath = join(root, "fake-codegraph.js");
-    try {
-      writeFileSync(shimPath, `
-const args = process.argv.slice(2);
-if (args[0] === "impact") {
-  console.log(JSON.stringify({ affected: [] }));
-  process.exit(0);
-}
-if (args[0] === "node") {
-  console.log('Symbol "' + args[1] + '" not found in the codebase');
-  process.exit(0);
-}
-console.error("unexpected fake codegraph args", args);
-process.exit(2);
-`);
-
-      const provider = new CodeGraphCliProvider(root, shimPath);
-      const impact = await provider.getImpactRadius("class:a58304a6dfe8667b0efd3c9c5b707eaf", 1);
-
-      expect(impact).toEqual({
-        symbolId: "class:a58304a6dfe8667b0efd3c9c5b707eaf",
-        callers: [],
-        callees: [],
-        affectedPaths: []
-      });
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
-
   test("aggregates per-repo contexts with stable repo-scoped symbol ids", async () => {
     const web = new MockCodeGraphProvider();
     const api = new MockCodeGraphProvider();
@@ -590,6 +476,186 @@ process.exit(2);
     };
     expect(adapter.crossRepoImpact([relation], "repo.api")).toEqual([relation]);
     expect(adapter.crossRepoImpact([relation], "repo.worker")).toEqual([]);
+  });
+
+  test("a read the session refuses fails closed, and an index that moves during the read is retryable", async () => {
+    const graph = { searchNodes: () => [], generatedFilePredicate: () => () => false };
+    const failingRead = () => { throw new Error("private raw provider error /outside/repository"); };
+    // [label, provider, code, reason, retryable, handles opened, handles closed]
+    const cases: [string, (root: string) => FakeReadProvider, string, string, boolean, number, number][] = [
+      ["no index", (root) => { const provider = sdkReadProvider(root, graph); rmSync(join(root, ".codegraph"), { recursive: true, force: true }); return provider; }, "AC_CODE_FACTS_UNAVAILABLE", "index-missing", true, 0, 0],
+      ["open fails", (root) => sdkReadProvider(root, graph, { openFails: true }), "AC_CODE_FACTS_UNAVAILABLE", "index-open-failed", false, 1, 0],
+      ["build lock", (root) => { const provider = sdkReadProvider(root, graph); writeFileSync(join(root, ".codegraph", "codegraph.lock"), String(process.pid)); return provider; }, "AC_CODE_FACTS_NOT_READY", "code-facts-not-ready", true, 0, 0],
+      ["revision moves", (root) => sdkReadProvider(root, graph, { revisionMoves: true }), "AC_CODE_FACTS_NOT_READY", "code-facts-not-ready", true, 1, 1],
+      // A read that throws because the index moved under it is the same retryable refusal (G4).
+      ["read throws while the index moves", (root) => sdkReadProvider(root, { ...graph, searchNodes: failingRead }, { revisionMoves: true }), "AC_CODE_FACTS_NOT_READY", "code-facts-not-ready", true, 1, 1],
+      // A failing close keeps the read's own error.
+      ["read and close throw", (root) => sdkReadProvider(root, { ...graph, searchNodes: failingRead, close: failingRead }), "AC_CODE_FACTS_UNAVAILABLE", "index-open-failed", false, 1, 0]
+    ];
+    for (const [label, provide, code, reasonCode, retryable, opened, closed] of cases) {
+      const root = mkdtempSync(join(tmpdir(), "archctx-codegraph-read-refusal-"));
+      try {
+        const provider = provide(root);
+        const failure = await readFailure(new CodeGraphCliProvider(root, undefined, provider).findSymbols({ query: "render" }));
+        expect([label, failure.code, failure.reasonCode, failure.retryable]).toEqual([label, code, reasonCode, retryable]);
+        expect([label, provider.calls.open, provider.calls.close]).toEqual([label, opened, closed]);
+        expect(failure.message).not.toContain("outside");
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    }
+  });
+
+  test("a provider that cannot load is code-facts-unavailable, as the readiness gate maps it", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-codegraph-provider-unavailable-"));
+    const open = spyOn(readSessionModule, "openCodeGraphReadSession").mockImplementation(() => {
+      throw new CodeGraphProviderUnavailableError("CodeGraph SDK could not be loaded from /outside/repository");
+    });
+    try {
+      const failure = await readFailure(new CodeGraphCliProvider(root).findSymbols({ query: "render" }));
+      expect([failure.code, failure.reasonCode, failure.action, failure.retryable]).toEqual(["AC_CODE_FACTS_UNAVAILABLE", "code-facts-unavailable", "inspect-diagnostics", false]);
+      expect(failure.message).not.toContain("outside");
+      expect(open).toHaveBeenCalledTimes(1);
+    } finally {
+      open.mockRestore();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("CodeGraphCliProvider SDK reads on a real index (#574)", () => {
+  const files: Record<string, string> = {
+    "src/pricing/leaf.ts": "export function basePrice(sku: string): number {\n  return sku.length;\n}\n",
+    "src/pricing/tax.ts": "import { basePrice } from \"./leaf\";\n\nexport function taxedPrice(sku: string): number {\n  return basePrice(sku) * 2;\n}\n",
+    "src/checkout/cart.ts": "import { taxedPrice } from \"../pricing/tax\";\n\nexport function cartTotal(skus: string[]): number {\n  return skus.reduce((sum, sku) => sum + taxedPrice(sku), 0);\n}\n",
+    "src/views/page.ts": "export function render(): string {\n  return \"page\";\n}\n\nexport function showPage(): string {\n  return render();\n}\n",
+    "src/views/widget.ts": "export class Widget {\n  render(): string {\n    return \"widget\";\n  }\n}\n\nexport function showWidget(widget: Widget): string {\n  return widget.render();\n}\n",
+    "src/pricing/sku.ts": "export interface Sku {\n  code: string;\n}\n",
+    "src/checkout/label.ts": "import type { Sku } from \"../pricing/sku\";\n\nexport function label(sku: Sku): string {\n  return sku.code;\n}\n"
+  };
+  let root = "";
+  beforeAll(() => {
+    root = realpathSync.native(mkdtempSync(join(tmpdir(), "archctx-codegraph-sdk-reads-")));
+    for (const [path, content] of Object.entries(files)) {
+      mkdirSync(dirname(join(root, path)), { recursive: true });
+      writeFileSync(join(root, path), content);
+    }
+    execFileSync("git", ["init", "-q"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+    indexCodeGraphFixture(root);
+  }, 120_000);
+  afterAll(() => { if (root) rmSync(root, { recursive: true, force: true }); });
+
+  const symbolId = async (query: string, kind: string) => (await new CodeGraphCliProvider(root).findSymbols({ query, kinds: [kind] }))[0]!.id;
+  const calls = (source: string, target: string) => ({ source, target, kind: "calls" as const, confidence: "high" as const });
+
+  test("buildContext returns the query nodes, then the relevant files in relevance order, deterministically", async () => {
+    const provider = new CodeGraphCliProvider(root);
+    const build = () => provider.buildContext("basePrice", { maxSymbols: 4, includeSource: false });
+    const context = await build();
+    // `basePrice` is the only search hit; the files come from its relevant context, its own file
+    // and its caller's before the caller's caller.
+    expect(context.symbols.map((symbol) => [symbol.kind, symbol.name, symbol.path, symbol.range])).toEqual([
+      ["function", "basePrice", "src/pricing/leaf.ts", { startLine: 1, endLine: 3 }],
+      ["file", "leaf.ts", "src/pricing/leaf.ts", { startLine: 1, endLine: 4 }],
+      ["file", "tax.ts", "src/pricing/tax.ts", { startLine: 1, endLine: 6 }],
+      ["file", "cart.ts", "src/checkout/cart.ts", { startLine: 1, endLine: 6 }]
+    ]);
+    expect(context.symbols[0]!.id).toBe(await symbolId("basePrice", "function"));
+    expect(context.edges).toEqual([{ source: "file:src/pricing/tax.ts", target: "file:src/pricing/leaf.ts", kind: "imports", confidence: "high" }]);
+    expect(context.evidence.map((item) => item.selector.symbolId)).toEqual(context.symbols.map((symbol) => symbol.id));
+    expect(await build()).toEqual(context);
+  });
+
+  test("findSymbols keeps only the requested kinds", async () => {
+    const provider = new CodeGraphCliProvider(root);
+    expect(await provider.findSymbols({ query: "render", kinds: ["method"] })).toEqual([
+      { id: expect.stringMatching(/^method:[0-9a-f]{32}$/), name: "render", kind: "method", path: "src/views/widget.ts", range: { startLine: 2, endLine: 4 } }
+    ]);
+    expect((await provider.findSymbols({ query: "render", kinds: ["function"] })).map((symbol) => [symbol.kind, symbol.path])).toEqual([["function", "src/views/page.ts"]]);
+    // Unfiltered, both definitions tie on the search; the file path breaks the tie.
+    expect((await provider.findSymbols({ query: "render" })).map((symbol) => [symbol.kind, symbol.path])).toEqual([
+      ["function", "src/views/page.ts"],
+      ["method", "src/views/widget.ts"]
+    ]);
+  });
+
+  test("impact widens with depth; callers are the direct call edges", async () => {
+    const provider = new CodeGraphCliProvider(root);
+    const basePrice = await symbolId("basePrice", "function");
+    const caller = calls(await symbolId("taxedPrice", "function"), basePrice);
+    expect(await provider.getImpactRadius("basePrice", 1)).toEqual({
+      symbolId: "basePrice", callers: [caller], callees: [], affectedPaths: ["src/pricing/leaf.ts", "src/pricing/tax.ts"]
+    });
+    expect(await provider.getImpactRadius("basePrice", 2)).toEqual({
+      symbolId: "basePrice", callers: [caller], callees: [], affectedPaths: ["src/checkout/cart.ts", "src/pricing/leaf.ts", "src/pricing/tax.ts"]
+    });
+    // A node id names the same definition as its name.
+    expect({ ...await provider.getImpactRadius(basePrice, 2), symbolId: "basePrice" }).toEqual(await provider.getImpactRadius("basePrice", 2));
+    expect((await provider.getImpactRadius("taxedPrice", 1)).callees).toEqual([calls(await symbolId("taxedPrice", "function"), basePrice)]);
+  });
+
+  test("a type reference reaches affectedPaths but is no caller", async () => {
+    // `label` uses `Sku` only as its parameter type.
+    expect(await new CodeGraphCliProvider(root).getImpactRadius("Sku", 1)).toEqual({
+      symbolId: "Sku", callers: [], callees: [], affectedPaths: ["src/checkout/label.ts", "src/pricing/sku.ts"]
+    });
+  });
+
+  test("an unknown symbol has an empty impact", async () => {
+    expect(await new CodeGraphCliProvider(root).getImpactRadius("noSuchSymbol", 2)).toEqual({ symbolId: "noSuchSymbol", callers: [], callees: [], affectedPaths: [] });
+  });
+
+  test("an ambiguous name gives the union over its definitions; a qualified name narrows it", async () => {
+    const provider = new CodeGraphCliProvider(root);
+    const method = calls(await symbolId("showWidget", "function"), await symbolId("render", "method"));
+    const fn = calls(await symbolId("showPage", "function"), await symbolId("render", "function"));
+    const impact = await provider.getImpactRadius("render", 1);
+    expect(impact.affectedPaths).toEqual(["src/views/page.ts", "src/views/widget.ts"]);
+    // Callers are ordered by source id: showWidget's id (`function:5d5d…`) sorts before showPage's (`function:b00b…`).
+    expect(impact.callers).toEqual([method, fn]);
+    expect(await provider.getImpactRadius("Widget::render", 1)).toEqual({
+      symbolId: "Widget::render", callers: [method], callees: [], affectedPaths: ["src/views/widget.ts"]
+    });
+  });
+
+  test("a write the read-only handle refuses inside an SDK call is a read failure, never retried writable", async () => {
+    const pinned = pinnedCodeGraphProvider();
+    const { CodeGraph } = codeGraphBundle().sdk;
+    const sdkOpen = { open: CodeGraph.open, openSync: CodeGraph.openSync };
+    const opens: unknown[] = [];
+    const refusals: string[] = [];
+    let closes = 0;
+    const provider: CodeGraphReadProvider = {
+      ...pinned,
+      openReadOnly: (openedRoot) => {
+        const graph = pinned.openReadOnly(openedRoot);
+        const close = graph.close.bind(graph);
+        graph.close = () => { closes++; close(); };
+        const findRelevantContext = graph.findRelevantContext.bind(graph);
+        // Fault injection: CodeGraph 1.6.2's findRelevantContext makes no heal write, so this wrapper
+        // makes one, a real write through the read-only handle's database, which SQLite refuses.
+        graph.findRelevantContext = async (query, options) => {
+          try { (graph as unknown as { queries: { insertNameSegmentsBatch(names: string[]): void } }).queries.insertNameSegmentsBatch(["healed"]); }
+          catch (error) { refusals.push(String(error)); throw error; }
+          return findRelevantContext(query, options);
+        };
+        return graph;
+      }
+    };
+    CodeGraph.open = ((...args: Parameters<typeof CodeGraph.open>) => { opens.push(["open", args[1]]); return sdkOpen.open.apply(CodeGraph, args); }) as typeof CodeGraph.open;
+    CodeGraph.openSync = ((...args: Parameters<typeof CodeGraph.openSync>) => { opens.push(["openSync", args[1]]); return sdkOpen.openSync.apply(CodeGraph, args); }) as typeof CodeGraph.openSync;
+    let failure: FailureError;
+    try {
+      failure = await readFailure(new CodeGraphCliProvider(root, undefined, provider).buildContext("basePrice", { maxSymbols: 4, includeSource: false }));
+    } finally {
+      Object.assign(CodeGraph, sdkOpen);
+    }
+    expect(refusals).toHaveLength(1);
+    expect(refusals[0]).toContain("readonly");
+    expect([failure.code, failure.reasonCode]).toEqual(["AC_CODE_FACTS_UNAVAILABLE", "index-open-failed"]);
+    expect(failure.message).not.toContain("readonly");
+    expect(opens).toEqual([["openSync", { readOnly: true }]]);
+    expect(closes).toBe(1);
   });
 });
 
