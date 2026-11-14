@@ -34,12 +34,10 @@ export interface FailureEnvelope<C extends FailureCode = FailureCode> {
 type Policy = { code: FailureCode; message: string; fields?: readonly string[]; action?: string; facts?: Readonly<Record<string, string>>; native?: boolean; recovery?: boolean; journalRecovery?: boolean; retryable?: boolean };
 /** Closed repository diagnostics. Messages contain no process output or filesystem paths. */
 export const CODE_FACTS_ISSUE_MESSAGES = Object.freeze({
-  "not-initialized": "CodeGraph repository status is not initialized",
   "version-mismatch": "CodeGraph repository status version mismatch",
   "project-path-mismatch": "CodeGraph repository project path mismatch",
   "index-incomplete": "CodeGraph repository index is not complete and compatible",
   "extraction-version-mismatch": "CodeGraph repository extraction version mismatch",
-  "worktree-mismatch": "CodeGraph repository worktree mismatch",
   "pending-source-changes": "CodeGraph repository index has pending or unreported source changes"
 });
 /** Each reason has a closed fact vocabulary. No source text or recovery binding is a summary fact. */

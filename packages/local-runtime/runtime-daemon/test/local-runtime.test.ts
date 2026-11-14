@@ -11,7 +11,7 @@ import { emptyArchitectureLedgerEvidenceState, planYamlToArchitectureLedgerImpor
 import { ARCHITECTURE_DOCS_RENDERER_VERSION, digestJson, projectionApplyReadbackRequestFromReceipt, stableYaml, type ProjectionApplyReceiptV1, type ProjectionRequestV1, type ProjectionResultV3, type StateMachineV1, type CodeFactsPort, type Json, type ModelStorePort, type NormalizedCodeContext } from "@archcontext/contracts";
 import { gitSpy } from "../../codegraph-adapter/test/git-spy";
 import { syncCodeGraphFixture } from "../../codegraph-adapter/test/real-index";
-import { assertNoCodeGraphInternalPathAccess, CodeGraphAdapter, CodeGraphCliProvider, REQUIRED_CODEGRAPH_VERSION, loadCapabilityCodeGraphProjectionInputs, prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
+import { assertNoCodeGraphInternalPathAccess, CodeGraphAdapter, CodeGraphSdkProvider, REQUIRED_CODEGRAPH_VERSION, loadCapabilityCodeGraphProjectionInputs, prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
 import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { MockCodeGraphProvider, declareOptionalCodeFacts } from "@archcontext/local-runtime/test/codegraph-factories";
 import { migrationSql, assertNoSourceStorageSchema, SQLITE_PRAGMAS, SqliteLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
@@ -203,15 +203,6 @@ function countingCheckpointFacts(): { port: CodeFactsPort; counts: () => { sync:
     async findSymbols() {
       return [];
     },
-    async getImpact() {
-      return { symbolId: "symbol.none", callers: [], callees: [], affectedPaths: [] };
-    },
-    async getCallers() {
-      return [];
-    },
-    async getCallees() {
-      return [];
-    },
     async resolveEvidence() {
       return [];
     }
@@ -262,15 +253,6 @@ function mutableCycleFacts(): { port: CodeFactsPort; setCycle: (enabled: boolean
       } satisfies NormalizedCodeContext;
     },
     async findSymbols() {
-      return [];
-    },
-    async getImpact() {
-      return { symbolId: "symbol.none", callers: [], callees: [], affectedPaths: [] };
-    },
-    async getCallers() {
-      return [];
-    },
-    async getCallees() {
       return [];
     },
     async resolveEvidence() {
@@ -3359,7 +3341,7 @@ test("SM-S15 projection plan, apply readback proof and completion drift render t
     // A real index is required by the apply readback proof, even for a model-only fixture.
     execFileSync("codegraph", ["init", root], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
     // Completion reuses its code-facts sync for the projection (#584), so that sync has to be CodeGraph's.
-    daemon = await createStartedTestDaemon({ codeFacts: new CodeGraphAdapter(new CodeGraphCliProvider(root)) });
+    daemon = await createStartedTestDaemon({ codeFacts: new CodeGraphAdapter(new CodeGraphSdkProvider(root)) });
     const baseline = await runArchitectureDocsProjectionCommand({ action: "apply", profile: "repo-harness/v1", approved: true }, root, daemon);
     expect(baseline.ok, JSON.stringify(baseline)).toBe(true);
 

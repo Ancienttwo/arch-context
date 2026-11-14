@@ -1552,15 +1552,6 @@ function fakeCodeFacts(): CodeFactsPort {
     async findSymbols() {
       return [];
     },
-    async getImpact(input) {
-      return { symbolId: input.symbolId, callers: [], callees: [], affectedPaths: [] };
-    },
-    async getCallers() {
-      return [];
-    },
-    async getCallees() {
-      return [];
-    },
     async resolveEvidence() {
       return [];
     }

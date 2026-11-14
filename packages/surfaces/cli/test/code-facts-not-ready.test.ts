@@ -7,7 +7,7 @@ import { digestJson, failureIssues } from "@archcontext/contracts";
 import { canonicalRepositoryRoot, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { architectureDocumentationProjectionWorktreeDigest, loadNativeModelFromArchContext } from "@archcontext/core/projection-engine";
 import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
-import { CodeGraphAdapter, CodeGraphCliProvider, inspectRepositoryCodeFacts, prepareArchitectureDocumentationProjectionSnapshot, REQUIRED_CODEGRAPH_VERSION } from "@archcontext/local-runtime/codegraph-adapter";
+import { CodeGraphAdapter, CodeGraphSdkProvider, inspectRepositoryCodeFacts, prepareArchitectureDocumentationProjectionSnapshot, REQUIRED_CODEGRAPH_VERSION } from "@archcontext/local-runtime/codegraph-adapter";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { ArchctxDaemon } from "@archcontext/local-runtime/runtime-daemon";
 import { runArchitectureDebtCommand } from "@archcontext/local-runtime/architecture-debt";
@@ -56,7 +56,7 @@ console.error("private raw process output /outside/repository"); process.exit(1)
 test.each(["complete", "prepare", "prepare-empty-budget", "complete-subdirectory", "prepare-subdirectory", "checkpoint"])("%s refuses a version-mismatched index with the doctor issues", async command => {
   const input = fixture();
   const store = new TestLocalStore();
-  const daemon = new ArchctxDaemon({ localStore: store, codeFacts: new CodeGraphAdapter(new CodeGraphCliProvider(input.root, input.binary, input.provider)) });
+  const daemon = new ArchctxDaemon({ localStore: store, codeFacts: new CodeGraphAdapter(new CodeGraphSdkProvider(input.root, input.binary, input.provider)) });
   try {
     const doctor = inspectRepositoryCodeFacts(input.root, { provider: input.provider });
     await daemon.start();
@@ -117,7 +117,7 @@ test("checkpoint accepts pending edits without sync but still refuses an incompa
 test("a cached code-facts snapshot cannot hide a later index version mismatch", async () => {
   const input = fixture(true);
   try {
-    const adapter = new CodeGraphAdapter(new CodeGraphCliProvider(input.root, input.binary, input.provider));
+    const adapter = new CodeGraphAdapter(new CodeGraphSdkProvider(input.root, input.binary, input.provider));
     const workspace = { root: input.root, repositoryId: "repo.fixture", headSha: "a".repeat(40) };
     input.setFacts({ ...input.facts, builtWithVersion: REQUIRED_CODEGRAPH_VERSION });
     await adapter.ensureReady(workspace);
@@ -132,7 +132,7 @@ for (const cached of [false, true]) {
   test.each([false, true])(`pending edits preserve cold sync and cached reads (cached=${cached}, clears=%s)`, async clearPending => {
     const input = fixture(true, clearPending);
     try {
-      const adapter = new CodeGraphAdapter(new CodeGraphCliProvider(input.root, input.binary, input.provider));
+      const adapter = new CodeGraphAdapter(new CodeGraphSdkProvider(input.root, input.binary, input.provider));
       const workspace = { root: input.root, repositoryId: "repo.fixture", headSha: "a".repeat(40) };
       const ready = { ...input.facts, builtWithVersion: REQUIRED_CODEGRAPH_VERSION };
       input.setFacts(ready);

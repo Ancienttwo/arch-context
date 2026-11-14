@@ -77,15 +77,6 @@ function structuralCompatibilityFacts(): CodeFactsPort {
     async findSymbols() {
       return [];
     },
-    async getImpact() {
-      return { symbolId: "symbol.none", callers: [], callees: [], affectedPaths: [] };
-    },
-    async getCallers() {
-      return [];
-    },
-    async getCallees() {
-      return [];
-    },
     async resolveEvidence() {
       return [];
     }
@@ -134,15 +125,6 @@ function mutableCycleFacts(hasCycle: () => boolean): CodeFactsPort {
       } satisfies NormalizedCodeContext;
     },
     async findSymbols() {
-      return [];
-    },
-    async getImpact() {
-      return { symbolId: "symbol.none", callers: [], callees: [], affectedPaths: [] };
-    },
-    async getCallers() {
-      return [];
-    },
-    async getCallees() {
       return [];
     },
     async resolveEvidence() {

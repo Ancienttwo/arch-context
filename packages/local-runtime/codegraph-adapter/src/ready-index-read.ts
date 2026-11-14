@@ -1,6 +1,7 @@
 import { FailureError } from "@archcontext/contracts";
 import { pinnedCodeGraphProvider, withCodeGraphReadSession, type CodeGraphIndexHandle, type CodeGraphReadProvider, type CodeGraphReadSession } from "./read-session";
 import {
+  codeFactsUnavailableError,
   inspectRepositoryCodeFactsReadiness,
   movingCodeFacts,
   openSessionCodeFacts,
@@ -26,8 +27,9 @@ export function codeFactsReadinessAfterRead(root: string, session: CodeGraphRead
 
 /**
  * Runs `read` against the repository's own index through one read-only session (ADR-0058), and
- * only while that index attests to the worktree: it is compatible and CodeGraph's change test finds
- * no pending source change. Readiness and `read` use the same handle. Nothing syncs, copies or
+ * returns its result only while that index attests to the worktree: it is compatible before the
+ * read, and after it a fresh change test finds no pending source change and the revision has not
+ * moved. Compatibility and `read` use the same handle. Nothing syncs, copies or
  * writes the index; `flows check --no-sync` and ref impact read through here.
  *
  * - no `.codegraph/codegraph.db`: `AC_CODE_FACTS_UNAVAILABLE` / `index-missing`
@@ -49,8 +51,9 @@ export function withReadyCodeGraphIndex<T>(root: string, read: (graph: CodeGraph
         case "build-in-progress":
           throw notReady(movingCodeFacts(provider.version));
         case "open": {
+          // Compatibility gates the read; freshness is proven once, by the step after it.
           let readiness: { facts: RepositoryCodeFactsV1; retryable: boolean };
-          try { readiness = openSessionCodeFacts(opened.session, "freshness"); }
+          try { readiness = openSessionCodeFacts(opened.session, "compatibility"); }
           catch { throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "index-open-failed"); }
           if (readiness.facts.state !== "ready") throw notReady(readiness);
           const result = read(opened.session.graph);
@@ -63,14 +66,14 @@ export function withReadyCodeGraphIndex<T>(root: string, read: (graph: CodeGraph
   } catch (error) {
     if (error instanceof FailureError) throw error;
     // No provider or SDK text crosses this boundary.
-    throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-unavailable");
+    throw codeFactsUnavailableError();
   }
 }
 
 function notReady({ facts, retryable }: CodeFactsReadiness): FailureError {
   // An index that disappeared or stopped opening after the read is refused by its own reason.
   if (facts.state === "index-missing") return new FailureError("AC_CODE_FACTS_UNAVAILABLE", "index-missing");
-  if (facts.state === "unavailable") return new FailureError("AC_CODE_FACTS_UNAVAILABLE", facts.reasonCode === "index-open-failed" ? "index-open-failed" : "code-facts-unavailable");
+  if (facts.state === "unavailable") return facts.reasonCode === "index-open-failed" ? new FailureError("AC_CODE_FACTS_UNAVAILABLE", "index-open-failed") : codeFactsUnavailableError();
   const issues = facts.state === "not-ready" ? facts.issues : [];
   return new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-read-not-ready", { issues }, retryable ? { retryable: true } : {});
 }

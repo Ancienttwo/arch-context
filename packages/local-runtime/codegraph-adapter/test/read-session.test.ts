@@ -1,10 +1,12 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
+import { once } from "node:events";
 import { createHash } from "node:crypto";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createInterface } from "node:readline";
 import {
   CODEGRAPH_PROVIDER_INTERNAL_EXPORTS,
   REQUIRED_CODEGRAPH_VERSION,
@@ -214,8 +216,8 @@ describe("pinned provider bump guard (ADR-0058 Decision 7)", () => {
 });
 
 /**
- * A real index read in this process through the pinned provider: no holder process, so the open
- * also proves the read-only open works after the writer removed its sidecars.
+ * A real index read through the pinned provider, both after the writer removes its sidecars and
+ * while a separate writer still holds a live WAL. All reads stay in this process.
  */
 describe("read session over a real index", () => {
   let root = "";
@@ -295,6 +297,62 @@ describe("read session over a real index", () => {
     }
     expect(inspectRepositoryCodeFacts(root)).toMatchObject({ state: "ready" });
   });
+
+  test("a read sees a live writer's WAL without changing it or the database", async () => {
+    withCodeGraphReadSession(root, (opened) => {
+      if (opened.state !== "open") throw new Error(opened.state);
+      expect(opened.session.graph.getNodesByName("walOnlySymbol")).toHaveLength(0);
+    });
+    writeFileSync(join(root, "src/b.ts"), "export function b() { return 2; }\nexport const walOnlySymbol = 2;\n");
+    const { platformRoot, dist } = codeGraphBundle();
+    const database = join(root, ".codegraph", "codegraph.db");
+    const wal = `${database}-wal`;
+    // Only the fixture writer loads native parsers. Its lifetime also bounds their resources.
+    const writer = spawn(join(platformRoot, process.platform === "win32" ? "node.exe" : "node"), ["-e", `
+      const { CodeGraph } = require(process.argv[1]);
+      (async () => {
+        const graph = CodeGraph.openSync(process.argv[2]);
+        try {
+          const indexed = await graph.indexFiles(["src/b.ts"]);
+          if (!indexed.success || indexed.filesIndexed !== 1) throw new Error(JSON.stringify(indexed));
+          process.stdin.resume();
+          process.stdout.write(JSON.stringify(graph.getIndexRevision()) + "\\n");
+          await new Promise(resolve => process.stdin.once("end", resolve));
+        } finally { graph.close(); }
+      })().catch(error => { console.error(error); process.exitCode = 1; });
+    `, join(dist, "index.js"), root], {
+      cwd: root, stdio: ["pipe", "pipe", "pipe"], timeout: 60_000,
+      env: { ...process.env, DO_NOT_TRACK: "1", CODEGRAPH_NO_DOWNLOAD: "1" }
+    });
+    const exited = once(writer, "exit");
+    const output = createInterface({ input: writer.stdout });
+    let stderr = "";
+    writer.stderr.on("data", chunk => { stderr += chunk; });
+    try {
+      const ready = await Promise.race([
+        once(output, "line").then(([line]) => String(line)),
+        exited.then(([code]) => { throw new Error(`writer exited (${code}): ${stderr}`); })
+      ]);
+      const revision = JSON.parse(ready);
+      expect(statSync(wal).size).toBeGreaterThan(32);
+      const before = { database: digest(database), wal: digest(wal) };
+      withCodeGraphReadSession(root, (opened) => {
+        if (opened.state !== "open") throw new Error(opened.state);
+        expect(opened.session.revision()).toEqual(revision);
+        expect(opened.session.graph.getNodesByName("walOnlySymbol")).toHaveLength(1);
+        expect(opened.session.freshness()).toEqual({ added: 0, modified: 0, removed: 0 });
+        expect(opened.session.unchangedSinceOpen()).toBe(true);
+      });
+      expect({ database: digest(database), wal: digest(wal) }).toEqual(before);
+      expect(writer.exitCode).toBeNull();
+    } finally {
+      output.close();
+      writer.stdin.end();
+      const [code] = await exited;
+      expect(code, stderr).toBe(0);
+    }
+  }, 90_000);
+
 });
 
 describe("withReadyCodeGraphIndex: readiness and the read on one session", () => {
@@ -349,9 +407,32 @@ describe("withReadyCodeGraphIndex: readiness and the read on one session", () =>
     const provider = fakeReadProvider(root);
     return { provider, calls: provider.calls, during: () => { throw new Error("private raw provider error /outside/repository"); } };
   };
+  // The post-read inspection finds no index, an index it cannot read, or no provider.
+  const indexRemovedDuringQuery = (root: string) => {
+    const provider = fakeReadProvider(root);
+    return { provider, calls: provider.calls, during: () => rmSync(join(root, ".codegraph", "codegraph.db")) };
+  };
+  const unreadableAfterQuery = (root: string) => {
+    let broken = false;
+    const provider = fakeReadProvider(root, () => broken ? { readFailsAfterOpen: true } : {});
+    return { provider, calls: provider.calls, during: () => { broken = true; } };
+  };
+  const providerLostDuringQuery = (root: string) => {
+    const base = fakeReadProvider(root);
+    let lost = false;
+    const provider: CodeGraphReadProvider = {
+      get version() { if (lost) throw new Error("private raw provider error /outside/repository"); return base.version; },
+      get extractionVersion() { return base.extractionVersion; },
+      openReadOnly: (openedRoot) => base.openReadOnly(openedRoot),
+      scanSourceFiles: (scanRoot) => base.scanSourceFiles(scanRoot),
+      changeHash: (path) => base.changeHash(path)
+    };
+    return { provider, calls: base.calls, during: () => { lost = true; } };
+  };
 
   test.each([
-    ["pending source changes", refusing({ pending: { added: 1, modified: 0, removed: 0 } }), notReady(false), false, 1],
+    // Only compatibility gates the read, so pending changes are refused by the step after it.
+    ["pending source changes", refusing({ pending: { added: 1, modified: 0, removed: 0 } }), notReady(false), true, 2],
     ["a revision that moves before the query", refusing({ revisionMoves: true }), notReady(true), false, 1],
     ["a moving index of the wrong provider version", refusing({ revisionMoves: true, version: "0.0.1" }), notReady(false), false, 1],
     ["a live build at open", refusing({}, root => writeFileSync(join(root, ".codegraph", "codegraph.lock"), String(process.pid))), notReady(true), false, 0],
@@ -361,7 +442,10 @@ describe("withReadyCodeGraphIndex: readiness and the read on one session", () =>
     ["a source modified during the query", editDuringQuery("modified"), notReady(false), true, 2],
     ["a source removed during the query", editDuringQuery("removed"), notReady(false), true, 2],
     ["a writer lock that appears during the query", lockDuringQuery, notReady(true), true, 1],
-    ["a query that throws a non-FailureError", failingRead, { code: "AC_CODE_FACTS_UNAVAILABLE", reasonCode: "code-facts-unavailable" }, true, 1]
+    ["a query that throws a non-FailureError", failingRead, { code: "AC_CODE_FACTS_UNAVAILABLE", reasonCode: "code-facts-unavailable", action: "inspect-diagnostics", retryable: false }, true, 1],
+    ["an index removed during the query", indexRemovedDuringQuery, { code: "AC_CODE_FACTS_UNAVAILABLE", reasonCode: "index-missing" }, true, 1],
+    ["an index that stops reading during the query", unreadableAfterQuery, { code: "AC_CODE_FACTS_UNAVAILABLE", reasonCode: "index-open-failed" }, true, 2],
+    ["a provider that stops loading during the query", providerLostDuringQuery, { code: "AC_CODE_FACTS_UNAVAILABLE", reasonCode: "code-facts-unavailable", action: "inspect-diagnostics", retryable: false }, true, 1]
   ] as const)("%s is refused, and the handle is closed", (_name, setup, error, queried, opens) => {
     withRoot((root) => {
       const { provider, calls, during } = setup(root);

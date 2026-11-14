@@ -231,7 +231,7 @@ export function assertRepositoryCodeFactsReady(root: string, options: Repository
   if (facts.state === "index-missing") throw new ProjectionCodeFactsUnavailableError("index-missing");
   if (facts.state === "unavailable") {
     if (facts.reasonCode === "index-open-failed") throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "index-open-failed");
-    throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-unavailable", {}, { action: "inspect-diagnostics", retryable: false });
+    throw codeFactsUnavailableError();
   }
   // The compatibility tier never measures pending changes, so every not-ready answer refuses.
   if (facts.state === "not-ready") {
@@ -239,6 +239,11 @@ export function assertRepositoryCodeFactsReady(root: string, options: Repository
       : "codegraph-index";
     throw new FailureError("AC_CODE_FACTS_NOT_READY", "code-facts-not-ready", { issues: facts.issues }, { action, ...(retryable ? { retryable: true } : {}) });
   }
+}
+
+/** The pinned CodeGraph provider could not load, or a read failed for no index-specific reason. */
+export function codeFactsUnavailableError(): FailureError {
+  return new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-unavailable", {}, { action: "inspect-diagnostics", retryable: false });
 }
 
 /** True when this workspace carries a CodeGraph index the CLI can be pointed at. */
