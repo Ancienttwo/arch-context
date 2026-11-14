@@ -158,7 +158,12 @@ export interface RepositoryCodeFactsInspectionOptions {
  * writer lock it does not open the index (#426).
  */
 export function inspectRepositoryCodeFacts(root: string, options: RepositoryCodeFactsInspectionOptions = {}): RepositoryCodeFactsV1 {
-  return inspectRepositoryCodeFactsTier(root, "freshness", options).facts;
+  return inspectRepositoryCodeFactsReadiness(root, options).facts;
+}
+
+/** `inspectRepositoryCodeFacts` with whether a not-ready answer is worth retrying. */
+export function inspectRepositoryCodeFactsReadiness(root: string, options: RepositoryCodeFactsInspectionOptions = {}): { facts: RepositoryCodeFactsV1; retryable: boolean } {
+  return inspectRepositoryCodeFactsTier(root, "freshness", options);
 }
 
 /**

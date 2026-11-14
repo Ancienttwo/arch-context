@@ -1,6 +1,28 @@
 import { FailureError } from "@archcontext/contracts";
-import { pinnedCodeGraphProvider, withCodeGraphReadSession, type CodeGraphIndexHandle } from "./read-session";
-import { movingCodeFacts, openSessionCodeFacts, type RepositoryCodeFactsInspectionOptions, type RepositoryCodeFactsV1 } from "./repository-code-facts";
+import { pinnedCodeGraphProvider, withCodeGraphReadSession, type CodeGraphIndexHandle, type CodeGraphReadProvider, type CodeGraphReadSession } from "./read-session";
+import {
+  inspectRepositoryCodeFactsReadiness,
+  movingCodeFacts,
+  openSessionCodeFacts,
+  type RepositoryCodeFactsInspectionOptions,
+  type RepositoryCodeFactsV1
+} from "./repository-code-facts";
+
+type CodeFactsReadiness = { facts: RepositoryCodeFactsV1; retryable: boolean };
+
+/**
+ * The step after every read of a ready index (ADR-0058, design G4). A session measures freshness
+ * once, and its revision moves only with the index, so a source edit during the read shows up
+ * only in a fresh change test: a fresh inspection in its own session must find the index ready,
+ * then `session` must be unchanged since it opened. Returns the refusal, `moved` when only the
+ * second test failed, or `undefined` when the read stands.
+ */
+export function codeFactsReadinessAfterRead(root: string, session: CodeGraphReadSession, provider: CodeGraphReadProvider): (CodeFactsReadiness & { moved: boolean }) | undefined {
+  const fresh = inspectRepositoryCodeFactsReadiness(root, { provider });
+  if (fresh.facts.state !== "ready") return { ...fresh, moved: false };
+  if (!session.unchangedSinceOpen()) return { ...movingCodeFacts(provider.version), moved: true };
+  return undefined;
+}
 
 /**
  * Runs `read` against the repository's own index through one read-only session (ADR-0058), and
@@ -10,8 +32,9 @@ import { movingCodeFacts, openSessionCodeFacts, type RepositoryCodeFactsInspecti
  *
  * - no `.codegraph/codegraph.db`: `AC_CODE_FACTS_UNAVAILABLE` / `index-missing`
  * - a linked `.codegraph`, or an index that cannot be opened and read: `index-open-failed`
- * - an incompatible or stale index, a live build, or an index that moved during the read:
- *   `code-facts-read-not-ready` with the readiness issues; retryable for a live build or a move
+ * - an incompatible or stale index, a live build, a source edit during the read, or an index that
+ *   moved during the read: `code-facts-read-not-ready` with the readiness issues; retryable for a
+ *   live build or a move
  * - any other failure, such as a provider that cannot load: `code-facts-unavailable`
  */
 export function withReadyCodeGraphIndex<T>(root: string, read: (graph: CodeGraphIndexHandle) => T, options: RepositoryCodeFactsInspectionOptions = {}): T {
@@ -31,8 +54,8 @@ export function withReadyCodeGraphIndex<T>(root: string, read: (graph: CodeGraph
           catch { throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "index-open-failed"); }
           if (readiness.facts.state !== "ready") throw notReady(readiness);
           const result = read(opened.session.graph);
-          // An unchanged revision after the read (design G4) proves readiness and the read saw one index state.
-          if (!opened.session.unchangedSinceOpen()) throw notReady(movingCodeFacts(provider.version));
+          const after = codeFactsReadinessAfterRead(root, opened.session, provider);
+          if (after) throw notReady(after);
           return result;
         }
       }
@@ -44,7 +67,10 @@ export function withReadyCodeGraphIndex<T>(root: string, read: (graph: CodeGraph
   }
 }
 
-function notReady({ facts, retryable }: { facts: RepositoryCodeFactsV1; retryable: boolean }): FailureError {
+function notReady({ facts, retryable }: CodeFactsReadiness): FailureError {
+  // An index that disappeared or stopped opening after the read is refused by its own reason.
+  if (facts.state === "index-missing") return new FailureError("AC_CODE_FACTS_UNAVAILABLE", "index-missing");
+  if (facts.state === "unavailable") return new FailureError("AC_CODE_FACTS_UNAVAILABLE", facts.reasonCode === "index-open-failed" ? "index-open-failed" : "code-facts-unavailable");
   const issues = facts.state === "not-ready" ? facts.issues : [];
   return new FailureError("AC_CODE_FACTS_UNAVAILABLE", "code-facts-read-not-ready", { issues }, retryable ? { retryable: true } : {});
 }

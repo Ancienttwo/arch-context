@@ -1,5 +1,6 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { execFileSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -121,6 +122,28 @@ test("default flow check still syncs stale code facts", async () => {
     expect(readFileSync(join(root, ".git/index")).toString("hex")).toBe(gitIndex);
     expect(runFlowSelectorCheckCommand(root, { noSync: true }).ok).toBe(true);
   } finally {
+    Bun.gc(true);
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 60_000);
+
+for (const mode of ["sync", "no-sync"] as const) test(`a source edit during the selector read refuses the ${mode} flow check`, () => {
+  const root = fixture();
+  const { CodeGraph } = createRequire(import.meta.url)("@colbymchenry/codegraph") as typeof import("@colbymchenry/codegraph");
+  const read = CodeGraph.prototype.getNodesByName;
+  let edited = false;
+  const spy = spyOn(CodeGraph.prototype, "getNodesByName").mockImplementation(function (this: import("@colbymchenry/codegraph").CodeGraph, name: string) {
+    if (!edited) { edited = true; writeFileSync(join(root, "src/render.ts"), 'export function render() { return "edited"; }\n'); }
+    return read.call(this, name);
+  });
+  try {
+    indexCodeGraphFixture(root);
+    Bun.gc(true);
+    const result = runFlowSelectorCheckCommand(root, { noSync: mode === "no-sync" });
+    expect(edited).toBe(true);
+    expect(result.ok).toBe(false);
+  } finally {
+    spy.mockRestore();
     Bun.gc(true);
     rmSync(root, { recursive: true, force: true });
   }

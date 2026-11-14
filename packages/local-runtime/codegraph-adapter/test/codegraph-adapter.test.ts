@@ -196,21 +196,67 @@ writeFileSync(${JSON.stringify(join(root, "synced"))}, "ok");
     }
   });
 
-  for (const [name, facts, expected] of [
-    ["sync leaves the index stale", () => ({ pending: { added: 0, modified: 1, removed: 0 } }), "post-sync index still has pending source changes"],
+  /** A capability whose footprint and entrypoint make the handshake read both imports and selectors. */
+  const readingModel = { nodes: [{ id: "capability.reads", kind: "capability", name: "Reads", source: {
+    include: ["src/**"],
+    entrypoints: [{ id: "entrypoint.reads", path: "src/main.ts", symbols: [{ name: "main", sinks: [{ id: "sink.reads", path: "src/main.ts", symbol: "helper" }] }] }]
+  } }], relations: [] } as unknown as Parameters<typeof prepareProjectionCodeFacts>[1];
+
+  /**
+   * The index of `readingModel`, ready until `during` reads the index (the import or the selector
+   * read), where `change` lands one added, modified or removed source.
+   */
+  function editedDuringRead(root: string, during: "imports" | "selectors", change: "added" | "modified" | "removed"): FakeReadProvider {
+    let edited = false;
+    const base = fakeReadProvider(root, () => edited ? { pending: { added: 0, modified: 0, removed: 0, [change]: 1 } } : {});
+    return {
+      ...base,
+      openReadOnly: (openedRoot) => Object.assign(base.openReadOnly(openedRoot), {
+        getStats: () => ({ nodesByKind: { import: 0 } }),
+        getNodesByKind: () => { if (during === "imports") edited = true; return []; },
+        getNodesByName: () => { if (during === "selectors") edited = true; return []; },
+        getNodesInFile: () => [],
+        getNode: () => null,
+        getOutgoingEdges: () => []
+      })
+    };
+  }
+
+  const editsDuringReads = (["imports", "selectors"] as const).flatMap((during) => (["added", "modified", "removed"] as const).flatMap((change) =>
+    [false, true].map((indexSynced) => ({
+      name: `a source ${change} during the ${during} read${indexSynced ? " of a reused sync" : ""}`,
+      model: readingModel,
+      provider: (root: string) => editedDuringRead(root, during, change),
+      indexSynced,
+      expected: "post-query index still has pending source changes"
+    }))));
+
+  for (const row of [
+    { name: "sync leaves the index stale", model: { nodes: [], relations: [] }, indexSynced: false, expected: "post-sync index still has pending source changes",
+      provider: (root: string) => fakeReadProvider(root, { pending: { added: 0, modified: 1, removed: 0 } }) },
     // Only the session that spans the projection reads (the third open) sees the index move.
-    ["the index moves during the projection reads", (opens: number) => ({ revisionMoves: opens === 3 }), "CodeGraph indexed snapshot changed during projection queries"]
-  ] as const) test(`fails closed when ${name}`, () => {
+    { name: "the index moves during the projection reads", model: { nodes: [], relations: [] }, indexSynced: false, expected: "CodeGraph indexed snapshot changed during projection queries",
+      provider: (root: string) => {
+        let provider: FakeReadProvider | undefined;
+        provider = fakeReadProvider(root, () => ({ revisionMoves: provider?.calls.open === 3 }));
+        return provider;
+      } },
+    ...editsDuringReads
+  ]) test(`fails closed when ${row.name}`, () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-codegraph-projection-stale-"));
     try {
+      execFileSync("git", ["init", "-q"], { cwd: root });
+      mkdirSync(join(root, "src"));
+      writeFileSync(join(root, "src/main.ts"), "export function main() { return helper(); }\nexport function helper() { return 1; }\n");
       const cli = handshakeCli(root);
-      let provider: FakeReadProvider | undefined;
-      provider = fakeReadProvider(root, () => facts(provider?.calls.open ?? 0));
-      expect(() => prepareProjectionCodeFacts(root, { nodes: [], relations: [] }, {
+      if (row.indexSynced) writeFileSync(join(root, "synced"), "ok");
+      expect(() => prepareProjectionCodeFacts(root, row.model, {
         binary: cli.binary,
-        readProvider: provider,
+        readProvider: row.provider(root),
+        indexSynced: row.indexSynced,
         sourceTreeDigest: `sha256:${"4".repeat(64)}`
-      })).toThrow(expected);
+      })).toThrow(row.expected);
+      expect(cli.calls()).toEqual(row.indexSynced ? [] : ["sync"]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

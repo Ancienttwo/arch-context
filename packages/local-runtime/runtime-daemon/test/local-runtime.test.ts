@@ -9,6 +9,8 @@ import { delimiter, dirname, join, resolve } from "node:path";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { emptyArchitectureLedgerEvidenceState, planYamlToArchitectureLedgerImport, projectArchitectureLedgerStateToYamlFiles, type ArchitectureLedgerGraphState } from "@archcontext/core/architecture-ledger";
 import { ARCHITECTURE_DOCS_RENDERER_VERSION, digestJson, projectionApplyReadbackRequestFromReceipt, stableYaml, type ProjectionApplyReceiptV1, type ProjectionRequestV1, type ProjectionResultV3, type StateMachineV1, type CodeFactsPort, type Json, type ModelStorePort, type NormalizedCodeContext } from "@archcontext/contracts";
+import { gitSpy } from "../../codegraph-adapter/test/git-spy";
+import { syncCodeGraphFixture } from "../../codegraph-adapter/test/real-index";
 import { assertNoCodeGraphInternalPathAccess, CodeGraphAdapter, CodeGraphCliProvider, REQUIRED_CODEGRAPH_VERSION, loadCapabilityCodeGraphProjectionInputs, prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
 import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { MockCodeGraphProvider, declareOptionalCodeFacts } from "@archcontext/local-runtime/test/codegraph-factories";
@@ -3389,7 +3391,28 @@ test("SM-S15 projection plan, apply readback proof and completion drift render t
     expect(proofRender.drift.ok).toBe(true);
 
     const beforeCompletion = renderSpy.mock.results.length;
-    const completed = await daemon.completeTask(root, { taskSessionId: "task_statechart_projection", task: "Verify the statechart projection" });
+    // One `codegraph sync` per completion (#584). A sync runs `git status`, a read never does
+    // (ADR-0058 Decision 3), so completion runs as many as one sync of the same tree.
+    const statusRuns = async <T>(run: () => T | Promise<T>): Promise<{ value: T; statuses: number }> => {
+      const spy = gitSpy();
+      const path = process.env.PATH;
+      process.env.PATH = spy.env.PATH;
+      try {
+        const value = await run();
+        return { value, statuses: spy.subcommands().filter((command) => command.startsWith("status ")).length };
+      } finally {
+        process.env.PATH = path;
+        spy.restore();
+      }
+    };
+    const completion = process.platform === "win32" ? undefined
+      : await statusRuns(() => daemon!.completeTask(root, { taskSessionId: "task_statechart_projection", task: "Verify the statechart projection" }));
+    const completed = completion?.value ?? await daemon.completeTask(root, { taskSessionId: "task_statechart_projection", task: "Verify the statechart projection" });
+    if (completion) {
+      const oneSync = await statusRuns(() => syncCodeGraphFixture(root));
+      expect(oneSync.statuses).toBeGreaterThan(0);
+      expect(completion.statuses).toBe(oneSync.statuses);
+    }
     expect(completed.ok, JSON.stringify(completed)).toBe(true);
     expect((completed.data as any).extensions.projectionDriftGate).toBeUndefined();
     expect(renderSpy.mock.results.length).toBe(beforeCompletion + 1);

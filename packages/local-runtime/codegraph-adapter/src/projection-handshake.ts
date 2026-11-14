@@ -26,7 +26,8 @@ import {
   packagedCodeGraphRuntimeDigest,
   type CodeGraphCliInvocation
 } from "./cli-provider";
-import { assertRepositoryCodeFactsReady, codeGraphIndexAvailable, inspectRepositoryCodeFacts } from "./repository-code-facts";
+import { assertRepositoryCodeFactsReady, codeGraphIndexAvailable, inspectRepositoryCodeFacts, type RepositoryCodeFactsV1 } from "./repository-code-facts";
+import { codeFactsReadinessAfterRead } from "./ready-index-read";
 import { loadCapabilityCodeGraphProjectionInputs, type CapabilityCodeGraphProjectionInputs } from "./selector-index";
 
 // --- Capability documentation projection measurements and exact semantic bindings ---
@@ -245,12 +246,7 @@ export function prepareProjectionCodeFacts(
   }
   const { postDigest, inputs } = withProjectionIndexSession(root, provider, (session) => {
     const digest = projectionIndexStateDigest(session);
-    const facts = inspectRepositoryCodeFacts(root, { provider });
-    if (facts.state !== "ready") {
-      const issues = facts.state === "unavailable" ? [] : facts.issues;
-      if (issues.some((issue) => issue.code === "pending-source-changes")) throw new Error("CodeGraph post-sync index still has pending source changes");
-      throw new Error(`CodeGraph post-sync index is not ready: ${facts.state === "unavailable" ? facts.reasonCode : issues.map((issue) => issue.code).join(", ")}`);
-    }
+    assertProjectionIndexReady(root, provider, "post-sync");
     const read = loadCapabilityCodeGraphProjectionInputs(root, model, {
       ...(options.sourceFiles ? { sourceFiles: options.sourceFiles } : {}),
       ...(options.footprints ? { footprints: options.footprints } : {}),
@@ -258,8 +254,9 @@ export function prepareProjectionCodeFacts(
       importNodeLimit: options.importNodeLimit,
       ...(options.importGraphs === false ? { importGraphs: false } : {})
     });
-    // Facts read across a sync or a build are not one index state (design G4).
-    if (!session.unchangedSinceOpen()) throw new Error("CodeGraph indexed snapshot changed during projection queries");
+    const after = codeFactsReadinessAfterRead(root, session, provider);
+    if (after?.moved) throw new Error("CodeGraph indexed snapshot changed during projection queries");
+    if (after) throw projectionIndexNotReady(after.facts, "post-query");
     return { postDigest: digest, inputs: read };
   });
   // With the command's own sync reused there is no earlier observation; pre equals post then.
@@ -289,6 +286,18 @@ export function prepareProjectionCodeFacts(
       graphDigest
     }
   };
+}
+
+/** Requires a compatible index with no pending source change, measured by a fresh inspection. */
+function assertProjectionIndexReady(root: string, provider: CodeGraphReadProvider, phase: "post-sync"): void {
+  const facts = inspectRepositoryCodeFacts(root, { provider });
+  if (facts.state !== "ready") throw projectionIndexNotReady(facts, phase);
+}
+
+function projectionIndexNotReady(facts: RepositoryCodeFactsV1, phase: "post-sync" | "post-query"): Error {
+  const issues = facts.state === "unavailable" ? [] : facts.issues;
+  if (issues.some((issue) => issue.code === "pending-source-changes")) return new Error(`CodeGraph ${phase} index still has pending source changes`);
+  return new Error(`CodeGraph ${phase} index is not ready: ${facts.state === "unavailable" ? facts.reasonCode : issues.map((issue) => issue.code).join(", ")}`);
 }
 
 /** Runs `read` on a read-only session; an index the session cannot open fails the handshake. */

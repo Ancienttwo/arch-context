@@ -307,7 +307,8 @@ describe("withReadyCodeGraphIndex: readiness and the read on one session", () =>
         return graph.getProjectRoot();
       }, { provider })).toBe(root);
       expect(atRead).toEqual([1, 0]);
-      expect([provider.calls.open, provider.calls.close]).toEqual([1, 1]);
+      // The fresh change test after the read opens a second handle.
+      expect([provider.calls.open, provider.calls.close]).toEqual([2, 2]);
     });
   });
 
@@ -338,6 +339,12 @@ describe("withReadyCodeGraphIndex: readiness and the read on one session", () =>
     before?.(root);
     return { provider, calls: provider.calls, during: () => {} };
   };
+  // One source added, modified or removed while the read runs; the session's own freshness predates it.
+  const editDuringQuery = (change: "added" | "modified" | "removed") => (root: string) => {
+    let edited = false;
+    const provider = fakeReadProvider(root, () => edited ? { pending: { added: 0, modified: 0, removed: 0, [change]: 1 } } : {});
+    return { provider, calls: provider.calls, during: () => { edited = true; } };
+  };
   const failingRead = (root: string) => {
     const provider = fakeReadProvider(root);
     return { provider, calls: provider.calls, during: () => { throw new Error("private raw provider error /outside/repository"); } };
@@ -349,7 +356,10 @@ describe("withReadyCodeGraphIndex: readiness and the read on one session", () =>
     ["a moving index of the wrong provider version", refusing({ revisionMoves: true, version: "0.0.1" }), notReady(false), false, 1],
     ["a live build at open", refusing({}, root => writeFileSync(join(root, ".codegraph", "codegraph.lock"), String(process.pid))), notReady(true), false, 0],
     ["an index whose readiness reads fail", refusing({ readFailsAfterOpen: true }), { reasonCode: "index-open-failed" }, false, 1],
-    ["a revision that moves during the query", movesDuringQuery, notReady(true), true, 1],
+    ["a revision that moves during the query", movesDuringQuery, notReady(true), true, 2],
+    ["a source added during the query", editDuringQuery("added"), notReady(false), true, 2],
+    ["a source modified during the query", editDuringQuery("modified"), notReady(false), true, 2],
+    ["a source removed during the query", editDuringQuery("removed"), notReady(false), true, 2],
     ["a writer lock that appears during the query", lockDuringQuery, notReady(true), true, 1],
     ["a query that throws a non-FailureError", failingRead, { code: "AC_CODE_FACTS_UNAVAILABLE", reasonCode: "code-facts-unavailable" }, true, 1]
   ] as const)("%s is refused, and the handle is closed", (_name, setup, error, queried, opens) => {
