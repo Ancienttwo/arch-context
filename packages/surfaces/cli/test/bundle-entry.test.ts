@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { ARCHCONTEXT_NODE_RANGE, stableYaml, type Json } from "@archcontext/contracts";
+import { selectDarwinSqliteLibrary } from "../bin/bun-darwin-sqlite";
 
 /**
  * #297: the published `bin/archctx.mjs` is a `bun build` bundle run by Node. In-process `runCli`
@@ -172,6 +173,62 @@ describe("Node engine range at the bundled entry (#322)", () => {
   }, TEST_TIMEOUT_MS);
 });
 
+describe("Darwin SQLite library selection (#574)", () => {
+  const arm = "/opt/homebrew/opt/sqlite/lib/libsqlite3.dylib";
+  const intel = "/usr/local/opt/sqlite/lib/libsqlite3.dylib";
+
+  test.each([
+    [[arm, intel], arm, [arm]],
+    [[arm], arm, [arm]],
+    [[intel], intel, [arm, intel]],
+    [[], undefined, [arm, intel]]
+  ] as const)("selects from %j in closed-list order", (available, expected, probes) => {
+    const seen: string[] = [];
+    const select = () => selectDarwinSqliteLibrary(path => {
+      seen.push(path);
+      return (available as readonly string[]).includes(path);
+    });
+    if (expected === undefined) {
+      expect(select).toThrow(`none of ${arm}, ${intel} exists. Install it with \`brew install sqlite\`.`);
+    } else {
+      expect(select()).toBe(expected);
+    }
+    expect(seen).toEqual([...probes]);
+  });
+});
+
+describe("daemon runtime arguments (#574)", () => {
+  test.each(["bun", "node"] as const)("%s forwards execArgv only under Bun", async (runtime) => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-daemon-argv-"));
+    const env = { ...process.env, ARCHCONTEXT_STATE_DIR: join(root, "state") };
+    const cwd = join(root, "repo");
+    mkdirSync(cwd);
+    execFileSync("git", ["init", "-q"], { cwd });
+    const record = join(root, "preloads.jsonl");
+    const preload = join(root, "record.mjs");
+    writeFileSync(preload, `import { appendFileSync } from "node:fs";
+appendFileSync(${JSON.stringify(record)}, JSON.stringify({ pid: process.pid, argv: process.argv, execArgv: process.execArgv }) + "\\n");\n`);
+    const runtimeArgs = runtime === "bun"
+      ? ["--preload", join(REPO_ROOT, "packages/surfaces/cli/bin/bun-darwin-sqlite.ts"), "--preload", preload]
+      : ["--import", pathToFileURL(preload).href];
+    try {
+      const started = await runBundle(cwd, ["daemon", "start", "--idle-timeout-ms", "60000"], { env, runtime, nodeArgs: runtimeArgs });
+      expect(started.ok, JSON.stringify(started)).toBe(true);
+      expect(started.data.background).toBe(true);
+      const rows = readFileSync(record, "utf8").trim().split("\n").map(line => JSON.parse(line));
+      expect(rows).toHaveLength(runtime === "bun" ? 2 : 1);
+      expect(rows[0].execArgv).toEqual(runtimeArgs);
+      if (runtime === "bun") {
+        expect(rows[1]).toMatchObject({ pid: started.data.childPid, execArgv: runtimeArgs });
+        expect(rows[1].argv.slice(2)).toEqual(["daemon", "start", "--foreground", "--port", "0", "--idle-timeout-ms", "60000"]);
+      }
+    } finally {
+      await runBundle(cwd, ["daemon", "stop"], { env, runtime, allowFailure: true });
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, TEST_TIMEOUT_MS);
+});
+
 function bundleNode(): Json {
   return {
     schemaVersion: "archcontext.node/v2",
@@ -191,12 +248,17 @@ interface BundleRunOptions {
   /** With `allowFailure`, the exit code the run must end with. */
   expectExitCode?: number;
   nodeArgs?: string[];
+  runtime?: "node" | "bun";
 }
 
-/** Runs the bundle with Node, the runtime the published `bin/archctx.mjs` targets. */
+/** Runs the bundle with Node by default, the runtime the published `bin/archctx.mjs` targets. */
 function runBundle(cwd: string, args: string[], options: BundleRunOptions = {}): Promise<any> {
   return new Promise((resolvePromise, rejectPromise) => {
-    const child = spawn("node", [...(options.nodeArgs ?? []), bundlePath, ...args], { cwd, env: options.env ?? process.env });
+    const childArgs = [...(options.nodeArgs ?? []), bundlePath, ...args];
+    const childOptions = { cwd, env: options.env ?? process.env };
+    const child = options.runtime === "bun"
+      ? spawn("bun", childArgs, childOptions)
+      : spawn("node", childArgs, childOptions);
     let stdout = "";
     let stderr = "";
     const timeout = setTimeout(() => {
