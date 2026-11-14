@@ -413,7 +413,7 @@ test("each platform family is selected by a path it owns; shared-core and packag
   expect(selectImpact(SCOPE, WORKSPACES, ["docs/runbooks/verify-sharding.md", "README.md"])).toEqual({ families: [], workspaces: [] });
   for (const path of ["bun.lock", "package.json", "packages/core/package.json", ".github/workflows/verify.yml", "scripts/verify-ci.mjs",
     "packages/surfaces/cli/package.json", "packages/core/policy-engine/bunfig.toml", "tsconfig.build.json", "packages/core/tsconfig.json",
-    "packages/local-runtime/runtime-daemon/tsconfig.test.json"]) {
+    "packages/local-runtime/runtime-daemon/tsconfig.test.json", "scripts/check-bun-version.mjs", "packages/surfaces/cli/bin/bun-darwin-sqlite.ts"]) {
     expect(families(path)).toEqual(["platform", "node-compat", "linux-arm64"]);
   }
   // CLI test fixture manifests are workspace content, not manifests of this repository.
@@ -569,27 +569,68 @@ test("the impact and gate commands plan each event from its base and gate the sa
 });
 
 /**
- * Resolve a family job's commands to the tracked files that it runs, with Bun's own argument meaning:
- * a `./` argument is a file or directory path, any other argument is a substring filter over test file
- * paths, and no argument at all runs the whole discovered suite. A targeted family may never run the
- * whole suite, so that and every command the resolver cannot map to an exact input set throw. Only the
- * reviewed setup actions, the reviewed Windows temp-directory lines and the one reviewed arm64 runner
- * guard resolve to no input; every other shape, including any other inline Node code, throws.
+ * The owner drift contract resolves a family job to the tracked files it runs, and refuses by default.
+ * The workflow, the job and each step may use only the keys listed here, each pinned to its accepted
+ * shape. Commands follow Bun's own argument meaning: a `./` argument is a file or directory path, any
+ * other argument is a substring filter over test file paths, and no argument runs the whole discovered
+ * suite, which a targeted family may never do. Only the reviewed setup actions, the reviewed Windows
+ * temp-directory step and the one reviewed arm64 runner guard resolve to no input. A job that runs
+ * `bun test` also runs the root bunfig.toml `[test].preload` files, so they count as its inputs. A
+ * package lifecycle script that `bun install` or `bun run` would add is refused. Everything else throws
+ * `cannot resolve`.
  */
-const REVIEWED_ACTIONS = ["actions/checkout", "actions/setup-node", "oven-sh/setup-bun", "actions/upload-artifact"];
+const WORKFLOW_KEYS = ["name", "run-name", "on", "permissions", "concurrency", "jobs"];
+const JOB_KEYS = ["if", "needs", "name", "runs-on", "timeout-minutes", "strategy", "env", "steps"];
+const JOB_ENV: Record<string, string> = { PUPPETEER_SKIP_DOWNLOAD: "1" };
+const STEP_KEYS = ["name", "if", "shell", "run", "uses", "with"];
+const REVIEWED_ACTIONS: Record<string, string[]> = {
+  "actions/checkout": [], "actions/setup-node": ["node-version"], "oven-sh/setup-bun": ["bun-version"], "actions/upload-artifact": ["name", "path"]
+};
+const WINDOWS_TEMP_STEP = { if: "runner.os == 'Windows'", shell: "pwsh", line: /^"(?:TEMP|TMP)=\$env:RUNNER_TEMP" >> \$env:GITHUB_ENV$/ };
 const RUNNER_GUARDS: Record<string, string> = {
   "linux-arm64-descriptor-write": `node -e "if (process.platform !== 'linux' || process.arch !== 'arm64') process.exit(1)"`
 };
-function resolveJobInputs(id: string, job: any, scripts: Record<string, string>, tracked: Set<string>): string[] {
+const INSTALL_HOOKS = ["preinstall", "install", "postinstall", "prepare", "prepublish"];
+
+interface Manifests { root: any; workspaces: any[]; preload: string[] }
+
+const refuse = (what: string): never => { throw new Error(`cannot resolve ${what}`); };
+function onlyKeys(value: any, allowed: string[], where: string) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) refuse(`${where}: not a mapping`);
+  for (const key of Object.keys(value)) if (!allowed.includes(key)) refuse(`${where}.${key}`);
+}
+
+function readManifests(): Manifests {
+  const root = JSON.parse(readFileSync("package.json", "utf8"));
+  // Family jobs run every command from the repository root (no working-directory), so the root bunfig applies.
+  const preload = Bun.TOML.parse(readFileSync("bunfig.toml", "utf8")) as any;
+  return { root, workspaces: root.workspaces.map((dir: string) => JSON.parse(readFileSync(join(dir, "package.json"), "utf8"))),
+    preload: preload.test?.preload ?? [] };
+}
+
+function resolveFamilyJob(workflow: any, id: string, manifests: Manifests, tracked: Set<string>): string[] {
+  onlyKeys(workflow, WORKFLOW_KEYS, "workflow");
+  const job = workflow.jobs[id];
+  const at = `jobs.${id}`;
+  onlyKeys(job, JOB_KEYS, at);
+  if (typeof job.if !== "string" || job.needs !== "verify-plan" || typeof job["runs-on"] !== "string" || !Array.isArray(job.steps)) refuse(`${at}: if, needs, runs-on or steps`);
+  if (job.strategy !== undefined) onlyKeys(job.strategy, ["fail-fast", "matrix"], `${at}.strategy`);
+  for (const [key, value] of Object.entries(job.env ?? {})) if (JOB_ENV[key] !== value) refuse(`${at}.env.${key}`);
+  const scripts: Record<string, string> = manifests.root.scripts ?? {};
   const files: string[] = [];
+  const scriptsRun: string[] = [];
+  let installs = false, testsRun = false;
   const isTest = (path: string) => /[._](?:test|spec)\.[cm]?[jt]sx?$/.test(path);
   const resolveCommand = (command: string) => {
     const words = command.trim().split(/\s+/);
     if (command.trim() === RUNNER_GUARDS[id]) return; // runs no repository file
     // Only `&&` chaining and one `> file` redirect are resolvable shell syntax.
-    if (/[;|`$()<'"\\]/.test(command)) throw new Error(`cannot resolve ${command}`);
-    if (words.join(" ") === "bun install --frozen-lockfile") return;
-    if (words[0] === "bun" && words[1] === "run" && words.length === 3 && scripts[words[2]]) return scripts[words[2]].split("&&").forEach(resolveCommand);
+    if (/[;|`$()<'"\\]/.test(command)) refuse(command);
+    if (words.join(" ") === "bun install --frozen-lockfile") { installs = true; return; }
+    if (words[0] === "bun" && words[1] === "run" && words.length === 3 && scripts[words[2]]) {
+      scriptsRun.push(words[2]);
+      return scripts[words[2]].split("&&").forEach(resolveCommand);
+    }
     if (words[0] === "bun" && words[1] === "test") {
       let positional = 0;
       for (let index = 2; index < words.length; index++) {
@@ -599,73 +640,137 @@ function resolveJobInputs(id: string, job: any, scripts: Record<string, string>,
         const matched = arg.startsWith("./")
           ? (tracked.has(path) ? [path] : [...tracked].filter(file => file.startsWith(`${path}/`) && isTest(file)))
           : [...tracked].filter(file => file.includes(arg) && isTest(file));
-        if (arg.startsWith("-") || path === "" || matched.length === 0) throw new Error(`cannot resolve ${arg} in ${command}`);
+        if (arg.startsWith("-") || path === "" || matched.length === 0) refuse(`${arg} in ${command}`);
         files.push(...matched);
         positional++;
       }
-      if (positional === 0) throw new Error(`cannot resolve ${command}: an unfiltered bun test runs the whole discovered suite`);
+      if (positional === 0) refuse(`${command}: an unfiltered bun test runs the whole discovered suite`);
+      testsRun = true;
       return;
     }
     if (words[0] === "node" && tracked.has(words[1]) && (words.length === 2 || (words.length === 4 && words[2] === ">"))) return void files.push(words[1]);
-    throw new Error(`cannot resolve ${command}`);
+    refuse(command);
   };
-  for (const step of job.steps) {
+  job.steps.forEach((step: any, index: number) => {
+    const where = `${at}.steps[${index}]`;
+    onlyKeys(step, STEP_KEYS, where);
     if (step.uses !== undefined) {
-      if (step.run !== undefined || !REVIEWED_ACTIONS.includes(String(step.uses).split("@")[0])) throw new Error(`cannot resolve uses: ${step.uses}`);
-      continue;
+      const withKeys = REVIEWED_ACTIONS[String(step.uses).split("@")[0]];
+      if (!withKeys || step.run !== undefined || step.shell !== undefined || step.if !== undefined) refuse(`${where} uses: ${step.uses}`);
+      if (step.with !== undefined) onlyKeys(step.with, withKeys, `${where}.with`);
+      return;
     }
-    if (typeof step.run !== "string" || step["working-directory"] !== undefined) throw new Error(`cannot resolve step ${JSON.stringify(step)}`);
+    if (typeof step.run !== "string" || step.with !== undefined) refuse(`${where}: a step without a resolvable command`);
     const lines = step.run.split("\n").filter((line: string) => line.trim());
-    if (step.shell === "pwsh") {
-      for (const line of lines) if (!/^"(?:TEMP|TMP)=\$env:RUNNER_TEMP" >> \$env:GITHUB_ENV$/.test(line)) throw new Error(`cannot resolve ${line}`);
-      continue;
+    if (step.shell !== undefined || step.if !== undefined) {
+      const reviewed = step.shell === WINDOWS_TEMP_STEP.shell && step.if === WINDOWS_TEMP_STEP.if
+        && lines.length > 0 && lines.every((line: string) => WINDOWS_TEMP_STEP.line.test(line));
+      if (!reviewed) refuse(`${where} shell: ${step.shell}, if: ${step.if}`);
+      return;
     }
     for (const line of lines) for (const command of line.split("&&")) resolveCommand(command);
+  });
+  if (testsRun) {
+    for (const entry of manifests.preload) {
+      const path = String(entry).replace(/^\.\//, "");
+      if (!tracked.has(path)) refuse(`bunfig.toml preload ${entry}`);
+      files.push(path);
+    }
+  }
+  if (installs) {
+    for (const manifest of [manifests.root, ...manifests.workspaces]) {
+      for (const hook of INSTALL_HOOKS) if (manifest.scripts?.[hook] !== undefined) refuse(`${manifest.name} lifecycle script ${hook}, which bun install runs`);
+    }
+  }
+  for (const name of scriptsRun) {
+    for (const hook of [`pre${name}`, `post${name}`]) if (scripts[hook] !== undefined) refuse(`lifecycle script ${hook}, which bun run ${name} runs`);
   }
   return files;
 }
 
-test("owner drift contract: each targeted family owns every test file and script that its jobs run", () => {
-  const workflow: any = Bun.YAML.parse(readFileSync(".github/workflows/verify.yml", "utf8"));
-  const scripts = JSON.parse(readFileSync("package.json", "utf8")).scripts;
-  const tracked = new Set(TRACKED);
+/** A family owns a path through its own owners, or through the reviewed broad-impact mapping that selects it. */
+function ownerDrift(workflow: any, manifests: Manifests, tracked: Set<string>) {
   const failures: string[] = [];
   let checked = 0;
   for (const family of SCOPE.families.filter((candidate: any) => candidate.id !== SCOPE.completeSuite)) {
+    const shared = SCOPE.broad.families.includes(family.id) ? SCOPE.broad.paths : [];
     for (const id of family.jobs) {
-      for (const path of resolveJobInputs(id, workflow.jobs[id], scripts, tracked)) {
+      for (const path of resolveFamilyJob(workflow, id, manifests, tracked)) {
         checked++;
-        if (!family.owners.some((re: RegExp) => re.test(path))) failures.push(`${family.id} runs ${path} but does not own it`);
+        if (![...family.owners, ...shared].some((re: RegExp) => re.test(path))) failures.push(`${family.id} runs ${path} but does not own it`);
       }
     }
   }
+  return { failures, checked };
+}
+
+test("owner drift contract: each targeted family owns every test file and script that its jobs run", () => {
+  const workflow: any = Bun.YAML.parse(readFileSync(".github/workflows/verify.yml", "utf8"));
+  const manifests = readManifests();
+  const tracked = new Set(TRACKED);
+  const { failures, checked } = ownerDrift(workflow, manifests, tracked);
   expect(failures).toEqual([]);
-  expect(checked).toBeGreaterThanOrEqual(45);
-  // Each unresolvable shape, appended to an otherwise valid family job, must fail the contract.
-  const wrappers = { ...scripts, unfiltered: "bun test --timeout 60000",
-    "inline-suite": `node -e "require('node:child_process').execFileSync('bun',['test'],{stdio:'inherit'})"` };
-  const appended = [
-    { run: "bun x unknown" }, { run: "bun test ./missing/dir" }, { run: "bun test --bail ./scripts" }, { run: "bun run no-such-script" },
-    { run: "node scripts/missing.mjs" }, { run: "bun test" }, { run: "bun test --timeout 60000" }, { run: "bun test --timeout" },
-    { run: "bun test ./" }, { run: "bun test ./." }, { run: "bun run unfiltered" }, { run: "bun run inline-suite" },
-    { run: `node -e "import('./scripts/codegraph-selector-node-integration.mjs')"` },
-    { run: `node -e "require('node:child_process').execFileSync('bun',['test'],{stdio:'inherit'})"` },
-    { run: RUNNER_GUARDS["linux-arm64-descriptor-write"] },
-    { run: "bun test ./scripts; bun test" }, { run: "node scripts/packaged-cli-smoke.mjs || true" },
-    { run: "bun test ./scripts", "working-directory": "packages" }, { name: "no command" },
-    { uses: "actions/download-artifact@v6" }, { uses: "some-org/run-anything@v1" }, { uses: "actions/checkout@v6", run: "bun test" }
+  expect(checked).toBeGreaterThanOrEqual(50);
+  // Every bun-test family runs the root preload files; each counts them as inputs.
+  expect(manifests.preload).toEqual(["./scripts/check-bun-version.mjs", "./packages/surfaces/cli/bin/bun-darwin-sqlite.ts"]);
+  for (const id of ["verify-platform", "verify", "linux-arm64-descriptor-write"]) {
+    expect(resolveFamilyJob(workflow, id, manifests, tracked)).toEqual(expect.arrayContaining(["scripts/check-bun-version.mjs", "packages/surfaces/cli/bin/bun-darwin-sqlite.ts"]));
+  }
+  // A preload file that no family owns or maps is drift; an untracked one cannot be resolved.
+  expect(ownerDrift(workflow, { ...manifests, preload: [...manifests.preload, "./scripts/privacy-capture-lib.mjs"] }, tracked).failures)
+    .toEqual(["platform", "node-compat", "linux-arm64"].map(id => `${id} runs scripts/privacy-capture-lib.mjs but does not own it`));
+
+  const withJob = (id: string, change: (job: any) => any, base = workflow) => ({ ...base, jobs: { ...base.jobs, [id]: change(structuredClone(base.jobs[id])) } });
+  const appendStep = (step: any) => withJob("verify-platform", job => ({ ...job, steps: [...job.steps, step] }));
+  const withScripts = (extra: Record<string, string>) => ({ ...manifests, root: { ...manifests.root, scripts: { ...manifests.root.scripts, ...extra } } });
+  const wrappers = withScripts({ unfiltered: "bun test --timeout 60000",
+    "inline-suite": `node -e "require('node:child_process').execFileSync('bun',['test'],{stdio:'inherit'})"` });
+  // Each refused shape, added to the otherwise valid real workflow, must fail the contract.
+  const refused: [string, any, Manifests][] = [
+    ...[
+      { run: "bun x unknown" }, { run: "bun test ./missing/dir" }, { run: "bun test --bail ./scripts" }, { run: "bun run no-such-script" },
+      { run: "node scripts/missing.mjs" }, { run: "bun test" }, { run: "bun test --timeout 60000" }, { run: "bun test --timeout" },
+      { run: "bun test ./" }, { run: "bun test ./." }, { run: "bun run unfiltered" }, { run: "bun run inline-suite" },
+      { run: `node -e "import('./scripts/codegraph-selector-node-integration.mjs')"` },
+      { run: `node -e "require('node:child_process').execFileSync('bun',['test'],{stdio:'inherit'})"` },
+      { run: RUNNER_GUARDS["linux-arm64-descriptor-write"] },
+      { run: "bun test ./scripts; bun test" }, { run: "node scripts/packaged-cli-smoke.mjs || true" },
+      { run: "bun test ./scripts", "working-directory": "packages" }, { name: "no command" },
+      { uses: "actions/download-artifact@v6" }, { uses: "some-org/run-anything@v1" }, { uses: "actions/checkout@v6", run: "bun test" },
+      { uses: "actions/checkout@v6", with: { ref: "other" } },
+      // A custom shell template runs its own program with the step's script as {0}.
+      { run: "node scripts/platform-ipc-permission-readback.mjs", shell: "node scripts/codegraph-selector-node-integration.mjs {0}" },
+      { run: "bun test", shell: "pwsh", if: "runner.os == 'Windows'" },
+      { run: "bun run verify:platform", env: { NODE_OPTIONS: "--require ./scripts/privacy-capture-lib.mjs" } },
+      { run: "bun run verify:platform", "continue-on-error": true }
+    ].map(step => [JSON.stringify(step), appendStep(step), wrappers] as [string, any, Manifests]),
+    ["job defaults.run.shell", withJob("verify-platform", job => ({ ...job, defaults: { run: { shell: "node scripts/packaged-cli-smoke.mjs {0}" } } })), manifests],
+    ["job defaults.run.working-directory", withJob("verify-platform", job => ({ ...job, defaults: { run: { "working-directory": "packages" } } })), manifests],
+    ["workflow defaults", { ...workflow, defaults: { run: { shell: "bash" } } }, manifests],
+    ["workflow env", { ...workflow, env: { BUN_OPTIONS: "--preload ./scripts/privacy-capture-lib.mjs" } }, manifests],
+    ["job container", withJob("verify-platform", job => ({ ...job, container: "node:22" })), manifests],
+    ["job services", withJob("verify-platform", job => ({ ...job, services: { cache: { image: "redis" } } })), manifests],
+    ["job env", withJob("verify-platform", job => ({ ...job, env: { NODE_OPTIONS: "--import ./scripts/privacy-capture-lib.mjs" } })), manifests],
+    ["root postinstall", workflow, withScripts({ postinstall: "node scripts/privacy-capture-lib.mjs" })],
+    ["workspace prepare", workflow, { ...manifests, workspaces: manifests.workspaces.map((manifest, index) => index ? manifest : { ...manifest, scripts: { prepare: "bun x tsc" } }) }],
+    ["pre-hook of a family-run script", workflow, withScripts({ "preverify:platform": "node scripts/privacy-capture-lib.mjs" })],
+    ["post-hook of a family-run script", workflow, withScripts({ "postverify:node-compat": "node scripts/privacy-capture-lib.mjs" })],
+    ["untracked preload", workflow, { ...manifests, preload: ["./scripts/not-tracked.mjs"] }],
+    ["setup-bun input outside its reviewed keys", appendStep({ uses: "oven-sh/setup-bun@v2", with: { "bun-version": "1.4.4", "bun-download-url": "https://example.test/bun.zip" } }), manifests]
   ];
-  for (const step of appended) {
-    const job = { ...workflow.jobs["verify-platform"], steps: [...workflow.jobs["verify-platform"].steps, step] };
-    expect(() => resolveJobInputs("verify-platform", job, wrappers, tracked)).toThrow("cannot resolve");
+  for (const [label, candidate, candidateManifests] of refused) {
+    const resolveAll = () => SCOPE.families.filter((family: any) => family.id !== SCOPE.completeSuite)
+      .forEach((family: any) => family.jobs.forEach((id: string) => resolveFamilyJob(candidate, id, candidateManifests, tracked)));
+    expect(resolveAll, label).toThrow("cannot resolve");
   }
   // The reviewed arm64 guard stays valid in its own job and adds no input.
-  expect(resolveJobInputs("linux-arm64-descriptor-write", workflow.jobs["linux-arm64-descriptor-write"], scripts, tracked))
-    .toEqual(["packages/core/changeset-engine/test/changeset-engine.test.ts"]);
-  expect(() => resolveJobInputs("verify-platform", { steps: [{ run: "bun test --timeout 60000" }] }, scripts, tracked)).toThrow("unfiltered bun test");
+  expect(resolveFamilyJob(workflow, "linux-arm64-descriptor-write", manifests, tracked))
+    .toEqual(["packages/core/changeset-engine/test/changeset-engine.test.ts", "scripts/check-bun-version.mjs", "packages/surfaces/cli/bin/bun-darwin-sqlite.ts"]);
+  expect(() => resolveFamilyJob(withJob("verify-platform", job => ({ ...job, steps: [{ run: "bun test --timeout 60000" }] })), "verify-platform", manifests, tracked))
+    .toThrow("unfiltered bun test");
   // A filter without `./` is Bun's substring match, so it resolves every test path that contains it.
-  expect(resolveJobInputs("verify-platform", { steps: [{ run: "bun test git-adapter/test/" }] }, scripts, tracked))
-    .toEqual(TRACKED.filter(file => file.includes("git-adapter/test/") && file.endsWith(".test.ts")));
+  expect(resolveFamilyJob(withJob("verify-platform", job => ({ ...job, steps: [{ run: "bun test git-adapter/test/" }] })), "verify-platform", manifests, tracked))
+    .toEqual([...TRACKED.filter(file => file.includes("git-adapter/test/") && file.endsWith(".test.ts")), "scripts/check-bun-version.mjs", "packages/surfaces/cli/bin/bun-darwin-sqlite.ts"]);
 });
 
 test("the reviewed workspace graph equals the workspace manifests: every workspace and local dependency edge", () => {

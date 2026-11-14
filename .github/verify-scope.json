@@ -75,6 +75,8 @@
       "packages/*/*/bunfig.toml",
       "tsconfig*.json",
       "packages/**/tsconfig*.json",
+      "scripts/check-bun-version.mjs",
+      "packages/surfaces/cli/bin/bun-darwin-sqlite.ts",
       ".github/**",
       "scripts/verify-ci.mjs"
     ]
