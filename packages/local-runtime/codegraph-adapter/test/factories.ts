@@ -1,4 +1,4 @@
-import { digestJson, type Json, type NormalizedCodeContext, type NormalizedImpact, type NormalizedSymbol, type SymbolQuery } from "@archcontext/contracts";
+import { digestJson, type Json, type NormalizedCodeContext, type NormalizedSymbol, type SymbolQuery } from "@archcontext/contracts";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type CodeGraphProvider, REQUIRED_CODEGRAPH_VERSION } from "../src/index";
@@ -17,7 +17,7 @@ export function declareOptionalCodeFacts(root: string): void {
 
 export class MockCodeGraphProvider implements CodeGraphProvider {
   version = REQUIRED_CODEGRAPH_VERSION;
-  capabilities = ["index", "context", "impact"];
+  capabilities = ["index", "context"];
   indexedRoots: string[] = [];
 
   async indexAll(workspaceRoot: string): Promise<void> {
@@ -39,9 +39,5 @@ export class MockCodeGraphProvider implements CodeGraphProvider {
 
   async findSymbols(query: SymbolQuery): Promise<NormalizedSymbol[]> {
     return [{ id: `symbol.${query.query}`, name: query.query, kind: query.kinds?.[0] ?? "symbol", path: "src/index.ts" }];
-  }
-
-  async getImpactRadius(symbolId: string, _depth: number): Promise<NormalizedImpact> {
-    return { symbolId, callers: [], callees: [], affectedPaths: [] };
   }
 }

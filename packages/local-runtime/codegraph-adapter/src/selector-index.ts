@@ -10,7 +10,7 @@ import {
   type CapabilityImportGraph,
   type NativeModel
 } from "@archcontext/core/projection-engine";
-import { disableCodeGraphTelemetryByDefault } from "./cli-provider";
+import { disableCodeGraphTelemetryByDefault } from "./cli-invocation";
 import { CODEGRAPH_IMPORT_NODE_READ_LIMIT, capabilityImportGraphs, resolveImportTarget, type ProjectionImportPopulationV1 } from "./import-population";
 import { codeGraphIndexAvailable } from "./repository-code-facts";
 
