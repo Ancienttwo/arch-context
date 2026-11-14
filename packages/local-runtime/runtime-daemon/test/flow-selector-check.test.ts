@@ -114,7 +114,8 @@ test("default flow check still syncs stale code facts", async () => {
     // A clean tracked file whose stat no longer matches the index: any git refresh rewrites .git/index.
     utimesSync(join(root, "src/main.ts"), 1_700_000_000, 1_700_000_000);
     const gitIndex = readFileSync(join(root, ".git/index")).toString("hex");
-    const cli = fileURLToPath(new URL("../../../surfaces/cli/src/main.ts", import.meta.url));
+    // The dev launcher, so the CLI process can open the index read-only under Bun on darwin (#574).
+    const cli = fileURLToPath(new URL("../../../surfaces/cli/bin/archctx", import.meta.url));
     const synced = JSON.parse(execFileSync(process.execPath, [cli, "flows", "check", "--json"], { cwd: root, encoding: "utf8" }));
     expect(synced.ok).toBe(true);
     expect(readFileSync(join(root, ".git/index")).toString("hex")).toBe(gitIndex);

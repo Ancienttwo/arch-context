@@ -1,4 +1,3 @@
-import { CODE_FACTS_ISSUE_MESSAGES } from "@archcontext/contracts";
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
@@ -36,24 +35,6 @@ import { loadCapabilityCodeGraphProjectionInputs, type CapabilityCodeGraphProjec
 // function in @archcontext/core: `codegraph sync` and the read-only session live here, the renderer
 // only receives measured facts. Import graphs remain diagnostic measurements;
 // exact node-v2 selectors are the only CodeGraph facts that can bind a semantic flow step.
-
-/** The compatibility and freshness facts of an index, as a read session reports them (ADR-0058). */
-export interface CodeGraphProjectionStatusV1 {
-  initialized: boolean;
-  version: string;
-  projectPath: string;
-  lastIndexed: string | null;
-  pendingChanges?: { added: number; modified: number; removed: number };
-  worktreeMismatch?: unknown;
-  index?: {
-    builtWithVersion?: string;
-    builtWithExtractionVersion?: number;
-    currentExtractionVersion?: number;
-    reindexRecommended?: boolean;
-    state?: string;
-    pendingRefs?: number;
-  };
-}
 
 export interface CodeGraphProjectionHandshakeV1 {
   schemaVersion: "archcontext.codegraph-projection-handshake/v1";
@@ -344,59 +325,6 @@ function readProjectionHeadSha(root: string): string {
     return headSha;
   } catch (error) {
     throw new Error(`Architecture projection HEAD is unreadable: ${error instanceof Error ? error.message : String(error)}`);
-  }
-}
-
-export type ProjectionCodeGraphStatusIssueCode =
-  | "not-initialized"
-  | "version-mismatch"
-  | "project-path-mismatch"
-  | "index-incomplete"
-  | "extraction-version-mismatch"
-  | "worktree-mismatch"
-  | "pending-source-changes";
-
-export interface ProjectionCodeGraphStatusIssueV1 {
-  code: ProjectionCodeGraphStatusIssueCode;
-  /** The text a reader reports for this issue. */
-  message: string;
-}
-
-/**
- * Pure evaluation of one index status snapshot against the projection contract. It
- * returns every issue in evaluation order; an uninitialized index returns only that issue because
- * the remaining fields carry no meaning then.
- */
-export function projectionCodeGraphStatusIssues(
-  status: CodeGraphProjectionStatusV1,
-  root: string,
-  phase: string
-): ProjectionCodeGraphStatusIssueV1[] {
-  const issue = (code: ProjectionCodeGraphStatusIssueCode, text: string): ProjectionCodeGraphStatusIssueV1 => ({
-    code,
-    message: phase === "repository" ? CODE_FACTS_ISSUE_MESSAGES[code] : `CodeGraph ${phase} ${text}`
-  });
-  if (!status.initialized) return [issue("not-initialized", "status is not initialized")];
-  const issues: ProjectionCodeGraphStatusIssueV1[] = [];
-  if (status.version !== REQUIRED_CODEGRAPH_VERSION || status.index?.builtWithVersion !== REQUIRED_CODEGRAPH_VERSION) {
-    issues.push(issue("version-mismatch", "status version mismatch"));
-  }
-  if (!sameRealPath(status.projectPath, root)) issues.push(issue("project-path-mismatch", "project path mismatch"));
-  if (status.index?.state !== "complete" || status.index.reindexRecommended !== false || status.index.pendingRefs !== 0) {
-    issues.push(issue("index-incomplete", "index is not complete and compatible"));
-  } else if (status.index.builtWithExtractionVersion !== status.index.currentExtractionVersion) {
-    issues.push(issue("extraction-version-mismatch", "extraction version mismatch"));
-  }
-  if (status.worktreeMismatch !== null) issues.push(issue("worktree-mismatch", "worktree mismatch"));
-  return issues;
-}
-
-function sameRealPath(left: unknown, right: string): boolean {
-  if (typeof left !== "string") return false;
-  try {
-    return realpathSync.native(left) === realpathSync.native(right);
-  } catch {
-    return false;
   }
 }
 

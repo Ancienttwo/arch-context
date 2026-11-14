@@ -1,20 +1,23 @@
 import { CODE_FACTS_ISSUE_MESSAGES, FailureError } from "@archcontext/contracts";
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import {
   REQUIRED_CODEGRAPH_VERSION,
   CodeGraphProviderUnavailableError,
   pinnedCodeGraphProvider,
   withCodeGraphReadSession,
+  type CodeGraphIndexCompatibilityV1,
+  type CodeGraphIndexFreshnessV1,
   type CodeGraphReadProvider,
   type CodeGraphReadSession
 } from "./read-session";
-import {
-  ProjectionCodeFactsUnavailableError,
-  projectionCodeGraphStatusIssues,
-  type CodeGraphProjectionStatusV1,
-  type ProjectionCodeGraphStatusIssueV1
-} from "./projection-handshake";
+import { ProjectionCodeFactsUnavailableError } from "./projection-handshake";
+
+/** One reason an index is not ready, in the closed contracts vocabulary. */
+export interface RepositoryCodeFactsIssueV1 {
+  code: keyof typeof CODE_FACTS_ISSUE_MESSAGES;
+  message: string;
+}
 
 export interface RepositoryCodeFactsPendingChangesV1 {
   added: number;
@@ -43,7 +46,7 @@ export type RepositoryCodeFactsV1 =
       indexPresent: false;
       requiredVersion: typeof REQUIRED_CODEGRAPH_VERSION;
       codeGraphVersion: string;
-      issues: ProjectionCodeGraphStatusIssueV1[];
+      issues: RepositoryCodeFactsIssueV1[];
     }
   | {
       schemaVersion: "archcontext.repository-code-facts/v1";
@@ -58,50 +61,66 @@ export type RepositoryCodeFactsV1 =
       pendingRefs: number | null;
       /** Source changes the index has not synced yet; `null` when they were not measured. */
       pendingChanges: RepositoryCodeFactsPendingChangesV1 | null;
-      issues: ProjectionCodeGraphStatusIssueV1[];
+      issues: RepositoryCodeFactsIssueV1[];
     };
 
 const REPOSITORY_CODE_FACTS_SCHEMA = "archcontext.repository-code-facts/v1" as const;
-const PENDING_SOURCE_CHANGES_ISSUE: ProjectionCodeGraphStatusIssueV1 = {
-  code: "pending-source-changes",
-  message: CODE_FACTS_ISSUE_MESSAGES["pending-source-changes"]
-};
+const PENDING_SOURCE_CHANGES_ISSUE = issue("pending-source-changes");
 const INDEX_OPEN_FAILED_MESSAGE = "CodeGraph index could not be opened and read read-only";
 
-/** Facts every repository-code-facts reader reports the same way, from one status snapshot. */
-function repositoryCodeFactsFromStatus(
+function issue(code: RepositoryCodeFactsIssueV1["code"]): RepositoryCodeFactsIssueV1 {
+  return { code, message: CODE_FACTS_ISSUE_MESSAGES[code] };
+}
+
+/**
+ * The compatibility issues of an open index, in evaluation order: the loaded and the building
+ * CodeGraph version, the project the index belongs to, a complete build with no pending
+ * references, and the extraction version.
+ */
+function compatibilityIssues(root: string, compatibility: CodeGraphIndexCompatibilityV1): RepositoryCodeFactsIssueV1[] {
+  const issues: RepositoryCodeFactsIssueV1[] = [];
+  if (compatibility.version !== REQUIRED_CODEGRAPH_VERSION || compatibility.builtWithVersion !== REQUIRED_CODEGRAPH_VERSION) issues.push(issue("version-mismatch"));
+  if (!sameRealPath(compatibility.projectPath, root)) issues.push(issue("project-path-mismatch"));
+  if (compatibility.state !== "complete" || compatibility.reindexRecommended || compatibility.pendingRefs !== 0) issues.push(issue("index-incomplete"));
+  else if (compatibility.builtWithExtractionVersion !== compatibility.currentExtractionVersion) issues.push(issue("extraction-version-mismatch"));
+  return issues;
+}
+
+function sameRealPath(left: string, right: string): boolean {
+  try {
+    return realpathSync.native(left) === realpathSync.native(right);
+  } catch {
+    return false;
+  }
+}
+
+/** Facts every repository-code-facts reader reports the same way, from one open session's reads. */
+function repositoryCodeFactsFromSession(
   root: string,
   codeGraphVersion: string,
-  status: CodeGraphProjectionStatusV1,
-  measuresFreshness: boolean
+  compatibility: CodeGraphIndexCompatibilityV1,
+  pending: CodeGraphIndexFreshnessV1 | undefined
 ): RepositoryCodeFactsV1 {
-  const issues = projectionCodeGraphStatusIssues(status, root, "repository");
-  const pending = status.pendingChanges;
-  // A projection runs `sync` first, so pending changes are not a projection-status issue; for a
-  // read-only inspection they mean the index lags the worktree.
-  if (measuresFreshness && (!pending || pending.added !== 0 || pending.modified !== 0 || pending.removed !== 0)) {
-    issues.push(PENDING_SOURCE_CHANGES_ISSUE);
-  }
+  const issues = compatibilityIssues(root, compatibility);
+  // Pending changes mean the index lags the worktree; the compatibility tier does not measure them.
+  if (pending && (pending.added !== 0 || pending.modified !== 0 || pending.removed !== 0)) issues.push(PENDING_SOURCE_CHANGES_ISSUE);
   return {
     schemaVersion: REPOSITORY_CODE_FACTS_SCHEMA,
     state: issues.length === 0 ? "ready" : "not-ready",
     indexPresent: true,
     requiredVersion: REQUIRED_CODEGRAPH_VERSION,
     codeGraphVersion,
-    indexBuiltWithVersion: status.index?.builtWithVersion ?? null,
-    extractionVersion: {
-      builtWith: status.index?.builtWithExtractionVersion ?? null,
-      current: status.index?.currentExtractionVersion ?? null
-    },
-    indexState: status.index?.state ?? null,
+    indexBuiltWithVersion: compatibility.builtWithVersion,
+    extractionVersion: { builtWith: compatibility.builtWithExtractionVersion, current: compatibility.currentExtractionVersion },
+    indexState: compatibility.state,
     reindexRecommended: issues.some(issue => issue.code !== "pending-source-changes"),
-    pendingRefs: status.index?.pendingRefs ?? null,
+    pendingRefs: compatibility.pendingRefs,
     pendingChanges: pending ? { added: pending.added, modified: pending.modified, removed: pending.removed } : null,
     issues
   };
 }
 
-function buildInProgressCodeFacts(codeGraphVersion: string, versionIssues: ProjectionCodeGraphStatusIssueV1[]): RepositoryCodeFactsV1 {
+function buildInProgressCodeFacts(codeGraphVersion: string, versionIssues: RepositoryCodeFactsIssueV1[]): RepositoryCodeFactsV1 {
   // Every index field would be a mid-build guess. `null` is the contract's unknown value.
   return {
     schemaVersion: REPOSITORY_CODE_FACTS_SCHEMA,
@@ -115,12 +134,12 @@ function buildInProgressCodeFacts(codeGraphVersion: string, versionIssues: Proje
     reindexRecommended: null,
     pendingRefs: null,
     pendingChanges: null,
-    issues: [...versionIssues, { code: "index-incomplete", message: CODE_FACTS_ISSUE_MESSAGES["index-incomplete"] }]
+    issues: [...versionIssues, issue("index-incomplete")]
   };
 }
 
-function versionIssuesOf(codeGraphVersion: string): ProjectionCodeGraphStatusIssueV1[] {
-  return codeGraphVersion === REQUIRED_CODEGRAPH_VERSION ? [] : [{ code: "version-mismatch", message: CODE_FACTS_ISSUE_MESSAGES["version-mismatch"] }];
+function versionIssuesOf(codeGraphVersion: string): RepositoryCodeFactsIssueV1[] {
+  return codeGraphVersion === REQUIRED_CODEGRAPH_VERSION ? [] : [issue("version-mismatch")];
 }
 
 function unavailableCodeFacts(reasonCode: "codegraph-unavailable" | "index-open-failed", message: string): RepositoryCodeFactsV1 {
@@ -189,24 +208,7 @@ export function openSessionCodeFacts(session: CodeGraphReadSession, tier: "compa
   const pendingChanges = tier === "freshness" ? session.freshness() : undefined;
   // Facts read across a build or a sync are not one index state (design G4).
   if (!session.unchangedSinceOpen()) return movingCodeFacts(codeGraphVersion);
-  const status: CodeGraphProjectionStatusV1 = {
-    initialized: true,
-    version: compatibility.version,
-    projectPath: compatibility.projectPath,
-    lastIndexed: compatibility.lastIndexed,
-    ...(pendingChanges === undefined ? {} : { pendingChanges }),
-    // `openSync(root)` never walks up to another worktree's index (ADR-0058).
-    worktreeMismatch: null,
-    index: {
-      ...(compatibility.builtWithVersion === null ? {} : { builtWithVersion: compatibility.builtWithVersion }),
-      ...(compatibility.builtWithExtractionVersion === null ? {} : { builtWithExtractionVersion: compatibility.builtWithExtractionVersion }),
-      currentExtractionVersion: compatibility.currentExtractionVersion,
-      reindexRecommended: compatibility.reindexRecommended,
-      ...(compatibility.state === null ? {} : { state: compatibility.state }),
-      pendingRefs: compatibility.pendingRefs
-    }
-  };
-  return { facts: repositoryCodeFactsFromStatus(session.root, codeGraphVersion, status, tier === "freshness"), retryable: false };
+  return { facts: repositoryCodeFactsFromSession(session.root, codeGraphVersion, compatibility, pendingChanges), retryable: false };
 }
 
 /** The build-in-progress answer; a retry cannot fix a provider of the wrong version. */
