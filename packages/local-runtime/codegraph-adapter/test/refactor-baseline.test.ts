@@ -5,8 +5,9 @@
  * order and its refusal classes, the outbound-only footprint filter in `capabilityImportGraphs`,
  * and the fact that one global `truncated` flag is copied into every capability graph. None of
  * them is exported, so all three are frozen through the two public entrypoints that reach them —
- * `loadCapabilityCodeGraphProjectionInputs` and `CodeGraphCliProvider.buildContext` — using the
- * written-to-disk fake CLI pattern this package already uses. No `export` was added.
+ * `loadCapabilityCodeGraphProjectionInputs` and `CodeGraphCliProvider.buildContext` — the first
+ * through the written-to-disk fake CLI pattern this package already uses, the second through an
+ * injected read-only provider answering the same nodes (#574 S5). No `export` was added.
  *
  * Machine-dependent values are dropped by an explicit allow-list, never by a wildcard: the
  * handshake fixture freezes the field list and the identity values and reduces every digest to
@@ -24,8 +25,10 @@ import {
   loadCapabilityCodeGraphProjectionInputs,
   prepareProjectionCodeFacts,
   type CapabilityCodeGraphProjectionInputs,
-  type CodeGraphProjectionHandshakeV1
+  type CodeGraphProjectionHandshakeV1,
+  type CodeGraphReadProvider
 } from "../src/index";
+import { fakeReadProvider } from "./read-provider-fixture";
 
 interface BaselineFixture<TInput> {
   id: string;
@@ -89,7 +92,7 @@ const model: NativeModel = {
   relations: []
 };
 
-/** Fake CLI that answers the import dump, one symbol query, and `explore`; anything else fails loudly. */
+/** Fake CLI that answers the import dump; anything else fails loudly. */
 const IMPORT_DUMP_CLI = `
 const argv = process.argv.slice(2);
 const importNodes = ${JSON.stringify(importNodes)};
@@ -100,16 +103,29 @@ if (argv[0] === "query" && argv.includes("-k") && argv[argv.indexOf("-k") + 1] =
   }))));
   process.exit(0);
 }
-if (argv[0] === "query") {
-  process.stdout.write(JSON.stringify([
-    { node: { id: "sym:main", kind: "function", name: "main", filePath: "packages/app/src/main.ts", startLine: 1, endLine: 1 } }
-  ]));
-  process.exit(0);
-}
-if (argv[0] === "explore") { process.stdout.write(""); process.exit(0); }
 process.stderr.write("unexpected codegraph invocation: " + JSON.stringify(argv));
 process.exit(1);
 `;
+
+/**
+ * Read-only provider answering what the fake CLI answers: the import dump for an import search,
+ * one symbol for any other search, and an empty relevant context. Scores fall in dump order, so the
+ * search ranks the dump as the CLI listed it.
+ */
+function importDumpReadProvider(root: string): CodeGraphReadProvider {
+  const base = fakeReadProvider(root);
+  return {
+    ...base,
+    openReadOnly: (openedRoot) => Object.assign(base.openReadOnly(openedRoot), {
+      findRelevantContext: async () => ({ nodes: new Map(), edges: [], roots: [] }),
+      getNodesInFiles: () => [],
+      generatedFilePredicate: () => () => false,
+      searchNodes: (_query: string, options: { limit: number; kinds?: string[] }) => options.kinds?.includes("import")
+        ? importNodes.slice(0, options.limit).map((node, index) => ({ node: { id: `import:${node.filePath}:${node.name}`, kind: "import", name: node.name, filePath: node.filePath }, score: importNodes.length - index }))
+        : [{ node: { id: "sym:main", kind: "function", name: "main", filePath: "packages/app/src/main.ts", startLine: 1, endLine: 1 }, score: 1 }]
+    })
+  };
+}
 
 function seedWorkspace(): { root: string; binary: string } {
   const root = mkdtempSync(join(tmpdir(), "archctx-rf0-codegraph-"));
@@ -218,7 +234,7 @@ describe("RF0 baseline: normalized task-context import edges", () => {
     test(`${fixture.id} — ${fixture.description}`, async () => {
       const { root, binary } = seedWorkspace();
       try {
-        const provider = new CodeGraphCliProvider(root, binary);
+        const provider = new CodeGraphCliProvider(root, binary, importDumpReadProvider(root));
         const context = await provider.buildContext(fixture.input.task, {
           maxSymbols: fixture.input.maxSymbols,
           includeSource: fixture.input.includeSource,
