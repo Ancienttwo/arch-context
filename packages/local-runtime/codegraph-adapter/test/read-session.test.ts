@@ -6,6 +6,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, 
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createInterface } from "node:readline";
 import {
   CODEGRAPH_PROVIDER_INTERNAL_EXPORTS,
   REQUIRED_CODEGRAPH_VERSION,
@@ -298,7 +299,11 @@ describe("read session over a real index", () => {
   });
 
   test("a read sees a live writer's WAL without changing it or the database", async () => {
-    writeFileSync(join(root, "src/b.ts"), "export function b() { return 2; }\n");
+    withCodeGraphReadSession(root, (opened) => {
+      if (opened.state !== "open") throw new Error(opened.state);
+      expect(opened.session.graph.getNodesByName("walOnlySymbol")).toHaveLength(0);
+    });
+    writeFileSync(join(root, "src/b.ts"), "export function b() { return 2; }\nexport const walOnlySymbol = 2;\n");
     const { platformRoot, dist } = codeGraphBundle();
     const database = join(root, ".codegraph", "codegraph.db");
     const wal = `${database}-wal`;
@@ -320,11 +325,12 @@ describe("read session over a real index", () => {
       env: { ...process.env, DO_NOT_TRACK: "1", CODEGRAPH_NO_DOWNLOAD: "1" }
     });
     const exited = once(writer, "exit");
+    const output = createInterface({ input: writer.stdout });
     let stderr = "";
     writer.stderr.on("data", chunk => { stderr += chunk; });
     try {
       const ready = await Promise.race([
-        once(writer.stdout, "data").then(([chunk]) => String(chunk)),
+        once(output, "line").then(([line]) => String(line)),
         exited.then(([code]) => { throw new Error(`writer exited (${code}): ${stderr}`); })
       ]);
       const revision = JSON.parse(ready);
@@ -333,13 +339,14 @@ describe("read session over a real index", () => {
       withCodeGraphReadSession(root, (opened) => {
         if (opened.state !== "open") throw new Error(opened.state);
         expect(opened.session.revision()).toEqual(revision);
-        expect(opened.session.graph.getNodesByName("b")).toHaveLength(1);
+        expect(opened.session.graph.getNodesByName("walOnlySymbol")).toHaveLength(1);
         expect(opened.session.freshness()).toEqual({ added: 0, modified: 0, removed: 0 });
         expect(opened.session.unchangedSinceOpen()).toBe(true);
       });
       expect({ database: digest(database), wal: digest(wal) }).toEqual(before);
       expect(writer.exitCode).toBeNull();
     } finally {
+      output.close();
       writer.stdin.end();
       const [code] = await exited;
       expect(code, stderr).toBe(0);

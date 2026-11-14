@@ -26,7 +26,9 @@ It still lists the checks deferred to complete.
 the whole build. Readiness does not open the index while that lock names a live process.
 Once the lock is released, the session opens it read-only, without migrations, repair
 or WAL maintenance. The permitted provider side effects are SQLite WAL/SHM sidecar
-creation and rewriting `.codegraph/.gitignore` when missing or different (ADR-0058 Decision 4).
+creation and rewriting `.codegraph/.gitignore` to its default when the file is missing or
+unreadable, or holds a stale CodeGraph-generated default; a user-authored file is left
+untouched (ADR-0058 Decision 4).
 
 While a build holds the lock, `doctor` reports `not-ready` with the `index-incomplete` issue and
 `null` index fields (`indexState`, `pendingRefs`, `pendingChanges`, `reindexRecommended`), because a
