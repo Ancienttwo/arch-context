@@ -24,6 +24,8 @@ import { CLI_COMMAND_FLAGS, resolveCommandExitCode, runCapabilitiesCommand, runC
 
 const REPOSITORY_ROOT = resolve(import.meta.dir, "../../../..");
 const CLI_ENTRY = join(REPOSITORY_ROOT, "packages/surfaces/cli/src/main.ts");
+/** The dev launcher: under Bun on darwin it preloads the SQLite library that can open the index read-only. */
+const CLI_LAUNCHER = join(REPOSITORY_ROOT, "packages/surfaces/cli/bin/archctx");
 const CLI_PROCESS_TIMEOUT_MS = process.platform === "win32" ? 180_000 : 30_000;
 const CLI_DOCS_TEST_TIMEOUT_MS = 15_000;
 const DAEMON_TEST_TIMEOUT_MS = process.platform === "win32" ? 240_000 : 30_000;
@@ -1294,7 +1296,7 @@ test("CLI flows check reports each selector proof status from a real index witho
     }]);
 
     // Real process with no runtime client injected: no daemon is discovered or started.
-    const processOutput = execFileSync("bun", [CLI_ENTRY, "flows", "check", "--json"], {
+    const processOutput = execFileSync("bun", [CLI_LAUNCHER, "flows", "check", "--json"], {
       cwd: root,
       encoding: "utf8",
       env: { ...process.env, ARCHCONTEXT_STATE_DIR: checkStateRoot },

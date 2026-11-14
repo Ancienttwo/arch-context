@@ -9,7 +9,7 @@ import { delimiter, dirname, join, resolve } from "node:path";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { emptyArchitectureLedgerEvidenceState, planYamlToArchitectureLedgerImport, projectArchitectureLedgerStateToYamlFiles, type ArchitectureLedgerGraphState } from "@archcontext/core/architecture-ledger";
 import { ARCHITECTURE_DOCS_RENDERER_VERSION, digestJson, projectionApplyReadbackRequestFromReceipt, stableYaml, type ProjectionApplyReceiptV1, type ProjectionRequestV1, type ProjectionResultV3, type StateMachineV1, type CodeFactsPort, type Json, type ModelStorePort, type NormalizedCodeContext } from "@archcontext/contracts";
-import { assertNoCodeGraphInternalPathAccess, CodeGraphAdapter, REQUIRED_CODEGRAPH_VERSION, loadCapabilityCodeGraphProjectionInputs, prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
+import { assertNoCodeGraphInternalPathAccess, CodeGraphAdapter, CodeGraphCliProvider, REQUIRED_CODEGRAPH_VERSION, loadCapabilityCodeGraphProjectionInputs, prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
 import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { MockCodeGraphProvider, declareOptionalCodeFacts } from "@archcontext/local-runtime/test/codegraph-factories";
 import { migrationSql, assertNoSourceStorageSchema, SQLITE_PRAGMAS, SqliteLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
@@ -3356,7 +3356,8 @@ test("SM-S15 projection plan, apply readback proof and completion drift render t
     writeFileSync(join(root, machinePath), JSON.stringify(machine), "utf8");
     // A real index is required by the apply readback proof, even for a model-only fixture.
     execFileSync("codegraph", ["init", root], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
-    daemon = await createStartedTestDaemon();
+    // Completion reuses its code-facts sync for the projection (#584), so that sync has to be CodeGraph's.
+    daemon = await createStartedTestDaemon({ codeFacts: new CodeGraphAdapter(new CodeGraphCliProvider(root)) });
     const baseline = await runArchitectureDocsProjectionCommand({ action: "apply", profile: "repo-harness/v1", approved: true }, root, daemon);
     expect(baseline.ok, JSON.stringify(baseline)).toBe(true);
 
