@@ -1,8 +1,17 @@
 name: Verify
-run-name: ${{ github.event_name == 'workflow_dispatch' && 'Governance revalidation' || 'Verify' }}
+run-name: ${{ github.event_name == 'workflow_dispatch' && format('Release validation {0}', inputs.sha) || 'Verify' }}
 
+# Routine pull_request and push runs execute an impact plan (scripts/verify-ci.mjs impact): the Linux
+# full-verify jobs plus only the platform families whose owned paths changed. Only release validation
+# (workflow_dispatch with the approved SHA) runs the complete matrix. No trigger-level path filter:
+# every event must reach the Verify gate.
 on:
   workflow_dispatch:
+    inputs:
+      sha:
+        description: Exact full commit SHA approved for release validation; it must equal the dispatched ref's head
+        required: true
+        type: string
   pull_request:
   push:
     branches:
@@ -48,8 +57,8 @@ jobs:
         run: bun run verify:governance --ci-inspect
 
   linux-arm64-descriptor-write:
-    if: github.event_name != 'workflow_dispatch' && needs.verify-topology.outputs.lane == 'matrix'
-    needs: verify-topology
+    if: contains(fromJSON(needs.verify-plan.outputs.families), 'linux-arm64')
+    needs: verify-plan
     name: Linux arm64 descriptor writes
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 10
@@ -80,15 +89,15 @@ jobs:
 
   verify:
     # Full verify runs once per OS at Node 22.22.x; Node 24.x and 25.x run only Node-runtime checks because Bun 1.4.4 executes the test suite.
-    if: github.event_name != 'workflow_dispatch' && needs.verify-topology.outputs.lane == 'matrix'
-    needs: verify-topology
+    if: contains(fromJSON(needs.verify-plan.outputs.families), 'node-compat')
+    needs: verify-plan
     name: "Verify execution: ${{ matrix.os }} / Node ${{ matrix.node-version }} / node compat"
     runs-on: ${{ matrix.os }}
     timeout-minutes: ${{ matrix.os == 'windows-latest' && 60 || 20 }}
 
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.verify-topology.outputs.compat) }}
+      matrix: ${{ fromJSON(needs.verify-plan.outputs.compat) }}
 
     steps:
       - name: Checkout
@@ -128,33 +137,87 @@ jobs:
       - name: Node compatibility
         run: bun run verify:node-compat
 
-  verify-topology:
-    if: github.event_name != 'workflow_dispatch'
-    name: Verify topology
+  verify-platform:
+    if: contains(fromJSON(needs.verify-plan.outputs.families), 'platform')
+    needs: verify-plan
+    name: "Verify platform: ${{ matrix.os }} / Node ${{ matrix.node-version }}"
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && 60 || 20 }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            node-version: 22.22.x
+          - os: windows-latest
+            node-version: 22.22.x
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Keep temporary files on the Windows runner work disk
+        # The system-drive temp directory has multi-second write and fsync stalls on hosted
+        # Windows runners; RUNNER_TEMP is on the work disk (Windows phase probe, 2026-10-15).
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          "TEMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
+          "TMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Platform IPC permission readback
+        run: node scripts/platform-ipc-permission-readback.mjs > platform-ipc-permission-readback.json
+
+      - name: Upload platform IPC permission readback
+        uses: actions/upload-artifact@v6
+        with:
+          name: platform-ipc-permission-${{ matrix.os }}-node-${{ matrix.node-version }}-impact
+          path: platform-ipc-permission-readback.json
+
+      - name: Platform-sensitive suites
+        run: bun run verify:platform
+
+  verify-plan:
+    name: Verify plan
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    env:
+      VERIFY_DISPATCH_SHA: ${{ inputs.sha }}
     outputs:
-      split: ${{ steps.topology.outputs.split }}
-      shards: ${{ steps.topology.outputs.shards }}
-      compat: ${{ steps.topology.outputs.compat }}
-      lane: ${{ steps.topology.outputs.lane }}
-      targets: ${{ steps.topology.outputs.targets }}
+      plan: ${{ steps.plan.outputs.plan }}
+      families: ${{ steps.plan.outputs.families }}
+      split: ${{ steps.plan.outputs.split }}
+      shards: ${{ steps.plan.outputs.shards }}
+      compat: ${{ steps.plan.outputs.compat }}
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 2
-      - id: topology
-        run: node scripts/verify-ci.mjs topology
+      - id: plan
+        run: node scripts/verify-ci.mjs impact
 
   verify-split-pre:
-    if: github.event_name != 'workflow_dispatch' && needs.verify-topology.outputs.lane == 'matrix'
-    needs: verify-topology
+    if: contains(fromJSON(needs.verify-plan.outputs.families), 'full-matrix')
+    needs: verify-plan
     name: "Verify execution: ${{ matrix.os }} / Node ${{ matrix.node-version }} / pre"
     runs-on: ${{ matrix.os }}
     timeout-minutes: ${{ matrix.os == 'windows-latest' && 60 || 20 }}
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.verify-topology.outputs.split) }}
+      matrix: ${{ fromJSON(needs.verify-plan.outputs.split) }}
     env: &split-pre-env
       VERIFY_TARGET: ${{ matrix.os }} / Node ${{ matrix.node-version }}
     steps:
@@ -212,14 +275,14 @@ jobs:
           overwrite: true
 
   verify-split-tests:
-    if: github.event_name != 'workflow_dispatch' && needs.verify-topology.outputs.lane == 'matrix'
-    needs: [verify-topology, verify-split-pre]
+    if: contains(fromJSON(needs.verify-plan.outputs.families), 'full-matrix')
+    needs: [verify-plan, verify-split-pre]
     name: "Verify execution: ${{ matrix.os }} / Node ${{ matrix.node-version }} / shard ${{ matrix.shard }}"
     runs-on: ${{ matrix.os }}
     timeout-minutes: ${{ matrix.os == 'windows-latest' && 60 || 20 }}
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.verify-topology.outputs.shards) }}
+      matrix: ${{ fromJSON(needs.verify-plan.outputs.shards) }}
     env: &split-shard-env
       VERIFY_TARGET: ${{ matrix.os }} / Node ${{ matrix.node-version }}
       VERIFY_SHARD_INDEX: ${{ matrix.index }}
@@ -265,14 +328,14 @@ jobs:
           overwrite: true
 
   verify-split-post:
-    if: github.event_name != 'workflow_dispatch' && needs.verify-topology.outputs.lane == 'matrix'
-    needs: [verify-topology, verify-split-pre, verify-split-tests]
+    if: contains(fromJSON(needs.verify-plan.outputs.families), 'full-matrix')
+    needs: [verify-plan, verify-split-pre, verify-split-tests]
     name: "Verify execution: ${{ matrix.os }} / Node ${{ matrix.node-version }} / post"
     runs-on: ${{ matrix.os }}
     timeout-minutes: ${{ matrix.os == 'windows-latest' && 60 || 20 }}
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.verify-topology.outputs.split) }}
+      matrix: ${{ fromJSON(needs.verify-plan.outputs.split) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -314,7 +377,8 @@ jobs:
         run: bun run verify:post
 
   # Governance's full-verification receipt (ADR-0055): the split steps above, as dedicated Linux jobs
-  # outside the lane-gated generic matrix, so they run on every event and never wait on another OS.
+  # outside the release-only full matrix, so they run on every event and never wait on another OS.
+  # They are the impact plan's Linux affected-workspace job: they run the complete suite.
   verify-linux-pre:
     name: "Verify execution: ${{ matrix.os }} / Node ${{ matrix.node-version }} / pre"
     runs-on: ubuntu-latest
@@ -389,50 +453,28 @@ jobs:
       - *split-post-gates
       - *bind-verified-checkout
 
-  verify-collect:
-    if: ${{ always() && github.event_name != 'workflow_dispatch' }}
-    needs: [verify-topology, verify-linux-pre, verify-linux-shards, verify-linux-post, verify, verify-split-pre, verify-split-tests, verify-split-post]
-    name: Verify job evidence
+  verify-gate:
+    # The only required check. always(): it must report when a job fails, is skipped or is cancelled,
+    # because GitHub counts a skipped required check as passed.
+    if: ${{ always() }}
+    needs: [verify-plan, verify-linux-pre, verify-linux-shards, verify-linux-post, governance-verify, verify-platform, verify, linux-arm64-descriptor-write, verify-split-pre, verify-split-tests, verify-split-post]
+    name: Verify gate
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
-      GITHUB_TOKEN: ${{ github.token }}
-      VERIFY_LANE: ${{ needs.verify-topology.outputs.lane }}
-    outputs:
-      verdicts: ${{ steps.collect.outputs.verdicts }}
+      VERIFY_NEEDS: ${{ toJSON(needs) }}
+      VERIFY_PLAN: ${{ needs.verify-plan.outputs.plan }}
+      VERIFY_DISPATCH_SHA: ${{ inputs.sha }}
     steps:
       - uses: actions/checkout@v6
-      - id: collect
-        run: node scripts/verify-ci.mjs collect
-      - name: Upload actual job conclusions and runner minutes
-        if: always()
-        uses: actions/upload-artifact@v6
         with:
-          name: verify-job-evidence-attempt-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/verify-evidence
-          if-no-files-found: error
-
-  verify-summary:
-    if: ${{ always() && github.event_name != 'workflow_dispatch' }}
-    needs: [verify-topology, verify-collect]
-    name: ${{ matrix.os }} / Node ${{ matrix.node-version }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.verify-topology.outputs.targets) }}
-    env:
-      VERIFY_TARGET: ${{ matrix.os }} / Node ${{ matrix.node-version }}
-      VERIFY_COLLECT_RESULT: ${{ needs.verify-collect.result }}
-      VERIFY_VERDICTS: ${{ needs.verify-collect.outputs.verdicts }}
-    steps:
-      - name: Require every expected job to have succeeded
-        run: |
-          node -e 'const e=process.env; if(e.VERIFY_COLLECT_RESULT!=="success" || JSON.parse(e.VERIFY_VERDICTS || "{}")[e.VERIFY_TARGET]!==true) { console.error("Missing, failed, skipped, cancelled or mismatched execution job for "+e.VERIFY_TARGET); process.exit(1); }'
+          fetch-depth: 2
+      - name: Require the plan's selected jobs to succeed and every other job to be skipped
+        run: node scripts/verify-ci.mjs gate
 
   verify-cost:
-    if: ${{ always() && github.event_name != 'workflow_dispatch' }}
-    needs: [verify-summary, governance-verify, linux-arm64-descriptor-write]
+    if: ${{ always() }}
+    needs: verify-gate
     name: Verify runner cost
     runs-on: ubuntu-latest
     timeout-minutes: 5

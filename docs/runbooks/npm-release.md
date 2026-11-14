@@ -9,7 +9,16 @@ per-version release record.
 
 Prepare a release-candidate PR with synchronized version authorities and the
 per-version checklist. Hosted Verify must pass on its head before the owner
-merges it. Publish only from that merged release-candidate commit.
+merges it; that routine run is an impact plan, not the complete matrix. After
+the merge, run release validation on the merged commit with the owner's
+approval ([governance-revalidation.md](governance-revalidation.md)):
+
+```sh
+gh workflow run verify.yml --repo Ancienttwo/arch-context --ref main -f sha=<merge-sha>
+```
+
+Publish only from that merged release-candidate commit, and only after the
+release validation run's `Verify gate` passed for `<merge-sha>`.
 
 ## Build and preflight
 
