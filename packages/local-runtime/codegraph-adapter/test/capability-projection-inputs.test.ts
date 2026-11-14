@@ -6,6 +6,7 @@ import { join } from "node:path";
 import type { NativeModel } from "@archcontext/core/projection-engine";
 import { digestJson } from "@archcontext/contracts";
 import { fixtureNameCounts, holdCodeGraphFixture, indexCodeGraphFixture } from "./real-index";
+import { fakeReadProvider, type FakeReadProvider } from "./read-provider-fixture";
 import { ProjectionCodeFactsUnavailableError, RUNTIME_BUILTIN_CALL_NAMES, assertProjectionCodeFactsAvailable, codeGraphIndexAvailable, loadCapabilityCodeGraphProjectionInputs, projectionCodeFactsRequired, withExistingCodeGraphSnapshot, type CodeGraphSelectorIndex, type PreparedProjectionCodeFacts } from "../src/index";
 
 const model: NativeModel = {
@@ -32,56 +33,49 @@ const model: NativeModel = {
   relations: []
 };
 
-/**
- * Fake CodeGraph CLI. Answers exactly the three shapes the capability projection loader asks for
- * and fails loudly on anything else, so an unexpected query surfaces as a test failure rather
- * than as a silently empty measurement.
- */
-function fakeCli(logPath: string): string {
-  return `
-import { appendFileSync } from "node:fs";
-const argv = process.argv.slice(2);
-appendFileSync(${JSON.stringify(logPath)}, JSON.stringify(argv) + "\\n");
-const importNodes = [
+const IMPORT_NODES = [
   { name: "./render", filePath: "packages/docs/src/main.ts" },
   { name: "../../shared/util", filePath: "packages/docs/src/main.ts" },
   { name: "./helper", filePath: "packages/docs/src/render.ts" },
   { name: "@archcontext/contracts", filePath: "packages/docs/src/render.ts" },
   { name: "./missing-target", filePath: "packages/docs/src/render.ts" },
   { name: "./main", filePath: "packages/other/src/index.ts" }
-];
-if (argv[0] === "query") {
-  process.stdout.write(JSON.stringify(importNodes.map((node) => ({
-    node: { id: "import:" + node.filePath + ":" + node.name, kind: "import", name: node.name, filePath: node.filePath }
-  }))));
-} else if (argv.includes("--symbols-only")) {
-  process.stdout.write([
-    "**packages/docs/src/main.ts** — 5 symbols",
-    "",
-    "**Symbols**",
-    "- \\\`MAIN_VERSION\\\` (constant) = \\"1\\" — :3",
-    "- \\\`renderMain\\\` (function) (input: string): string — :9",
-    "- \\\`DocsRunner\\\` (class) — :20",
-    "- \\\`run\\\` (method) (): void — :24",
-    "- \\\`helperLocal\\\` (function) (): void — :40",
-    ""
-  ].join("\\n"));
-} else if (argv[0] === "node") {
-  const symbol = argv[3];
-  const trail = {
-    renderMain: "**Calls →** renderBlock (packages/docs/src/render.ts:12), digestJson (packages/shared/util.ts:88), +3 more",
-    run: "**Calls →** renderMain (packages/docs/src/main.ts:9)",
-    helperLocal: ""
-  }[symbol] ?? "";
-  process.stdout.write(["**" + symbol + "** (function)", "", trail, ""].join("\\n"));
-} else {
-  process.stderr.write("unexpected codegraph invocation: " + JSON.stringify(argv));
-  process.exit(1);
-}
-`;
+].map((node) => ({ id: `import:${node.filePath}:${node.name}`, kind: "import", ...node }));
+
+/**
+ * An injected read-only provider whose handle answers the import read: `getStats` reports `count`
+ * import nodes (the six nodes when omitted) and `getNodesByKind("import")` returns `returned` nodes
+ * (the six, then unresolved extras from `main.ts`), or throws `failure`. `revisionMoves` moves the
+ * index revision after the open; `writerStartsDuringRead` takes the provider writer lock inside
+ * the node read. `importReads` counts the node reads.
+ */
+function importIndex(
+  root: string,
+  options: { count?: number; returned?: number; failure?: string; revisionMoves?: boolean; writerStartsDuringRead?: boolean } = {}
+): FakeReadProvider & { importReads(): number } {
+  const base = fakeReadProvider(root, { revisionMoves: options.revisionMoves ?? false });
+  const returned = options.returned ?? IMPORT_NODES.length;
+  const extras = Array.from({ length: Math.max(0, returned - IMPORT_NODES.length) }, (_, i) =>
+    ({ id: `import:packages/docs/src/main.ts:./extra-${i}`, kind: "import", name: `./extra-${i}`, filePath: "packages/docs/src/main.ts" }));
+  const nodes = [...IMPORT_NODES, ...extras].slice(0, returned);
+  let reads = 0;
+  return {
+    ...base,
+    calls: base.calls,
+    importReads: () => reads,
+    openReadOnly: (openedRoot) => Object.assign(base.openReadOnly(openedRoot), {
+      getStats: () => ({ nodesByKind: { import: options.count ?? IMPORT_NODES.length } }),
+      getNodesByKind: (kind: string) => {
+        reads++;
+        if (options.failure) throw new Error(options.failure);
+        if (options.writerStartsDuringRead) writeFileSync(join(root, ".codegraph", "codegraph.lock"), String(process.pid));
+        return kind === "import" ? nodes : [];
+      }
+    })
+  };
 }
 
-function seedWorkspace(options: { withIndex: boolean }): { root: string; log: string; binary: string } {
+function seedWorkspace(options: { withIndex: boolean }): { root: string } {
   const root = mkdtempSync(join(tmpdir(), "archctx-capability-codegraph-"));
   if (options.withIndex) mkdirSync(join(root, ".codegraph"));
   mkdirSync(join(root, "packages/docs/src"), { recursive: true });
@@ -95,15 +89,11 @@ function seedWorkspace(options: { withIndex: boolean }): { root: string; log: st
   writeFileSync(join(root, "packages/shared/util.ts"), "export const util = 1;\n");
   writeFileSync(join(root, "packages/other/src/index.ts"), "// outside the footprint\n");
   writeFileSync(join(root, "packages/other/src/main.ts"), "// resolvable, but outside the footprint\n");
-  const log = join(root, "invocations.log");
-  writeFileSync(log, "");
-  const binary = join(root, "fake-codegraph.js");
-  writeFileSync(binary, fakeCli(log));
   // Footprints are measured over Git-visible files; untracked files count, so no commit is needed.
   execFileSync("git", ["init", "-q"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
   // Tests that commit later must not start detached auto-maintenance that writes into .git while it is copied or listed.
   for (const [key, value] of [["gc.auto", "0"], ["maintenance.auto", "false"]]) execFileSync("git", ["config", key, value!], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
-  return { root, log, binary };
+  return { root };
 }
 
 function selectorIndex(options: { exactTargets?: number; unrelatedCalls?: number } = {}): CodeGraphSelectorIndex {
@@ -375,9 +365,10 @@ describe("capability documentation projection inputs from the code index", () =>
   }, 60_000);
 
   test("measures import edges and exact node-v2 selector evidence in one index pass", () => {
-    const { root, binary, log } = seedWorkspace({ withIndex: true });
+    const { root } = seedWorkspace({ withIndex: true });
+    const provider = importIndex(root);
     try {
-      const inputs = loadCapabilityCodeGraphProjectionInputs(root, model, { binary, selectorIndexFactory: () => selectorIndex({ unrelatedCalls: 50 }) });
+      const inputs = loadCapabilityCodeGraphProjectionInputs(root, model, { provider, selectorIndexFactory: () => selectorIndex({ unrelatedCalls: 50 }) });
 
       expect(inputs.importGraphs).toHaveLength(1);
       const graph = inputs.importGraphs[0];
@@ -417,21 +408,20 @@ describe("capability documentation projection inputs from the code index", () =>
         }
       ]);
 
-      // Import diagnostics still use the CLI. Exact selectors use the uncapped structured SDK.
-      const invocations = readFileSync(log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as string[]);
-      expect(invocations).toHaveLength(1);
-      expect(invocations[0].slice(0, 2)).toEqual(["query", "-p"]);
-      expect(invocations.flat()).not.toContain("--symbols-only");
+      // Imports come from one read-only session and one node read; selectors from the structured index.
+      expect(provider.calls).toMatchObject({ open: 1, close: 1 });
+      expect(provider.importReads()).toBe(1);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
   });
 
   test("selector proof is stable under unrelated fanout and fails closed for missing or ambiguous identities", () => {
-    const { root, binary } = seedWorkspace({ withIndex: true });
+    const { root } = seedWorkspace({ withIndex: true });
+    const provider = importIndex(root);
     try {
       const evidence = (index: CodeGraphSelectorIndex) => loadCapabilityCodeGraphProjectionInputs(root, model, {
-        binary,
+        provider,
         selectorIndexFactory: () => index
       }).selectorEvidence[0];
       const unique = evidence(selectorIndex({ unrelatedCalls: 5 }));
@@ -463,9 +453,8 @@ describe("capability documentation projection inputs from the code index", () =>
           writeFileSync(join(root, ".gitignore"), `.codegraph/\n${ignoredFile}\n`);
           writeFileSync(join(root, ignoredFile), "// generated\n");
         }
-        // No footprint is declared, so only the structured selector index is read: no CLI call.
+        // No footprint is declared, so only the structured selector index is read: no import read.
         const inputs = loadCapabilityCodeGraphProjectionInputs(root, builtinSelectorModel(sinkName), {
-          binary: join(root, "does-not-exist.js"),
           selectorIndexFactory: () => index
         });
         expect(inputs.selectorEvidence).toHaveLength(1);
@@ -552,18 +541,14 @@ describe("capability documentation projection inputs from the code index", () =>
     });
   });
 
-  // The fake index always replies with its 6 import nodes, whatever `-l` asks for.
   const footprintOnly = { nodes: [{ ...model.nodes[0], source: { include: ["packages/docs/**"] } }], relations: [] };
-  const importQueryLimits = (log: string) => readFileSync(log, "utf8").trim().split("\n")
-    .map((line) => JSON.parse(line) as string[])
-    .filter((argv) => argv[0] === "query")
-    .map((argv) => argv[argv.indexOf("-l") + 1]);
 
   test("reads the whole import population when the limit equals the import count", () => {
-    const { root, binary, log } = seedWorkspace({ withIndex: true });
+    const { root } = seedWorkspace({ withIndex: true });
+    const provider = importIndex(root);
     try {
-      const inputs = loadCapabilityCodeGraphProjectionInputs(root, footprintOnly, { binary, importNodeLimit: 6, importNodeCount: 6 });
-      expect(importQueryLimits(log)).toEqual(["7"]);
+      const inputs = loadCapabilityCodeGraphProjectionInputs(root, footprintOnly, { provider, importNodeLimit: 6 });
+      expect(provider.importReads()).toBe(1);
       expect(inputs.importGraphs[0].truncated).toBe(false);
       expect(inputs.importGraphs[0].importNodeLimitExceeded).toBeUndefined();
       expect(inputs.importGraphs[0].edges).toHaveLength(3);
@@ -573,11 +558,10 @@ describe("capability documentation projection inputs from the code index", () =>
     }
   });
 
-  test("reports a reply shorter than the index import count as truncated", () => {
-    const { root, binary, log } = seedWorkspace({ withIndex: true });
+  test("reports a read shorter than the index import count as truncated", () => {
+    const { root } = seedWorkspace({ withIndex: true });
     try {
-      const inputs = loadCapabilityCodeGraphProjectionInputs(root, footprintOnly, { binary, importNodeCount: 8 });
-      expect(importQueryLimits(log)).toEqual(["9"]);
+      const inputs = loadCapabilityCodeGraphProjectionInputs(root, footprintOnly, { provider: importIndex(root, { count: 8 }) });
       expect(inputs.importGraphs[0].truncated).toBe(true);
       expect(inputs.importGraphs[0].importNodeLimitExceeded).toBeUndefined();
     } finally {
@@ -586,23 +570,49 @@ describe("capability documentation projection inputs from the code index", () =>
   });
 
   test("reports a limit below the import count apart from truncation", () => {
-    for (const importNodeCount of [6, null]) {
-      const { root, binary, log } = seedWorkspace({ withIndex: true });
-      try {
-        const inputs = loadCapabilityCodeGraphProjectionInputs(root, footprintOnly, { binary, importNodeLimit: 5, importNodeCount });
-        expect(importQueryLimits(log)).toEqual(["6"]);
-        expect(inputs.importGraphs[0].importNodeLimitExceeded).toBe(true);
-        expect(inputs.importGraphs[0].truncated).toBe(false);
-      } finally {
-        rmSync(root, { recursive: true, force: true });
+    const { root } = seedWorkspace({ withIndex: true });
+    try {
+      const inputs = loadCapabilityCodeGraphProjectionInputs(root, footprintOnly, { provider: importIndex(root), importNodeLimit: 5 });
+      expect(inputs.importGraphs[0].importNodeLimitExceeded).toBe(true);
+      expect(inputs.importGraphs[0].truncated).toBe(false);
+      expect(inputs.importPopulation).toMatchObject({ importNodeCount: 6, importNodeLimit: 5, importNodeLimitExceeded: true, truncated: false });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // An index that moves during the read, or a population that disagrees with its count, is
+  // truncated in the population and in every graph; the kept prefix never exceeds the limit.
+  for (const row of [
+    { name: "same-count revision movement", index: { revisionMoves: true }, limit: 100, exceeded: false },
+    { name: "a writer starting during the read below the cap", index: { writerStartsDuringRead: true }, limit: 7, exceeded: false },
+    { name: "a writer starting during the read at the cap", index: { writerStartsDuringRead: true }, limit: 6, exceeded: false },
+    { name: "a writer starting during the read above the cap", index: { writerStartsDuringRead: true }, limit: 5, exceeded: true },
+    { name: "count growth across the cap", index: { count: 6, returned: 8 }, limit: 6, exceeded: true },
+    { name: "growth while above the cap", index: { count: 7, returned: 8 }, limit: 5, exceeded: true },
+    { name: "shrink while above the cap", index: { count: 8, returned: 7 }, limit: 5, exceeded: true }
+  ]) test(`marks the import read truncated on ${row.name}`, () => {
+    const { root } = seedWorkspace({ withIndex: true });
+    try {
+      const capabilities = { nodes: [footprintOnly.nodes[0], { ...model.nodes[1], source: { include: ["packages/other/**"] } }], relations: [] };
+      const inputs = loadCapabilityCodeGraphProjectionInputs(root, capabilities, { provider: importIndex(root, row.index), importNodeLimit: row.limit });
+      const returned = row.index.returned ?? IMPORT_NODES.length;
+      expect(inputs.importPopulation).toMatchObject({ truncated: true, importNodeLimit: row.limit, importNodeLimitExceeded: row.exceeded });
+      expect(inputs.importPopulation!.pairs).toHaveLength(Math.min(returned, row.limit));
+      expect(inputs.importGraphs).toHaveLength(2);
+      for (const graph of inputs.importGraphs) {
+        expect(graph.truncated).toBe(true);
+        expect(graph.importNodeLimitExceeded).toBe(row.exceeded ? true : undefined);
       }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 
   test("refuses an import node limit that is not a positive integer", () => {
-    const { root, binary } = seedWorkspace({ withIndex: true });
+    const { root } = seedWorkspace({ withIndex: true });
     try {
-      expect(() => loadCapabilityCodeGraphProjectionInputs(root, footprintOnly, { binary, importNodeLimit: 0 }))
+      expect(() => loadCapabilityCodeGraphProjectionInputs(root, footprintOnly, { provider: importIndex(root), importNodeLimit: 0 }))
         .toThrow("import node limit must be a positive integer, got 0");
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -610,10 +620,10 @@ describe("capability documentation projection inputs from the code index", () =>
   });
 
   test("returns empty measurements when the workspace carries no index", () => {
-    const { root, binary } = seedWorkspace({ withIndex: false });
+    const { root } = seedWorkspace({ withIndex: false });
     try {
       expect(codeGraphIndexAvailable(root)).toBe(false);
-      expect(loadCapabilityCodeGraphProjectionInputs(root, model, { binary })).toEqual({
+      expect(loadCapabilityCodeGraphProjectionInputs(root, model)).toEqual({
         importGraphs: [],
         selectorEvidence: []
       });
@@ -622,28 +632,32 @@ describe("capability documentation projection inputs from the code index", () =>
     }
   });
 
-  test("never shells out for a model that declares no footprint and no entrypoints", () => {
-    const { root, log } = seedWorkspace({ withIndex: true });
+  test("never opens the index for a model that declares no footprint and no entrypoints", () => {
+    const { root } = seedWorkspace({ withIndex: true });
+    const provider = importIndex(root);
     try {
       const inputs = loadCapabilityCodeGraphProjectionInputs(
         root,
         { nodes: [{ id: "module.undeclared", kind: "module", name: "Undeclared" }], relations: [] },
-        { binary: join(root, "does-not-exist.js") }
+        { provider }
       );
       expect(inputs).toEqual({ importGraphs: [], selectorEvidence: [] });
-      expect(statSync(log).size).toBe(0);
+      expect(provider.calls.open).toBe(0);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
   });
 
-  test("fails loudly when the index CLI errors instead of returning an empty measurement", () => {
+  test("fails loudly when the index read errors or the index cannot be opened, instead of returning an empty measurement", () => {
     const { root } = seedWorkspace({ withIndex: true });
-    const broken = join(root, "broken-codegraph.js");
-    writeFileSync(broken, "process.stderr.write('index corrupted'); process.exit(2);\n");
     try {
-      expect(() => loadCapabilityCodeGraphProjectionInputs(root, model, { binary: broken }))
-        .toThrow("CodeGraph CLI failed: index corrupted");
+      const failing = importIndex(root, { failure: "index corrupted" });
+      expect(() => loadCapabilityCodeGraphProjectionInputs(root, model, { provider: failing })).toThrow("index corrupted");
+      // The session is closed even when the read throws.
+      expect(failing.calls).toMatchObject({ open: 1, close: 1 });
+      // A `.codegraph` without a database is no index the session can open.
+      rmSync(join(root, ".codegraph", "codegraph.db"));
+      expect(() => loadCapabilityCodeGraphProjectionInputs(root, model, { provider: failing })).toThrow("CodeGraph index could not be read: index-missing");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

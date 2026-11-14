@@ -59,11 +59,16 @@ describe("docs projection import graphs over an index with more than 5000 import
     expect(graph.edges).toHaveLength(EDGE_COUNT);
   }, 120_000);
 
-  test("a limit below the import count is reported as the limit, not as truncation", () => {
+  test("a limit below the import count is reported as the limit, not as truncation, and keeps the sorted prefix", () => {
     const prepared = prepareProjectionCodeFacts(root, model, { sourceTreeDigest: SOURCE_TREE_DIGEST, importNodeLimit: 1000 });
     const graph = prepared.importGraphs[0];
     expect(graph.importNodeLimitExceeded).toBe(true);
     expect(graph.truncated).toBe(false);
     expect(graph.edges.length).toBeLessThan(EDGE_COUNT);
+    // 1000 nodes in (filePath, name, startLine) order are the whole of the first ten files by
+    // path, and each file imports every other file.
+    const prefixFiles = Array.from({ length: FILE_COUNT }, (_, file) => `src/file-${file}.ts`).sort().slice(0, 1000 / IMPORTS_PER_FILE);
+    expect([...new Set(graph.edges.map((edge) => edge.from))].sort()).toEqual(prefixFiles);
+    expect(graph.edges).toHaveLength(prefixFiles.length * (FILE_COUNT - 1));
   }, 120_000);
 });

@@ -4011,7 +4011,7 @@ const CLI_DEPS_HELP = {
   description: "Read-only capability x capability import matrix. The command reads the model files, the HEAD tree and the CodeGraph index. It writes nothing and needs no daemon.",
   rule: "Each file gets its owners from the parent-chain rule refactor scan uses. Each owner rolls up to the nearest kind: capability node on its parent chain. An edge counts in data.matrix only when both files roll up to exactly one capability. Other edges count in data.imports.unattributed by cause.",
   filters: "--from <node-id> keeps edges whose importing file the node or a descendant owns. --into <node-id> keeps edges whose imported file the node or a descendant owns. An unknown node id is AC_SCHEMA_INVALID.",
-  imports: "data.imports reports coverage, reasonCodes, truncated, importNodeCount, importNodeLimit and importNodeLimitExceeded from the CodeGraph import read. A missing or stale index gives coverage unknown and an empty matrix. --import-node-limit raises the read cap (default 50000).",
+  imports: "data.imports reports coverage, reasonCodes, truncated, importNodeCount, importNodeLimit and importNodeLimitExceeded from the CodeGraph import read. A missing or stale index gives coverage unknown and an empty matrix. --import-node-limit sets the read cap (default 64000).",
   calls: "Call counts are not available in v1. data.calls.coverage is unknown with reason call-edges-not-exposed, and every cell has calls: null.",
   edges: "data.edges lists the attributed file-level edges behind the matrix, sorted by path, up to --edge-limit (default 200). data.edges.count is the full total."
 };

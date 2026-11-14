@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { type RmDirOptions, mkdirSync, mkdtempSync, readdirSync, rmSync as nodeRmSync, writeFileSync } from "node:fs";
+import { type RmDirOptions, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync as nodeRmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { stableYaml, type CapabilityDependenciesV1, type JsonEnvelope } from "@archcontext/contracts";
@@ -182,6 +182,23 @@ describe("archctx deps (#301)", () => {
       rmSync(bare, { recursive: true, force: true });
     }
   });
+
+  test("refuses with AC_CODE_FACTS_UNAVAILABLE when the index lags the worktree, instead of a stale matrix", async () => {
+    const edited = join(root, "src/billing/invoice.ts");
+    const original = readFileSync(edited);
+    try {
+      writeFileSync(edited, "export const invoice = 2;\n", "utf8");
+      const refused = await runCli("deps", ["--json"], root);
+      expect(refused.ok).toBe(false);
+      expect((refused as { error: { code: string; reasonCode?: string } }).error).toMatchObject({
+        code: "AC_CODE_FACTS_UNAVAILABLE",
+        reasonCode: "code-facts-unavailable"
+      });
+    } finally {
+      writeFileSync(edited, original);
+    }
+    expect((await runCli("deps", ["--json"], root)).ok).toBe(true);
+  }, 120_000);
 
   test("is read-only: no runtime state is created", async () => {
     await runCli("deps", ["--json"], root);

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { Edge as CodeGraphEdge, Node as CodeGraphNode } from "@colbymchenry/codegraph";
-import { codeGraphBundle, type CodeGraphSdk } from "./read-session";
+import { codeGraphBundle, withCodeGraphReadSession, type CodeGraphReadProvider, type CodeGraphSdk } from "./read-session";
 import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import {
   loadCapabilitySourceFootprints,
@@ -10,7 +10,7 @@ import {
   type CapabilityImportGraph,
   type NativeModel
 } from "@archcontext/core/projection-engine";
-import { DEFAULT_CODEGRAPH_BINARY, disableCodeGraphTelemetryByDefault } from "./cli-provider";
+import { disableCodeGraphTelemetryByDefault } from "./cli-provider";
 import { CODEGRAPH_IMPORT_NODE_READ_LIMIT, capabilityImportGraphs, resolveImportTarget, type ProjectionImportPopulationV1 } from "./import-population";
 import { codeGraphIndexAvailable } from "./repository-code-facts";
 
@@ -40,13 +40,6 @@ export interface CodeGraphSelectorIndex {
   getNodesInFile(filePath: string): CodeGraphNode[];
   close(): void;
 }
-
-/**
- * The packaged CodeGraph npm shim downloads its platform bundle from GitHub Releases when the
- * optional platform package is absent. `CODEGRAPH_NO_DOWNLOAD` (read by the shim's selfHealBundle)
- * turns that fetch off, so the snapshot's CLI probe stays local whatever the egress mode is.
- */
-const CODEGRAPH_NO_DOWNLOAD_ENV: Record<string, string> = { CODEGRAPH_NO_DOWNLOAD: "1" };
 
 export interface CodeGraphSymbolDeclaration {
   name: string;
@@ -212,16 +205,12 @@ export function loadCapabilityCodeGraphProjectionInputs(
     sourceFiles?: readonly string[];
     /** Footprints resolved over the Git-visible files; resolved from `root` when omitted. */
     footprints?: readonly CapabilitySourceFootprint[];
-    binary?: string;
-    /** Safety cap on the import nodes read; `CODEGRAPH_IMPORT_NODE_READ_LIMIT` when omitted. */
+    /** The provider the import read opens the index with; the pinned one unless a test injects one. */
+    provider?: CodeGraphReadProvider;
+    /** Safety cap on the import nodes kept; `CODEGRAPH_IMPORT_NODE_READ_LIMIT` when omitted. */
     importNodeLimit?: number;
-    /**
-     * Import nodes in the index, from the `codegraph status` the caller asserted. The read is sized
-     * from it. `null` or omitted is an unknown count: the read then asks for the limit.
-     */
-    importNodeCount?: number | null;
     selectorIndexFactory?: (root: string, options: { readOnly: boolean }) => CodeGraphSelectorIndex;
-    /** Read consumers open selectors read-only and prohibit the import-query shim from downloading. */
+    /** Read consumers open selectors read-only. */
     readOnly?: boolean;
     /** `false` skips the import-graph query; `flows check` reads selector evidence only. */
     importGraphs?: boolean;
@@ -242,11 +231,13 @@ export function loadCapabilityCodeGraphProjectionInputs(
   if (!codeGraphIndexAvailable(root)) return { importGraphs: [], selectorEvidence: [] };
 
   disableCodeGraphTelemetryByDefault();
-  const binary = options.binary ?? DEFAULT_CODEGRAPH_BINARY;
   const importTargets = new Set(sourceFiles());
   const imports = footprints.length > 0
-    ? capabilityImportGraphs(root, binary, importTargets, footprints, options.importNodeLimit ?? CODEGRAPH_IMPORT_NODE_READ_LIMIT, options.importNodeCount ?? null,
-      options.readOnly ? CODEGRAPH_NO_DOWNLOAD_ENV : undefined)
+    ? withCodeGraphReadSession(root, (opened) => {
+      // The read-only session (ADR-0058). An index it cannot open fails the read, never an empty graph.
+      if (opened.state !== "open") throw new Error(`CodeGraph index could not be read: ${opened.state}`);
+      return capabilityImportGraphs(opened.session, importTargets, footprints, options.importNodeLimit ?? CODEGRAPH_IMPORT_NODE_READ_LIMIT);
+    }, options.provider ? { provider: options.provider } : {})
     : undefined;
   const importGraphs = imports?.importGraphs ?? [];
   const selectorIndex = entrypointNodes.length > 0
