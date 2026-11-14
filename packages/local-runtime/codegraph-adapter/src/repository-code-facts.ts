@@ -6,7 +6,8 @@ import {
   CodeGraphProviderUnavailableError,
   pinnedCodeGraphProvider,
   withCodeGraphReadSession,
-  type CodeGraphReadProvider
+  type CodeGraphReadProvider,
+  type CodeGraphReadSession
 } from "./read-session";
 import {
   ProjectionCodeFactsUnavailableError,
@@ -157,7 +158,6 @@ function inspectRepositoryCodeFactsTier(root: string, tier: "compatibility" | "f
     return { facts: unavailableCodeFacts("codegraph-unavailable", error instanceof CodeGraphProviderUnavailableError ? error.message : "CodeGraph provider could not be loaded"), retryable: false };
   }
   const versionIssues = versionIssuesOf(codeGraphVersion);
-  const moving = { facts: buildInProgressCodeFacts(codeGraphVersion, versionIssues), retryable: versionIssues.length === 0 };
   try {
     return withCodeGraphReadSession(root, (opened): { facts: RepositoryCodeFactsV1; retryable: boolean } => {
       switch (opened.state) {
@@ -166,37 +166,53 @@ function inspectRepositoryCodeFactsTier(root: string, tier: "compatibility" | "f
         case "index-open-failed":
           return { facts: unavailableCodeFacts("index-open-failed", INDEX_OPEN_FAILED_MESSAGE), retryable: false };
         case "build-in-progress":
-          return moving;
-        case "open": {
-          const compatibility = opened.session.compatibility();
-          const pendingChanges = tier === "freshness" ? opened.session.freshness() : undefined;
-          // Facts read across a build or a sync are not one index state (design G4).
-          if (!opened.session.unchangedSinceOpen()) return moving;
-          const status: CodeGraphProjectionStatusV1 = {
-            initialized: true,
-            version: compatibility.version,
-            projectPath: compatibility.projectPath,
-            lastIndexed: compatibility.lastIndexed,
-            ...(pendingChanges === undefined ? {} : { pendingChanges }),
-            // `openSync(root)` never walks up to another worktree's index (ADR-0058).
-            worktreeMismatch: null,
-            index: {
-              ...(compatibility.builtWithVersion === null ? {} : { builtWithVersion: compatibility.builtWithVersion }),
-              ...(compatibility.builtWithExtractionVersion === null ? {} : { builtWithExtractionVersion: compatibility.builtWithExtractionVersion }),
-              currentExtractionVersion: compatibility.currentExtractionVersion,
-              reindexRecommended: compatibility.reindexRecommended,
-              ...(compatibility.state === null ? {} : { state: compatibility.state }),
-              pendingRefs: compatibility.pendingRefs
-            }
-          };
-          return { facts: repositoryCodeFactsFromStatus(root, codeGraphVersion, status, tier === "freshness"), retryable: false };
-        }
+          return movingCodeFacts(codeGraphVersion);
+        case "open":
+          return openSessionCodeFacts(opened.session, tier);
       }
     }, { provider });
   } catch {
     // The index opened but a read of it failed; no provider text crosses this boundary.
     return { facts: unavailableCodeFacts("index-open-failed", INDEX_OPEN_FAILED_MESSAGE), retryable: false };
   }
+}
+
+/**
+ * The `ready` or `not-ready` facts of an index already open in `session`, read on that handle. A
+ * provider build that holds the writer lock, or a revision that moved during the reads, gives the
+ * build-in-progress answer; `retryable` follows `inspectRepositoryCodeFactsTier`. Throws when a
+ * read of the handle fails.
+ */
+export function openSessionCodeFacts(session: CodeGraphReadSession, tier: "compatibility" | "freshness"): { facts: RepositoryCodeFactsV1; retryable: boolean } {
+  const codeGraphVersion = session.version();
+  const compatibility = session.compatibility();
+  const pendingChanges = tier === "freshness" ? session.freshness() : undefined;
+  // Facts read across a build or a sync are not one index state (design G4).
+  if (!session.unchangedSinceOpen()) return movingCodeFacts(codeGraphVersion);
+  const status: CodeGraphProjectionStatusV1 = {
+    initialized: true,
+    version: compatibility.version,
+    projectPath: compatibility.projectPath,
+    lastIndexed: compatibility.lastIndexed,
+    ...(pendingChanges === undefined ? {} : { pendingChanges }),
+    // `openSync(root)` never walks up to another worktree's index (ADR-0058).
+    worktreeMismatch: null,
+    index: {
+      ...(compatibility.builtWithVersion === null ? {} : { builtWithVersion: compatibility.builtWithVersion }),
+      ...(compatibility.builtWithExtractionVersion === null ? {} : { builtWithExtractionVersion: compatibility.builtWithExtractionVersion }),
+      currentExtractionVersion: compatibility.currentExtractionVersion,
+      reindexRecommended: compatibility.reindexRecommended,
+      ...(compatibility.state === null ? {} : { state: compatibility.state }),
+      pendingRefs: compatibility.pendingRefs
+    }
+  };
+  return { facts: repositoryCodeFactsFromStatus(session.root, codeGraphVersion, status, tier === "freshness"), retryable: false };
+}
+
+/** The build-in-progress answer; a retry cannot fix a provider of the wrong version. */
+export function movingCodeFacts(codeGraphVersion: string): { facts: RepositoryCodeFactsV1; retryable: boolean } {
+  const versionIssues = versionIssuesOf(codeGraphVersion);
+  return { facts: buildInProgressCodeFacts(codeGraphVersion, versionIssues), retryable: versionIssues.length === 0 };
 }
 
 /**

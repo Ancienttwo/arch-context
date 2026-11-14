@@ -12,9 +12,11 @@ import {
   inspectRepositoryCodeFacts,
   openCodeGraphReadSession,
   pinnedCodeGraphProvider,
-  withCodeGraphReadSession
+  withCodeGraphReadSession,
+  type CodeGraphReadProvider
 } from "../src/index";
 import { codeGraphBundle } from "../src/read-session";
+import { withReadyCodeGraphIndex } from "../src/ready-index-read";
 import { fakeReadProvider } from "./read-provider-fixture";
 import { indexCodeGraphFixture } from "./real-index";
 
@@ -287,6 +289,96 @@ describe("read session over a real index", () => {
     expect(inspectRepositoryCodeFacts(root)).toMatchObject({ state: "ready" });
   });
 });
+
+describe("withReadyCodeGraphIndex: readiness and the read on one session", () => {
+  test("a ready read opens one handle, queries it, and closes it", () => {
+    withRoot((root) => {
+      const provider = fakeReadProvider(root);
+      let atRead: number[] = [];
+      expect(withReadyCodeGraphIndex(root, (graph) => {
+        atRead = [provider.calls.open, provider.calls.close];
+        return graph.getProjectRoot();
+      }, { provider })).toBe(root);
+      expect(atRead).toEqual([1, 0]);
+      expect([provider.calls.open, provider.calls.close]).toEqual([1, 1]);
+    });
+  });
+
+  const notReady = (retryable: boolean) => ({ code: "AC_CODE_FACTS_UNAVAILABLE", reasonCode: "code-facts-read-not-ready", retryable });
+  // A revision read after readiness that differs from the one at open, as a sync committing mid-query.
+  const movesDuringQuery = (root: string) => {
+    const base = fakeReadProvider(root);
+    let queried = false;
+    const provider: CodeGraphReadProvider = {
+      get version() { return base.version; },
+      get extractionVersion() { return base.extractionVersion; },
+      openReadOnly: (openedRoot) => {
+        const graph = base.openReadOnly(openedRoot);
+        const revision = graph.getIndexRevision.bind(graph);
+        return Object.assign(graph, { getIndexRevision: () => ({ ...revision(), fileCount: queried ? 99 : 1 }) });
+      },
+      scanSourceFiles: (scanRoot) => base.scanSourceFiles(scanRoot),
+      changeHash: (path) => base.changeHash(path)
+    };
+    return { provider, calls: base.calls, during: () => { queried = true; } };
+  };
+  const lockDuringQuery = (root: string) => {
+    const provider = fakeReadProvider(root);
+    return { provider, calls: provider.calls, during: () => writeFileSync(join(root, ".codegraph", "codegraph.lock"), String(process.pid)) };
+  };
+  const refusing = (facts: Parameters<typeof fakeReadProvider>[1], before?: (root: string) => void) => (root: string) => {
+    const provider = fakeReadProvider(root, facts);
+    before?.(root);
+    return { provider, calls: provider.calls, during: () => {} };
+  };
+  const failingRead = (root: string) => {
+    const provider = fakeReadProvider(root);
+    return { provider, calls: provider.calls, during: () => { throw new Error("private raw provider error /outside/repository"); } };
+  };
+
+  test.each([
+    ["pending source changes", refusing({ pending: { added: 1, modified: 0, removed: 0 } }), notReady(false), false, 1],
+    ["a revision that moves before the query", refusing({ revisionMoves: true }), notReady(true), false, 1],
+    ["a moving index of the wrong provider version", refusing({ revisionMoves: true, version: "0.0.1" }), notReady(false), false, 1],
+    ["a live build at open", refusing({}, root => writeFileSync(join(root, ".codegraph", "codegraph.lock"), String(process.pid))), notReady(true), false, 0],
+    ["an index whose readiness reads fail", refusing({ readFailsAfterOpen: true }), { reasonCode: "index-open-failed" }, false, 1],
+    ["a revision that moves during the query", movesDuringQuery, notReady(true), true, 1],
+    ["a writer lock that appears during the query", lockDuringQuery, notReady(true), true, 1],
+    ["a query that throws a non-FailureError", failingRead, { code: "AC_CODE_FACTS_UNAVAILABLE", reasonCode: "code-facts-unavailable" }, true, 1]
+  ] as const)("%s is refused, and the handle is closed", (_name, setup, error, queried, opens) => {
+    withRoot((root) => {
+      const { provider, calls, during } = setup(root);
+      let ran = false;
+      expect(() => withReadyCodeGraphIndex(root, () => { ran = true; during(); return true; }, { provider })).toThrow(expect.objectContaining(error));
+      expect(ran).toBe(queried);
+      expect([calls.open, calls.close]).toEqual([opens, opens]);
+    });
+  });
+});
+
+test("a ready read sees includeIgnored, include and extension sources; a new source under includeIgnored makes it not ready", () => {
+  withRoot((root) => {
+    execFileSync("git", ["init", "-q"], { cwd: root });
+    writeFileSync(join(root, ".gitignore"), ".codegraph/\nexternal-projects/\nprivate-src/\n");
+    mkdirSync(join(root, "src"));
+    writeFileSync(join(root, "src/main.ts"), "export const MAIN_VERSION = 1;\n");
+    mkdirSync(join(root, "external-projects/embedded"), { recursive: true });
+    execFileSync("git", ["init", "-q"], { cwd: join(root, "external-projects/embedded") });
+    writeFileSync(join(root, "external-projects/embedded/library.ts"), "export function optedInLibrary() { return 1; }\n");
+    mkdirSync(join(root, "private-src"));
+    writeFileSync(join(root, "private-src/source.fixture"), "export function customExtension() { return 1; }\n");
+    writeFileSync(join(root, "codegraph.json"), JSON.stringify({
+      includeIgnored: ["external-projects/"], include: ["private-src/**"], extensions: { ".fixture": "typescript" }
+    }));
+    indexCodeGraphFixture(root);
+    const names = ["MAIN_VERSION", "optedInLibrary", "customExtension"];
+    expect(withReadyCodeGraphIndex(root, graph => names.map(name => graph.getNodesByName(name).length))).toEqual([1, 1, 1]);
+    writeFileSync(join(root, "external-projects/embedded/new.ts"), "export const newIgnoredSource = 1;\n");
+    expect(() => withReadyCodeGraphIndex(root, () => true)).toThrow(expect.objectContaining({
+      reasonCode: "code-facts-read-not-ready", details: { issues: [expect.objectContaining({ code: "pending-source-changes" })] }
+    }));
+  });
+}, 120_000);
 
 /** A `git` first on PATH that logs each command and runs the real one. POSIX only. */
 function gitSpy(): { commands(): string[]; restore(): void } {

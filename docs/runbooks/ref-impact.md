@@ -41,13 +41,16 @@ include, includeIgnored and extension settings. Impact summarizes every code-fac
 refusal as `ref-code-facts-unavailable`: a missing index, an index that cannot be
 opened, an index behind the worktree and an index that moved during the read.
 `flows check --no-sync` reads the same way and exposes the specific reason:
-`index-missing`, `index-open-failed` or `code-facts-read-not-ready`.
+`index-missing`, `index-open-failed`, `code-facts-read-not-ready` or
+`code-facts-unavailable` (the CodeGraph provider could not load).
 
 The read runs only the git commands ADR-0058 allows: `ls-files`, `rev-parse`,
 `check-ignore` and `config --get core.excludesFile`, plus the `rev-parse`,
 `ls-tree`, `cat-file` and `log` reads of the immutable refs. It never runs `git
-status` or `git diff`, so configured clean/process filters, `core.fsmonitor` and
-index hooks are not executed, and a repository that uses them still gets evidence.
+status` or `git diff` and never writes the Git index, so configured clean/process
+filters and index-writing hooks do not run, and a repository that uses them
+still gets evidence. A configured `core.fsmonitor` hook still runs: `ls-files` and
+`check-ignore` invoke it, as any git read of that repository does.
 SQLite may leave the `codegraph.db-wal` and `codegraph.db-shm` sidecar files in
 `.codegraph/`; nothing else is written.
 
