@@ -1,9 +1,8 @@
 import { posix } from "node:path";
 import type { CapabilitySourceFootprint, CapabilityImportEdge, CapabilityImportGraph } from "@archcontext/core/projection-engine";
 import type { NormalizedEdge } from "@archcontext/contracts";
-import { CODEGRAPH_OUTPUT_MAX_BYTES, CODEGRAPH_QUERY_TIMEOUT_MS, codeGraphCliInvocation, runCodeGraphCli, type CodeGraphCliNode } from "./cli-provider";
-import { readProjectionCodeGraphStatus, type CodeGraphProjectionStatusV1 } from "./projection-handshake";
-import { codeGraphIndexAvailable } from "./repository-code-facts";
+import type { CodeGraphCliNode } from "./cli-provider";
+import { withCodeGraphReadSession, type CodeGraphReadProvider, type CodeGraphReadSession } from "./read-session";
 
 const SOURCE_EXTENSIONS = [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".json"];
 
@@ -72,13 +71,13 @@ export function uniqueStrings(items: string[]): string[] {
 }
 
 /**
- * Default cap on the import nodes `repositoryImportPairs` and the docs projection read. The read
- * is sized from the index's own import count, so this cap only bounds memory and time. One import
- * node costs about 0.7 KiB of CLI output, so the default is about 35 MiB.
+ * Default cap on the import nodes `repositoryImportPairs` and the docs projection keep. The read
+ * loads the index's whole import population in process (`getNodesByKind("import")` has no limit),
+ * so the cap bounds the coverage a consumer is given, not the memory of the read. 64 000 is about
+ * 10x repo-harness's 6 420 import nodes; at 64 000 nodes the read measured 0.6 s and 340 MiB peak
+ * RSS under Node, within 7 % of a 50 000 cap on the same index (#585).
  */
-export const CODEGRAPH_IMPORT_NODE_READ_LIMIT = 50_000;
-/** Output allowance per import node, so a large read is not cut by the CLI output buffer. */
-const CODEGRAPH_IMPORT_NODE_OUTPUT_BYTES = 4 * 1024;
+export const CODEGRAPH_IMPORT_NODE_READ_LIMIT = 64_000;
 
 export type ProjectionImportPopulationV1 = Omit<RepositoryImportPairsV1, "availability" | "indexedWorktreeDigest">;
 
@@ -96,25 +95,21 @@ export interface RepositoryImportPairsV1 {
   pairs: RepositoryImportPairV1[];
   /**
    * True when the pairs are not the whole population for a reason other than the limit: no
-   * index answered, or the query returned a different number of import nodes than the index
-   * reported (the index changed during the read).
+   * index answered, or the index changed during the read (its import count or its revision moved).
    */
   truncated: boolean;
-  /** `ready` only when an index exists and reports no pending source changes. */
+  /** `ready` only when an index answered, reports no pending source changes and did not move during the read. */
   availability: "ready" | "unavailable";
   /** The worktree the index attests to, or `null` when it attests to nothing usable. */
   indexedWorktreeDigest: string | null;
-  /**
-   * Import nodes in the index, from `codegraph status` (`nodesByKind.import`). `null` when no
-   * index answered, or when the status gave no count and the read stopped at the limit.
-   */
+  /** Import nodes in the index (`getStats().nodesByKind.import`). `null` when no index answered. */
   importNodeCount: number | null;
   /** The read limit this call applied. */
   importNodeLimit: number;
   /**
    * True when the index holds more import nodes than `importNodeLimit`. The pairs then come from
-   * the first `importNodeLimit` nodes. This is a configured limit, not an incomplete index, so
-   * `truncated` stays false.
+   * the first `importNodeLimit` nodes in (filePath, name, startLine) order. This is a configured
+   * limit, not an incomplete index, so `truncated` stays false.
    */
   importNodeLimitExceeded: boolean;
 }
@@ -131,51 +126,64 @@ export interface RepositoryImportPairsV1 {
  * pairs as `importPopulation`, and keeps its resolved-only graph edge set, which the capability
  * projection fixtures pin byte for byte.
  *
- * Freshness is producer-owned evidence, never a caller assertion: the returned
- * `indexedWorktreeDigest` binds the edges to `worktreeDigest` only when the index reports itself
- * clean, so a consumer cannot claim complete coverage over an index that never saw this tree.
+ * One read-only session answers everything (ADR-0058): no CodeGraph command, no `git status` or
+ * `git diff`. Freshness is producer-owned evidence, never a caller assertion: the returned
+ * `indexedWorktreeDigest` binds the edges to `worktreeDigest` only when CodeGraph's own change
+ * test finds no pending source change and the index did not move during the read, so a consumer
+ * cannot claim complete coverage over an index that never saw this tree. An index that is
+ * missing, mid-build or cannot be opened is `unavailable`.
  *
- * `limit` is a safety cap, not a page size. The read asks the index for its import count first
- * and then reads that whole population in one query, so a complete index gives complete pairs up
- * to `limit` import nodes. Above it, `importNodeLimitExceeded` is true and `truncated` stays false.
+ * `limit` is a safety cap, not a page size. Above it, `importNodeLimitExceeded` is true and
+ * `truncated` stays false.
  */
 export function repositoryImportPairs(
   root: string,
-  binary: string,
   limit: number,
   worktreeDigest: string,
   /** The Git-visible files (`listGitVisibleFiles`) that `worktreeDigest` was computed over. */
-  sourceFiles: readonly string[]
+  sourceFiles: readonly string[],
+  options: { provider?: CodeGraphReadProvider } = {}
 ): RepositoryImportPairsV1 {
-  if (!Number.isInteger(limit) || limit < 1) throw new Error(`import node limit must be a positive integer, got ${limit}`);
-  if (!codeGraphIndexAvailable(root)) {
+  assertImportNodeLimit(limit);
+  return withCodeGraphReadSession(root, (opened): RepositoryImportPairsV1 => {
+    if (opened.state !== "open") {
+      return {
+        pairs: [],
+        truncated: true,
+        availability: "unavailable",
+        indexedWorktreeDigest: null,
+        importNodeCount: null,
+        importNodeLimit: limit,
+        importNodeLimitExceeded: false
+      };
+    }
+    const { session } = opened;
+    const nodes = codeGraphImportPopulation(session, limit);
+    const pending = session.freshness();
+    // Facts read across a sync are not one index state (design G4).
+    const unchanged = session.unchangedSinceOpen();
+    const clean = unchanged && pending.added === 0 && pending.modified === 0 && pending.removed === 0;
     return {
-      pairs: [],
-      truncated: true,
-      availability: "unavailable",
-      indexedWorktreeDigest: null,
-      importNodeCount: null,
+      pairs: importPairsOf(new Set(sourceFiles), nodes.imports),
+      truncated: nodes.truncated || !unchanged,
+      availability: clean ? "ready" : "unavailable",
+      indexedWorktreeDigest: clean ? worktreeDigest : null,
+      importNodeCount: nodes.count,
       importNodeLimit: limit,
-      importNodeLimitExceeded: false
+      importNodeLimitExceeded: nodes.limitExceeded
     };
-  }
-  const status = readProjectionCodeGraphStatus(codeGraphCliInvocation(binary, root, ""), root, CODEGRAPH_QUERY_TIMEOUT_MS);
-  const nodes = codeGraphImportPopulation(root, binary, limit, statusImportNodeCount(status));
-  const pending = status.pendingChanges;
-  const clean = status.initialized && pending !== undefined && pending.added === 0 && pending.modified === 0 && pending.removed === 0;
-  return {
-    pairs: importPairsOf(new Set(sourceFiles), nodes.imports),
-    truncated: nodes.truncated,
-    availability: clean ? "ready" : "unavailable",
-    indexedWorktreeDigest: clean ? worktreeDigest : null,
-    importNodeCount: nodes.count,
-    importNodeLimit: limit,
-    importNodeLimitExceeded: nodes.limitExceeded
-  };
+  }, options);
 }
 
+function assertImportNodeLimit(limit: number): void {
+  if (!Number.isInteger(limit) || limit < 1) throw new Error(`import node limit must be a positive integer, got ${limit}`);
+}
+
+/** The fields of an import node this producer reads; the SDK node and the CLI node both carry them. */
+type ImportNode = Pick<CodeGraphCliNode, "kind" | "name" | "filePath" | "startLine">;
+
 /** Import nodes as repo-relative pairs, unresolved specifiers kept as `to: null`, sorted by file then specifier. */
-function importPairsOf(gitVisibleFiles: ReadonlySet<string>, imports: CodeGraphCliNode[]): RepositoryImportPairV1[] {
+function importPairsOf(gitVisibleFiles: ReadonlySet<string>, imports: readonly ImportNode[]): RepositoryImportPairV1[] {
   const pairs = new Map<string, RepositoryImportPairV1>();
   for (const node of imports) {
     if (node.kind !== "import") continue;
@@ -192,64 +200,49 @@ function importPairsOf(gitVisibleFiles: ReadonlySet<string>, imports: CodeGraphC
 }
 
 /**
- * The import population the index reports, or `null` when the status gives no `import` count.
- * A missing `import` kind is unknown, not zero: a CodeGraph that names the kind differently must
- * fall back to the limit-sized read, not to a one-node read that is always short.
- */
-export function statusImportNodeCount(status: CodeGraphProjectionStatusV1): number | null {
-  if (!status.nodesByKind || typeof status.nodesByKind !== "object") return null;
-  const count = status.nodesByKind.import;
-  return Number.isInteger(count) && count! >= 0 ? count! : null;
-}
-
-/**
- * Reads the whole import population in one query. `codegraph query` has no offset, so the query
- * limit is the count the index reported, plus one: a reply longer or shorter than that count
- * means the index changed during the read, which is real truncation. Without a reported count,
- * the read asks for `limit + 1` and reports the reply size as the count.
+ * Reads the whole import population from the session's handle. The count comes first
+ * (`getStats`), then the nodes; each is one statement, so a node list longer or shorter than the
+ * count means the index changed between them, which is real truncation. Above `limit` the kept
+ * prefix is the first `limit` nodes in (filePath, name, startLine) order, so the cut does not
+ * depend on the order the index stores them in. `getStats` counts kinds with a `GROUP BY`, so an
+ * absent `import` key is zero import nodes.
  */
 function codeGraphImportPopulation(
-  root: string,
-  binary: string,
-  limit: number,
-  reportedCount: number | null,
-  envOverrides?: Record<string, string>
-): { imports: CodeGraphCliNode[]; count: number | null; truncated: boolean; limitExceeded: boolean } {
-  const queryLimit = Math.min(reportedCount ?? limit, limit) + 1;
-  const output = runCodeGraphCli(
-    binary,
-    root,
-    ["query", "-p", root, "-j", "-l", String(queryLimit), "-k", "import", "import"],
-    Math.max(CODEGRAPH_OUTPUT_MAX_BYTES, queryLimit * CODEGRAPH_IMPORT_NODE_OUTPUT_BYTES),
-    envOverrides
-  );
-  const imports = (JSON.parse(output) as { node: CodeGraphCliNode }[]).map(({ node }) => node);
-  const limitExceeded = (reportedCount ?? imports.length) > limit;
-  if (limitExceeded) {
-    // The cap explains a reply of exactly `limit` nodes. A shorter reply means the index shrank
-    // during the read, which is real truncation on top of the limit.
-    return { imports: imports.slice(0, limit), count: reportedCount, truncated: imports.length < limit, limitExceeded };
-  }
+  session: CodeGraphReadSession,
+  limit: number
+): { imports: ImportNode[]; count: number; truncated: boolean; limitExceeded: boolean } {
+  const count = session.graph.getStats().nodesByKind.import ?? 0;
+  const imports: ImportNode[] = session.graph.getNodesByKind("import").sort(compareImportNodes);
+  const limitExceeded = count > limit;
   return {
-    imports,
-    count: reportedCount ?? imports.length,
-    truncated: reportedCount !== null && imports.length !== reportedCount,
+    imports: limitExceeded ? imports.slice(0, limit) : imports,
+    count,
+    truncated: imports.length !== count,
     limitExceeded
   };
 }
 
+function compareImportNodes(left: ImportNode, right: ImportNode): number {
+  return compareStrings(left.filePath, right.filePath) || compareStrings(left.name, right.name) || (left.startLine ?? 0) - (right.startLine ?? 0);
+}
 
+/** Code-unit order, independent of the process locale. */
+function compareStrings(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+/**
+ * Per-capability import graphs over the session's import population. A session that the caller
+ * opened for several reads gives them one index state.
+ */
 export function capabilityImportGraphs(
-  root: string,
-  binary: string,
+  session: CodeGraphReadSession,
   gitVisibleFiles: ReadonlySet<string>,
   footprints: readonly CapabilitySourceFootprint[],
-  limit: number,
-  reportedCount: number | null,
-  envOverrides?: Record<string, string>
+  limit: number
 ): { importGraphs: CapabilityImportGraph[]; importPopulation: ProjectionImportPopulationV1 } {
-  if (!Number.isInteger(limit) || limit < 1) throw new Error(`import node limit must be a positive integer, got ${limit}`);
-  const nodes = codeGraphImportPopulation(root, binary, limit, reportedCount, envOverrides);
+  assertImportNodeLimit(limit);
+  const nodes = codeGraphImportPopulation(session, limit);
   const population = importPairsOf(gitVisibleFiles, nodes.imports);
   // The graphs keep their resolved-only edge set, which the capability projection fixtures pin.
   const resolved = population.flatMap((pair) => pair.to === null ? [] : [{ from: pair.from, to: pair.to }]);

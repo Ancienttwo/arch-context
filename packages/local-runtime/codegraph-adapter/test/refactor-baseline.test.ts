@@ -5,8 +5,8 @@
  * order and its refusal classes, the outbound-only footprint filter in `capabilityImportGraphs`,
  * and the fact that one global `truncated` flag is copied into every capability graph. None of
  * them is exported, so all three are frozen through the two public entrypoints that reach them —
- * `loadCapabilityCodeGraphProjectionInputs` and `CodeGraphCliProvider.buildContext` — using the
- * written-to-disk fake CLI pattern this package already uses. No `export` was added.
+ * `loadCapabilityCodeGraphProjectionInputs`, over an injected read-only index, and
+ * `CodeGraphCliProvider.buildContext`, over the written-to-disk fake CLI. No `export` was added.
  *
  * Machine-dependent values are dropped by an explicit allow-list, never by a wildcard: the
  * handshake fixture freezes the field list and the identity values and reduces every digest to
@@ -24,8 +24,10 @@ import {
   loadCapabilityCodeGraphProjectionInputs,
   prepareProjectionCodeFacts,
   type CapabilityCodeGraphProjectionInputs,
-  type CodeGraphProjectionHandshakeV1
+  type CodeGraphProjectionHandshakeV1,
+  type CodeGraphReadProvider
 } from "../src/index";
+import { fakeReadProvider } from "./read-provider-fixture";
 
 interface BaselineFixture<TInput> {
   id: string;
@@ -126,15 +128,28 @@ function seedWorkspace(): { root: string; binary: string } {
   return { root, binary };
 }
 
+/** The read-only index of the import graphs (ADR-0058): `getStats` and `getNodesByKind` over `importNodes`. */
+function importIndex(root: string): CodeGraphReadProvider {
+  const base = fakeReadProvider(root);
+  const nodes = importNodes.map((node) => ({ id: `import:${node.filePath}:${node.name}`, kind: "import", ...node }));
+  return {
+    ...base,
+    openReadOnly: (openedRoot) => Object.assign(base.openReadOnly(openedRoot), {
+      getStats: () => ({ nodesByKind: { import: nodes.length } }),
+      getNodesByKind: (kind: string) => kind === "import" ? nodes : []
+    })
+  };
+}
+
 const graphFixtures = loadFixtures<{ importNodeLimit?: number }>("capability-import-graphs");
 
 describe("RF0 baseline: capability import graphs", () => {
   for (const fixture of graphFixtures) {
     test(`${fixture.id} — ${fixture.description}`, () => {
-      const { root, binary } = seedWorkspace();
+      const { root } = seedWorkspace();
       try {
         const inputs = loadCapabilityCodeGraphProjectionInputs(root, model, {
-          binary,
+          provider: importIndex(root),
           ...(fixture.input.importNodeLimit === undefined ? {} : { importNodeLimit: fixture.input.importNodeLimit })
         });
         expectFrozen({ importGraphs: inputs.importGraphs, selectorEvidence: inputs.selectorEvidence } as unknown as Json, fixture);
