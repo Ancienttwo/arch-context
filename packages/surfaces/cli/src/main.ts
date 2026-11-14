@@ -947,8 +947,8 @@ function cliHelpEnvelope(command: string, args: string[]): JsonEnvelope {
       command: "archctx flows check [--no-sync] [--json]",
       description: "Check every declared flow selector against the CodeGraph index without rendering a projection.",
       statuses: "Each selector reports proven, no-direct-call, only-references, false-builtin-call, ambiguous-symbol, evidence-missing or evidence-truncated. Only proven binds a flow step.",
-      writes: "Default: runs codegraph sync and writes the .codegraph index. With --no-sync: no checkout or index writes; disposable private snapshots are created outside the checkout and removed after reading. Neither mode starts a daemon or task session.",
-      noSync: "Requires a complete existing index matching the source population. Missing, stale, partial, unsupported-layout or over-limit snapshots fail closed with AC_CODE_FACTS_UNAVAILABLE."
+      writes: "Default: runs codegraph sync and writes the .codegraph index. With --no-sync: no checkout or index writes; the existing index is read in-process through one read-only session (ADR-0058). Neither mode starts a daemon or task session.",
+      noSync: "Requires a complete existing index matching the source population. A missing, unreadable, stale or partial index, or one a build is still writing, fails closed with AC_CODE_FACTS_UNAVAILABLE."
     });
   case "state-machines":
     return okEnvelope("state-machines", {

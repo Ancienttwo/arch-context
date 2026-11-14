@@ -107,7 +107,7 @@ test("real CodeGraph distinguishes ambiguous declarations from a renamed selecto
   } finally { fixture.cleanup(); }
 }, 120_000);
 
-test("a configured clean filter still gets evidence, and the read runs no filter, config, check-attr or status", () => {
+test("a configured clean filter still gets evidence, and the read runs no filter, check-attr, status or config beyond core.excludesFile", () => {
   const fixture = createNativeFixture();
   const spy = process.platform === "win32" ? undefined : gitSpy();
   try {
