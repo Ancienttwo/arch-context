@@ -17,11 +17,14 @@ export const RECEIPT_GATE_STEPS = {
   post: ["Prove each discovered file executed exactly once", "Verify post-gates in original order with fresh local fixtures", "Bind verified checkout"]
 };
 const CONFIG_PATH = new URL("../.github/verify-sharding.json", import.meta.url);
-const SCOPE_PATH = new URL("../.github/verify-scope.json", import.meta.url);
+const SCOPE_FILE = ".github/verify-scope.json";
+const WORKSPACES_FILE = ".github/verify-workspaces.json";
+const SCOPE_PATH = new URL(`../${SCOPE_FILE}`, import.meta.url);
+const WORKSPACES_PATH = new URL(`../${WORKSPACES_FILE}`, import.meta.url);
 
 /**
- * A provider snapshot can land while an expected job is still in flight: the collector or Governance
- * reader then reads a nonterminal job and treats it as a final failed receipt (issue #492). Re-read a
+ * A provider snapshot can land while an expected job is still in flight: the Governance reader then
+ * reads a nonterminal job and treats it as a final failed receipt (issue #492). Re-read a
  * bounded number of times before failing closed, and never treat nonterminal as success.
  */
 export const RECEIPT_READ_ATTEMPTS = 6;
@@ -59,39 +62,202 @@ export function globToRegExp(pattern) {
   return new RegExp(`^${source}$`);
 }
 
-export function readScope() {
-  const scope = JSON.parse(readFileSync(SCOPE_PATH, "utf8"));
-  assert.equal(scope.version, 1);
-  for (const key of ["matrixPaths", "linuxPaths"]) {
-    assert(Array.isArray(scope[key]) && scope[key].length > 0, `${key} must be a non-empty array`);
-    assert(scope[key].every(pattern => typeof pattern === "string" && pattern.length > 0), `${key} must contain non-empty strings`);
-  }
-  return { matrix: scope.matrixPaths.map(globToRegExp), linux: scope.linuxPaths.map(globToRegExp) };
-}
+const nonEmptyStrings = (value, label) => {
+  assert(Array.isArray(value) && value.length > 0 && value.every(item => typeof item === "string" && item.length > 0), `${label} must be a non-empty string array`);
+  return value;
+};
 
-/** Matrix globs win over linux globs; a path matching no linux glob is unclassified and forces the matrix. */
-export function classifyPaths(scope, paths) {
-  const matrixPaths = paths.filter(path => scope.matrix.some(re => re.test(path)) || !scope.linux.some(re => re.test(path)));
-  return { lane: paths.length > 0 && matrixPaths.length === 0 ? "linux" : "matrix", matrixPaths };
-}
-
-/** pull_request checks out the synthetic merge commit; its first parent is the base. */
-export function changedPaths(cwd) {
-  const git = args => {
-    const result = spawnSync("git", args, { cwd, encoding: "utf8", shell: false, maxBuffer: 64 * 1024 * 1024 });
-    if (result.error) throw result.error;
-    if (result.status !== 0) throw new Error(`git ${args.join(" ")} failed (${result.status}): ${result.stderr}`);
-    return result.stdout;
+/**
+ * The reviewed selector map. Each platform family owns the paths whose change selects it; the
+ * complete-suite family owns nothing, so only a release plan can select it.
+ */
+export function validateScope(scope) {
+  assert.equal(scope.version, 2);
+  const jobs = [...nonEmptyStrings(scope.alwaysJobs, "alwaysJobs")];
+  assert(Array.isArray(scope.families) && scope.families.length > 0, "families must be a non-empty array");
+  const families = scope.families.map(family => {
+    assert.match(family.id ?? "", /^[a-z0-9-]+$/, "family id");
+    jobs.push(...nonEmptyStrings(family.jobs, `${family.id}.jobs`));
+    if (family.id === scope.completeSuiteFamily) {
+      assert.equal(family.owners, undefined, "the complete-suite family owns no path");
+      return { id: family.id, jobs: family.jobs, owners: [] };
+    }
+    return { id: family.id, jobs: family.jobs, owners: nonEmptyStrings(family.owners, `${family.id}.owners`).map(globToRegExp) };
+  });
+  const ids = families.map(family => family.id);
+  assert.equal(new Set(ids).size, ids.length, "duplicate family id");
+  assert.equal(new Set(jobs).size, jobs.length, "a job belongs to exactly one family or to alwaysJobs");
+  assert(ids.includes(scope.completeSuiteFamily), "completeSuiteFamily must name a family");
+  const broadFamilies = nonEmptyStrings(scope.broadImpact?.families, "broadImpact.families");
+  assert(broadFamilies.every(id => ids.includes(id) && id !== scope.completeSuiteFamily), "broadImpact selects known targeted families only");
+  return {
+    completeSuite: scope.completeSuiteFamily, alwaysJobs: scope.alwaysJobs, families,
+    broad: { families: broadFamilies, paths: nonEmptyStrings(scope.broadImpact.paths, "broadImpact.paths").map(globToRegExp) },
+    linuxOnly: nonEmptyStrings(scope.linuxOnly, "linuxOnly").map(globToRegExp)
   };
-  const parents = git(["rev-list", "--parents", "-n", "1", "HEAD"]).trim().split(/\s+/).length - 1;
-  if (parents !== 2) throw new Error(`pull_request checkout must be a merge commit with two parents, found ${parents}`);
-  return git(["diff", "--name-only", "--no-renames", "-z", "HEAD^1", "HEAD"]).split("\0").filter(Boolean);
 }
 
-export function laneTargets(lane) {
-  if (lane === "linux") return [GOVERNANCE_TARGET];
-  if (lane === "matrix") return OS_TARGETS.flatMap(os => NODE_TARGETS.map(node => ({ os, "node-version": node })));
-  throw new Error(`Unknown verify lane: ${lane}`);
+export function readScope() {
+  return validateScope(JSON.parse(readFileSync(SCOPE_PATH, "utf8")));
+}
+
+/** The reviewed workspace graph. Its drift test keeps it equal to the workspace manifests. */
+export function validateWorkspaces(graph) {
+  assert.equal(graph.version, 1);
+  assert(Array.isArray(graph.workspaces) && graph.workspaces.length > 0, "workspaces must be a non-empty array");
+  const names = graph.workspaces.map(workspace => workspace.name);
+  assert.equal(new Set(names).size, names.length, "duplicate workspace name");
+  return graph.workspaces.map(workspace => {
+    assert(typeof workspace.dir === "string" && workspace.dir.length > 0, "workspace dir");
+    assert(Array.isArray(workspace.dependsOn) && workspace.dependsOn.every(name => names.includes(name) && name !== workspace.name), `${workspace.name}.dependsOn names other workspaces`);
+    return { name: workspace.name, dir: workspace.dir, dependsOn: workspace.dependsOn,
+      paths: nonEmptyStrings(workspace.paths, `${workspace.name}.paths`).map(globToRegExp),
+      tests: nonEmptyStrings(workspace.tests, `${workspace.name}.tests`).map(globToRegExp) };
+  });
+}
+
+export function readWorkspaces() {
+  return validateWorkspaces(JSON.parse(readFileSync(WORKSPACES_PATH, "utf8")));
+}
+
+function reviewedMappingError(path, reason) {
+  return new Error(`Verify impact plan: ${JSON.stringify(path)} ${reason}. Add a reviewed mapping for it to ${SCOPE_FILE} `
+    + `(a family owner, broadImpact or linuxOnly) or to the workspace graph ${WORKSPACES_FILE}.`);
+}
+
+const isRepositoryPath = path => typeof path === "string" && path.length > 0 && !/[\\\0]/.test(path)
+  && path.split("/").every(segment => segment !== "" && segment !== "." && segment !== "..");
+
+/** The changed workspaces and every transitive dependent, in graph order. */
+export function affectedWorkspaces(workspaces, changed) {
+  const affected = new Set(changed);
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const workspace of workspaces) {
+      if (!affected.has(workspace.name) && workspace.dependsOn.some(name => affected.has(name))) { affected.add(workspace.name); grew = true; }
+    }
+  }
+  return workspaces.map(workspace => workspace.name).filter(name => affected.has(name));
+}
+
+/** Routine selection: owned paths select their families, broad-impact paths their reviewed families. Membership alone selects none. */
+export function selectImpact(scope, workspaces, paths) {
+  const families = new Set();
+  const changed = new Set();
+  for (const path of paths) {
+    if (!isRepositoryPath(path)) throw reviewedMappingError(path, "is not a well-formed repository path");
+    const owners = scope.families.filter(family => family.owners.some(re => re.test(path)));
+    const broad = scope.broad.paths.some(re => re.test(path));
+    const homes = workspaces.filter(workspace => workspace.paths.some(re => re.test(path)));
+    if (homes.length > 1) throw reviewedMappingError(path, `belongs to more than one workspace (${homes.map(workspace => workspace.name).join(", ")})`);
+    if (!owners.length && !broad && !homes.length && !scope.linuxOnly.some(re => re.test(path))) throw reviewedMappingError(path, "has no reviewed mapping");
+    for (const family of owners) families.add(family.id);
+    if (broad) for (const id of scope.broad.families) families.add(id);
+    for (const workspace of homes) changed.add(workspace.name);
+  }
+  return { families: scope.families.map(family => family.id).filter(id => families.has(id)), workspaces: affectedWorkspaces(workspaces, changed) };
+}
+
+/** Release validation runs only from these refs; routine runs never check the ref (a PR ref is refs/pull/<n>/merge). */
+export const RELEASE_REF = /^refs\/heads\/(?:main|release\/[A-Za-z0-9][A-Za-z0-9._-]*)$/;
+export const EVENT_MODES = { pull_request: "routine", push: "routine", workflow_dispatch: "release" };
+
+export function eventMode(event) {
+  const mode = EVENT_MODES[event];
+  if (!mode) throw new Error(`Verify has no mode for event ${JSON.stringify(event)}`);
+  return mode;
+}
+
+function assertReleaseIdentity(context) {
+  if (!RELEASE_REF.test(context.ref ?? "")) throw new Error(`Release validation runs only on refs/heads/main or refs/heads/release/<name>, not ${JSON.stringify(context.ref)}`);
+  assert.match(context.dispatchSha ?? "", /^[a-f0-9]{40}$/, "release validation needs the exact full approved commit SHA");
+  assert.equal(context.dispatchSha, context.sha, "the approved SHA differs from the dispatched checkout");
+}
+
+/**
+ * The impact plan. A routine plan names the Linux affected-workspace scope and only the platform
+ * families its changed paths select; a release plan selects every family, including the complete suite.
+ */
+export function planImpact(scope, workspaces, trackedFiles, context) {
+  assert.match(context.sha ?? "", /^[a-f0-9]{40}$/, "missing/invalid checkout SHA");
+  const mode = eventMode(context.event);
+  let selection;
+  if (mode === "release") {
+    assertReleaseIdentity(context);
+    assert.equal(context.base, null);
+    assert.deepEqual(context.files, []);
+    selection = { families: scope.families.map(family => family.id), workspaces: workspaces.map(workspace => workspace.name) };
+  } else {
+    assert.match(context.base ?? "", /^[a-f0-9]{40}$/, "missing/invalid comparison base");
+    selection = selectImpact(scope, workspaces, context.files);
+    if (selection.families.includes(scope.completeSuite)) throw new Error(`a targeted plan cannot contain the complete-suite family ${scope.completeSuite}`);
+  }
+  for (const name of selection.workspaces) {
+    const workspace = workspaces.find(candidate => candidate.name === name);
+    if (!trackedFiles.some(file => workspace.tests.some(re => re.test(file)))) {
+      throw reviewedMappingError(name, "is a selected workspace without a check: no tracked file matches its tests");
+    }
+  }
+  return { version: 1, mode, event: context.event, ref: context.ref, sha: context.sha, base: context.base, files: context.files, ...selection };
+}
+
+function git(cwd, args) {
+  const result = spawnSync("git", args, { cwd, encoding: "utf8", shell: false, maxBuffer: 64 * 1024 * 1024 });
+  if (result.error) throw result.error;
+  if (result.status !== 0) throw new Error(`git ${args.join(" ")} failed (${result.status}): ${result.stderr}`);
+  return result.stdout;
+}
+
+/**
+ * The comparison base: pull_request checks out the synthetic merge commit, whose first parent is the
+ * base; a push compares with the event's `before`; release validation has no base.
+ */
+export function comparisonBase(cwd, event, payload) {
+  if (eventMode(event) === "release") return null;
+  if (event === "pull_request") {
+    const parents = git(cwd, ["rev-list", "--parents", "-n", "1", "HEAD"]).trim().split(/\s+/).length - 1;
+    if (parents !== 2) throw new Error(`pull_request checkout must be a merge commit with two parents, found ${parents}`);
+    return git(cwd, ["rev-parse", "HEAD^1"]).trim();
+  }
+  const before = payload?.before;
+  if (!/^[a-f0-9]{40}$/.test(before ?? "") || /^0+$/.test(before)) throw new Error(`push event has no comparable before commit: ${JSON.stringify(before)}`);
+  return before;
+}
+
+export function changedFiles(cwd, base) {
+  if (git(cwd, ["cat-file", "-t", base]).trim() !== "commit") throw new Error(`comparison base ${base} is not a commit`);
+  return git(cwd, ["diff", "--name-only", "--no-renames", "-z", base, "HEAD"]).split("\0").filter(Boolean);
+}
+
+/**
+ * The aggregate gate. It reports on every run (`if: always()`) and passes only when the plan belongs
+ * to this run and every selected job succeeded while every unselected job was skipped.
+ */
+export function gateVerdict(scope, workspaces, plan, needs, context) {
+  assert.equal(needs["verify-plan"]?.result, "success", "the Verify plan job did not succeed");
+  assert(plan && typeof plan === "object" && !Array.isArray(plan), "missing or empty impact plan");
+  assert.equal(plan.version, 1);
+  assert.equal(plan.sha, context.sha, "the impact plan is for another SHA");
+  assert.equal(plan.event, context.event, "the impact plan is for another event");
+  assert.equal(plan.mode, eventMode(context.event), `the impact plan mode is not the ${context.event} mode`);
+  if (plan.mode === "release") assertReleaseIdentity(context);
+  assert.equal(plan.ref, context.ref, "the impact plan is for another ref");
+  assert.equal(plan.base, context.base, "the impact plan compared against another base");
+  assert(Array.isArray(plan.files), "the impact plan has no file list");
+  const expected = plan.mode === "release"
+    ? { families: scope.families.map(family => family.id), workspaces: workspaces.map(workspace => workspace.name) }
+    : selectImpact(scope, workspaces, plan.files);
+  if (plan.mode !== "release") assert(!expected.families.includes(scope.completeSuite), "a targeted plan cannot contain the complete-suite family");
+  assert.deepEqual(plan.families, expected.families, "the impact plan's families differ from the selection of its file list");
+  assert.deepEqual(plan.workspaces, expected.workspaces, "the impact plan's workspaces differ from the selection of its file list");
+  /** @type {Record<string, "success" | "skipped">} */
+  const results = { "verify-plan": "success", ...Object.fromEntries(scope.alwaysJobs.map(job => [job, "success"])) };
+  for (const family of scope.families) for (const job of family.jobs) results[job] = plan.families.includes(family.id) ? "success" : "skipped";
+  assert.deepEqual(Object.keys(needs).sort(), Object.keys(results).sort(), "the gate's job inventory differs from the known family list");
+  const wrong = Object.entries(results).filter(([job, result]) => needs[job].result !== result)
+    .map(([job, result]) => `${job}: expected ${result}, got ${needs[job].result}`);
+  if (wrong.length) throw new Error(`Verify gate: ${wrong.join("; ")}`);
+  return results;
 }
 
 /** ADR-0055: the subject is run-scoped, so a rerun attempt reuses the plan of the same run and SHA. */
@@ -266,42 +432,6 @@ export function governanceReceiptPending(config, jobs) {
   return pending;
 }
 
-/**
- * Resolve the lane verdicts, re-reading only while an expected worker is nonterminal. A settled
- * failure or a missing/duplicate job is final; a job still in flight is re-read within a finite
- * budget and then returned with its pending state, so an in-flight snapshot is never reported as a
- * settled failed receipt (issue #492).
- */
-export async function collectJobVerdicts(config, env, targets, options = {}) {
-  const read = options.read ?? githubRead;
-  const attempts = options.attempts ?? RECEIPT_READ_ATTEMPTS;
-  const wait = options.wait ?? (ms => new Promise(done => setTimeout(done, ms)));
-  const delayMs = options.delayMs ?? RECEIPT_READ_DELAY_MS;
-  assert(Number.isSafeInteger(attempts) && attempts > 0, "verdict read budget must be positive");
-  const expected = new Set(targets.flatMap(({ os, "node-version": node }) => expectedWorkers(config, os, node)));
-  for (let attempt = 1; ; attempt += 1) {
-    const { run, jobs } = await hostedJobs(env, read);
-    const pending = jobs.filter(job => expected.has(job.name) && !TERMINAL_JOB_STATUSES.has(job.status))
-      .map(job => ({ job: job.name, status: job.status ?? null, conclusion: job.conclusion ?? null }));
-    const verdicts = jobVerdicts(config, run, jobs, targets);
-    if (pending.length === 0) return { run, jobs, verdicts, attempts: attempt, pending };
-    if (attempt >= attempts) return { run, jobs, verdicts, attempts: attempt, pending };
-    await wait(delayMs);
-  }
-}
-
-export function jobVerdicts(config, run, jobs, targets) {
-  const verdicts = {};
-  for (const { os, "node-version": node } of targets) {
-    verdicts[targetName(os, node)] = expectedWorkers(config, os, node).every(name => {
-      const matches = jobs.filter(job => job.name === name);
-      return matches.length === 1 && matches[0].status === "completed" && matches[0].conclusion === "success"
-        && matches[0].run_id === run.id && matches[0].run_attempt === run.run_attempt && matches[0].head_sha === run.head_sha;
-    });
-  }
-  return verdicts;
-}
-
 export function runnerMinutes(jobs, sampledAt = Date.now()) {
   let completedMinutes = 0, roundedCompletedMinutes = 0, elapsedMinutes = 0, installMinutes = 0, installJobs = 0;
   const byOs = {};
@@ -468,23 +598,34 @@ export async function main(command, env = process.env) {
     assert(env.RUNNER_TEMP, `${key} requires the runner's temporary directory`);
     return join(env.RUNNER_TEMP, ...parts);
   };
-  if (command === "topology") {
-    assert(["pull_request", "push"].includes(env.GITHUB_EVENT_NAME), "topology requires a pull_request or push event");
-    const classification = env.GITHUB_EVENT_NAME === "pull_request" ? classifyPaths(readScope(), changedPaths(process.cwd())) : { lane: "matrix", matrixPaths: [] };
-    const { lane } = classification;
+  const eventContext = () => {
+    const payload = env.GITHUB_EVENT_PATH ? JSON.parse(readFileSync(env.GITHUB_EVENT_PATH, "utf8")) : undefined;
+    return { event: env.GITHUB_EVENT_NAME, ref: env.GITHUB_REF, sha: env.GITHUB_SHA, dispatchSha: env.VERIFY_DISPATCH_SHA,
+      base: comparisonBase(process.cwd(), env.GITHUB_EVENT_NAME, payload) };
+  };
+  if (command === "impact") {
+    const context = eventContext();
+    assert.equal(git(process.cwd(), ["rev-parse", "HEAD"]).trim(), context.sha, "the planner checkout differs from GITHUB_SHA");
+    if (context.event === "push") git(process.cwd(), ["fetch", "--no-tags", "--depth=1", "origin", context.base]);
+    const files = context.base === null ? [] : changedFiles(process.cwd(), context.base);
+    const tracked = git(process.cwd(), ["ls-files", "-z"]).split("\0").filter(Boolean);
+    const plan = planImpact(readScope(), readWorkspaces(), tracked, { ...context, files });
     const sameTarget = (a, b) => a.os === b.os && a["node-version"] === b["node-version"];
-    // The Governance target's split runs as dedicated jobs outside the lane-gated generic matrix (ADR-0055).
+    // The Governance target's split runs as dedicated Linux jobs on every event (ADR-0055).
     const split = config.splitTargets.filter(row => !sameTarget(row, GOVERNANCE_TARGET));
-    const compat = laneTargets("matrix").filter(target => !config.splitTargets.some(row => sameTarget(row, target)));
-    for (const [key, value] of Object.entries({ split: { include: split }, shards: { include: shardMatrix(split) }, compat: { include: compat },
-      targets: { include: laneTargets(lane) } })) {
+    const compat = OS_TARGETS.flatMap(os => NODE_TARGETS.map(node => ({ os, "node-version": node })))
+      .filter(target => !config.splitTargets.some(row => sameTarget(row, target)));
+    for (const [key, value] of Object.entries({ plan, families: plan.families, split: { include: split }, shards: { include: shardMatrix(split) }, compat: { include: compat } })) {
       appendFileSync(env.GITHUB_OUTPUT, `${key}=${JSON.stringify(value)}\n`);
     }
-    appendFileSync(env.GITHUB_OUTPUT, `lane=${lane}\n`);
     if (env.GITHUB_STEP_SUMMARY) {
-      const forced = classification.matrixPaths.slice(0, 20).map(path => `- \`${path}\``).join("\n");
-      appendFileSync(env.GITHUB_STEP_SUMMARY, `### Verify lane\n\nLane: \`${lane}\` (${env.GITHUB_EVENT_NAME})\n${forced ? `\nPaths that forced the matrix lane${classification.matrixPaths.length > 20 ? " (first 20)" : ""}:\n\n${forced}\n` : ""}`);
+      appendFileSync(env.GITHUB_STEP_SUMMARY, `### Verify impact plan\n\nMode: \`${plan.mode}\` (${plan.event}, base \`${plan.base ?? "none"}\`, ${plan.files.length} changed paths)\n\n`
+        + `Platform families: ${plan.families.map(id => `\`${id}\``).join(", ") || "none"}\n\nAffected workspaces (the Linux job runs the complete suite): ${plan.workspaces.map(name => `\`${name}\``).join(", ")}\n`);
     }
+  } else if (command === "gate") {
+    assert(env.VERIFY_PLAN, "missing or empty impact plan");
+    const results = gateVerdict(readScope(), readWorkspaces(), JSON.parse(env.VERIFY_PLAN), JSON.parse(env.VERIFY_NEEDS), eventContext());
+    console.log(`Verify gate passed: ${JSON.stringify(results)}`);
   } else if (command === "plan") {
     const files = discoverTestFiles(process.cwd());
     assert(files.length, "CI discovery cannot be empty");
@@ -505,25 +646,13 @@ export async function main(command, env = process.env) {
     const reports = readdirSync(directory).map(dir => JSON.parse(readFileSync(join(directory, dir, "report.json"), "utf8")));
     validateCoverage(plan, reports, subject(env));
     console.log(`Verified ${plan.files.length} Bun-discovered files exactly once across ${plan.groups.length} isolated shards`);
-  } else if (command === "collect" || command === "cost") {
-    // `collect` resolves this lane's verdicts, so it waits for a pending expected job within a finite
-    // budget instead of persisting a mid-flight snapshot as a settled verdict (issue #492). `cost`
-    // only measures runner minutes and carries no lane, so it reads the snapshot once.
-    const verdictRead = command === "collect"
-      ? await collectJobVerdicts(config, env, laneTargets(env.VERIFY_LANE))
-      : { ...(await hostedJobs(env)), verdicts: null, pending: [], attempts: 1 };
-    const { run, jobs, verdicts: laneVerdicts, pending, attempts } = verdictRead;
-    if (pending.length > 0) {
-      console.error(`Expected jobs still nonterminal after ${attempts} reads: ${JSON.stringify(pending)}`);
-    }
+  } else if (command === "cost") {
+    // `cost` only measures the current attempt's runner minutes, so it reads the snapshot once.
+    const { run, jobs } = await hostedJobs(env);
     const metrics = runnerMinutes(jobs);
     const evidence = temporaryPath("VERIFY_EVIDENCE", "verify-evidence");
     jsonWrite(join(evidence, "runner-minutes.json"), { runId: run.id, attempt: run.run_attempt, headSha: run.head_sha, ...metrics });
     if (env.GITHUB_STEP_SUMMARY) appendFileSync(env.GITHUB_STEP_SUMMARY, `### Measured runner time (current attempt)\n\nCompleted jobs: ${metrics.completedMinutes.toFixed(2)} raw runner minutes; per-job rounded model ${metrics.roundedCompletedMinutes}. Completed installs: ${metrics.installJobs}, ${metrics.installMinutes.toFixed(2)} runner minutes. ${metrics.note}\n`);
-    if (command === "collect") {
-      appendFileSync(env.GITHUB_OUTPUT, `verdicts=${JSON.stringify(laneVerdicts)}\n`);
-      jsonWrite(join(evidence, "job-verdicts.json"), { runId: run.id, attempt: run.run_attempt, headSha: run.head_sha, verdicts: laneVerdicts, readAttempts: attempts, pending });
-    }
   } else throw new Error(`Unknown verify-ci command: ${command}`);
 }
 

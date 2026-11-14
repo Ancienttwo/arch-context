@@ -1,46 +1,98 @@
 {
-  "version": 1,
-  "matrixPaths": [
-    "**/package.json",
-    "**/bunfig.toml",
-    "**/tsconfig*.json",
-    "packages/cloud/hardening/**",
-    "packages/core/changeset-engine/**",
-    "packages/local-runtime/codegraph-adapter/**",
-    "packages/local-runtime/control-file-security/**",
-    "packages/local-runtime/egress-admission/**",
-    "packages/local-runtime/git-adapter/**",
-    "packages/local-runtime/local-store-sqlite/**",
-    "packages/local-runtime/process-liveness/**",
-    "packages/local-runtime/projection-paths/**",
-    "packages/local-runtime/runtime-state-paths/**",
-    "packages/local-runtime/model-store-yaml/src/native-context.ts",
-    "packages/local-runtime/model-store-yaml/test/native-context*",
-    "packages/local-runtime/runtime-daemon/src/daemon-control.ts",
-    "packages/local-runtime/runtime-daemon/src/egress.ts",
-    "packages/local-runtime/runtime-daemon/src/investigation-transport.ts",
-    "packages/local-runtime/runtime-daemon/src/projection-writer.ts",
-    "packages/local-runtime/runtime-daemon/src/loopback-*.ts",
-    "packages/local-runtime/runtime-daemon/src/rpc-*.ts",
-    "packages/local-runtime/runtime-daemon/test/daemon-control*",
-    "packages/local-runtime/runtime-daemon/test/egress*",
-    "packages/local-runtime/runtime-daemon/test/investigation-transport*",
-    "packages/local-runtime/runtime-daemon/test/projection-writer*",
-    "packages/local-runtime/runtime-daemon/test/rpc-*",
-    "packages/surfaces/cli/src/main.ts",
-    "packages/surfaces/cli/test/rpc-*",
-    "packages/surfaces/cli/**/hook*"
+  "version": 2,
+  "completeSuiteFamily": "full-matrix",
+  "alwaysJobs": ["verify-linux-pre", "verify-linux-shards", "verify-linux-post", "governance-verify"],
+  "families": [
+    {
+      "id": "platform",
+      "jobs": ["verify-platform"],
+      "owners": [
+        "scripts/platform-ipc-permission-readback.mjs",
+        "packages/cloud/hardening/**",
+        "packages/core/changeset-engine/**",
+        "packages/local-runtime/codegraph-adapter/**",
+        "packages/local-runtime/control-file-security/**",
+        "packages/local-runtime/egress-admission/**",
+        "packages/local-runtime/git-adapter/**",
+        "packages/local-runtime/local-store-sqlite/**",
+        "packages/local-runtime/process-liveness/**",
+        "packages/local-runtime/projection-paths/**",
+        "packages/local-runtime/runtime-state-paths/**",
+        "packages/local-runtime/model-store-yaml/src/native-context.ts",
+        "packages/local-runtime/model-store-yaml/test/native-context*",
+        "packages/local-runtime/runtime-daemon/src/daemon-control.ts",
+        "packages/local-runtime/runtime-daemon/src/egress.ts",
+        "packages/local-runtime/runtime-daemon/src/investigation-transport.ts",
+        "packages/local-runtime/runtime-daemon/src/projection-writer.ts",
+        "packages/local-runtime/runtime-daemon/src/loopback-*.ts",
+        "packages/local-runtime/runtime-daemon/src/rpc-*.ts",
+        "packages/local-runtime/runtime-daemon/test/daemon-control*",
+        "packages/local-runtime/runtime-daemon/test/egress*",
+        "packages/local-runtime/runtime-daemon/test/investigation-transport*",
+        "packages/local-runtime/runtime-daemon/test/projection-writer*",
+        "packages/local-runtime/runtime-daemon/test/rpc-*",
+        "packages/surfaces/cli/src/main.ts",
+        "packages/surfaces/cli/test/rpc-*",
+        "packages/surfaces/cli/**/hook*"
+      ]
+    },
+    {
+      "id": "node-compat",
+      "jobs": ["verify"],
+      "owners": [
+        "scripts/platform-ipc-permission-readback.mjs",
+        "scripts/codegraph-selector-node-integration.mjs",
+        "scripts/packaged-cli-smoke.mjs",
+        "packages/local-runtime/codegraph-adapter/src/**",
+        "packages/surfaces/cli/bin/**",
+        "packages/surfaces/cli/src/main.ts",
+        "packages/surfaces/cli/test/bundle-entry.test.ts",
+        "packages/surfaces/mcp-local/src/**",
+        "packages/surfaces/mcp-local/test/mcp-wire.test.ts",
+        "packages/contracts/test/publishability.test.ts",
+        "tests/ownership-change-acceptance-recovery.test.ts"
+      ]
+    },
+    {
+      "id": "linux-arm64",
+      "jobs": ["linux-arm64-descriptor-write"],
+      "owners": ["packages/core/changeset-engine/**"]
+    },
+    {
+      "id": "full-matrix",
+      "jobs": ["verify-split-pre", "verify-split-tests", "verify-split-post"]
+    }
   ],
-  "linuxPaths": [
+  "broadImpact": {
+    "families": ["platform", "node-compat", "linux-arm64"],
+    "paths": [
+      "package.json",
+      "packages/*/package.json",
+      "packages/*/*/package.json",
+      "bun.lock",
+      "bunfig.toml",
+      "packages/*/bunfig.toml",
+      "packages/*/*/bunfig.toml",
+      "tsconfig*.json",
+      "packages/**/tsconfig*.json",
+      "scripts/check-bun-version.mjs",
+      "packages/surfaces/cli/bin/bun-darwin-sqlite.ts",
+      ".github/**",
+      "scripts/verify-ci.mjs"
+    ]
+  },
+  "linuxOnly": [
+    "*.md",
+    ".gitignore",
+    ".gitattributes",
+    ".ai/**",
+    ".archcontext/**",
+    ".claude/**",
+    "deploy/**",
     "docs/**",
     "plans/**",
-    "tasks/**",
-    "packages/**",
     "schemas/**",
-    ".archcontext/**",
-    ".ai/**",
-    ".claude/**",
     "skills/**",
-    "*.md"
+    "tasks/**"
   ]
 }

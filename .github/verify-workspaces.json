@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "workspaces": [
+    {
+      "name": "archcontext",
+      "dir": ".",
+      "paths": ["package.json", "bun.lock", "bunfig.toml", "tsconfig.json", "scripts/**", "tests/**", "evals/**", "deploy/scripts/**"],
+      "tests": ["scripts/*.test.ts", "tests/*.test.ts", "deploy/scripts/*.test.ts"],
+      "dependsOn": ["@archcontext/surfaces"]
+    },
+    {
+      "name": "@archcontext/contracts",
+      "dir": "packages/contracts",
+      "paths": ["packages/contracts/**"],
+      "tests": ["packages/contracts/**/*.test.ts"],
+      "dependsOn": []
+    },
+    {
+      "name": "@archcontext/core",
+      "dir": "packages/core",
+      "paths": ["packages/core/**"],
+      "tests": ["packages/core/**/*.test.ts"],
+      "dependsOn": ["@archcontext/contracts"]
+    },
+    {
+      "name": "@archcontext/local-runtime",
+      "dir": "packages/local-runtime",
+      "paths": ["packages/local-runtime/**"],
+      "tests": ["packages/local-runtime/**/*.test.ts"],
+      "dependsOn": ["@archcontext/contracts", "@archcontext/core"]
+    },
+    {
+      "name": "@archcontext/cloud",
+      "dir": "packages/cloud",
+      "paths": ["packages/cloud/**"],
+      "tests": ["packages/cloud/**/*.test.ts"],
+      "dependsOn": ["@archcontext/contracts", "@archcontext/core"]
+    },
+    {
+      "name": "@archcontext/surfaces",
+      "dir": "packages/surfaces",
+      "paths": ["packages/surfaces/**"],
+      "tests": ["packages/surfaces/**/*.test.ts"],
+      "dependsOn": ["@archcontext/contracts", "@archcontext/cloud", "@archcontext/core", "@archcontext/local-runtime"]
+    }
+  ]
+}

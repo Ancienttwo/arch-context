@@ -5,10 +5,11 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import {
-  changedPaths, classifyPaths, discoverTestFiles, executeShard, expectedWorkers, globToRegExp, jobVerdicts, laneTargets,
-  NODE_TARGETS, OS_TARGETS, partitionFiles, readConfig, readScope, runnerMinutes, targetName, validateConfig, validateCoverage,
-  collectJobVerdicts, governanceReceiptPending, governanceSourceHead, hostedJobs, RECEIPT_READ_ATTEMPTS,
-  readGovernanceReceipt, RECEIPT_GATE_STEPS, receiptJobs, validateGovernancePrerequisite, latestAttemptPerName
+  discoverTestFiles, executeShard, expectedWorkers, globToRegExp,
+  NODE_TARGETS, OS_TARGETS, partitionFiles, readConfig, readScope, runnerMinutes, validateConfig, validateCoverage,
+  governanceReceiptPending, governanceSourceHead, hostedJobs,
+  readGovernanceReceipt, RECEIPT_GATE_STEPS, RECEIPT_READ_ATTEMPTS, receiptJobs, validateGovernancePrerequisite, latestAttemptPerName,
+  readWorkspaces, selectImpact, planImpact, gateVerdict, comparisonBase, changedFiles, RELEASE_REF
 } from "./verify-ci.mjs";
 
 const identity = { runId: 123, checkoutSha: "a".repeat(40) };
@@ -319,29 +320,6 @@ test("coverage rejects duplicates, omissions, failed runs and stale/cross-target
   expect(() => validateCoverage({ ...plan, groups: [["a.test.ts"], ["a.test.ts"]] }, reports, identity)).toThrow();
 });
 
-test("job summary requires each unique expected job's success and the exact run/attempt/head", () => {
-  const config = readConfig();
-  const run = { id: 123, run_attempt: 1, head_sha: "a".repeat(40) };
-  const jobs = OS_TARGETS.flatMap(os => NODE_TARGETS.flatMap(node => expectedWorkers(config, os, node).map(name => ({
-    name, status: "completed", conclusion: "success", run_id: run.id, run_attempt: run.run_attempt, head_sha: run.head_sha
-  }))));
-  const targets = laneTargets("matrix");
-  expect(Object.values(jobVerdicts(config, run, jobs, targets)).every(Boolean)).toBe(true);
-  for (let index = 0; index < jobs.length; index++) {
-    for (const conclusion of ["failure", "skipped", "cancelled", "timed_out", null]) {
-      const changed = structuredClone(jobs) as any[]; changed[index].conclusion = conclusion;
-      expect(Object.values(jobVerdicts(config, run, changed, targets)).every(Boolean)).toBe(false);
-    }
-    const missing = [...jobs]; missing.splice(index, 1);
-    expect(Object.values(jobVerdicts(config, run, missing, targets)).every(Boolean)).toBe(false);
-    expect(Object.values(jobVerdicts(config, run, [...jobs, jobs[index]], targets)).every(Boolean)).toBe(false);
-  }
-  for (const field of ["run_id", "run_attempt", "head_sha", "status"] as const) {
-    const changed = structuredClone(jobs) as any[]; changed[0][field] = field === "status" ? "in_progress" : "foreign";
-    expect(Object.values(jobVerdicts(config, run, changed, targets)).every(Boolean)).toBe(false);
-  }
-});
-
 test("runner cost sums parallel jobs and counts install time separately from wall clock", () => {
   const jobs = ["macos-15", "windows-latest"].map(os => ({ name: os, labels: [os], runner_id: 1, started_at: "2026-10-14T10:00:00Z", completed_at: "2026-10-14T10:01:30Z",
     steps: [{ name: "Install dependencies", started_at: "2026-10-14T10:00:00Z", completed_at: "2026-10-14T10:00:30Z" }] }));
@@ -354,7 +332,7 @@ function readOutputs(path: string): Record<string, any> {
   return Object.fromEntries(readFileSync(path, "utf8").trim().split("\n").map(line => {
     const separator = line.indexOf("=");
     const key = line.slice(0, separator), value = line.slice(separator + 1);
-    return [key, key === "lane" ? value : JSON.parse(value)];
+    return [key, JSON.parse(value)];
   }));
 }
 
@@ -381,21 +359,6 @@ function mergeRepo(root: string, edits: string[], renamed?: [string, string]) {
   git(root, "merge", "-q", "--no-ff", "-m", "merge", "topic");
 }
 
-test("classifyPaths keeps only linux-safe changes on the linux lane and fails closed otherwise", () => {
-  const scope = readScope();
-  const lane = (...paths: string[]) => classifyPaths(scope, paths);
-  expect(lane("docs/runbooks/verify-sharding.md", "README.md")).toEqual({ lane: "linux", matrixPaths: [] });
-  expect(lane("packages/core/policy-engine/src/x.ts", "packages/core/policy-engine/test/x.test.ts", "plans/plan-x.md").lane).toBe("linux");
-  for (const path of [
-    "packages/local-runtime/runtime-daemon/src/rpc-server.ts", "packages/core/changeset-engine/src/index.ts",
-    "packages/surfaces/cli/test/hook-state-paths.test.ts", "packages/contracts/package.json", "bun.lock",
-    ".github/workflows/verify.yml", "scripts/verify-ci.mjs", "evals/run.ts", "package.json"
-  ]) expect(lane(path)).toEqual({ lane: "matrix", matrixPaths: [path] });
-  expect(lane("docs/a.md", "packages/local-runtime/git-adapter/src/index.ts", "plans/p.md"))
-    .toEqual({ lane: "matrix", matrixPaths: ["packages/local-runtime/git-adapter/src/index.ts"] });
-  expect(lane()).toEqual({ lane: "matrix", matrixPaths: [] });
-});
-
 test("globToRegExp treats ** as whole segments, * as one segment and everything else literally", () => {
   const matches = (pattern: string, path: string) => globToRegExp(pattern).test(path);
   expect(matches("**/package.json", "package.json")).toBe(true);
@@ -414,116 +377,452 @@ test("globToRegExp treats ** as whole segments, * as one segment and everything 
   expect(matches("a+(b)[c]$", "a+(b)[c]$")).toBe(true);
 });
 
-test("changedPaths reads the merge commit's first-parent diff and refuses a non-merge checkout", () => {
-  const root = mkdtempSync(join(tmpdir(), "archctx-changed-paths-test-"));
-  try {
-    mergeRepo(root, ["docs/a.md", "packages/x/src/y.ts"], ["old/name.txt", "new/name.txt"]);
-    expect(changedPaths(root).sort()).toEqual(["docs/a.md", "new/name.txt", "old/name.txt", "packages/x/src/y.ts"]);
-    git(root, "checkout", "-q", "--detach", "HEAD^2");
-    expect(() => changedPaths(root)).toThrow("two parents");
-  } finally { rmSync(root, { recursive: true, force: true }); }
+const SCOPE: any = readScope();
+const WORKSPACES: any[] = readWorkspaces();
+const ALL_WORKSPACES = WORKSPACES.map(workspace => workspace.name);
+const TRACKED = spawnSync("git", ["ls-files", "-z"], { encoding: "utf8" }).stdout.split("\0").filter(Boolean);
+const SHA = "a".repeat(40), BASE = "b".repeat(40);
+const PLATFORM_PATH = "packages/local-runtime/git-adapter/src/index.ts";
+
+/** The gate's `needs` for a plan whose selected jobs succeeded and whose other family jobs were skipped. */
+function needsFor(plan: any) {
+  const needs: Record<string, any> = { "verify-plan": { result: "success", outputs: {} } };
+  for (const job of SCOPE.alwaysJobs) needs[job] = { result: "success", outputs: {} };
+  for (const family of SCOPE.families) for (const job of family.jobs) needs[job] = { result: plan.families.includes(family.id) ? "success" : "skipped", outputs: {} };
+  return needs;
+}
+
+function gateFixture(event: string) {
+  const context = event === "workflow_dispatch"
+    ? { event, ref: "refs/heads/main", sha: SHA, dispatchSha: SHA, base: null, files: [] as string[] }
+    : { event, ref: event === "push" ? "refs/heads/main" : "refs/pull/603/merge", sha: SHA, dispatchSha: "", base: BASE, files: [PLATFORM_PATH] };
+  const plan: any = planImpact(SCOPE, WORKSPACES, TRACKED, context);
+  return { plan, needs: needsFor(plan), context };
+}
+
+test("each platform family is selected by a path it owns; shared-core and package-only paths select none", () => {
+  const families = (...paths: string[]) => selectImpact(SCOPE, WORKSPACES, paths).families;
+  expect(families(PLATFORM_PATH)).toEqual(["platform"]);
+  expect(families("scripts/packaged-cli-smoke.mjs")).toEqual(["node-compat"]);
+  expect(families("packages/core/changeset-engine/src/index.ts")).toEqual(["platform", "linux-arm64"]);
+  // A shared-core path that no family owns selects no family; the Linux job covers it and every dependent.
+  expect(selectImpact(SCOPE, WORKSPACES, ["packages/contracts/src/failure.ts"])).toEqual({ families: [], workspaces: ALL_WORKSPACES });
+  // Workspace membership alone selects no family.
+  expect(selectImpact(SCOPE, WORKSPACES, ["packages/core/policy-engine/src/index.ts"])).toEqual({ families: [],
+    workspaces: ["archcontext", "@archcontext/core", "@archcontext/local-runtime", "@archcontext/cloud", "@archcontext/surfaces"] });
+  expect(selectImpact(SCOPE, WORKSPACES, ["docs/runbooks/verify-sharding.md", "README.md"])).toEqual({ families: [], workspaces: [] });
+  for (const path of ["bun.lock", "package.json", "packages/core/package.json", ".github/workflows/verify.yml", "scripts/verify-ci.mjs",
+    "packages/surfaces/cli/package.json", "packages/core/policy-engine/bunfig.toml", "tsconfig.build.json", "packages/core/tsconfig.json",
+    "packages/local-runtime/runtime-daemon/tsconfig.test.json", "scripts/check-bun-version.mjs", "packages/surfaces/cli/bin/bun-darwin-sqlite.ts"]) {
+    expect(families(path)).toEqual(["platform", "node-compat", "linux-arm64"]);
+  }
+  // CLI test fixture manifests are workspace content, not manifests of this repository.
+  expect(families("packages/surfaces/cli/test/fixtures/monorepo-basic/packages/lib/package.json")).toEqual([]);
 });
 
-test("laneTargets names exactly the targets a lane executes", () => {
-  expect(laneTargets("linux")).toEqual([{ os: "ubuntu-latest", "node-version": "22.22.x" }]);
-  const matrix = laneTargets("matrix");
-  expect(matrix).toHaveLength(9);
-  expect(matrix.map(row => targetName(row.os, row["node-version"]))).toEqual(OS_TARGETS.flatMap(os => NODE_TARGETS.map(node => targetName(os, node))));
-  for (const lane of ["", "Linux", undefined, null]) expect(() => laneTargets(lane as any)).toThrow();
+test("every tracked path has a reviewed mapping and no routine selection contains the complete-suite family", () => {
+  expect(TRACKED.length).toBeGreaterThan(1000);
+  const union = new Set<string>();
+  for (const path of TRACKED) for (const id of selectImpact(SCOPE, WORKSPACES, [path]).families) union.add(id);
+  expect(union.has(SCOPE.completeSuite)).toBe(false);
+  expect([...union].sort()).toEqual(SCOPE.families.map((family: any) => family.id).filter((id: string) => id !== SCOPE.completeSuite).sort());
+  expect(selectImpact(SCOPE, WORKSPACES, TRACKED).families).not.toContain(SCOPE.completeSuite);
 });
 
-test("linux-lane verdicts name only the Linux split target", () => {
-  const config = readConfig();
-  const run = { id: 123, run_attempt: 1, head_sha: "a".repeat(40) };
-  const jobs = [LINUX_PRE, linuxShard(1), linuxShard(2), linuxShard(3), LINUX_POST].map(name => ({
-    name, status: "completed", conclusion: "success", run_id: run.id, run_attempt: run.run_attempt, head_sha: run.head_sha }));
-  expect(jobVerdicts(config, run, jobs, laneTargets("linux"))).toEqual({ "ubuntu-latest / Node 22.22.x": true });
-  expect(jobVerdicts(config, run, [...jobs.slice(0, 4), { ...jobs[4], conclusion: "failure" }], laneTargets("linux"))).toEqual({ "ubuntu-latest / Node 22.22.x": false });
-  expect(jobVerdicts(config, run, jobs.slice(1), laneTargets("linux"))).toEqual({ "ubuntu-latest / Node 22.22.x": false });
+test("unmapped and malformed paths fail the plan with the reviewed-mapping error and no release hint", () => {
+  for (const path of ["unmapped/file.ts", "Makefile", "", "/abs/file.ts", "docs/../x.md", "docs//a.md", "docs\\a.md", "./docs/a.md", "docs/a.md\0"]) {
+    let message = "";
+    try { selectImpact(SCOPE, WORKSPACES, ["docs/ok.md", path]); } catch (error: any) { message = error.message; }
+    expect(message).toContain("Add a reviewed mapping for it to .github/verify-scope.json");
+    expect(message).not.toMatch(/release|dispatch/i);
+  }
 });
 
-test("the topology command selects the lane from the event and the merge commit's changed paths", () => {
-  const root = mkdtempSync(join(tmpdir(), "archctx-topology-lane-test-"));
-  const cli = fileURLToPath(new URL("./verify-ci.mjs", import.meta.url));
-  const run = (cwd: string, event?: string) => {
-    const output = join(cwd, `github-output-${event ?? "none"}`);
-    const env: NodeJS.ProcessEnv = { ...process.env, GITHUB_OUTPUT: output };
-    delete env.GITHUB_EVENT_NAME; delete env.GITHUB_STEP_SUMMARY;
-    if (event) env.GITHUB_EVENT_NAME = event;
-    const result = spawnSync("node", [cli, "topology"], { cwd, encoding: "utf8", env });
-    return { result, outputs: result.status === 0 ? readOutputs(output) : undefined };
+test("release plans need an allowed ref and the exact approved SHA; routine plans never check the ref", () => {
+  const release = (ref: any, dispatchSha = SHA) => planImpact(SCOPE, WORKSPACES, TRACKED, { event: "workflow_dispatch", ref, sha: SHA, dispatchSha, base: null, files: [] });
+  for (const ref of ["refs/heads/main", "refs/heads/release/0.15", "refs/heads/release/archctx-0.15.0"]) {
+    expect(RELEASE_REF.test(ref)).toBe(true);
+    expect(release(ref)).toMatchObject({ mode: "release", families: SCOPE.families.map((family: any) => family.id), workspaces: ALL_WORKSPACES });
+  }
+  for (const ref of ["refs/heads/feat/603-x", "refs/heads/fix/603", "refs/tags/v0.15.0", "refs/heads/release/", "refs/heads/main2", "main", "refs/pull/603/merge", "", undefined]) {
+    expect(() => release(ref)).toThrow("Release validation runs only on");
+  }
+  for (const dispatchSha of ["", "c".repeat(40), SHA.slice(0, 7), SHA.toUpperCase()]) expect(() => release("refs/heads/main", dispatchSha)).toThrow();
+  for (const [event, ref] of [["pull_request", "refs/pull/603/merge"], ["push", "refs/heads/main"]]) {
+    expect(planImpact(SCOPE, WORKSPACES, TRACKED, { event, ref, sha: SHA, base: BASE, files: [PLATFORM_PATH] }))
+      .toMatchObject({ mode: "routine", ref, base: BASE, families: ["platform"] });
+  }
+  expect(() => planImpact(SCOPE, WORKSPACES, TRACKED, { event: "schedule", ref: "refs/heads/main", sha: SHA, base: BASE, files: [] })).toThrow("no mode");
+  // A targeted plan never carries the complete-suite family, and a selected workspace needs a check.
+  const leaky = { ...SCOPE, families: SCOPE.families.map((family: any) => family.id === SCOPE.completeSuite ? { ...family, owners: [globToRegExp("docs/**")] } : family) };
+  expect(() => planImpact(leaky, WORKSPACES, TRACKED, { event: "pull_request", ref: "refs/pull/1/merge", sha: SHA, base: BASE, files: ["docs/a.md"] }))
+    .toThrow("complete-suite family");
+  expect(() => planImpact(SCOPE, WORKSPACES, TRACKED.filter(file => !file.startsWith("packages/cloud/")),
+    { event: "pull_request", ref: "refs/pull/1/merge", sha: SHA, base: BASE, files: ["packages/cloud/hardening/src/index.ts"] })).toThrow("selected workspace without a check");
+});
+
+test("the gate passes only this run's plan with every selected job succeeded and every other job skipped", () => {
+  for (const event of ["pull_request", "push", "workflow_dispatch"]) {
+    const { plan, needs, context } = gateFixture(event);
+    expect(gateVerdict(SCOPE, WORKSPACES, plan, needs, context)["verify-platform"]).toBe("success");
+  }
+  const reject = (mutate: (fixture: any) => void, message: string, event = "pull_request") => {
+    const fixture: any = gateFixture(event); mutate(fixture);
+    expect(() => gateVerdict(SCOPE, WORKSPACES, fixture.plan, fixture.needs, fixture.context)).toThrow(message);
   };
+  for (const result of ["failure", "skipped", "cancelled"]) reject(f => f.needs["verify-plan"].result = result, "the Verify plan job did not succeed");
+  reject(f => f.plan = undefined, "missing or empty impact plan");
+  reject(f => f.plan.sha = "c".repeat(40), "another SHA");
+  reject(f => f.context.event = "push", "another event");
+  reject(f => f.plan.mode = "release", "mode");
+  reject(f => f.context.base = "c".repeat(40), "another base");
+  reject(f => f.plan.families = [], "families differ");
+  reject(f => f.plan.families = [...f.plan.families, SCOPE.completeSuite], "families differ");
+  reject(f => f.plan.files = ["docs/a.md"], "families differ");
+  reject(f => delete f.needs.verify, "job inventory");
+  reject(f => f.needs["verify-extra"] = { result: "success" }, "job inventory");
+  for (const result of ["failure", "skipped", "cancelled", null]) {
+    reject(f => f.needs["verify-platform"].result = result, "verify-platform: expected success");
+    reject(f => f.needs["governance-verify"].result = result, "governance-verify: expected success");
+  }
+  for (const result of ["success", "failure", "cancelled"]) reject(f => f.needs["verify-split-pre"].result = result, "verify-split-pre: expected skipped");
+  reject(f => f.context.ref = "refs/heads/feat/603-x", "Release validation runs only on", "workflow_dispatch");
+  reject(f => f.context.dispatchSha = "c".repeat(40), "approved SHA", "workflow_dispatch");
+  reject(f => f.needs["verify-split-tests"].result = "skipped", "verify-split-tests: expected success", "workflow_dispatch");
+});
+
+test("the impact and gate commands plan each event from its base and gate the same run", () => {
+  const root = mkdtempSync(join(tmpdir(), "archctx-impact-command-test-"));
+  const cli = fileURLToPath(new URL("./verify-ci.mjs", import.meta.url));
+  const run = (cwd: string, command: string, env: Record<string, string>) => {
+    const output = join(cwd, `github-output-${command}`);
+    rmSync(output, { force: true });
+    const childEnv: NodeJS.ProcessEnv = { ...process.env, GITHUB_OUTPUT: output, ...env };
+    delete childEnv.GITHUB_STEP_SUMMARY;
+    const result = spawnSync("node", [cli, command], { cwd, encoding: "utf8", env: childEnv });
+    return { result, outputs: result.status === 0 && existsSync(output) ? readOutputs(output) : undefined };
+  };
+  const head = (cwd: string, rev = "HEAD") => git(cwd, "rev-parse", rev).trim();
+  const gate = (cwd: string, env: Record<string, string>, plan: any) =>
+    run(cwd, "gate", { ...env, VERIFY_PLAN: JSON.stringify(plan), VERIFY_NEEDS: JSON.stringify(needsFor(plan)) }).result.status;
   try {
     const docs = join(root, "docs-only"), platform = join(root, "platform");
     mkdirSync(docs); mkdirSync(platform);
-    mergeRepo(docs, ["docs/a.md"]);
-    mergeRepo(platform, ["docs/a.md", "packages/local-runtime/runtime-daemon/src/rpc-server.ts"]);
-    const push = run(docs, "push");
-    expect(push.outputs?.lane).toBe("matrix");
-    expect(push.outputs?.targets.include).toHaveLength(9);
-    const linux = run(docs, "pull_request");
-    expect(linux.result.status).toBe(0);
-    expect(linux.outputs?.lane).toBe("linux");
-    expect(linux.outputs?.targets.include).toEqual([{ os: "ubuntu-latest", "node-version": "22.22.x" }]);
-    const matrix = run(platform, "pull_request");
-    expect(matrix.outputs?.lane).toBe("matrix");
-    expect(matrix.outputs?.targets.include).toHaveLength(9);
-    expect(run(docs).result.status).not.toBe(0);
-    git(docs, "checkout", "-q", "--detach", "HEAD^2");
-    expect(run(docs, "pull_request").result.status).not.toBe(0);
+    mergeRepo(docs, ["docs/a.md"], ["docs/old.md", "docs/new.md"]);
+    // Every workspace has a check in this fixture, so a release plan may select them all.
+    mergeRepo(platform, ["packages/local-runtime/runtime-daemon/src/rpc-server.ts", ...["contracts", "core", "local-runtime", "cloud", "surfaces"].map(name => `packages/${name}/a.test.ts`), "scripts/a.test.ts"]);
+    const pr = (cwd: string) => ({ GITHUB_EVENT_NAME: "pull_request", GITHUB_REF: "refs/pull/7/merge", GITHUB_SHA: head(cwd), VERIFY_DISPATCH_SHA: "" });
+    const docsPlan = run(docs, "impact", pr(docs)).outputs!;
+    // Renames count both sides, as `--no-renames` lists them.
+    expect(docsPlan.plan).toMatchObject({ mode: "routine", base: head(docs, "HEAD^1"), files: ["docs/a.md", "docs/new.md", "docs/old.md"], families: [], workspaces: [] });
+    expect(docsPlan.families).toEqual([]);
+    const platformPlan = run(platform, "impact", pr(platform)).outputs!;
+    expect(platformPlan.plan.families).toEqual(["platform"]);
+    expect(gate(platform, pr(platform), platformPlan.plan)).toBe(0);
+    expect(gate(docs, pr(docs), docsPlan.plan)).toBe(0);
+    expect(gate(docs, pr(docs), platformPlan.plan)).not.toBe(0);
+    expect(run(docs, "gate", { ...pr(docs), VERIFY_PLAN: "", VERIFY_NEEDS: "{}" }).result.status).not.toBe(0);
+    // A pull_request checkout that is not the two-parent merge commit fails the plan rather than guessing a base.
+    const topic = join(root, "topic");
+    git(docs, "worktree", "add", "-q", "--detach", topic, "HEAD^2");
+    expect(run(topic, "impact", pr(topic)).result.stderr).toContain("two parents");
+
+    // A push compares with the event's `before`, fetched from origin.
+    git(docs, "remote", "add", "origin", docs);
+    git(docs, "config", "uploadpack.allowAnySHA1InWant", "true");
+    const event = join(root, "push-event.json");
+    const push = { GITHUB_EVENT_NAME: "push", GITHUB_REF: "refs/heads/main", GITHUB_SHA: head(docs), GITHUB_EVENT_PATH: event, VERIFY_DISPATCH_SHA: "" };
+    writeFileSync(event, JSON.stringify({ before: head(docs, "HEAD^1") }));
+    const pushPlan = run(docs, "impact", push).outputs!;
+    expect(pushPlan.plan).toMatchObject({ mode: "routine", event: "push", base: head(docs, "HEAD^1"), files: ["docs/a.md", "docs/new.md", "docs/old.md"], families: [] });
+    expect(gate(docs, push, pushPlan.plan)).toBe(0);
+    writeFileSync(event, JSON.stringify({ before: "0".repeat(40) }));
+    expect(run(docs, "impact", push).result.status).not.toBe(0);
+
+    // Release validation: every family on an allowed ref with the approved SHA; anything else fails the plan.
+    const dispatch = { GITHUB_EVENT_NAME: "workflow_dispatch", GITHUB_REF: "refs/heads/main", GITHUB_SHA: head(platform), VERIFY_DISPATCH_SHA: head(platform) };
+    const release = run(platform, "impact", dispatch).outputs!;
+    expect(release.plan).toMatchObject({ mode: "release", base: null, files: [], families: SCOPE.families.map((family: any) => family.id), workspaces: ALL_WORKSPACES });
+    expect(gate(platform, dispatch, release.plan)).toBe(0);
+    expect(run(platform, "impact", { ...dispatch, GITHUB_REF: "refs/heads/feat/x" }).result.status).not.toBe(0);
+    expect(run(platform, "impact", { ...dispatch, VERIFY_DISPATCH_SHA: head(platform, "HEAD^1") }).result.status).not.toBe(0);
+    // The docs fixture has no workspace tests, so a release plan there names workspaces without a check.
+    expect(run(docs, "impact", { ...dispatch, GITHUB_SHA: head(docs), VERIFY_DISPATCH_SHA: head(docs) }).result.stderr).toContain("selected workspace without a check");
+
+    // Job counts: a docs-only routine run executes the plan, the Linux split, Governance, the gate and the
+    // cost reporter; release validation adds the targeted families and the complete matrix.
+    const config = readConfig();
+    expect(release.split.include).toEqual(config.splitTargets.filter((row: any) => row.os !== "ubuntu-latest"));
+    expect(release.shards.include).toHaveLength(6);
+    expect(release.compat.include).toEqual(OS_TARGETS.flatMap(os => ["24.x", "25.x"].map(node => ({ os, "node-version": node }))));
+    const workflow: any = Bun.YAML.parse(readFileSync(".github/workflows/verify.yml", "utf8"));
+    const linuxShards = config.splitTargets.find((row: any) => row.os === "ubuntu-latest").shards;
+    const width: Record<string, number> = { "verify-linux-shards": linuxShards, verify: release.compat.include.length, "verify-platform": 2,
+      "verify-split-pre": release.split.include.length, "verify-split-tests": release.shards.include.length, "verify-split-post": release.split.include.length };
+    const count = (families: string[]) => Object.keys(workflow.jobs).filter(id => {
+      const family = SCOPE.families.find((candidate: any) => candidate.jobs.includes(id));
+      return !family || families.includes(family.id);
+    }).reduce((sum, id) => sum + (width[id] ?? 1), 0);
+    expect(count(docsPlan.families)).toBe(9);
+    expect(count(release.families)).toBe(28);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("topology runs full verify at Node 22.22.x on each OS and node compat on the six Node 24/25 targets in thirty-five jobs", () => {
-  const root = mkdtempSync(join(tmpdir(), "archctx-node-compat-topology-test-"));
-  try {
-    const outputPath = join(root, "github-output");
-    const cli = fileURLToPath(new URL("./verify-ci.mjs", import.meta.url));
-    const result = spawnSync("node", [cli, "topology"], {
-      encoding: "utf8", env: { ...process.env, GITHUB_OUTPUT: outputPath, GITHUB_EVENT_NAME: "push" }
-    });
-    expect(result.status).toBe(0);
-    const outputs = readOutputs(outputPath);
-    expect(outputs.lane).toBe("matrix");
-    expect(outputs.targets.include).toHaveLength(9);
-    expect(outputs.excluded).toBeUndefined();
-    const config = readConfig();
-    const governance = { os: "ubuntu-latest", "node-version": "22.22.x" };
-    const same = (a: any, b: any) => a.os === b.os && a["node-version"] === b["node-version"];
-    expect(outputs.split.include).toEqual(config.splitTargets.filter((row: any) => !same(row, governance)));
-    expect(outputs.split.include).toHaveLength(2);
-    expect(outputs.shards.include).toHaveLength(6);
-    for (const row of outputs.split.include) {
-      expect(row["node-version"]).toBe("22.22.x");
-      expect(outputs.shards.include.filter((shard: any) => shard.os === row.os && shard["node-version"] === row["node-version"]))
-        .toEqual(Array.from({ length: 3 }, (_, index) => ({ ...row, index, shard: index + 1 })));
+/**
+ * The owner drift contract's reviewed surface. Each targeted family job must equal its reviewed job
+ * exactly: the job header (every key except `name` and `steps`) and every step in order, each step
+ * compared as a whole object without its `name`, with only a run text's one trailing newline removed.
+ * A reviewed step declares the repository paths it runs or reads; they are the family's inputs. A step
+ * that runs a package script names it, and the script's exact text is reviewed here too. Nothing is
+ * parsed: changing a family command means editing this table in the same PR, where a reviewer sees it.
+ */
+interface ReviewedStep { step: Record<string, any>; inputs?: string[]; scripts?: string[]; bunTest?: true; install?: true }
+interface ReviewedScript { run: string; inputs?: string[]; scripts?: string[]; bunTest?: true }
+
+const PLATFORM_SUITES = [
+  "packages/cloud/hardening", "packages/core/changeset-engine", "packages/local-runtime/codegraph-adapter",
+  "packages/local-runtime/control-file-security", "packages/local-runtime/git-adapter", "packages/local-runtime/local-store-sqlite",
+  "packages/local-runtime/runtime-state-paths", "packages/local-runtime/model-store-yaml/test/native-context.test.ts",
+  ...["daemon-control-acl", "egress-admission", "investigation-transport", "projection-writer", "rpc-argument-codec", "rpc-client",
+    "rpc-contract-boundary", "rpc-methods", "rpc-prepare-session", "rpc-server", "rpc-v2-failure-compat", "rpc-version"]
+    .map(name => `packages/local-runtime/runtime-daemon/test/${name}.test.ts`),
+  ...["hook-helper-parity", "hook-state-paths", "rpc-version-upgrade"].map(name => `packages/surfaces/cli/test/${name}.test.ts`)
+];
+const NODE_COMPAT_SUITES = ["packages/surfaces/cli/test/bundle-entry.test.ts", "packages/surfaces/mcp-local/test/mcp-wire.test.ts",
+  "tests/ownership-change-acceptance-recovery.test.ts", "packages/contracts/test/publishability.test.ts"];
+const REVIEWED_SCRIPTS: Record<string, ReviewedScript> = {
+  "archcontext#verify:platform": { run: `bun test --timeout 60000 ${PLATFORM_SUITES.map(path => `./${path}`).join(" ")}`, inputs: PLATFORM_SUITES, bunTest: true },
+  "archcontext#verify:node-compat": {
+    run: `bun run test:codegraph-selector-node && node scripts/packaged-cli-smoke.mjs && bun test --timeout 60000 ${NODE_COMPAT_SUITES.join(" ")}`,
+    inputs: ["scripts/packaged-cli-smoke.mjs", ...NODE_COMPAT_SUITES], scripts: ["test:codegraph-selector-node"], bunTest: true
+  },
+  "archcontext#test:codegraph-selector-node": { run: "node scripts/codegraph-selector-node-integration.mjs", inputs: ["scripts/codegraph-selector-node-integration.mjs"] }
+};
+const CHECKOUT: ReviewedStep = { step: { uses: "actions/checkout@v6" } };
+const WINDOWS_TEMP: ReviewedStep = { step: { if: "runner.os == 'Windows'", shell: "pwsh", run: '"TEMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV\n"TMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV' } };
+const MATRIX_NODE: ReviewedStep = { step: { uses: "actions/setup-node@v6", with: { "node-version": "${{ matrix.node-version }}" } } };
+const SETUP_BUN: ReviewedStep = { step: { uses: "oven-sh/setup-bun@v2", with: { "bun-version": "1.4.4" } } };
+const INSTALL: ReviewedStep = { step: { run: "bun install --frozen-lockfile" }, install: true };
+const IPC_READBACK: ReviewedStep = { step: { run: "node scripts/platform-ipc-permission-readback.mjs > platform-ipc-permission-readback.json" }, inputs: ["scripts/platform-ipc-permission-readback.mjs"] };
+const ipcUpload = (suffix: string): ReviewedStep => ({ step: { uses: "actions/upload-artifact@v6",
+  with: { name: `platform-ipc-permission-\${{ matrix.os }}-node-\${{ matrix.node-version }}${suffix}`, path: "platform-ipc-permission-readback.json" } } });
+const ifFamily = (id: string) => `contains(fromJSON(needs.verify-plan.outputs.families), '${id}')`;
+const OS_TIMEOUT = "${{ matrix.os == 'windows-latest' && 60 || 20 }}";
+const RUNNER_GUARD = `node -e "if (process.platform !== 'linux' || process.arch !== 'arm64') process.exit(1)"`;
+const ARM64_TEST = "packages/core/changeset-engine/test/changeset-engine.test.ts";
+const REVIEWED_JOBS: Record<string, { header: Record<string, any>; steps: ReviewedStep[] }> = {
+  "verify-platform": {
+    header: { if: ifFamily("platform"), needs: "verify-plan", "runs-on": "${{ matrix.os }}", "timeout-minutes": OS_TIMEOUT,
+      strategy: { "fail-fast": false, matrix: { include: [{ os: "macos-15", "node-version": "22.22.x" }, { os: "windows-latest", "node-version": "22.22.x" }] } } },
+    steps: [CHECKOUT, WINDOWS_TEMP, MATRIX_NODE, SETUP_BUN, INSTALL, IPC_READBACK, ipcUpload("-impact"), { step: { run: "bun run verify:platform" }, scripts: ["verify:platform"] }]
+  },
+  verify: {
+    header: { if: ifFamily("node-compat"), needs: "verify-plan", "runs-on": "${{ matrix.os }}", "timeout-minutes": OS_TIMEOUT,
+      strategy: { "fail-fast": false, matrix: "${{ fromJSON(needs.verify-plan.outputs.compat) }}" } },
+    steps: [CHECKOUT, WINDOWS_TEMP, MATRIX_NODE, SETUP_BUN, INSTALL, IPC_READBACK, ipcUpload(""), { step: { run: "bun run verify:node-compat" }, scripts: ["verify:node-compat"] }]
+  },
+  "linux-arm64-descriptor-write": {
+    header: { if: ifFamily("linux-arm64"), needs: "verify-plan", "runs-on": "ubuntu-24.04-arm", "timeout-minutes": 10, env: { PUPPETEER_SKIP_DOWNLOAD: "1" } },
+    steps: [CHECKOUT, { step: { uses: "actions/setup-node@v6", with: { "node-version": "24.x" } } }, SETUP_BUN, INSTALL,
+      { step: { run: `${RUNNER_GUARD}\nbun test ${ARM64_TEST}` }, inputs: [ARM64_TEST], bunTest: true }]
+  }
+};
+const WORKFLOW_KEYS = ["name", "run-name", "on", "permissions", "concurrency", "jobs"];
+const INSTALL_HOOKS = ["preinstall", "install", "postinstall", "prepare", "prepublish"];
+
+interface Manifests { root: any; workspaces: any[]; bunfig: any }
+
+const refuse = (what: string): never => { throw new Error(`cannot resolve ${what}`); };
+
+function readManifests(): Manifests {
+  const root = JSON.parse(readFileSync("package.json", "utf8"));
+  return { root, workspaces: root.workspaces.map((dir: string) => JSON.parse(readFileSync(join(dir, "package.json"), "utf8"))),
+    bunfig: Bun.TOML.parse(readFileSync("bunfig.toml", "utf8")) };
+}
+
+/** Family jobs run from the repository root, so the root bunfig applies; it may hold only `[test].preload`. */
+function bunfigPreload(bunfig: any): string[] {
+  for (const key of Object.keys(bunfig)) if (key !== "test") refuse(`bunfig.toml ${key}`);
+  for (const key of Object.keys(bunfig.test ?? {})) if (key !== "preload") refuse(`bunfig.toml test.${key}`);
+  const preload = bunfig.test?.preload ?? [];
+  if (!Array.isArray(preload) || !preload.every((entry: unknown) => typeof entry === "string")) refuse("bunfig.toml test.preload");
+  return preload;
+}
+
+const normalizeStep = ({ name: _name, ...step }: Record<string, any>) =>
+  typeof step.run === "string" ? { ...step, run: step.run.replace(/\n$/, "") } : step;
+
+function resolveFamilyJob(workflow: any, id: string, manifests: Manifests, tracked: Set<string>,
+  jobs = REVIEWED_JOBS, scripts = REVIEWED_SCRIPTS): string[] {
+  for (const key of Object.keys(workflow)) if (!WORKFLOW_KEYS.includes(key)) refuse(`workflow.${key}`);
+  const family = SCOPE.families.find((candidate: any) => candidate.jobs.includes(id))?.id;
+  const reviewed = jobs[id];
+  if (!family || !reviewed) refuse(`jobs.${id}: no reviewed job`);
+  const { steps, name: _name, ...header } = workflow.jobs[id];
+  if (!Bun.deepEquals(header, reviewed.header, true)) refuse(`jobs.${id}: the job header is not its reviewed header`);
+  if (!Array.isArray(steps)) refuse(`jobs.${id}.steps`);
+  const inputs: string[] = [];
+  const scriptsRun: string[] = [];
+  let installs = false, testsRun = false;
+  const runScript = (scriptName: string) => {
+    const entry = scripts[`${manifests.root.name}#${scriptName}`];
+    if (!entry || manifests.root.scripts?.[scriptName] !== entry.run) refuse(`package script ${scriptName}: its text is not the reviewed text`);
+    scriptsRun.push(scriptName);
+    inputs.push(...(entry.inputs ?? []));
+    testsRun ||= entry.bunTest === true;
+    (entry.scripts ?? []).forEach(runScript);
+  };
+  steps.forEach((step: any, index: number) => {
+    const entry = reviewed.steps[index];
+    if (!entry || !Bun.deepEquals(normalizeStep(step), entry.step, true)) refuse(`${family} runs ${JSON.stringify(normalizeStep(step))} at jobs.${id}.steps[${index}]: not its reviewed step`);
+    inputs.push(...(entry.inputs ?? []));
+    installs ||= entry.install === true;
+    testsRun ||= entry.bunTest === true;
+    (entry.scripts ?? []).forEach(runScript);
+  });
+  if (steps.length !== reviewed.steps.length) refuse(`jobs.${id}: a reviewed step is missing`);
+  if (testsRun) inputs.push(...bunfigPreload(manifests.bunfig).map(entry => entry.replace(/^\.\//, "")));
+  if (installs) {
+    for (const manifest of [manifests.root, ...manifests.workspaces]) {
+      for (const hook of INSTALL_HOOKS) if (manifest.scripts?.[hook] !== undefined) refuse(`${manifest.name} lifecycle script ${hook}, which bun install runs`);
     }
-    const nodeCompat = OS_TARGETS.flatMap(os => ["24.x", "25.x"].map(node => ({ os, "node-version": node })));
-    expect(outputs.compat.include).toEqual(nodeCompat);
-    expect(outputs.compat.include).toHaveLength(6);
-    for (const row of outputs.compat.include) {
-      expect([...outputs.split.include, governance].some((other: any) => same(row, other))).toBe(false);
-      expect(expectedWorkers(config, row.os, row["node-version"])).toEqual([`Verify execution: ${row.os} / Node ${row["node-version"]} / node compat`]);
+  }
+  for (const scriptName of scriptsRun) {
+    for (const hook of [`pre${scriptName}`, `post${scriptName}`]) if (manifests.root.scripts?.[hook] !== undefined) refuse(`lifecycle script ${hook}, which bun run ${scriptName} runs`);
+  }
+  // A declared input is a tracked file, or a directory whose tracked test files Bun runs.
+  const isTest = (path: string) => /[._](?:test|spec)\.[cm]?[jt]sx?$/.test(path);
+  return inputs.flatMap(path => {
+    const files = tracked.has(path) ? [path] : [...tracked].filter(file => file.startsWith(`${path}/`) && isTest(file));
+    return files.length ? files : refuse(`input ${path}: no tracked file`);
+  });
+}
+
+/** A family owns a path through its own owners, or through the reviewed broad-impact mapping that selects it. */
+function ownerDrift(workflow: any, manifests: Manifests, tracked: Set<string>, jobs = REVIEWED_JOBS) {
+  const failures: string[] = [];
+  let checked = 0;
+  for (const family of SCOPE.families.filter((candidate: any) => candidate.id !== SCOPE.completeSuite)) {
+    const shared = SCOPE.broad.families.includes(family.id) ? SCOPE.broad.paths : [];
+    for (const id of family.jobs) {
+      for (const path of resolveFamilyJob(workflow, id, manifests, tracked, jobs)) {
+        checked++;
+        if (![...family.owners, ...shared].some((re: RegExp) => re.test(path))) failures.push(`${family.id} runs ${path} but does not own it`);
+      }
     }
-    expect(expectedWorkers(config, governance.os, governance["node-version"])).toEqual([LINUX_PRE, linuxShard(1), linuxShard(2), linuxShard(3), LINUX_POST]);
-    expect(OS_TARGETS.flatMap(os => NODE_TARGETS.flatMap(node => expectedWorkers(config, os, node)))).toHaveLength(21);
-    const workflow: any = Bun.YAML.parse(readFileSync(".github/workflows/verify.yml", "utf8"));
-    expect(workflow.jobs["verify-topology"].outputs.compat).toBe("${{ steps.topology.outputs.compat }}");
-    expect(workflow.jobs["verify-topology"].outputs.excluded).toBeUndefined();
-    const counts: Record<string, number> = {
-      verify: outputs.compat.include.length,
-      "verify-split-pre": outputs.split.include.length,
-      "verify-split-tests": outputs.shards.include.length,
-      "verify-split-post": outputs.split.include.length,
-      "verify-linux-shards": config.splitTargets.find((row: any) => same(row, governance)).shards,
-      "verify-summary": outputs.targets.include.length
-    };
-    const jobs = Object.entries(workflow.jobs).flatMap(([id, job]) => Array.from({ length: counts[id] ?? 1 }, () => job as any));
-    expect(jobs).toHaveLength(35);
-    expect(jobs.filter(job => job.steps.some((step: any) => step.name === "Install dependencies"))).toHaveLength(23);
-    for (const id of ["verify-linux-pre", "verify-linux-shards", "verify-linux-post"]) expect(workflow.jobs["verify-collect"].needs).toContain(id);
-    expect(Object.values(workflow.jobs).some((job: any) => job.name?.endsWith("/ full"))).toBe(false);
-  } finally { rmSync(root, { recursive: true, force: true }); }
+  }
+  return { failures, checked };
+}
+
+test("owner drift contract: each targeted family job equals its reviewed job and owns every input", () => {
+  const workflow: any = Bun.YAML.parse(readFileSync(".github/workflows/verify.yml", "utf8"));
+  const manifests = readManifests();
+  const tracked = new Set(TRACKED);
+  const { failures, checked } = ownerDrift(workflow, manifests, tracked);
+  expect(failures).toEqual([]);
+  expect(checked).toBeGreaterThanOrEqual(50);
+  expect(Object.keys(REVIEWED_JOBS).sort()).toEqual(SCOPE.families.filter((family: any) => family.id !== SCOPE.completeSuite).flatMap((family: any) => family.jobs).sort());
+  // Every bun-test family runs the root preload files; each counts them as inputs.
+  const preload = ["scripts/check-bun-version.mjs", "packages/surfaces/cli/bin/bun-darwin-sqlite.ts"];
+  expect(bunfigPreload(manifests.bunfig)).toEqual(preload.map(path => `./${path}`));
+  for (const id of Object.keys(REVIEWED_JOBS)) expect(resolveFamilyJob(workflow, id, manifests, tracked)).toEqual(expect.arrayContaining(preload));
+  expect(resolveFamilyJob(workflow, "linux-arm64-descriptor-write", manifests, tracked)).toEqual([ARM64_TEST, ...preload]);
+  // A preload file that no family owns or maps is drift.
+  const unowned = { ...manifests, bunfig: { test: { preload: [...manifests.bunfig.test.preload, "./scripts/privacy-capture-lib.mjs"] } } };
+  expect(ownerDrift(workflow, unowned, tracked).failures)
+    .toEqual(["platform", "node-compat", "linux-arm64"].map(id => `${id} runs scripts/privacy-capture-lib.mjs but does not own it`));
+
+  const withJob = (id: string, change: (job: any) => any, base = workflow) => ({ ...base, jobs: { ...base.jobs, [id]: change(structuredClone(base.jobs[id])) } });
+  const appendStep = (step: any) => withJob("verify-platform", job => ({ ...job, steps: [...job.steps, step] }));
+  const changeStep = (index: number, change: (step: any) => any) => withJob("verify-platform", job => ({ ...job, steps: job.steps.map((step: any, at: number) => at === index ? change(step) : step) }));
+  const withScripts = (extra: Record<string, string>) => ({ ...manifests, root: { ...manifests.root, scripts: { ...manifests.root.scripts, ...extra } } });
+  const withBunfig = (bunfig: any) => ({ ...manifests, bunfig });
+  const gptCommand = "node scripts/platform-ipc-permission-readback.mjs > /dev/null&./packages/surfaces/cli/bin/archctx";
+  const run = (index: number) => workflow.jobs["verify-platform"].steps[index].run;
+  // Each refused shape, added to the otherwise valid real workflow, must fail the contract.
+  const refused: [string, any, Manifests][] = [
+    ...[
+      { run: gptCommand }, { run: "bun run wrap" }, { run: "bun run verify:platform " }, { run: "bun  run verify:platform" },
+      { run: "bun install --frozen-lockfile --verbose" }, { run: "bun test" }, { run: "bun test --timeout 60000" },
+      { run: `node -e "require('node:child_process').execFileSync('bun',['test'],{stdio:'inherit'})"` }, { run: RUNNER_GUARD },
+      { run: "bun test ./scripts", "working-directory": "packages" }, { name: "no command" },
+      { uses: "actions/download-artifact@v6" }, { uses: "some-org/run-anything@v1" },
+      { run: "node scripts/platform-ipc-permission-readback.mjs", shell: "node scripts/codegraph-selector-node-integration.mjs {0}" }
+    ].map(step => [JSON.stringify(step), appendStep(step), withScripts({ wrap: gptCommand })] as [string, any, Manifests]),
+    ["GPT command in place of a reviewed run", changeStep(5, step => ({ ...step, run: gptCommand })), manifests],
+    ["reviewed run with one extra flag", changeStep(7, step => ({ ...step, run: `${run(7)} --bail` })), manifests],
+    ["reviewed run with an extra env NODE_OPTIONS", changeStep(7, step => ({ ...step, env: { NODE_OPTIONS: "--require ./scripts/privacy-capture-lib.mjs" } })), manifests],
+    ["reviewed action with a changed with: value", changeStep(3, step => ({ ...step, with: { "bun-version": "latest" } })), manifests],
+    ["reviewed action with an extra with: input", changeStep(0, step => ({ ...step, with: { ref: "other" } })), manifests],
+    ["reviewed step with a working-directory", changeStep(4, step => ({ ...step, "working-directory": "packages" })), manifests],
+    ["reviewed step with a custom shell", changeStep(5, step => ({ ...step, shell: "node {0}" })), manifests],
+    ["reviewed step removed", withJob("verify-platform", job => ({ ...job, steps: job.steps.slice(0, -1) })), manifests],
+    ["reviewed steps reordered", withJob("verify-platform", job => ({ ...job, steps: [job.steps[1], job.steps[0], ...job.steps.slice(2)] })), manifests],
+    ["package script wrapping the GPT command", workflow, withScripts({ "verify:platform": `${manifests.root.scripts["verify:platform"]}&./packages/surfaces/cli/bin/archctx` })],
+    ["nested package script changed", workflow, withScripts({ "test:codegraph-selector-node": "node scripts/codegraph-selector-node-integration.mjs --fast" })],
+    ["job defaults.run.shell", withJob("verify-platform", job => ({ ...job, defaults: { run: { shell: "node scripts/packaged-cli-smoke.mjs {0}" } } })), manifests],
+    ["job defaults.run.working-directory", withJob("verify-platform", job => ({ ...job, defaults: { run: { "working-directory": "packages" } } })), manifests],
+    ["workflow defaults", { ...workflow, defaults: { run: { shell: "bash" } } }, manifests],
+    ["workflow env", { ...workflow, env: { BUN_OPTIONS: "--preload ./scripts/privacy-capture-lib.mjs" } }, manifests],
+    ["job container", withJob("verify-platform", job => ({ ...job, container: "node:22" })), manifests],
+    ["job services", withJob("verify-platform", job => ({ ...job, services: { cache: { image: "redis" } } })), manifests],
+    ["job env", withJob("verify-platform", job => ({ ...job, env: { NODE_OPTIONS: "--import ./scripts/privacy-capture-lib.mjs" } })), manifests],
+    ["arm64 env value changed", withJob("linux-arm64-descriptor-write", job => ({ ...job, env: { PUPPETEER_SKIP_DOWNLOAD: "0" } })), manifests],
+    ["root postinstall", workflow, withScripts({ postinstall: "node scripts/privacy-capture-lib.mjs" })],
+    ["workspace prepare", workflow, { ...manifests, workspaces: manifests.workspaces.map((manifest, index) => index ? manifest : { ...manifest, scripts: { prepare: "bun x tsc" } }) }],
+    ["pre-hook of a family-run script", workflow, withScripts({ "preverify:platform": "node scripts/privacy-capture-lib.mjs" })],
+    ["post-hook of a nested family-run script", workflow, withScripts({ "posttest:codegraph-selector-node": "node scripts/privacy-capture-lib.mjs" })],
+    ["bunfig top-level preload", workflow, withBunfig({ ...manifests.bunfig, preload: ["./scripts/privacy-capture-lib.mjs"] })],
+    ["bunfig [run] bun = true", workflow, withBunfig({ ...manifests.bunfig, run: { bun: true } })],
+    ["bunfig [test] root", workflow, withBunfig({ test: { ...manifests.bunfig.test, root: "packages" } })],
+    ["bunfig [install]", workflow, withBunfig({ ...manifests.bunfig, install: { exact: true } })],
+    ["untracked preload", workflow, withBunfig({ test: { preload: ["./scripts/not-tracked.mjs"] } })]
+  ];
+  for (const [label, candidate, candidateManifests] of refused) {
+    expect(() => ownerDrift(candidate, candidateManifests, tracked), label).toThrow("cannot resolve");
+  }
+  // A refused step names its family, so a reviewer sees which family's surface it touched.
+  expect(() => ownerDrift(appendStep({ run: gptCommand }), manifests, tracked)).toThrow(`cannot resolve platform runs ${JSON.stringify({ run: gptCommand })}`);
+  expect(() => ownerDrift(workflow, withBunfig({ ...manifests.bunfig, run: { bun: true } }), tracked)).toThrow("cannot resolve bunfig.toml run");
+  expect(() => ownerDrift(workflow, withBunfig({ test: { ...manifests.bunfig.test, root: "packages" } }), tracked)).toThrow("cannot resolve bunfig.toml test.root");
+});
+
+test("the reviewed workspace graph equals the workspace manifests: every workspace and local dependency edge", () => {
+  const root = JSON.parse(readFileSync("package.json", "utf8"));
+  const localEdges = (manifest: any) => Object.entries({ ...manifest.dependencies, ...manifest.devDependencies, ...manifest.peerDependencies, ...manifest.optionalDependencies })
+    .filter(([, spec]) => String(spec).startsWith("workspace:")).map(([name]) => name).sort();
+  const byName = (a: any, b: any) => a.name.localeCompare(b.name);
+  const manifests = [{ dir: ".", manifest: root }, ...root.workspaces.map((dir: string) => ({ dir, manifest: JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) }))];
+  expect(manifests).toHaveLength(6);
+  expect(WORKSPACES.map(workspace => ({ name: workspace.name, dir: workspace.dir, dependsOn: [...workspace.dependsOn].sort() })).sort(byName))
+    .toEqual(manifests.map(({ dir, manifest }) => ({ name: manifest.name, dir, dependsOn: localEdges(manifest) })).sort(byName));
+  for (const workspace of WORKSPACES.filter(candidate => candidate.dir !== ".")) {
+    expect(workspace.paths.map(String)).toEqual([String(globToRegExp(`${workspace.dir}/**`))]);
+  }
+});
+
+test("every event reports through one always() gate over the known job inventory", () => {
+  const workflow: any = Bun.YAML.parse(readFileSync(".github/workflows/verify.yml", "utf8"));
+  expect(Object.keys(workflow.on).sort()).toEqual(["pull_request", "push", "workflow_dispatch"]);
+  for (const trigger of Object.values(workflow.on) as any[]) {
+    expect(trigger?.paths).toBeUndefined();
+    expect(trigger?.["paths-ignore"]).toBeUndefined();
+  }
+  expect(workflow.on.workflow_dispatch.inputs.sha).toMatchObject({ required: true, type: "string" });
+  const gate = workflow.jobs["verify-gate"];
+  expect(gate).toMatchObject({ name: "Verify gate", if: "${{ always() }}" });
+  const inventory = ["verify-plan", ...SCOPE.alwaysJobs, ...SCOPE.families.flatMap((family: any) => family.jobs)];
+  expect([...gate.needs].sort()).toEqual([...inventory].sort());
+  expect(Object.keys(workflow.jobs).sort()).toEqual([...inventory, "verify-gate", "verify-cost"].sort());
+  expect(Object.values(workflow.jobs).some((job: any) => job.name?.endsWith("/ full"))).toBe(false);
+  expect(gate.env).toEqual({ VERIFY_NEEDS: "${{ toJSON(needs) }}", VERIFY_PLAN: "${{ needs.verify-plan.outputs.plan }}", VERIFY_DISPATCH_SHA: "${{ inputs.sha }}" });
+  expect(gate.steps.at(-1).run).toBe("node scripts/verify-ci.mjs gate");
+  expect(workflow.jobs["verify-plan"].steps.at(-1).run).toBe("node scripts/verify-ci.mjs impact");
+  expect(workflow.jobs["verify-plan"].env).toEqual({ VERIFY_DISPATCH_SHA: "${{ inputs.sha }}" });
+  for (const family of SCOPE.families) for (const id of family.jobs) {
+    expect(workflow.jobs[id].if).toBe(`contains(fromJSON(needs.verify-plan.outputs.families), '${family.id}')`);
+    expect([workflow.jobs[id].needs].flat()).toContain("verify-plan");
+  }
 });
 
 test("a split target outside the engines-minimum Node, or an OS without exactly one split row, is refused", () => {
@@ -548,7 +847,7 @@ test("the compat job installs, uploads the IPC artifact and runs only the Node-r
   const pkg = JSON.parse(readFileSync("package.json", "utf8"));
   const job = workflow.jobs.verify;
   expect(job.name).toBe("Verify execution: ${{ matrix.os }} / Node ${{ matrix.node-version }} / node compat");
-  expect(job.strategy.matrix).toBe("${{ fromJSON(needs.verify-topology.outputs.compat) }}");
+  expect(job.strategy.matrix).toBe("${{ fromJSON(needs.verify-plan.outputs.compat) }}");
   expect(job.steps.map((step: any) => step.run).filter(Boolean)).not.toContain("bun run verify");
   expect(job.steps.some((step: any) => step.name === "Windows control-file ACL regression")).toBe(false);
   expect(job.steps.at(-1)).toEqual({ name: "Node compatibility", run: "bun run verify:node-compat" });
@@ -566,7 +865,7 @@ test("the compat job installs, uploads the IPC artifact and runs only the Node-r
   }
 });
 
-test("workflow targets only measured slow legs, keeps gate order, original nine names, timeouts and permissions", () => {
+test("workflow targets only measured slow legs, keeps gate order, timeouts and permissions", () => {
   const workflow: any = Bun.YAML.parse(readFileSync(".github/workflows/verify.yml", "utf8"));
   const pkg = JSON.parse(readFileSync("package.json", "utf8"));
   const config = readConfig();
@@ -580,24 +879,11 @@ test("workflow targets only measured slow legs, keeps gate order, original nine 
   expect(workflow.jobs["verify-split-post"].needs).toContain("verify-split-tests");
   const steps = workflow.jobs["verify-split-post"].steps;
   expect(steps.findIndex((step: any) => step.run === "bun run verify:ci coverage")).toBeLessThan(steps.findIndex((step: any) => step.run === "bun run verify:post"));
-  expect(workflow.jobs["verify-summary"].if).toContain("always()");
-  expect(workflow.jobs["verify-collect"].if).toContain("always()");
-  expect(workflow.jobs["verify-summary"].name).toBe("${{ matrix.os }} / Node ${{ matrix.node-version }}");
-  expect(workflow.jobs["verify-summary"].strategy.matrix).toBe("${{ fromJSON(needs.verify-topology.outputs.targets) }}");
-  expect(workflow.jobs["verify-summary"].needs).toContain("verify-topology");
-  const matrixOnly = "needs.verify-topology.outputs.lane == 'matrix'";
-  for (const id of ["verify", "verify-split-pre", "verify-split-tests", "verify-split-post", "linux-arm64-descriptor-write"]) {
-    expect(workflow.jobs[id].if).toContain(matrixOnly);
-    expect(workflow.jobs[id].if).toContain("github.event_name != 'workflow_dispatch'");
-    expect(workflow.jobs[id].needs).toContain("verify-topology");
-  }
-  for (const id of ["verify-linux-pre", "verify-linux-shards", "verify-linux-post", "governance-verify"]) expect(workflow.jobs[id].if ?? "").not.toContain("lane");
-  expect(workflow.jobs["verify-topology"].steps[0].with["fetch-depth"]).toBe(2);
-  expect(workflow.jobs["verify-topology"].outputs.lane).toBe("${{ steps.topology.outputs.lane }}");
-  expect(workflow.jobs["verify-topology"].outputs.targets).toBe("${{ steps.topology.outputs.targets }}");
-  expect(workflow.jobs["verify-collect"].env.VERIFY_LANE).toBe("${{ needs.verify-topology.outputs.lane }}");
+  for (const id of ["verify-linux-pre", "verify-linux-shards", "verify-linux-post", "governance-verify"]) expect(workflow.jobs[id].if ?? "").not.toContain("verify-plan");
+  expect(workflow.jobs["verify-plan"].steps[0].with["fetch-depth"]).toBe(2);
+  expect(workflow.jobs["verify-gate"].steps[0].with["fetch-depth"]).toBe(2);
   expect(workflow.permissions).toEqual({ contents: "read" });
-  for (const id of ["verify", "verify-split-pre", "verify-split-tests", "verify-split-post"]) {
+  for (const id of ["verify", "verify-platform", "verify-split-pre", "verify-split-tests", "verify-split-post"]) {
     expect(workflow.jobs[id]["timeout-minutes"]).toBe("${{ matrix.os == 'windows-latest' && 60 || 20 }}");
     expect(workflow.jobs[id].strategy["fail-fast"]).toBe(false);
   }
@@ -605,8 +891,11 @@ test("workflow targets only measured slow legs, keeps gate order, original nine 
     const artifact = workflow.jobs[id].steps.find((step: any) => step.name === "Upload platform IPC permission readback");
     expect(artifact.with.name).toBe("platform-ipc-permission-${{ matrix.os }}-node-${{ matrix.node-version }}");
   }
-  expect(workflow.jobs["verify-cost"].needs).toContain("verify-summary");
-  for (const id of ["verify", "verify-split-pre", "verify-split-tests", "verify-split-post"]) {
+  // The impact job's readback shares a release run with the full matrix's, so its artifact name differs.
+  expect(workflow.jobs["verify-platform"].steps.find((step: any) => step.name === "Upload platform IPC permission readback").with.name)
+    .toBe("platform-ipc-permission-${{ matrix.os }}-node-${{ matrix.node-version }}-impact");
+  expect(workflow.jobs["verify-cost"]).toMatchObject({ if: "${{ always() }}", needs: "verify-gate" });
+  for (const id of ["verify", "verify-platform", "verify-split-pre", "verify-split-tests", "verify-split-post"]) {
     const jobSteps = workflow.jobs[id].steps;
     const temp = jobSteps.findIndex((step: any) => step.name === "Keep temporary files on the Windows runner work disk");
     expect(temp).toBeGreaterThan(-1);
@@ -666,6 +955,7 @@ test("#492: a prerequisite job that never settles fails closed with its observed
   expect(settled.attempts).toBe(1);
   expect(waits).toBe(0);
   expect(() => validateGovernancePrerequisite(config, identity, settled.run, settled.jobs, context)).toThrow(/not successful/);
+  expect(RECEIPT_READ_ATTEMPTS).toBeGreaterThan(1);
 
   // A mismatched run is still refused outright, with no retry.
   waits = 0;
@@ -675,71 +965,15 @@ test("#492: a prerequisite job that never settles fails closed with its observed
   expect(waits).toBe(0);
 });
 
-test("#492: lane verdicts re-read a nonterminal worker but still reject a settled failure", async () => {
-  const config = readConfig();
-  const targets = laneTargets("linux");
+test("#492: the cost job reads the current attempt's snapshot once and resolves no verdicts", async () => {
+  const workflow: any = Bun.YAML.parse(readFileSync(".github/workflows/verify.yml", "utf8"));
+  expect(workflow.jobs["verify-cost"].steps.find((step: any) => step.run).run).toBe("node scripts/verify-ci.mjs cost");
+  expect(workflow.jobs["verify-cost"].env).toEqual({ GITHUB_TOKEN: "${{ github.token }}" });
   const run = { id: identity.runId, run_attempt: 1, head_sha: identity.checkoutSha };
-  const names = expectedWorkers(config, "ubuntu-latest", "22.22.x");
-  const green = names.map((name, index) => ({ id: 40 + index, name, status: "completed", conclusion: "success",
-    run_id: run.id, run_attempt: run.run_attempt, head_sha: run.head_sha }));
   const env = { GITHUB_REPOSITORY: "Ancienttwo/arch-context", GITHUB_RUN_ID: String(identity.runId),
     GITHUB_RUN_ATTEMPT: "1", GITHUB_SHA: identity.checkoutSha };
-  const responder = (sequence: any[][]) => async (path: string) => {
-    if (!path.includes("/jobs?")) return run;
-    const batch = (sequence.length > 1 ? sequence.shift() : sequence[0])!;
-    return { total_count: batch.length, jobs: batch };
-  };
-
-  const inFlight = green.map((job, index) => index === green.length - 1 ? { ...job, status: "in_progress", conclusion: null } : job);
-  let waits = 0;
-  const recovered = await collectJobVerdicts(config, env, targets, {
-    read: responder([inFlight, green]), attempts: 3, wait: async () => { waits += 1; }
-  });
-  expect(Object.values(recovered.verdicts).every(Boolean)).toBe(true);
-  expect(recovered.pending).toEqual([]);
-  expect(recovered.attempts).toBe(2);
-  expect(waits).toBe(1);
-
-  // Permanent nonterminal: the budget exhausts and the last snapshot is returned with its pending state.
-  waits = 0;
-  const expired = await collectJobVerdicts(config, env, targets, {
-    read: responder([inFlight]), attempts: 2, wait: async () => { waits += 1; }
-  });
-  expect(Object.values(expired.verdicts).every(Boolean)).toBe(false);
-  expect(expired.pending.map(entry => entry.job)).toEqual([green[green.length - 1].name]);
-  expect(expired.attempts).toBe(2);
-  expect(waits).toBe(1);
-
-  // A settled failure is final: no retry and still a false verdict.
-  waits = 0;
-  const failed = green.map(job => ({ ...job, conclusion: "failure" }));
-  const rejected = await collectJobVerdicts(config, env, targets, {
-    read: responder([failed]), attempts: 3, wait: async () => { waits += 1; }
-  });
-  expect(Object.values(rejected.verdicts).every(Boolean)).toBe(false);
-  expect(rejected.pending).toEqual([]);
-  expect(rejected.attempts).toBe(1);
-  expect(waits).toBe(0);
-  expect(RECEIPT_READ_ATTEMPTS).toBeGreaterThan(1);
-});
-
-test("#492: the cost job carries no lane, so only the verdict loop resolves one", async () => {
-  // `verify-cost` runs `node scripts/verify-ci.mjs cost` with no VERIFY_LANE. Resolving lane
-  // targets on that path threw "Unknown verify lane: undefined" and failed the job (#492).
-  const workflow = await Bun.file(new URL("../.github/workflows/verify.yml", import.meta.url)).text();
-  const cost = workflow.slice(workflow.indexOf("  verify-cost:"));
-  expect(cost.slice(0, cost.indexOf("Upload measured cost readback"))).not.toContain("VERIFY_LANE");
-  expect(() => laneTargets(undefined as any)).toThrow(/Unknown verify lane/);
-
-  // The guard that matters: resolving this lane's verdicts must never happen for `cost`.
-  const run = { id: identity.runId, run_attempt: 1, head_sha: identity.checkoutSha };
-  const jobs: any[] = [];
-  const env = { GITHUB_REPOSITORY: "Ancienttwo/arch-context", GITHUB_RUN_ID: String(identity.runId),
-    GITHUB_RUN_ATTEMPT: "1", GITHUB_SHA: identity.checkoutSha };
-  const read = async (path: string) => path.includes("/jobs?") ? { total_count: 0, jobs } : run;
-  const snapshot = await hostedJobs(env, read);
-  expect(snapshot.jobs).toEqual([]);
-  // `collect` needs a lane and refuses a missing one; `cost` never calls it.
-  await expect((async () => collectJobVerdicts(readConfig(), env, laneTargets(undefined as any)))())
-    .rejects.toThrow(/Unknown verify lane/);
+  let reads = 0;
+  const read = async (path: string) => { reads += 1; return path.includes("/jobs?") ? { total_count: 0, jobs: [] } : run; };
+  expect((await hostedJobs(env, read)).jobs).toEqual([]);
+  expect(reads).toBe(2);
 });

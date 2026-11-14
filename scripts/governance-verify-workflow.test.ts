@@ -16,6 +16,7 @@ const ADR_0055 = readFileSync("docs/adr/ADR-0055-governance-receipt-spans-run-at
 const SCRIPT_SURFACE_POLICY = readFileSync("docs/adr/ADR-0051-script-surface-policy.md", "utf8");
 const ROOT_PACKAGE = JSON.parse(PACKAGE_JSON) as { scripts?: Record<string, string> };
 const LINUX_SPLIT_JOBS = ["verify-linux-pre", "verify-linux-shards", "verify-linux-post"];
+const PLAN_GATE_JOBS = ["verify-plan", "verify-gate", "verify-cost"];
 
 interface ScriptOwnerCorpus {
   packageJson: string;
@@ -33,11 +34,11 @@ describe("governance verify workflow", () => {
     expect(WORKFLOW).toContain("node-version: 22.22.x");
   });
 
-  test("isolates manual Governance revalidation without bypassing automatic matrix coverage", () => {
+  test("runs Governance and its Linux receipt on every event while the impact plan gates every platform job", () => {
     const workflow: any = Bun.YAML.parse(WORKFLOW);
     expect(Object.keys(workflow.on).sort()).toEqual(["pull_request", "push", "workflow_dispatch"]);
     expect(workflow.on.push.branches).toEqual(["main"]);
-    expect(workflow.jobs.verify.if).toBe("github.event_name != 'workflow_dispatch' && needs.verify-topology.outputs.lane == 'matrix'");
+    expect(workflow.jobs.verify.if).toBe("contains(fromJSON(needs.verify-plan.outputs.families), 'node-compat')");
     expect(workflow.jobs["governance-verify"].if).toBe("${{ always() }}");
     expect(workflow.jobs["governance-verify"].needs).toEqual(LINUX_SPLIT_JOBS);
     expect(workflow.jobs["governance-verify"].steps.at(-1).run).toBe("bun run verify:governance --ci-inspect");
@@ -47,11 +48,11 @@ describe("governance verify workflow", () => {
       expect(workflow.jobs[id].if).toBeUndefined();
     }
     for (const [id, job] of Object.entries(workflow.jobs) as [string, any][]) {
-      if (![...LINUX_SPLIT_JOBS, "governance-verify"].includes(id)) expect(job.if).toContain("github.event_name != 'workflow_dispatch'");
+      if (![...LINUX_SPLIT_JOBS, ...PLAN_GATE_JOBS, "governance-verify"].includes(id)) expect(job.if).toContain("needs.verify-plan.outputs.families");
     }
     expect(workflow.permissions).toEqual({ contents: "read" });
     expect(workflow.concurrency.group).toBe("verify-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}");
-    expect(workflow.jobs.verify.strategy.matrix).toBe("${{ fromJSON(needs.verify-topology.outputs.compat) }}");
+    expect(workflow.jobs.verify.strategy.matrix).toBe("${{ fromJSON(needs.verify-plan.outputs.compat) }}");
   });
 
   test("keeps governance verify local and runs only full verify", () => {
@@ -148,11 +149,14 @@ describe("governance verify workflow", () => {
     expect(gov.env.VERIFY_PREREQUISITE_RESULT).toBe("${{ needs.verify-linux-post.result }}");
     expect(gov.env.VERIFY_PREREQUISITE_CHECKOUT_SHA).toBe("${{ needs.verify-linux-post.outputs.checkout_sha }}");
     expect(gov.env.GITHUB_TOKEN).toBe("${{ github.token }}");
-    const manualJobs = Object.entries(workflow.jobs).filter(([, job]: any) => job.if === undefined || job.if === "${{ always() }}");
-    expect(manualJobs.map(([id]) => id)).toEqual(["governance-verify", ...LINUX_SPLIT_JOBS]);
-    expect(manualJobs.filter(([, job]: any) => job.steps.some((step: any) => step.name === "Install dependencies"))).toHaveLength(4);
+    // Every event runs the plan, the Linux receipt, Governance, the gate and the cost reporter; of them
+    // only the N + 3 receipt and Governance jobs install dependencies.
+    const everyEventJobs = Object.entries(workflow.jobs).filter(([, job]: any) => job.if === undefined || job.if === "${{ always() }}");
+    expect(everyEventJobs.map(([id]) => id).sort()).toEqual(["governance-verify", ...LINUX_SPLIT_JOBS, ...PLAN_GATE_JOBS].sort());
+    const receiptJobs = everyEventJobs.filter(([, job]: any) => job.steps.some((step: any) => step.name === "Install dependencies"));
+    expect(receiptJobs.map(([id]) => id)).toEqual(["governance-verify", ...LINUX_SPLIT_JOBS]);
     const shardCount = readConfig().splitTargets.find((row: any) => row.os === "ubuntu-latest" && row["node-version"] === "22.22.x").shards;
-    expect(manualJobs.map(([id]) => id === "verify-linux-shards" ? shardCount : 1).reduce((sum, count) => sum + count, 0)).toBe(shardCount + 3);
+    expect(receiptJobs.map(([id]) => id === "verify-linux-shards" ? shardCount : 1).reduce((sum, count) => sum + count, 0)).toBe(shardCount + 3);
   });
 
   test("ADR-0055 supersedes ADR-0052 and states the run-scoped receipt rule", () => {
@@ -181,7 +185,7 @@ describe("governance verify workflow", () => {
       .toContain("ADR-0055-governance-receipt-spans-run-attempts.md");
   });
 
-  test("ADR-0055: the Linux split plan and shard artifacts are run-scoped with overwrite, and the two evidence artifacts stay per attempt", () => {
+  test("ADR-0055: the Linux split plan and shard artifacts are run-scoped with overwrite, and the cost evidence stays per attempt", () => {
     const workflow: any = Bun.YAML.parse(WORKFLOW);
     const upload = (id: string, name: string) => workflow.jobs[id].steps.find((step: any) => step.name === name).with;
     const preUpload = upload("verify-linux-pre", "Upload run-bound discovery plan");
@@ -201,8 +205,7 @@ describe("governance verify workflow", () => {
     expect(reports).not.toContain("attempt");
     // The three Linux jobs read no run attempt at all; only the receipt in verify-ci.mjs does.
     for (const id of LINUX_SPLIT_JOBS) expect(JSON.stringify(workflow.jobs[id])).not.toContain("github.run_attempt");
-    // The job-evidence and runner-cost artifacts keep their attempt scope: they report one attempt.
-    expect(upload("verify-collect", "Upload actual job conclusions and runner minutes").name).toBe("verify-job-evidence-attempt-${{ github.run_attempt }}");
+    // The runner-cost artifact keeps its attempt scope: it reports one attempt.
     expect(upload("verify-cost", "Upload measured cost readback").name).toBe("verify-runner-cost-attempt-${{ github.run_attempt }}");
   });
 
