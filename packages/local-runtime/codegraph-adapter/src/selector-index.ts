@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { Edge as CodeGraphEdge, Node as CodeGraphNode } from "@colbymchenry/codegraph";
-import { codeGraphBundle, withCodeGraphReadSession, type CodeGraphReadProvider, type CodeGraphSdk } from "./read-session";
+import { codeGraphBundle, withCodeGraphReadSession, type CodeGraphReadProvider, type CodeGraphReadSession, type CodeGraphSdk } from "./read-session";
 import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import {
   loadCapabilitySourceFootprints,
@@ -196,6 +196,10 @@ export function memoizedSourceDeclarations(reader: CodeGraphSymbolReader, conten
  *
  * With no index present this returns empty evidence. The semantic compiler then reports
  * `unprovable`; it never degrades into a path-based diagram.
+ *
+ * The import read and the selector read share one read-only session (ADR-0058, C7), so the index
+ * is never opened writable and both reads see one index state. An index the session cannot open
+ * fails the read, never an empty measurement.
  */
 export function loadCapabilityCodeGraphProjectionInputs(
   root: string,
@@ -205,13 +209,12 @@ export function loadCapabilityCodeGraphProjectionInputs(
     sourceFiles?: readonly string[];
     /** Footprints resolved over the Git-visible files; resolved from `root` when omitted. */
     footprints?: readonly CapabilitySourceFootprint[];
-    /** The provider the import read opens the index with; the pinned one unless a test injects one. */
+    /** The provider the session opens the index with; the pinned one unless a test injects one. */
     provider?: CodeGraphReadProvider;
     /** Safety cap on the import nodes kept; `CODEGRAPH_IMPORT_NODE_READ_LIMIT` when omitted. */
     importNodeLimit?: number;
-    selectorIndexFactory?: (root: string, options: { readOnly: boolean }) => CodeGraphSelectorIndex;
-    /** Read consumers open selectors read-only. */
-    readOnly?: boolean;
+    /** A handle the caller owns, read for selectors instead of the session's; closed after the read. */
+    selectorIndexFactory?: (root: string) => CodeGraphSelectorIndex;
     /** `false` skips the import-graph query; `flows check` reads selector evidence only. */
     importGraphs?: boolean;
   } = {}
@@ -232,33 +235,34 @@ export function loadCapabilityCodeGraphProjectionInputs(
 
   disableCodeGraphTelemetryByDefault();
   const importTargets = new Set(sourceFiles());
-  const imports = footprints.length > 0
-    ? withCodeGraphReadSession(root, (opened) => {
-      // The read-only session (ADR-0058). An index it cannot open fails the read, never an empty graph.
-      if (opened.state !== "open") throw new Error(`CodeGraph index could not be read: ${opened.state}`);
-      return capabilityImportGraphs(opened.session, importTargets, footprints, options.importNodeLimit ?? CODEGRAPH_IMPORT_NODE_READ_LIMIT);
-    }, options.provider ? { provider: options.provider } : {})
-    : undefined;
-  const importGraphs = imports?.importGraphs ?? [];
-  const selectorIndex = entrypointNodes.length > 0
-    ? (options.selectorIndexFactory ?? ((path, openOptions) => codeGraphSdk().CodeGraph.openSync(path, openOptions)))(root, { readOnly: options.readOnly === true })
-    : undefined;
-  let selectorEvidence: ArchitectureSelectorEvidenceV1[];
-  try {
-    selectorEvidence = entrypointNodes.flatMap((entry) => entry.entrypoints.flatMap((entrypoint) =>
-      entrypoint.symbols.flatMap((source) => source.sinks.map((sink) => exactSelectorEvidence(importTargets, selectorIndex!, {
-        nodeId: entry.nodeId,
-        entrypointId: entrypoint.id,
-        sourcePath: entrypoint.path,
-        sourceSymbol: source.name,
-        sinkId: sink.id,
-        sinkPath: sink.path,
-        sinkSymbol: sink.symbol
-      })))));
-  } finally {
-    selectorIndex?.close();
-  }
-  return { importGraphs, selectorEvidence, ...(imports ? { importPopulation: imports.importPopulation } : {}) };
+  const read = (session: CodeGraphReadSession | undefined): CapabilityCodeGraphProjectionInputs => {
+    const imports = footprints.length > 0
+      ? capabilityImportGraphs(session!, importTargets, footprints, options.importNodeLimit ?? CODEGRAPH_IMPORT_NODE_READ_LIMIT)
+      : undefined;
+    const owned = entrypointNodes.length > 0 && options.selectorIndexFactory ? options.selectorIndexFactory(root) : undefined;
+    // The session's handle is closed by the session, never here.
+    const selectorIndex: CodeGraphSelectorIndex | undefined = owned ?? session?.graph;
+    try {
+      const selectorEvidence = entrypointNodes.flatMap((entry) => entry.entrypoints.flatMap((entrypoint) =>
+        entrypoint.symbols.flatMap((source) => source.sinks.map((sink) => exactSelectorEvidence(importTargets, selectorIndex!, {
+          nodeId: entry.nodeId,
+          entrypointId: entrypoint.id,
+          sourcePath: entrypoint.path,
+          sourceSymbol: source.name,
+          sinkId: sink.id,
+          sinkPath: sink.path,
+          sinkSymbol: sink.symbol
+        })))));
+      return { importGraphs: imports?.importGraphs ?? [], selectorEvidence, ...(imports ? { importPopulation: imports.importPopulation } : {}) };
+    } finally {
+      owned?.close();
+    }
+  };
+  if (footprints.length === 0 && options.selectorIndexFactory) return read(undefined);
+  return withCodeGraphReadSession(root, (opened) => {
+    if (opened.state !== "open") throw new Error(`CodeGraph index could not be read: ${opened.state}`);
+    return read(opened.session);
+  }, options.provider ? { provider: options.provider } : {});
 }
 
 /**

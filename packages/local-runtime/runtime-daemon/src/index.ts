@@ -1598,7 +1598,9 @@ function completeTaskProjectionDrift(root: string): { projectionDrift?: Complete
     profile,
     decisions: loaded.decisions
   });
-  const codeGraphInputs = prepareArchitectureDocumentationProjectionSnapshot(root, loaded.model);
+  // Called only after `completeTaskUnchecked` ran `codeFacts.sync` on `root`: one sync per run
+  // (#584). The snapshot's post-sync freshness check still refuses an index behind the worktree.
+  const codeGraphInputs = prepareArchitectureDocumentationProjectionSnapshot(root, loaded.model, { indexSynced: true });
   assertProjectionCodeFactsAvailable(root, codeGraphInputs);
   const provenance = codeGraphInputs.provenance;
   const plan = renderArchitectureDocumentationProjection({

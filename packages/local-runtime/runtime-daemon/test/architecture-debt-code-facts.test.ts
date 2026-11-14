@@ -76,9 +76,8 @@ test("full debt reads readiness and imports read-only, starts no process and clo
   const index = selectorIndex();
   const close = spyOn(index, "close");
   try {
-    const evidence = readArchitectureDebtCodeFacts(root, model, { provider, selectorIndexFactory: (path, options) => {
+    const evidence = readArchitectureDebtCodeFacts(root, model, { provider, selectorIndexFactory: (path) => {
       expect(path).toBe(root);
-      expect(options).toEqual({ readOnly: true });
       return index;
     } });
     expect(evidence.dependencies).toEqual({ coverage: "complete", coverageReasonCodes: [], items: [
@@ -116,9 +115,8 @@ for (const [name, options, reason, expectedImportReads] of [
 test("read-only selector refusal is reported without a writable retry", () => {
   const { root, provider } = fixture();
   let opens = 0;
-  const result = readArchitectureDebtCodeFacts(root, model, { provider, selectorIndexFactory: (_path, options) => {
+  const result = readArchitectureDebtCodeFacts(root, model, { provider, selectorIndexFactory: () => {
     opens++;
-    expect(options.readOnly).toBe(true);
     throw new Error("readonly open refused");
   } });
   expect(opens).toBe(1);
@@ -139,7 +137,7 @@ test("source edits during selector reads invalidate otherwise ready facts and st
   } finally { close.mockRestore(); }
 });
 
-test("default SDK selector opener receives readOnly and leaves database and WAL bytes unchanged", () => {
+test("the default selector read opens the index read-only and leaves database and WAL bytes unchanged", () => {
   const { root } = fixture({ missing: true });
   const { CodeGraph } = createRequire(import.meta.url)("@colbymchenry/codegraph") as typeof import("@colbymchenry/codegraph");
   let holder: ReturnType<typeof CodeGraph.initSync> | undefined = CodeGraph.initSync(root);
@@ -149,7 +147,7 @@ test("default SDK selector opener receives readOnly and leaves database and WAL 
   try {
     // The live holder matches daemon/watcher use; SHM lock/read marks are not durable index content.
     const before = durableBytes();
-    const evidence = loadCapabilityCodeGraphProjectionInputs(root, model, { readOnly: true, importGraphs: false });
+    const evidence = loadCapabilityCodeGraphProjectionInputs(root, model, { importGraphs: false });
     expect(open).toHaveBeenCalledWith(root, { readOnly: true });
     expect(evidence.selectorEvidence).toHaveLength(1);
     expect(durableBytes()).toEqual(before);
