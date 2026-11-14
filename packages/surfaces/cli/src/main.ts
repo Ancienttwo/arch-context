@@ -2885,7 +2885,7 @@ async function doctorReport(cwd: string, args: string[] = []) {
   const git = doctorGit(cwd);
   const sqlite = doctorSqlite(cwd);
   const permissions = doctorPermissions(cwd);
-  // Informational: read-only `--version` + `status -j`, never part of `ok`.
+  // Informational: one read-only session on the index (ADR-0058), never part of `ok`.
   const codeFacts = inspectRepositoryCodeFacts(("root" in git && git.root) || cwd);
   const auditRoot = auditManifestGateRoot(cwd);
   const hardening = diagnostics(localEgressStatus(process.env, {

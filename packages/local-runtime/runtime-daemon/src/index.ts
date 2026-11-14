@@ -73,7 +73,7 @@ import { evaluatePracticeEnforcement, loadPracticeEnforcementPolicy, loadPractic
 import { reconcileArchitectureLedgerDrift } from "@archcontext/core/reconcile-engine";
 import { ProjectionPreconditionError, REPO_HARNESS_PROJECTION_PROFILE, renderAgentContextProjection, loadAgentContextProjectionFiles, agentContextProjectionTargetPaths, architectureDocumentationSourceDigest, loadArchitectureDocumentationInputs, loadArchitectureDocumentationProfile, loadNativeModelFromArchContext, measureCapabilitySourceScaleSignals, projectionOwnedWriteBody, renderArchitectureDocumentationProjection } from "@archcontext/core/projection-engine";
 import { completeTaskGate, type CompleteTaskInput, type CompleteTaskProjectionDriftInput, type CompleteTaskProjectionFreshnessInput } from "@archcontext/core/review-engine";
-import { CodeGraphAdapter, CodeGraphCliProvider, ProjectionCodeFactsUnavailableError, assertProjectionCodeFactsAvailable, prepareArchitectureDocumentationProjectionSnapshot, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
+import { CodeGraphAdapter, CodeGraphSdkProvider, ProjectionCodeFactsUnavailableError, assertProjectionCodeFactsAvailable, prepareArchitectureDocumentationProjectionSnapshot, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { CONTEXT7_ENABLED_ENV, CONTEXT7_MODE_ENV, Context7ExternalDocumentationAdapter } from "@archcontext/local-runtime/context7-adapter";
 import { compileTaskContext, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
 import { assertNoCallerProvidedAttestationFields, digestJson, errorEnvelope, failureEnvelope, knownFailure, okEnvelope, type AgentJobV1, type CodeFactsPort, type CodeFactsSnapshot, type ExplorerDeltaQueryV2, type ExplorerProjectionQueryV2, type ExplorerServiceContract, type ExternalDocumentationPort, type Json, type JsonEnvelope, type ModelStorePort, type ModelValidationResult, type PracticeCheckpointSnapshotV1, type RepositorySnapshot, type WorkspaceRef } from "@archcontext/contracts";
@@ -298,8 +298,8 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     try {
     if (options.compositionMode === "production") assertProductionRuntimeDeps(deps);
     this.legacyLocalStoreMigrationRoot = options.legacyLocalStoreMigrationRoot;
-    this.codeFacts = deps.codeFacts ?? new CodeGraphAdapter(new CodeGraphCliProvider());
-    this.codeGraphProviderFactory = deps.codeGraphProviderFactory ?? ((repository) => new CodeGraphCliProvider(repository.root ?? repository.repositoryId));
+    this.codeFacts = deps.codeFacts ?? new CodeGraphAdapter(new CodeGraphSdkProvider());
+    this.codeGraphProviderFactory = deps.codeGraphProviderFactory ?? ((repository) => new CodeGraphSdkProvider(repository.root ?? repository.repositoryId));
     this.modelStore = deps.modelStore ?? new YamlModelStore();
     this.localStore = deps.localStore ?? new SqliteLocalStore(deps.localStorePath ?? defaultLocalStorePath());
     this.architectureLedger = runtimeArchitectureLedgerModes(deps.architectureLedger);

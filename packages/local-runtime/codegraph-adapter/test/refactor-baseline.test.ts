@@ -5,7 +5,7 @@
  * order and its refusal classes, the outbound-only footprint filter in `capabilityImportGraphs`,
  * and the fact that one global `truncated` flag is copied into every capability graph. None of
  * them is exported, so all three are frozen through the two public entrypoints that reach them —
- * `loadCapabilityCodeGraphProjectionInputs` and `CodeGraphCliProvider.buildContext`, each through
+ * `loadCapabilityCodeGraphProjectionInputs` and `CodeGraphSdkProvider.buildContext`, each through
  * an injected read-only provider answering the same import nodes (#574 S2, S5). No `export` was
  * added.
  *
@@ -21,7 +21,7 @@ import { dirname, join } from "node:path";
 import { digestJson, type Json } from "@archcontext/contracts";
 import type { NativeModel } from "@archcontext/core/projection-engine";
 import {
-  CodeGraphCliProvider,
+  CodeGraphSdkProvider,
   loadCapabilityCodeGraphProjectionInputs,
   prepareProjectionCodeFacts,
   type CapabilityCodeGraphProjectionInputs,
@@ -247,7 +247,7 @@ describe("RF0 baseline: normalized task-context import edges", () => {
     test(`${fixture.id} — ${fixture.description}`, async () => {
       const { root, binary } = seedWorkspace();
       try {
-        const provider = new CodeGraphCliProvider(root, binary, importDumpReadProvider(root));
+        const provider = new CodeGraphSdkProvider(root, binary, importDumpReadProvider(root));
         const context = await provider.buildContext(fixture.input.task, {
           maxSymbols: fixture.input.maxSymbols,
           includeSource: fixture.input.includeSource,
@@ -298,9 +298,6 @@ function normalizeHandshake(handshake: CodeGraphProjectionHandshakeV1): Json {
     reasonCode: handshake.reasonCode ?? null,
     digestShapes: {
       binaryDigest: shape(handshake.binaryDigest),
-      preSyncStatusDigest: shape(handshake.preSyncStatusDigest),
-      postSyncStatusDigest: shape(handshake.postSyncStatusDigest),
-      syncDigest: shape(handshake.syncDigest),
       indexedWorktreeDigest: shape(handshake.indexedWorktreeDigest),
       graphDigest: shape(handshake.graphDigest)
     }

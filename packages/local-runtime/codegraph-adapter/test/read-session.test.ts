@@ -349,9 +349,32 @@ describe("withReadyCodeGraphIndex: readiness and the read on one session", () =>
     const provider = fakeReadProvider(root);
     return { provider, calls: provider.calls, during: () => { throw new Error("private raw provider error /outside/repository"); } };
   };
+  // The post-read inspection finds no index, an index it cannot read, or no provider.
+  const indexRemovedDuringQuery = (root: string) => {
+    const provider = fakeReadProvider(root);
+    return { provider, calls: provider.calls, during: () => rmSync(join(root, ".codegraph", "codegraph.db")) };
+  };
+  const unreadableAfterQuery = (root: string) => {
+    let broken = false;
+    const provider = fakeReadProvider(root, () => broken ? { readFailsAfterOpen: true } : {});
+    return { provider, calls: provider.calls, during: () => { broken = true; } };
+  };
+  const providerLostDuringQuery = (root: string) => {
+    const base = fakeReadProvider(root);
+    let lost = false;
+    const provider: CodeGraphReadProvider = {
+      get version() { if (lost) throw new Error("private raw provider error /outside/repository"); return base.version; },
+      get extractionVersion() { return base.extractionVersion; },
+      openReadOnly: (openedRoot) => base.openReadOnly(openedRoot),
+      scanSourceFiles: (scanRoot) => base.scanSourceFiles(scanRoot),
+      changeHash: (path) => base.changeHash(path)
+    };
+    return { provider, calls: base.calls, during: () => { lost = true; } };
+  };
 
   test.each([
-    ["pending source changes", refusing({ pending: { added: 1, modified: 0, removed: 0 } }), notReady(false), false, 1],
+    // Only compatibility gates the read, so pending changes are refused by the step after it.
+    ["pending source changes", refusing({ pending: { added: 1, modified: 0, removed: 0 } }), notReady(false), true, 2],
     ["a revision that moves before the query", refusing({ revisionMoves: true }), notReady(true), false, 1],
     ["a moving index of the wrong provider version", refusing({ revisionMoves: true, version: "0.0.1" }), notReady(false), false, 1],
     ["a live build at open", refusing({}, root => writeFileSync(join(root, ".codegraph", "codegraph.lock"), String(process.pid))), notReady(true), false, 0],
@@ -361,7 +384,10 @@ describe("withReadyCodeGraphIndex: readiness and the read on one session", () =>
     ["a source modified during the query", editDuringQuery("modified"), notReady(false), true, 2],
     ["a source removed during the query", editDuringQuery("removed"), notReady(false), true, 2],
     ["a writer lock that appears during the query", lockDuringQuery, notReady(true), true, 1],
-    ["a query that throws a non-FailureError", failingRead, { code: "AC_CODE_FACTS_UNAVAILABLE", reasonCode: "code-facts-unavailable" }, true, 1]
+    ["a query that throws a non-FailureError", failingRead, { code: "AC_CODE_FACTS_UNAVAILABLE", reasonCode: "code-facts-unavailable" }, true, 1],
+    ["an index removed during the query", indexRemovedDuringQuery, { code: "AC_CODE_FACTS_UNAVAILABLE", reasonCode: "index-missing" }, true, 1],
+    ["an index that stops reading during the query", unreadableAfterQuery, { code: "AC_CODE_FACTS_UNAVAILABLE", reasonCode: "index-open-failed" }, true, 2],
+    ["a provider that stops loading during the query", providerLostDuringQuery, { code: "AC_CODE_FACTS_UNAVAILABLE", reasonCode: "code-facts-unavailable", retryable: false }, true, 1]
   ] as const)("%s is refused, and the handle is closed", (_name, setup, error, queried, opens) => {
     withRoot((root) => {
       const { provider, calls, during } = setup(root);

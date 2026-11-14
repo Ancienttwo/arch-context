@@ -25,8 +25,8 @@ import {
   packagedCodeGraphCliInvocation,
   packagedCodeGraphRuntimeDigest,
   type CodeGraphCliInvocation
-} from "./cli-provider";
-import { assertRepositoryCodeFactsReady, codeGraphIndexAvailable, inspectRepositoryCodeFacts, type RepositoryCodeFactsV1 } from "./repository-code-facts";
+} from "./cli-invocation";
+import { assertRepositoryCodeFactsReady, codeGraphIndexAvailable, type RepositoryCodeFactsV1 } from "./repository-code-facts";
 import { codeFactsReadinessAfterRead } from "./ready-index-read";
 import { loadCapabilityCodeGraphProjectionInputs, type CapabilityCodeGraphProjectionInputs } from "./selector-index";
 
@@ -45,9 +45,7 @@ export interface CodeGraphProjectionHandshakeV1 {
   binaryDigest: string;
   availability: "ready" | "unavailable";
   reasonCode?: "index-missing";
-  preSyncStatusDigest: string | null;
-  postSyncStatusDigest: string | null;
-  syncDigest: string | null;
+  /** Binds the source tree to the index state the projection read; `null` when no index answered. */
   indexedWorktreeDigest: string | null;
   /**
    * Digest of the CodeGraph version and the code evidence this handshake read (import graphs,
@@ -193,7 +191,8 @@ export function prepareProjectionCodeFacts(
     importGraphs?: boolean;
     /**
      * True when this command already ran `codegraph sync` on `root` (#584): the handshake starts no
-     * second sync. The post-sync checks still run, so an index behind the worktree fails closed.
+     * second sync. The post-read freshness proof still runs, so an index behind the worktree fails
+     * closed.
      * Nothing is cached across commands.
      */
     indexSynced?: boolean;
@@ -226,27 +225,21 @@ export function prepareProjectionCodeFacts(
         binaryDigest: binaryDigest(),
         availability: "unavailable",
         reasonCode: "index-missing",
-        preSyncStatusDigest: null,
-        postSyncStatusDigest: null,
-        syncDigest: null,
         indexedWorktreeDigest: null,
         graphDigest
       }
     };
   }
 
-  // A present but incompatible index is a typed refusal before any sync; pending source changes
-  // are accepted here and cleared by the sync.
+  // A present but incompatible index is a typed refusal before any sync. Freshness is proven once,
+  // after the reads: a fresh change test, then an unchanged revision of the reading session.
   assertRepositoryCodeFactsReady(root, { provider });
-  let preDigest: string | undefined;
   if (!options.indexSynced) {
-    preDigest = withProjectionIndexSession(root, provider, projectionIndexStateDigest);
     const invocation = options.binary ? codeGraphCliInvocation(options.binary, root, "") : packagedCodeGraphCliInvocation();
     runProjectionCodeGraph(invocation, root, ["sync", root, "--quiet"], options.timeouts?.syncMs ?? 120_000);
   }
-  const { postDigest, inputs } = withProjectionIndexSession(root, provider, (session) => {
+  const { indexDigest, inputs } = withProjectionIndexSession(root, provider, (session) => {
     const digest = projectionIndexStateDigest(session);
-    assertProjectionIndexReady(root, provider, "post-sync");
     const read = loadCapabilityCodeGraphProjectionInputs(root, model, {
       ...(options.sourceFiles ? { sourceFiles: options.sourceFiles } : {}),
       ...(options.footprints ? { footprints: options.footprints } : {}),
@@ -256,14 +249,12 @@ export function prepareProjectionCodeFacts(
     });
     const after = codeFactsReadinessAfterRead(root, session, provider);
     if (after?.moved) throw new Error("CodeGraph indexed snapshot changed during projection queries");
-    if (after) throw projectionIndexNotReady(after.facts, "post-query");
-    return { postDigest: digest, inputs: read };
+    if (after) throw projectionIndexNotReady(after.facts);
+    return { indexDigest: digest, inputs: read };
   });
-  // With the command's own sync reused there is no earlier observation; pre equals post then.
-  const pre = preDigest ?? postDigest;
   const indexedWorktreeDigest = digestJson({
     sourceTreeDigest: options.sourceTreeDigest,
-    statusDigest: postDigest
+    statusDigest: indexDigest
   } as unknown as Json);
   const graphDigest = digestJson({
     actualVersion,
@@ -279,25 +270,18 @@ export function prepareProjectionCodeFacts(
       actualVersion,
       binaryDigest: binaryDigest(),
       availability: "ready",
-      preSyncStatusDigest: pre,
-      postSyncStatusDigest: postDigest,
-      syncDigest: digestJson({ preSyncStatusDigest: pre, postSyncStatusDigest: postDigest } as unknown as Json),
       indexedWorktreeDigest,
       graphDigest
     }
   };
 }
 
-/** Requires a compatible index with no pending source change, measured by a fresh inspection. */
-function assertProjectionIndexReady(root: string, provider: CodeGraphReadProvider, phase: "post-sync"): void {
-  const facts = inspectRepositoryCodeFacts(root, { provider });
-  if (facts.state !== "ready") throw projectionIndexNotReady(facts, phase);
-}
-
-function projectionIndexNotReady(facts: RepositoryCodeFactsV1, phase: "post-sync" | "post-query"): Error {
-  const issues = facts.state === "unavailable" ? [] : facts.issues;
-  if (issues.some((issue) => issue.code === "pending-source-changes")) return new Error(`CodeGraph ${phase} index still has pending source changes`);
-  return new Error(`CodeGraph ${phase} index is not ready: ${facts.state === "unavailable" ? facts.reasonCode : issues.map((issue) => issue.code).join(", ")}`);
+function projectionIndexNotReady(facts: RepositoryCodeFactsV1): Error {
+  if (facts.state === "unavailable" || facts.state === "index-missing") {
+    return new Error(`CodeGraph post-query index is not ready: ${facts.state === "unavailable" ? facts.reasonCode : "index-missing"}`);
+  }
+  if (facts.issues.some((issue) => issue.code === "pending-source-changes")) return new Error("CodeGraph post-query index still has pending source changes");
+  return new Error(`CodeGraph post-query index is not ready: ${facts.issues.map((issue) => issue.code).join(", ")}`);
 }
 
 /** Runs `read` on a read-only session; an index the session cannot open fails the handshake. */

@@ -4,7 +4,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSy
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { FailureError, digestJson, type Json } from "@archcontext/contracts";
-import { CODEGRAPH_TELEMETRY_ENV, CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, REQUIRED_CODEGRAPH_VERSION, codeGraphCliInvocation, disableCodeGraphTelemetryByDefault, openCodeGraphSymbolReader, packagedCodeGraphCliInvocation, pinnedCodeGraphProvider, prepareProjectionCodeFacts, type CodeGraphReadProvider } from "../src/index";
+import { CODEGRAPH_TELEMETRY_ENV, CodeGraphAdapter, CodeGraphSdkProvider, MultiRepoCodeGraphAdapter, REQUIRED_CODEGRAPH_VERSION, codeGraphCliInvocation, disableCodeGraphTelemetryByDefault, openCodeGraphSymbolReader, packagedCodeGraphCliInvocation, pinnedCodeGraphProvider, prepareProjectionCodeFacts, type CodeGraphReadProvider } from "../src/index";
 import * as readSessionModule from "../src/read-session";
 import { CodeGraphProviderUnavailableError, codeGraphBundle } from "../src/read-session";
 import { fakeReadProvider, type FakeIndexFacts, type FakeReadProvider } from "./read-provider-fixture";
@@ -110,7 +110,6 @@ writeFileSync(${JSON.stringify(join(root, "synced"))}, "ok");
       // `sync` is the only CodeGraph process the handshake starts.
       expect(cli.calls()).toEqual(["sync"]);
       expect(prepared.handshake.binaryDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
-      expect(prepared.handshake.preSyncStatusDigest).not.toBe(prepared.handshake.postSyncStatusDigest);
       expect(prepared.handshake.indexedWorktreeDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
       expect(prepared.handshake.graphDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
     } finally {
@@ -127,11 +126,10 @@ writeFileSync(${JSON.stringify(join(root, "synced"))}, "ok");
         binary: cli.binary, readProvider: syncedIndex(root), indexSynced: true, sourceTreeDigest: `sha256:${"1".repeat(64)}`
       });
       expect(prepared.handshake.availability).toBe("ready");
-      expect(prepared.handshake.preSyncStatusDigest).toBe(prepared.handshake.postSyncStatusDigest);
       rmSync(join(root, "synced"));
       expect(() => prepareProjectionCodeFacts(root, { nodes: [], relations: [] }, {
         binary: cli.binary, readProvider: syncedIndex(root), indexSynced: true, sourceTreeDigest: `sha256:${"1".repeat(64)}`
-      })).toThrow("post-sync index still has pending source changes");
+      })).toThrow("post-query index still has pending source changes");
       expect(cli.calls()).toEqual([]);
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -232,14 +230,27 @@ writeFileSync(${JSON.stringify(join(root, "synced"))}, "ok");
     }))));
 
   for (const row of [
-    { name: "sync leaves the index stale", model: { nodes: [], relations: [] }, indexSynced: false, expected: "post-sync index still has pending source changes",
+    { name: "sync leaves the index stale", model: { nodes: [], relations: [] }, indexSynced: false, expected: "post-query index still has pending source changes",
       provider: (root: string) => fakeReadProvider(root, { pending: { added: 0, modified: 1, removed: 0 } }) },
-    // Only the session that spans the projection reads (the third open) sees the index move.
+    // Only the session that spans the projection reads (the second open) sees the index move.
     { name: "the index moves during the projection reads", model: { nodes: [], relations: [] }, indexSynced: false, expected: "CodeGraph indexed snapshot changed during projection queries",
       provider: (root: string) => {
         let provider: FakeReadProvider | undefined;
-        provider = fakeReadProvider(root, () => ({ revisionMoves: provider?.calls.open === 3 }));
+        provider = fakeReadProvider(root, () => ({ revisionMoves: provider?.calls.open === 2 }));
         return provider;
+      } },
+    // The post-read inspection names the reason even when no index answers it.
+    { name: "the index disappears during the selector read", model: readingModel, indexSynced: true, expected: "CodeGraph post-query index is not ready: index-missing",
+      provider: (root: string) => {
+        const base = fakeReadProvider(root);
+        return { ...base, openReadOnly: (openedRoot: string) => Object.assign(base.openReadOnly(openedRoot), {
+          getStats: () => ({ nodesByKind: { import: 0 } }),
+          getNodesByKind: () => [],
+          getNodesByName: () => { rmSync(join(root, ".codegraph"), { recursive: true, force: true }); return []; },
+          getNodesInFile: () => [],
+          getNode: () => null,
+          getOutgoingEdges: () => []
+        }) };
       } },
     ...editsDuringReads
   ]) test(`fails closed when ${row.name}`, () => {
@@ -288,7 +299,7 @@ writeFileSync(${JSON.stringify(logPath)}, JSON.stringify({
 }));
 `);
 
-      const provider = new CodeGraphCliProvider(root, shimPath, fakeReadProvider(root));
+      const provider = new CodeGraphSdkProvider(root, shimPath, fakeReadProvider(root));
       await provider.indexAll(root);
 
       expect(existsSync(logPath)).toBe(true);
@@ -379,7 +390,7 @@ process.exit(2);
         }
       });
 
-      const adapter = new CodeGraphAdapter(new CodeGraphCliProvider(root, shimPath, provider));
+      const adapter = new CodeGraphAdapter(new CodeGraphSdkProvider(root, shimPath, provider));
       await adapter.sync({
         workspace: { root, repositoryId: "repo.test", headSha: "abc" },
         changedPaths: [" src\\web\\page.ts", "../escape.ts", "/tmp/escape.ts"]
@@ -528,7 +539,12 @@ process.exit(2);
   test("a read the session refuses fails closed, and an index that moves during the read is retryable", async () => {
     const graph = { searchNodes: () => [], generatedFilePredicate: () => () => false };
     const failingRead = () => { throw new Error("private raw provider error /outside/repository"); };
-    // [label, provider, code, reason, retryable, handles opened, handles closed]
+    // The revision answers at open, then every later revision check throws: the move is unprovable.
+    const revisionCheckThrows = () => {
+      let reads = 0;
+      return { getIndexRevision: () => { if (reads++ > 0) failingRead(); return { lastIndexedAt: 1, fileCount: 1 }; } };
+    };
+    // [label, provider, code, reason, retryable, handles opened, close attempts]
     const cases: [string, (root: string) => FakeReadProvider, string, string, boolean, number, number][] = [
       ["no index", (root) => { const provider = sdkReadProvider(root, graph); rmSync(join(root, ".codegraph"), { recursive: true, force: true }); return provider; }, "AC_CODE_FACTS_UNAVAILABLE", "index-missing", true, 0, 0],
       ["open fails", (root) => sdkReadProvider(root, graph, { openFails: true }), "AC_CODE_FACTS_UNAVAILABLE", "index-open-failed", false, 1, 0],
@@ -536,16 +552,28 @@ process.exit(2);
       ["revision moves", (root) => sdkReadProvider(root, graph, { revisionMoves: true }), "AC_CODE_FACTS_NOT_READY", "code-facts-not-ready", true, 1, 1],
       // A read that throws because the index moved under it is the same retryable refusal (G4).
       ["read throws while the index moves", (root) => sdkReadProvider(root, { ...graph, searchNodes: failingRead }, { revisionMoves: true }), "AC_CODE_FACTS_NOT_READY", "code-facts-not-ready", true, 1, 1],
-      // A failing close keeps the read's own error.
-      ["read and close throw", (root) => sdkReadProvider(root, { ...graph, searchNodes: failingRead, close: failingRead }), "AC_CODE_FACTS_UNAVAILABLE", "index-open-failed", false, 1, 0]
+      // A revision check that throws proves no move, so a good read is unusable, never retryable.
+      ["the revision check throws after a good read", (root) => sdkReadProvider(root, { ...graph, ...revisionCheckThrows() }), "AC_CODE_FACTS_UNAVAILABLE", "index-open-failed", false, 1, 1],
+      // A failing close keeps the read's own error, and after a good read it is the read failure.
+      ["read and close throw", (root) => sdkReadProvider(root, { ...graph, searchNodes: failingRead, close: failingRead }), "AC_CODE_FACTS_UNAVAILABLE", "index-open-failed", false, 1, 1],
+      ["close throws after a good read", (root) => sdkReadProvider(root, { ...graph, close: failingRead }), "AC_CODE_FACTS_UNAVAILABLE", "index-open-failed", false, 1, 1],
+      ["close throws after a good read of a moved index", (root) => sdkReadProvider(root, { ...graph, close: failingRead }, { revisionMoves: true }), "AC_CODE_FACTS_NOT_READY", "code-facts-not-ready", true, 1, 1],
+      ["close throws after a failing read of a moved index", (root) => sdkReadProvider(root, { ...graph, searchNodes: failingRead, close: failingRead }, { revisionMoves: true }), "AC_CODE_FACTS_NOT_READY", "code-facts-not-ready", true, 1, 1]
     ];
-    for (const [label, provide, code, reasonCode, retryable, opened, closed] of cases) {
+    for (const [label, provide, code, reasonCode, retryable, opened, closeAttempts] of cases) {
       const root = mkdtempSync(join(tmpdir(), "archctx-codegraph-read-refusal-"));
       try {
         const provider = provide(root);
-        const failure = await readFailure(new CodeGraphCliProvider(root, undefined, provider).findSymbols({ query: "render" }));
+        // Counts every close the read attempts, including one that throws.
+        let attempts = 0;
+        const counted: FakeReadProvider = { ...provider, openReadOnly: (openedRoot) => {
+          const handle = provider.openReadOnly(openedRoot);
+          const close = handle.close.bind(handle);
+          return Object.assign(handle, { close: () => { attempts++; close(); } });
+        } };
+        const failure = await readFailure(new CodeGraphSdkProvider(root, undefined, counted).findSymbols({ query: "render" }));
         expect([label, failure.code, failure.reasonCode, failure.retryable]).toEqual([label, code, reasonCode, retryable]);
-        expect([label, provider.calls.open, provider.calls.close]).toEqual([label, opened, closed]);
+        expect([label, provider.calls.open, attempts]).toEqual([label, opened, closeAttempts]);
         expect(failure.message).not.toContain("outside");
       } finally {
         rmSync(root, { recursive: true, force: true });
@@ -559,7 +587,7 @@ process.exit(2);
       throw new CodeGraphProviderUnavailableError("CodeGraph SDK could not be loaded from /outside/repository");
     });
     try {
-      const failure = await readFailure(new CodeGraphCliProvider(root).findSymbols({ query: "render" }));
+      const failure = await readFailure(new CodeGraphSdkProvider(root).findSymbols({ query: "render" }));
       expect([failure.code, failure.reasonCode, failure.action, failure.retryable]).toEqual(["AC_CODE_FACTS_UNAVAILABLE", "code-facts-unavailable", "inspect-diagnostics", false]);
       expect(failure.message).not.toContain("outside");
       expect(open).toHaveBeenCalledTimes(1);
@@ -570,7 +598,7 @@ process.exit(2);
   });
 });
 
-describe("CodeGraphCliProvider SDK reads on a real index (#574)", () => {
+describe("CodeGraphSdkProvider SDK reads on a real index (#574)", () => {
   const files: Record<string, string> = {
     "src/pricing/leaf.ts": "export function basePrice(sku: string): number {\n  return sku.length;\n}\n",
     "src/pricing/tax.ts": "import { basePrice } from \"./leaf\";\n\nexport function taxedPrice(sku: string): number {\n  return basePrice(sku) * 2;\n}\n",
@@ -592,11 +620,10 @@ describe("CodeGraphCliProvider SDK reads on a real index (#574)", () => {
   }, 120_000);
   afterAll(() => { if (root) rmSync(root, { recursive: true, force: true }); });
 
-  const symbolId = async (query: string, kind: string) => (await new CodeGraphCliProvider(root).findSymbols({ query, kinds: [kind] }))[0]!.id;
-  const calls = (source: string, target: string) => ({ source, target, kind: "calls" as const, confidence: "high" as const });
+  const symbolId = async (query: string, kind: string) => (await new CodeGraphSdkProvider(root).findSymbols({ query, kinds: [kind] }))[0]!.id;
 
   test("buildContext returns the query nodes, then the relevant files in relevance order, deterministically", async () => {
-    const provider = new CodeGraphCliProvider(root);
+    const provider = new CodeGraphSdkProvider(root);
     const build = () => provider.buildContext("basePrice", { maxSymbols: 4, includeSource: false });
     const context = await build();
     // `basePrice` is the only search hit; the files come from its relevant context, its own file
@@ -614,7 +641,7 @@ describe("CodeGraphCliProvider SDK reads on a real index (#574)", () => {
   });
 
   test("findSymbols keeps only the requested kinds", async () => {
-    const provider = new CodeGraphCliProvider(root);
+    const provider = new CodeGraphSdkProvider(root);
     expect(await provider.findSymbols({ query: "render", kinds: ["method"] })).toEqual([
       { id: expect.stringMatching(/^method:[0-9a-f]{32}$/), name: "render", kind: "method", path: "src/views/widget.ts", range: { startLine: 2, endLine: 4 } }
     ]);
@@ -624,45 +651,6 @@ describe("CodeGraphCliProvider SDK reads on a real index (#574)", () => {
       ["function", "src/views/page.ts"],
       ["method", "src/views/widget.ts"]
     ]);
-  });
-
-  test("impact widens with depth; callers are the direct call edges", async () => {
-    const provider = new CodeGraphCliProvider(root);
-    const basePrice = await symbolId("basePrice", "function");
-    const caller = calls(await symbolId("taxedPrice", "function"), basePrice);
-    expect(await provider.getImpactRadius("basePrice", 1)).toEqual({
-      symbolId: "basePrice", callers: [caller], callees: [], affectedPaths: ["src/pricing/leaf.ts", "src/pricing/tax.ts"]
-    });
-    expect(await provider.getImpactRadius("basePrice", 2)).toEqual({
-      symbolId: "basePrice", callers: [caller], callees: [], affectedPaths: ["src/checkout/cart.ts", "src/pricing/leaf.ts", "src/pricing/tax.ts"]
-    });
-    // A node id names the same definition as its name.
-    expect({ ...await provider.getImpactRadius(basePrice, 2), symbolId: "basePrice" }).toEqual(await provider.getImpactRadius("basePrice", 2));
-    expect((await provider.getImpactRadius("taxedPrice", 1)).callees).toEqual([calls(await symbolId("taxedPrice", "function"), basePrice)]);
-  });
-
-  test("a type reference reaches affectedPaths but is no caller", async () => {
-    // `label` uses `Sku` only as its parameter type.
-    expect(await new CodeGraphCliProvider(root).getImpactRadius("Sku", 1)).toEqual({
-      symbolId: "Sku", callers: [], callees: [], affectedPaths: ["src/checkout/label.ts", "src/pricing/sku.ts"]
-    });
-  });
-
-  test("an unknown symbol has an empty impact", async () => {
-    expect(await new CodeGraphCliProvider(root).getImpactRadius("noSuchSymbol", 2)).toEqual({ symbolId: "noSuchSymbol", callers: [], callees: [], affectedPaths: [] });
-  });
-
-  test("an ambiguous name gives the union over its definitions; a qualified name narrows it", async () => {
-    const provider = new CodeGraphCliProvider(root);
-    const method = calls(await symbolId("showWidget", "function"), await symbolId("render", "method"));
-    const fn = calls(await symbolId("showPage", "function"), await symbolId("render", "function"));
-    const impact = await provider.getImpactRadius("render", 1);
-    expect(impact.affectedPaths).toEqual(["src/views/page.ts", "src/views/widget.ts"]);
-    // Callers are ordered by source id: showWidget's id (`function:5d5d…`) sorts before showPage's (`function:b00b…`).
-    expect(impact.callers).toEqual([method, fn]);
-    expect(await provider.getImpactRadius("Widget::render", 1)).toEqual({
-      symbolId: "Widget::render", callers: [method], callees: [], affectedPaths: ["src/views/widget.ts"]
-    });
   });
 
   test("a write the read-only handle refuses inside an SDK call is a read failure, never retried writable", async () => {
@@ -693,7 +681,7 @@ describe("CodeGraphCliProvider SDK reads on a real index (#574)", () => {
     CodeGraph.openSync = ((...args: Parameters<typeof CodeGraph.openSync>) => { opens.push(["openSync", args[1]]); return sdkOpen.openSync.apply(CodeGraph, args); }) as typeof CodeGraph.openSync;
     let failure: FailureError;
     try {
-      failure = await readFailure(new CodeGraphCliProvider(root, undefined, provider).buildContext("basePrice", { maxSymbols: 4, includeSource: false }));
+      failure = await readFailure(new CodeGraphSdkProvider(root, undefined, provider).buildContext("basePrice", { maxSymbols: 4, includeSource: false }));
     } finally {
       Object.assign(CodeGraph, sdkOpen);
     }
