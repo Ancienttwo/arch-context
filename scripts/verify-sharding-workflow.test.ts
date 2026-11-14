@@ -569,133 +569,143 @@ test("the impact and gate commands plan each event from its base and gate the sa
 });
 
 /**
- * The owner drift contract resolves a family job to the tracked files it runs, and refuses by default.
- * The workflow, the job and each step may use only the keys listed here, each pinned to its accepted
- * shape. Commands follow Bun's own argument meaning: a `./` argument is a file or directory path, any
- * other argument is a substring filter over test file paths, and no argument runs the whole discovered
- * suite, which a targeted family may never do. Only the reviewed setup actions, the reviewed Windows
- * temp-directory step and the one reviewed arm64 runner guard resolve to no input. A job that runs
- * `bun test` also runs the root bunfig.toml `[test].preload` files, so they count as its inputs. A
- * package lifecycle script that `bun install` or `bun run` would add is refused. Everything else throws
- * `cannot resolve`.
+ * The owner drift contract's reviewed surface. Each targeted family job must equal its reviewed job
+ * exactly: the job header (every key except `name` and `steps`) and every step in order, each step
+ * compared as a whole object without its `name`, with only a run text's one trailing newline removed.
+ * A reviewed step declares the repository paths it runs or reads; they are the family's inputs. A step
+ * that runs a package script names it, and the script's exact text is reviewed here too. Nothing is
+ * parsed: changing a family command means editing this table in the same PR, where a reviewer sees it.
  */
+interface ReviewedStep { step: Record<string, any>; inputs?: string[]; scripts?: string[]; bunTest?: true; install?: true }
+interface ReviewedScript { run: string; inputs?: string[]; scripts?: string[]; bunTest?: true }
+
+const PLATFORM_SUITES = [
+  "packages/cloud/hardening", "packages/core/changeset-engine", "packages/local-runtime/codegraph-adapter",
+  "packages/local-runtime/control-file-security", "packages/local-runtime/git-adapter", "packages/local-runtime/local-store-sqlite",
+  "packages/local-runtime/runtime-state-paths", "packages/local-runtime/model-store-yaml/test/native-context.test.ts",
+  ...["daemon-control-acl", "egress-admission", "investigation-transport", "projection-writer", "rpc-argument-codec", "rpc-client",
+    "rpc-contract-boundary", "rpc-methods", "rpc-prepare-session", "rpc-server", "rpc-v2-failure-compat", "rpc-version"]
+    .map(name => `packages/local-runtime/runtime-daemon/test/${name}.test.ts`),
+  ...["hook-helper-parity", "hook-state-paths", "rpc-version-upgrade"].map(name => `packages/surfaces/cli/test/${name}.test.ts`)
+];
+const NODE_COMPAT_SUITES = ["packages/surfaces/cli/test/bundle-entry.test.ts", "packages/surfaces/mcp-local/test/mcp-wire.test.ts",
+  "tests/ownership-change-acceptance-recovery.test.ts", "packages/contracts/test/publishability.test.ts"];
+const REVIEWED_SCRIPTS: Record<string, ReviewedScript> = {
+  "archcontext#verify:platform": { run: `bun test --timeout 60000 ${PLATFORM_SUITES.map(path => `./${path}`).join(" ")}`, inputs: PLATFORM_SUITES, bunTest: true },
+  "archcontext#verify:node-compat": {
+    run: `bun run test:codegraph-selector-node && node scripts/packaged-cli-smoke.mjs && bun test --timeout 60000 ${NODE_COMPAT_SUITES.join(" ")}`,
+    inputs: ["scripts/packaged-cli-smoke.mjs", ...NODE_COMPAT_SUITES], scripts: ["test:codegraph-selector-node"], bunTest: true
+  },
+  "archcontext#test:codegraph-selector-node": { run: "node scripts/codegraph-selector-node-integration.mjs", inputs: ["scripts/codegraph-selector-node-integration.mjs"] }
+};
+const CHECKOUT: ReviewedStep = { step: { uses: "actions/checkout@v6" } };
+const WINDOWS_TEMP: ReviewedStep = { step: { if: "runner.os == 'Windows'", shell: "pwsh", run: '"TEMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV\n"TMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV' } };
+const MATRIX_NODE: ReviewedStep = { step: { uses: "actions/setup-node@v6", with: { "node-version": "${{ matrix.node-version }}" } } };
+const SETUP_BUN: ReviewedStep = { step: { uses: "oven-sh/setup-bun@v2", with: { "bun-version": "1.4.4" } } };
+const INSTALL: ReviewedStep = { step: { run: "bun install --frozen-lockfile" }, install: true };
+const IPC_READBACK: ReviewedStep = { step: { run: "node scripts/platform-ipc-permission-readback.mjs > platform-ipc-permission-readback.json" }, inputs: ["scripts/platform-ipc-permission-readback.mjs"] };
+const ipcUpload = (suffix: string): ReviewedStep => ({ step: { uses: "actions/upload-artifact@v6",
+  with: { name: `platform-ipc-permission-\${{ matrix.os }}-node-\${{ matrix.node-version }}${suffix}`, path: "platform-ipc-permission-readback.json" } } });
+const ifFamily = (id: string) => `contains(fromJSON(needs.verify-plan.outputs.families), '${id}')`;
+const OS_TIMEOUT = "${{ matrix.os == 'windows-latest' && 60 || 20 }}";
+const RUNNER_GUARD = `node -e "if (process.platform !== 'linux' || process.arch !== 'arm64') process.exit(1)"`;
+const ARM64_TEST = "packages/core/changeset-engine/test/changeset-engine.test.ts";
+const REVIEWED_JOBS: Record<string, { header: Record<string, any>; steps: ReviewedStep[] }> = {
+  "verify-platform": {
+    header: { if: ifFamily("platform"), needs: "verify-plan", "runs-on": "${{ matrix.os }}", "timeout-minutes": OS_TIMEOUT,
+      strategy: { "fail-fast": false, matrix: { include: [{ os: "macos-15", "node-version": "22.22.x" }, { os: "windows-latest", "node-version": "22.22.x" }] } } },
+    steps: [CHECKOUT, WINDOWS_TEMP, MATRIX_NODE, SETUP_BUN, INSTALL, IPC_READBACK, ipcUpload("-impact"), { step: { run: "bun run verify:platform" }, scripts: ["verify:platform"] }]
+  },
+  verify: {
+    header: { if: ifFamily("node-compat"), needs: "verify-plan", "runs-on": "${{ matrix.os }}", "timeout-minutes": OS_TIMEOUT,
+      strategy: { "fail-fast": false, matrix: "${{ fromJSON(needs.verify-plan.outputs.compat) }}" } },
+    steps: [CHECKOUT, WINDOWS_TEMP, MATRIX_NODE, SETUP_BUN, INSTALL, IPC_READBACK, ipcUpload(""), { step: { run: "bun run verify:node-compat" }, scripts: ["verify:node-compat"] }]
+  },
+  "linux-arm64-descriptor-write": {
+    header: { if: ifFamily("linux-arm64"), needs: "verify-plan", "runs-on": "ubuntu-24.04-arm", "timeout-minutes": 10, env: { PUPPETEER_SKIP_DOWNLOAD: "1" } },
+    steps: [CHECKOUT, { step: { uses: "actions/setup-node@v6", with: { "node-version": "24.x" } } }, SETUP_BUN, INSTALL,
+      { step: { run: `${RUNNER_GUARD}\nbun test ${ARM64_TEST}` }, inputs: [ARM64_TEST], bunTest: true }]
+  }
+};
 const WORKFLOW_KEYS = ["name", "run-name", "on", "permissions", "concurrency", "jobs"];
-const JOB_KEYS = ["if", "needs", "name", "runs-on", "timeout-minutes", "strategy", "env", "steps"];
-const JOB_ENV: Record<string, string> = { PUPPETEER_SKIP_DOWNLOAD: "1" };
-const STEP_KEYS = ["name", "if", "shell", "run", "uses", "with"];
-const REVIEWED_ACTIONS: Record<string, string[]> = {
-  "actions/checkout": [], "actions/setup-node": ["node-version"], "oven-sh/setup-bun": ["bun-version"], "actions/upload-artifact": ["name", "path"]
-};
-const WINDOWS_TEMP_STEP = { if: "runner.os == 'Windows'", shell: "pwsh", line: /^"(?:TEMP|TMP)=\$env:RUNNER_TEMP" >> \$env:GITHUB_ENV$/ };
-const RUNNER_GUARDS: Record<string, string> = {
-  "linux-arm64-descriptor-write": `node -e "if (process.platform !== 'linux' || process.arch !== 'arm64') process.exit(1)"`
-};
 const INSTALL_HOOKS = ["preinstall", "install", "postinstall", "prepare", "prepublish"];
 
-interface Manifests { root: any; workspaces: any[]; preload: string[] }
+interface Manifests { root: any; workspaces: any[]; bunfig: any }
 
 const refuse = (what: string): never => { throw new Error(`cannot resolve ${what}`); };
-function onlyKeys(value: any, allowed: string[], where: string) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) refuse(`${where}: not a mapping`);
-  for (const key of Object.keys(value)) if (!allowed.includes(key)) refuse(`${where}.${key}`);
-}
 
 function readManifests(): Manifests {
   const root = JSON.parse(readFileSync("package.json", "utf8"));
-  // Family jobs run every command from the repository root (no working-directory), so the root bunfig applies.
-  const preload = Bun.TOML.parse(readFileSync("bunfig.toml", "utf8")) as any;
   return { root, workspaces: root.workspaces.map((dir: string) => JSON.parse(readFileSync(join(dir, "package.json"), "utf8"))),
-    preload: preload.test?.preload ?? [] };
+    bunfig: Bun.TOML.parse(readFileSync("bunfig.toml", "utf8")) };
 }
 
-function resolveFamilyJob(workflow: any, id: string, manifests: Manifests, tracked: Set<string>): string[] {
-  onlyKeys(workflow, WORKFLOW_KEYS, "workflow");
-  const job = workflow.jobs[id];
-  const at = `jobs.${id}`;
-  onlyKeys(job, JOB_KEYS, at);
-  if (typeof job.if !== "string" || job.needs !== "verify-plan" || typeof job["runs-on"] !== "string" || !Array.isArray(job.steps)) refuse(`${at}: if, needs, runs-on or steps`);
-  if (job.strategy !== undefined) onlyKeys(job.strategy, ["fail-fast", "matrix"], `${at}.strategy`);
-  for (const [key, value] of Object.entries(job.env ?? {})) if (JOB_ENV[key] !== value) refuse(`${at}.env.${key}`);
-  const scripts: Record<string, string> = manifests.root.scripts ?? {};
-  const files: string[] = [];
+/** Family jobs run from the repository root, so the root bunfig applies; it may hold only `[test].preload`. */
+function bunfigPreload(bunfig: any): string[] {
+  for (const key of Object.keys(bunfig)) if (key !== "test") refuse(`bunfig.toml ${key}`);
+  for (const key of Object.keys(bunfig.test ?? {})) if (key !== "preload") refuse(`bunfig.toml test.${key}`);
+  const preload = bunfig.test?.preload ?? [];
+  if (!Array.isArray(preload) || !preload.every((entry: unknown) => typeof entry === "string")) refuse("bunfig.toml test.preload");
+  return preload;
+}
+
+const normalizeStep = ({ name: _name, ...step }: Record<string, any>) =>
+  typeof step.run === "string" ? { ...step, run: step.run.replace(/\n$/, "") } : step;
+
+function resolveFamilyJob(workflow: any, id: string, manifests: Manifests, tracked: Set<string>,
+  jobs = REVIEWED_JOBS, scripts = REVIEWED_SCRIPTS): string[] {
+  for (const key of Object.keys(workflow)) if (!WORKFLOW_KEYS.includes(key)) refuse(`workflow.${key}`);
+  const family = SCOPE.families.find((candidate: any) => candidate.jobs.includes(id))?.id;
+  const reviewed = jobs[id];
+  if (!family || !reviewed) refuse(`jobs.${id}: no reviewed job`);
+  const { steps, name: _name, ...header } = workflow.jobs[id];
+  if (!Bun.deepEquals(header, reviewed.header, true)) refuse(`jobs.${id}: the job header is not its reviewed header`);
+  if (!Array.isArray(steps)) refuse(`jobs.${id}.steps`);
+  const inputs: string[] = [];
   const scriptsRun: string[] = [];
   let installs = false, testsRun = false;
-  const isTest = (path: string) => /[._](?:test|spec)\.[cm]?[jt]sx?$/.test(path);
-  const resolveCommand = (command: string) => {
-    const words = command.trim().split(/\s+/);
-    if (command.trim() === RUNNER_GUARDS[id]) return; // runs no repository file
-    // Only `&&` chaining and one `> file` redirect are resolvable shell syntax.
-    if (/[;|`$()<'"\\]/.test(command)) refuse(command);
-    if (words.join(" ") === "bun install --frozen-lockfile") { installs = true; return; }
-    if (words[0] === "bun" && words[1] === "run" && words.length === 3 && scripts[words[2]]) {
-      scriptsRun.push(words[2]);
-      return scripts[words[2]].split("&&").forEach(resolveCommand);
-    }
-    if (words[0] === "bun" && words[1] === "test") {
-      let positional = 0;
-      for (let index = 2; index < words.length; index++) {
-        if (words[index] === "--timeout" && /^\d+$/.test(words[index + 1] ?? "")) { index++; continue; }
-        const arg = words[index];
-        const path = arg.slice(2);
-        const matched = arg.startsWith("./")
-          ? (tracked.has(path) ? [path] : [...tracked].filter(file => file.startsWith(`${path}/`) && isTest(file)))
-          : [...tracked].filter(file => file.includes(arg) && isTest(file));
-        if (arg.startsWith("-") || path === "" || matched.length === 0) refuse(`${arg} in ${command}`);
-        files.push(...matched);
-        positional++;
-      }
-      if (positional === 0) refuse(`${command}: an unfiltered bun test runs the whole discovered suite`);
-      testsRun = true;
-      return;
-    }
-    if (words[0] === "node" && tracked.has(words[1]) && (words.length === 2 || (words.length === 4 && words[2] === ">"))) return void files.push(words[1]);
-    refuse(command);
+  const runScript = (scriptName: string) => {
+    const entry = scripts[`${manifests.root.name}#${scriptName}`];
+    if (!entry || manifests.root.scripts?.[scriptName] !== entry.run) refuse(`package script ${scriptName}: its text is not the reviewed text`);
+    scriptsRun.push(scriptName);
+    inputs.push(...(entry.inputs ?? []));
+    testsRun ||= entry.bunTest === true;
+    (entry.scripts ?? []).forEach(runScript);
   };
-  job.steps.forEach((step: any, index: number) => {
-    const where = `${at}.steps[${index}]`;
-    onlyKeys(step, STEP_KEYS, where);
-    if (step.uses !== undefined) {
-      const withKeys = REVIEWED_ACTIONS[String(step.uses).split("@")[0]];
-      if (!withKeys || step.run !== undefined || step.shell !== undefined || step.if !== undefined) refuse(`${where} uses: ${step.uses}`);
-      if (step.with !== undefined) onlyKeys(step.with, withKeys, `${where}.with`);
-      return;
-    }
-    if (typeof step.run !== "string" || step.with !== undefined) refuse(`${where}: a step without a resolvable command`);
-    const lines = step.run.split("\n").filter((line: string) => line.trim());
-    if (step.shell !== undefined || step.if !== undefined) {
-      const reviewed = step.shell === WINDOWS_TEMP_STEP.shell && step.if === WINDOWS_TEMP_STEP.if
-        && lines.length > 0 && lines.every((line: string) => WINDOWS_TEMP_STEP.line.test(line));
-      if (!reviewed) refuse(`${where} shell: ${step.shell}, if: ${step.if}`);
-      return;
-    }
-    for (const line of lines) for (const command of line.split("&&")) resolveCommand(command);
+  steps.forEach((step: any, index: number) => {
+    const entry = reviewed.steps[index];
+    if (!entry || !Bun.deepEquals(normalizeStep(step), entry.step, true)) refuse(`${family} runs ${JSON.stringify(normalizeStep(step))} at jobs.${id}.steps[${index}]: not its reviewed step`);
+    inputs.push(...(entry.inputs ?? []));
+    installs ||= entry.install === true;
+    testsRun ||= entry.bunTest === true;
+    (entry.scripts ?? []).forEach(runScript);
   });
-  if (testsRun) {
-    for (const entry of manifests.preload) {
-      const path = String(entry).replace(/^\.\//, "");
-      if (!tracked.has(path)) refuse(`bunfig.toml preload ${entry}`);
-      files.push(path);
-    }
-  }
+  if (steps.length !== reviewed.steps.length) refuse(`jobs.${id}: a reviewed step is missing`);
+  if (testsRun) inputs.push(...bunfigPreload(manifests.bunfig).map(entry => entry.replace(/^\.\//, "")));
   if (installs) {
     for (const manifest of [manifests.root, ...manifests.workspaces]) {
       for (const hook of INSTALL_HOOKS) if (manifest.scripts?.[hook] !== undefined) refuse(`${manifest.name} lifecycle script ${hook}, which bun install runs`);
     }
   }
-  for (const name of scriptsRun) {
-    for (const hook of [`pre${name}`, `post${name}`]) if (scripts[hook] !== undefined) refuse(`lifecycle script ${hook}, which bun run ${name} runs`);
+  for (const scriptName of scriptsRun) {
+    for (const hook of [`pre${scriptName}`, `post${scriptName}`]) if (manifests.root.scripts?.[hook] !== undefined) refuse(`lifecycle script ${hook}, which bun run ${scriptName} runs`);
   }
-  return files;
+  // A declared input is a tracked file, or a directory whose tracked test files Bun runs.
+  const isTest = (path: string) => /[._](?:test|spec)\.[cm]?[jt]sx?$/.test(path);
+  return inputs.flatMap(path => {
+    const files = tracked.has(path) ? [path] : [...tracked].filter(file => file.startsWith(`${path}/`) && isTest(file));
+    return files.length ? files : refuse(`input ${path}: no tracked file`);
+  });
 }
 
 /** A family owns a path through its own owners, or through the reviewed broad-impact mapping that selects it. */
-function ownerDrift(workflow: any, manifests: Manifests, tracked: Set<string>) {
+function ownerDrift(workflow: any, manifests: Manifests, tracked: Set<string>, jobs = REVIEWED_JOBS) {
   const failures: string[] = [];
   let checked = 0;
   for (const family of SCOPE.families.filter((candidate: any) => candidate.id !== SCOPE.completeSuite)) {
     const shared = SCOPE.broad.families.includes(family.id) ? SCOPE.broad.paths : [];
     for (const id of family.jobs) {
-      for (const path of resolveFamilyJob(workflow, id, manifests, tracked)) {
+      for (const path of resolveFamilyJob(workflow, id, manifests, tracked, jobs)) {
         checked++;
         if (![...family.owners, ...shared].some((re: RegExp) => re.test(path))) failures.push(`${family.id} runs ${path} but does not own it`);
       }
@@ -704,46 +714,52 @@ function ownerDrift(workflow: any, manifests: Manifests, tracked: Set<string>) {
   return { failures, checked };
 }
 
-test("owner drift contract: each targeted family owns every test file and script that its jobs run", () => {
+test("owner drift contract: each targeted family job equals its reviewed job and owns every input", () => {
   const workflow: any = Bun.YAML.parse(readFileSync(".github/workflows/verify.yml", "utf8"));
   const manifests = readManifests();
   const tracked = new Set(TRACKED);
   const { failures, checked } = ownerDrift(workflow, manifests, tracked);
   expect(failures).toEqual([]);
   expect(checked).toBeGreaterThanOrEqual(50);
+  expect(Object.keys(REVIEWED_JOBS).sort()).toEqual(SCOPE.families.filter((family: any) => family.id !== SCOPE.completeSuite).flatMap((family: any) => family.jobs).sort());
   // Every bun-test family runs the root preload files; each counts them as inputs.
-  expect(manifests.preload).toEqual(["./scripts/check-bun-version.mjs", "./packages/surfaces/cli/bin/bun-darwin-sqlite.ts"]);
-  for (const id of ["verify-platform", "verify", "linux-arm64-descriptor-write"]) {
-    expect(resolveFamilyJob(workflow, id, manifests, tracked)).toEqual(expect.arrayContaining(["scripts/check-bun-version.mjs", "packages/surfaces/cli/bin/bun-darwin-sqlite.ts"]));
-  }
-  // A preload file that no family owns or maps is drift; an untracked one cannot be resolved.
-  expect(ownerDrift(workflow, { ...manifests, preload: [...manifests.preload, "./scripts/privacy-capture-lib.mjs"] }, tracked).failures)
+  const preload = ["scripts/check-bun-version.mjs", "packages/surfaces/cli/bin/bun-darwin-sqlite.ts"];
+  expect(bunfigPreload(manifests.bunfig)).toEqual(preload.map(path => `./${path}`));
+  for (const id of Object.keys(REVIEWED_JOBS)) expect(resolveFamilyJob(workflow, id, manifests, tracked)).toEqual(expect.arrayContaining(preload));
+  expect(resolveFamilyJob(workflow, "linux-arm64-descriptor-write", manifests, tracked)).toEqual([ARM64_TEST, ...preload]);
+  // A preload file that no family owns or maps is drift.
+  const unowned = { ...manifests, bunfig: { test: { preload: [...manifests.bunfig.test.preload, "./scripts/privacy-capture-lib.mjs"] } } };
+  expect(ownerDrift(workflow, unowned, tracked).failures)
     .toEqual(["platform", "node-compat", "linux-arm64"].map(id => `${id} runs scripts/privacy-capture-lib.mjs but does not own it`));
 
   const withJob = (id: string, change: (job: any) => any, base = workflow) => ({ ...base, jobs: { ...base.jobs, [id]: change(structuredClone(base.jobs[id])) } });
   const appendStep = (step: any) => withJob("verify-platform", job => ({ ...job, steps: [...job.steps, step] }));
+  const changeStep = (index: number, change: (step: any) => any) => withJob("verify-platform", job => ({ ...job, steps: job.steps.map((step: any, at: number) => at === index ? change(step) : step) }));
   const withScripts = (extra: Record<string, string>) => ({ ...manifests, root: { ...manifests.root, scripts: { ...manifests.root.scripts, ...extra } } });
-  const wrappers = withScripts({ unfiltered: "bun test --timeout 60000",
-    "inline-suite": `node -e "require('node:child_process').execFileSync('bun',['test'],{stdio:'inherit'})"` });
+  const withBunfig = (bunfig: any) => ({ ...manifests, bunfig });
+  const gptCommand = "node scripts/platform-ipc-permission-readback.mjs > /dev/null&./packages/surfaces/cli/bin/archctx";
+  const run = (index: number) => workflow.jobs["verify-platform"].steps[index].run;
   // Each refused shape, added to the otherwise valid real workflow, must fail the contract.
   const refused: [string, any, Manifests][] = [
     ...[
-      { run: "bun x unknown" }, { run: "bun test ./missing/dir" }, { run: "bun test --bail ./scripts" }, { run: "bun run no-such-script" },
-      { run: "node scripts/missing.mjs" }, { run: "bun test" }, { run: "bun test --timeout 60000" }, { run: "bun test --timeout" },
-      { run: "bun test ./" }, { run: "bun test ./." }, { run: "bun run unfiltered" }, { run: "bun run inline-suite" },
-      { run: `node -e "import('./scripts/codegraph-selector-node-integration.mjs')"` },
-      { run: `node -e "require('node:child_process').execFileSync('bun',['test'],{stdio:'inherit'})"` },
-      { run: RUNNER_GUARDS["linux-arm64-descriptor-write"] },
-      { run: "bun test ./scripts; bun test" }, { run: "node scripts/packaged-cli-smoke.mjs || true" },
+      { run: gptCommand }, { run: "bun run wrap" }, { run: "bun run verify:platform " }, { run: "bun  run verify:platform" },
+      { run: "bun install --frozen-lockfile --verbose" }, { run: "bun test" }, { run: "bun test --timeout 60000" },
+      { run: `node -e "require('node:child_process').execFileSync('bun',['test'],{stdio:'inherit'})"` }, { run: RUNNER_GUARD },
       { run: "bun test ./scripts", "working-directory": "packages" }, { name: "no command" },
-      { uses: "actions/download-artifact@v6" }, { uses: "some-org/run-anything@v1" }, { uses: "actions/checkout@v6", run: "bun test" },
-      { uses: "actions/checkout@v6", with: { ref: "other" } },
-      // A custom shell template runs its own program with the step's script as {0}.
-      { run: "node scripts/platform-ipc-permission-readback.mjs", shell: "node scripts/codegraph-selector-node-integration.mjs {0}" },
-      { run: "bun test", shell: "pwsh", if: "runner.os == 'Windows'" },
-      { run: "bun run verify:platform", env: { NODE_OPTIONS: "--require ./scripts/privacy-capture-lib.mjs" } },
-      { run: "bun run verify:platform", "continue-on-error": true }
-    ].map(step => [JSON.stringify(step), appendStep(step), wrappers] as [string, any, Manifests]),
+      { uses: "actions/download-artifact@v6" }, { uses: "some-org/run-anything@v1" },
+      { run: "node scripts/platform-ipc-permission-readback.mjs", shell: "node scripts/codegraph-selector-node-integration.mjs {0}" }
+    ].map(step => [JSON.stringify(step), appendStep(step), withScripts({ wrap: gptCommand })] as [string, any, Manifests]),
+    ["GPT command in place of a reviewed run", changeStep(5, step => ({ ...step, run: gptCommand })), manifests],
+    ["reviewed run with one extra flag", changeStep(7, step => ({ ...step, run: `${run(7)} --bail` })), manifests],
+    ["reviewed run with an extra env NODE_OPTIONS", changeStep(7, step => ({ ...step, env: { NODE_OPTIONS: "--require ./scripts/privacy-capture-lib.mjs" } })), manifests],
+    ["reviewed action with a changed with: value", changeStep(3, step => ({ ...step, with: { "bun-version": "latest" } })), manifests],
+    ["reviewed action with an extra with: input", changeStep(0, step => ({ ...step, with: { ref: "other" } })), manifests],
+    ["reviewed step with a working-directory", changeStep(4, step => ({ ...step, "working-directory": "packages" })), manifests],
+    ["reviewed step with a custom shell", changeStep(5, step => ({ ...step, shell: "node {0}" })), manifests],
+    ["reviewed step removed", withJob("verify-platform", job => ({ ...job, steps: job.steps.slice(0, -1) })), manifests],
+    ["reviewed steps reordered", withJob("verify-platform", job => ({ ...job, steps: [job.steps[1], job.steps[0], ...job.steps.slice(2)] })), manifests],
+    ["package script wrapping the GPT command", workflow, withScripts({ "verify:platform": `${manifests.root.scripts["verify:platform"]}&./packages/surfaces/cli/bin/archctx` })],
+    ["nested package script changed", workflow, withScripts({ "test:codegraph-selector-node": "node scripts/codegraph-selector-node-integration.mjs --fast" })],
     ["job defaults.run.shell", withJob("verify-platform", job => ({ ...job, defaults: { run: { shell: "node scripts/packaged-cli-smoke.mjs {0}" } } })), manifests],
     ["job defaults.run.working-directory", withJob("verify-platform", job => ({ ...job, defaults: { run: { "working-directory": "packages" } } })), manifests],
     ["workflow defaults", { ...workflow, defaults: { run: { shell: "bash" } } }, manifests],
@@ -751,26 +767,24 @@ test("owner drift contract: each targeted family owns every test file and script
     ["job container", withJob("verify-platform", job => ({ ...job, container: "node:22" })), manifests],
     ["job services", withJob("verify-platform", job => ({ ...job, services: { cache: { image: "redis" } } })), manifests],
     ["job env", withJob("verify-platform", job => ({ ...job, env: { NODE_OPTIONS: "--import ./scripts/privacy-capture-lib.mjs" } })), manifests],
+    ["arm64 env value changed", withJob("linux-arm64-descriptor-write", job => ({ ...job, env: { PUPPETEER_SKIP_DOWNLOAD: "0" } })), manifests],
     ["root postinstall", workflow, withScripts({ postinstall: "node scripts/privacy-capture-lib.mjs" })],
     ["workspace prepare", workflow, { ...manifests, workspaces: manifests.workspaces.map((manifest, index) => index ? manifest : { ...manifest, scripts: { prepare: "bun x tsc" } }) }],
     ["pre-hook of a family-run script", workflow, withScripts({ "preverify:platform": "node scripts/privacy-capture-lib.mjs" })],
-    ["post-hook of a family-run script", workflow, withScripts({ "postverify:node-compat": "node scripts/privacy-capture-lib.mjs" })],
-    ["untracked preload", workflow, { ...manifests, preload: ["./scripts/not-tracked.mjs"] }],
-    ["setup-bun input outside its reviewed keys", appendStep({ uses: "oven-sh/setup-bun@v2", with: { "bun-version": "1.4.4", "bun-download-url": "https://example.test/bun.zip" } }), manifests]
+    ["post-hook of a nested family-run script", workflow, withScripts({ "posttest:codegraph-selector-node": "node scripts/privacy-capture-lib.mjs" })],
+    ["bunfig top-level preload", workflow, withBunfig({ ...manifests.bunfig, preload: ["./scripts/privacy-capture-lib.mjs"] })],
+    ["bunfig [run] bun = true", workflow, withBunfig({ ...manifests.bunfig, run: { bun: true } })],
+    ["bunfig [test] root", workflow, withBunfig({ test: { ...manifests.bunfig.test, root: "packages" } })],
+    ["bunfig [install]", workflow, withBunfig({ ...manifests.bunfig, install: { exact: true } })],
+    ["untracked preload", workflow, withBunfig({ test: { preload: ["./scripts/not-tracked.mjs"] } })]
   ];
   for (const [label, candidate, candidateManifests] of refused) {
-    const resolveAll = () => SCOPE.families.filter((family: any) => family.id !== SCOPE.completeSuite)
-      .forEach((family: any) => family.jobs.forEach((id: string) => resolveFamilyJob(candidate, id, candidateManifests, tracked)));
-    expect(resolveAll, label).toThrow("cannot resolve");
+    expect(() => ownerDrift(candidate, candidateManifests, tracked), label).toThrow("cannot resolve");
   }
-  // The reviewed arm64 guard stays valid in its own job and adds no input.
-  expect(resolveFamilyJob(workflow, "linux-arm64-descriptor-write", manifests, tracked))
-    .toEqual(["packages/core/changeset-engine/test/changeset-engine.test.ts", "scripts/check-bun-version.mjs", "packages/surfaces/cli/bin/bun-darwin-sqlite.ts"]);
-  expect(() => resolveFamilyJob(withJob("verify-platform", job => ({ ...job, steps: [{ run: "bun test --timeout 60000" }] })), "verify-platform", manifests, tracked))
-    .toThrow("unfiltered bun test");
-  // A filter without `./` is Bun's substring match, so it resolves every test path that contains it.
-  expect(resolveFamilyJob(withJob("verify-platform", job => ({ ...job, steps: [{ run: "bun test git-adapter/test/" }] })), "verify-platform", manifests, tracked))
-    .toEqual([...TRACKED.filter(file => file.includes("git-adapter/test/") && file.endsWith(".test.ts")), "scripts/check-bun-version.mjs", "packages/surfaces/cli/bin/bun-darwin-sqlite.ts"]);
+  // A refused step names its family, so a reviewer sees which family's surface it touched.
+  expect(() => ownerDrift(appendStep({ run: gptCommand }), manifests, tracked)).toThrow(`cannot resolve platform runs ${JSON.stringify({ run: gptCommand })}`);
+  expect(() => ownerDrift(workflow, withBunfig({ ...manifests.bunfig, run: { bun: true } }), tracked)).toThrow("cannot resolve bunfig.toml run");
+  expect(() => ownerDrift(workflow, withBunfig({ test: { ...manifests.bunfig.test, root: "packages" } }), tracked)).toThrow("cannot resolve bunfig.toml test.root");
 });
 
 test("the reviewed workspace graph equals the workspace manifests: every workspace and local dependency edge", () => {
