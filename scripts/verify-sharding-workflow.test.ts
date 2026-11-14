@@ -572,15 +572,23 @@ test("the impact and gate commands plan each event from its base and gate the sa
  * Resolve a family job's commands to the tracked files that it runs, with Bun's own argument meaning:
  * a `./` argument is a file or directory path, any other argument is a substring filter over test file
  * paths, and no argument at all runs the whole discovered suite. A targeted family may never run the
- * whole suite, so that and every command the resolver cannot map to an exact input set throw.
+ * whole suite, so that and every command the resolver cannot map to an exact input set throw. Only the
+ * reviewed setup actions, the reviewed Windows temp-directory lines and the one reviewed arm64 runner
+ * guard resolve to no input; every other shape, including any other inline Node code, throws.
  */
-function resolveJobInputs(job: any, scripts: Record<string, string>, tracked: Set<string>): string[] {
+const REVIEWED_ACTIONS = ["actions/checkout", "actions/setup-node", "oven-sh/setup-bun", "actions/upload-artifact"];
+const RUNNER_GUARDS: Record<string, string> = {
+  "linux-arm64-descriptor-write": `node -e "if (process.platform !== 'linux' || process.arch !== 'arm64') process.exit(1)"`
+};
+function resolveJobInputs(id: string, job: any, scripts: Record<string, string>, tracked: Set<string>): string[] {
   const files: string[] = [];
   const isTest = (path: string) => /[._](?:test|spec)\.[cm]?[jt]sx?$/.test(path);
   const resolveCommand = (command: string) => {
     const words = command.trim().split(/\s+/);
+    if (command.trim() === RUNNER_GUARDS[id]) return; // runs no repository file
+    // Only `&&` chaining and one `> file` redirect are resolvable shell syntax.
+    if (/[;|`$()<'"\\]/.test(command)) throw new Error(`cannot resolve ${command}`);
     if (words.join(" ") === "bun install --frozen-lockfile") return;
-    if (words[0] === "node" && words[1] === "-e") return; // inline runner guard: runs no repository file
     if (words[0] === "bun" && words[1] === "run" && words.length === 3 && scripts[words[2]]) return scripts[words[2]].split("&&").forEach(resolveCommand);
     if (words[0] === "bun" && words[1] === "test") {
       let positional = 0;
@@ -602,7 +610,11 @@ function resolveJobInputs(job: any, scripts: Record<string, string>, tracked: Se
     throw new Error(`cannot resolve ${command}`);
   };
   for (const step of job.steps) {
-    if (step.uses) continue;
+    if (step.uses !== undefined) {
+      if (step.run !== undefined || !REVIEWED_ACTIONS.includes(String(step.uses).split("@")[0])) throw new Error(`cannot resolve uses: ${step.uses}`);
+      continue;
+    }
+    if (typeof step.run !== "string" || step["working-directory"] !== undefined) throw new Error(`cannot resolve step ${JSON.stringify(step)}`);
     const lines = step.run.split("\n").filter((line: string) => line.trim());
     if (step.shell === "pwsh") {
       for (const line of lines) if (!/^"(?:TEMP|TMP)=\$env:RUNNER_TEMP" >> \$env:GITHUB_ENV$/.test(line)) throw new Error(`cannot resolve ${line}`);
@@ -621,7 +633,7 @@ test("owner drift contract: each targeted family owns every test file and script
   let checked = 0;
   for (const family of SCOPE.families.filter((candidate: any) => candidate.id !== SCOPE.completeSuite)) {
     for (const id of family.jobs) {
-      for (const path of resolveJobInputs(workflow.jobs[id], scripts, tracked)) {
+      for (const path of resolveJobInputs(id, workflow.jobs[id], scripts, tracked)) {
         checked++;
         if (!family.owners.some((re: RegExp) => re.test(path))) failures.push(`${family.id} runs ${path} but does not own it`);
       }
@@ -629,15 +641,30 @@ test("owner drift contract: each targeted family owns every test file and script
   }
   expect(failures).toEqual([]);
   expect(checked).toBeGreaterThanOrEqual(45);
-  for (const run of ["bun x unknown", "bun test ./missing/dir", "bun test --bail ./scripts", "bun run no-such-script", "node scripts/missing.mjs",
-    "bun test", "bun test --timeout 60000", "bun test --timeout", "bun test ./", "bun test ./.", "bun run unfiltered"]) {
-    expect(() => resolveJobInputs({ steps: [{ run }] }, { ...scripts, unfiltered: "bun test --timeout 60000" }, tracked)).toThrow("cannot resolve");
+  // Each unresolvable shape, appended to an otherwise valid family job, must fail the contract.
+  const wrappers = { ...scripts, unfiltered: "bun test --timeout 60000",
+    "inline-suite": `node -e "require('node:child_process').execFileSync('bun',['test'],{stdio:'inherit'})"` };
+  const appended = [
+    { run: "bun x unknown" }, { run: "bun test ./missing/dir" }, { run: "bun test --bail ./scripts" }, { run: "bun run no-such-script" },
+    { run: "node scripts/missing.mjs" }, { run: "bun test" }, { run: "bun test --timeout 60000" }, { run: "bun test --timeout" },
+    { run: "bun test ./" }, { run: "bun test ./." }, { run: "bun run unfiltered" }, { run: "bun run inline-suite" },
+    { run: `node -e "import('./scripts/codegraph-selector-node-integration.mjs')"` },
+    { run: `node -e "require('node:child_process').execFileSync('bun',['test'],{stdio:'inherit'})"` },
+    { run: RUNNER_GUARDS["linux-arm64-descriptor-write"] },
+    { run: "bun test ./scripts; bun test" }, { run: "node scripts/packaged-cli-smoke.mjs || true" },
+    { run: "bun test ./scripts", "working-directory": "packages" }, { name: "no command" },
+    { uses: "actions/download-artifact@v6" }, { uses: "some-org/run-anything@v1" }, { uses: "actions/checkout@v6", run: "bun test" }
+  ];
+  for (const step of appended) {
+    const job = { ...workflow.jobs["verify-platform"], steps: [...workflow.jobs["verify-platform"].steps, step] };
+    expect(() => resolveJobInputs("verify-platform", job, wrappers, tracked)).toThrow("cannot resolve");
   }
-  // An unfiltered suite appended to an otherwise valid family job cannot leave the contract green.
-  const widened = { ...workflow.jobs["verify-platform"], steps: [...workflow.jobs["verify-platform"].steps, { run: "bun test --timeout 60000" }] };
-  expect(() => resolveJobInputs(widened, scripts, tracked)).toThrow("unfiltered bun test");
+  // The reviewed arm64 guard stays valid in its own job and adds no input.
+  expect(resolveJobInputs("linux-arm64-descriptor-write", workflow.jobs["linux-arm64-descriptor-write"], scripts, tracked))
+    .toEqual(["packages/core/changeset-engine/test/changeset-engine.test.ts"]);
+  expect(() => resolveJobInputs("verify-platform", { steps: [{ run: "bun test --timeout 60000" }] }, scripts, tracked)).toThrow("unfiltered bun test");
   // A filter without `./` is Bun's substring match, so it resolves every test path that contains it.
-  expect(resolveJobInputs({ steps: [{ run: "bun test git-adapter/test/" }] }, scripts, tracked))
+  expect(resolveJobInputs("verify-platform", { steps: [{ run: "bun test git-adapter/test/" }] }, scripts, tracked))
     .toEqual(TRACKED.filter(file => file.includes("git-adapter/test/") && file.endsWith(".test.ts")));
 });
 
