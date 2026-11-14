@@ -224,11 +224,13 @@ shared `evidenceSampleLimit` and the candidates cut by `maxRecommendationsPerRun
 a scan-candidate decision and a scan-candidate `recommendations show` refuse an unrecordable run with
 `AC_REFACTOR_RUN_TOO_LARGE` (not retryable; `error.details` carries the measured size and the
 limit), and the scan omits `recordCommand` for such a run. A stale `--expected-worktree-digest` on a decision returns `AC_REFACTOR_STALE`.
-The scan reads all CodeGraph import nodes in one query sized from the index count. The request
-field `importNodeLimit` (CLI `--import-node-limit`, default 50000) caps that read. When the index
+The scan reads all CodeGraph import nodes through the in-process read-only index handle (ADR-0058).
+The request field `importNodeLimit` (CLI `--import-node-limit`, default 64000) caps the nodes kept;
+above the cap the kept nodes are the first ones in (file path, specifier, line) order. When the index
 holds more import nodes than the cap, `codeFacts` reports `coverage: partial`, `truncated: false`,
 `importNodeCount`, `edgeLimit` and reason code `code-facts-import-limit`. `code-facts-truncated`
-means the read returned fewer nodes than the index reported, or no index answered.
+means the read returned a different number of nodes than the index reported, the index changed
+during the read, or no index answered.
 The scan measures the `HEAD` tree only. `untrackedExcludedCount` counts the worktree files that Git
 does not ignore and that `HEAD` does not carry (untracked and newly staged files). A commit that
 adds them changes the numbers for the same model (capability `refactor-scan-untracked-count-v1`).

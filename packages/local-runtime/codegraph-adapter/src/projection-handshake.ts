@@ -27,7 +27,6 @@ import {
   packagedCodeGraphRuntimeDigest,
   type CodeGraphCliInvocation
 } from "./cli-provider";
-import { statusImportNodeCount } from "./import-population";
 import { assertRepositoryCodeFactsReady, codeGraphIndexAvailable } from "./repository-code-facts";
 import { loadCapabilityCodeGraphProjectionInputs, type CapabilityCodeGraphProjectionInputs } from "./selector-index";
 
@@ -264,9 +263,7 @@ export function prepareProjectionCodeFacts(
   const inputs = loadCapabilityCodeGraphProjectionInputs(root, model, {
     ...(options.sourceFiles ? { sourceFiles: options.sourceFiles } : {}),
     ...(options.footprints ? { footprints: options.footprints } : {}),
-    binary: binaryPath,
     importNodeLimit: options.importNodeLimit,
-    importNodeCount: statusImportNodeCount(postStatus),
     ...(options.importGraphs === false ? { importGraphs: false } : {})
   });
   const finalStatus = readProjectionCodeGraphStatus(invocation, root, statusTimeout);

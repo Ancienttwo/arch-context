@@ -8,7 +8,8 @@ import { stableYaml } from "@archcontext/contracts";
 import { codeGraphCliInvocation } from "@archcontext/local-runtime/codegraph-adapter";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 
-const cli = resolve(import.meta.dir, "../src/main.ts");
+// The development entry: under Bun on darwin it loads the SQLite that opens the index read-only (ADR-0058).
+const cli = resolve(import.meta.dir, "../bin/archctx");
 const root = mkdtempSync(join(tmpdir(), "archctx-constraints-cli-"));
 const state = mkdtempSync(join(tmpdir(), "archctx-constraints-state-"));
 const constraintPath = ".archcontext/model/constraints/constraint.layers.yaml";

@@ -2,15 +2,14 @@ import { computeWorktreeDigest } from "@archcontext/core/architecture-domain";
 import { checkArchitectureFlowSelectors, loadCapabilitySourceFootprints, type NativeModel } from "@archcontext/core/projection-engine";
 import type { ArchitectureDebtEvidence } from "@archcontext/core/review-engine";
 import {
-  inspectRepositoryCodeFacts, loadCapabilityCodeGraphProjectionInputs,
-  type CodeGraphReadProvider, type RepositoryCodeFactsV1
+  inspectRepositoryCodeFacts, loadCapabilityCodeGraphProjectionInputs, type RepositoryCodeFactsV1
 } from "@archcontext/local-runtime/codegraph-adapter";
 import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { projectionArchitectureDebt } from "./projection-architecture-debt";
 
 type CodeFactsDebtEvidence = Pick<ArchitectureDebtEvidence, "dependencies" | "flows" | "unavailable">;
 type ReadOptions = Pick<NonNullable<Parameters<typeof loadCapabilityCodeGraphProjectionInputs>[2]>,
-  "binary" | "selectorIndexFactory" | "importNodeLimit"> & { provider?: CodeGraphReadProvider };
+  "provider" | "selectorIndexFactory" | "importNodeLimit">;
 
 /**
  * Full dependency/flow evidence for the completion consumer. Deliberately separate from the
@@ -18,7 +17,7 @@ type ReadOptions = Pick<NonNullable<Parameters<typeof loadCapabilityCodeGraphPro
  * S2 owns readiness; an unavailable producer yields coverage gaps, never invented clean facts.
  */
 export function readArchitectureDebtCodeFacts(root: string, model: NativeModel, options: ReadOptions = {}): CodeFactsDebtEvidence {
-  const { provider, ...readOptions } = options;
+  const { provider } = options;
   const inspection = provider ? { provider } : {};
   const sourceFiles = listGitVisibleFiles(root);
   const worktreeDigest = computeWorktreeDigest(root, sourceFiles);
@@ -27,7 +26,7 @@ export function readArchitectureDebtCodeFacts(root: string, model: NativeModel, 
   let inputs: ReturnType<typeof loadCapabilityCodeGraphProjectionInputs>;
   try {
     inputs = loadCapabilityCodeGraphProjectionInputs(root, model, {
-      ...readOptions, readOnly: true, sourceFiles,
+      ...options, readOnly: true, sourceFiles,
       footprints: loadCapabilitySourceFootprints(root, model, sourceFiles)
     });
   } catch {

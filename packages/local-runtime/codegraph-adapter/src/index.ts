@@ -27,6 +27,7 @@ export {
   codeGraphCliInvocation,
   disableCodeGraphTelemetryByDefault,
   packagedCodeGraphCliInvocation,
+  packagedCodeGraphRuntimeDigest,
   type CodeGraphCliInvocation,
   type CodeGraphProvider
 } from "./cli-provider";

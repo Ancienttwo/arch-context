@@ -32,10 +32,7 @@ if (!actualRevision.startsWith(declared.revision)) {
 }
 
 const model = loadNativeModelFromArchContext(fixtureRoot);
-const measured = loadCapabilityCodeGraphProjectionInputs(repoHarnessRoot, model, {
-  binary: args.codegraph ?? "codegraph",
-  importNodeLimit: 1
-}).selectorEvidence;
+const measured = loadCapabilityCodeGraphProjectionInputs(repoHarnessRoot, model, { importNodeLimit: 1 }).selectorEvidence;
 if (JSON.stringify(sortEvidence(measured)) !== JSON.stringify(sortEvidence(declared.evidence))) {
   throw new Error("pinned semantic-pilot evidence does not match the current exact CodeGraph readback");
 }

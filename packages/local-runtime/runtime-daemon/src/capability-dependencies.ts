@@ -8,9 +8,6 @@ import { CODEGRAPH_IMPORT_NODE_READ_LIMIT, repositoryImportPairs } from "@archco
 import { readHeadSha, readTrackedTreeEntries, listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { declaredWorkspacePackages } from "./refactor-scan";
 
-/** The CodeGraph CLI name the adapter resolves package-locally when PATH has no answer. */
-const CODEGRAPH_BINARY = "codegraph";
-
 export interface CapabilityDependenciesRequestV1 {
   from?: string;
   into?: string;
@@ -128,7 +125,7 @@ function loadModel(root: string): NativeModel {
 /** A failed index read is the `unavailable` answer, never a guessed edge set. */
 function readImports(root: string, limit: number, worktreeDigest: string, sourceFiles: readonly string[]): ReturnType<typeof repositoryImportPairs> {
   try {
-    return repositoryImportPairs(root, CODEGRAPH_BINARY, limit, worktreeDigest, sourceFiles);
+    return repositoryImportPairs(root, limit, worktreeDigest, sourceFiles);
   } catch {
     return {
       pairs: [],

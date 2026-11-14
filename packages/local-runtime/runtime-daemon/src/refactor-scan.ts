@@ -1,6 +1,5 @@
 import { FailureError, knownFailure, unclassifiedFailure } from "@archcontext/contracts";
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -35,18 +34,15 @@ import type { RecommendationSuppression, RefactorCandidateBudget } from "@archco
 import { assessRefactor } from "@archcontext/core/refactor-assessment";
 import {
   CODEGRAPH_IMPORT_NODE_READ_LIMIT,
-  codeGraphCliInvocation,
   codeGraphIndexAvailable,
+  packagedCodeGraphRuntimeDigest,
+  pinnedCodeGraphProvider,
   repositoryImportPairs
 } from "@archcontext/local-runtime/codegraph-adapter";
 import { normalizePackageExports, readHeadCommitterDate, readTrackedSourceFiles, readTrackedTreeEntries, readWorkspacePackages } from "@archcontext/local-runtime/git-adapter";
 import { listModelFiles } from "@archcontext/local-runtime/model-store-yaml";
 import type { RefactorDecisionSetV1 } from "./refactor-decisions";
 import { planRefactorRunWithRecording, previousRecommendationsFromAuthority, type RefactorRunRecordingV1 } from "./refactor-recording";
-
-/** The CodeGraph CLI name the adapter resolves package-locally when PATH has no answer. */
-const CODEGRAPH_BINARY = "codegraph";
-const CODEGRAPH_VERSION_TIMEOUT_MS = 15_000;
 
 /** The default request: measure the whole repository and classify nothing beyond it. */
 export const REPOSITORY_REFACTOR_REQUEST: RefactorRequestV1 = {
@@ -298,7 +294,7 @@ export function evaluateWorktreeDependencyConstraints(input: {
   const edgeLimit = input.edgeLimit ?? CODEGRAPH_IMPORT_NODE_READ_LIMIT;
   let imports: ReturnType<typeof repositoryImportPairs>;
   try {
-    imports = repositoryImportPairs(input.root, CODEGRAPH_BINARY, edgeLimit, input.worktreeDigest, input.sourceFiles);
+    imports = repositoryImportPairs(input.root, edgeLimit, input.worktreeDigest, input.sourceFiles);
   } catch {
     imports = {
       pairs: [],
@@ -508,8 +504,8 @@ interface RefactorScanCodeFactsV1 {
  */
 function readCodeFacts(root: string, worktreeDigest: string, sourceFiles: readonly string[], edgeLimit: number): RefactorScanCodeFactsV1 {
   const indexed = codeGraphIndexAvailable(root);
-  const imports = repositoryImportPairs(root, CODEGRAPH_BINARY, edgeLimit, worktreeDigest, sourceFiles);
-  const attestation = indexed ? attestCodeGraphBinary(root) : { version: "", binaryDigest: "" };
+  const imports = repositoryImportPairs(root, edgeLimit, worktreeDigest, sourceFiles);
+  const attestation = indexed ? attestCodeGraphRuntime() : { version: "", binaryDigest: "" };
   return {
     pairs: imports.pairs,
     truncated: imports.truncated,
@@ -521,18 +517,11 @@ function readCodeFacts(root: string, worktreeDigest: string, sourceFiles: readon
   };
 }
 
-/** The actual binary that answered, not the pinned constant: a pin is a requirement, not evidence. */
-function attestCodeGraphBinary(root: string): { version: string; binaryDigest: string } {
-  const invocation = codeGraphCliInvocation(CODEGRAPH_BINARY, root);
-  const version = execFileSync(invocation.command, [...invocation.argsPrefix, "--version"], {
-    cwd: root,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-    timeout: CODEGRAPH_VERSION_TIMEOUT_MS
-  }).trim();
-  const binaryPath = invocation.argsPrefix[0] ?? invocation.command;
-  return {
-    version,
-    binaryDigest: `sha256:${createHash("sha256").update(readFileSync(binaryPath)).digest("hex")}`
-  };
+/**
+ * The provider that answered, not the pinned constant: a pin is a requirement, not evidence. The
+ * version is the manifest of the platform bundle this process loaded and read the index with
+ * (ADR-0058); the digest covers the packaged runtime, the same one the projection handshake attests.
+ */
+function attestCodeGraphRuntime(): { version: string; binaryDigest: string } {
+  return { version: pinnedCodeGraphProvider().version, binaryDigest: packagedCodeGraphRuntimeDigest() };
 }
