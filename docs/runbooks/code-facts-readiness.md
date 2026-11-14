@@ -65,7 +65,9 @@ version; its index fields remain unknown.
 
 The existing `AC_CODE_FACTS_UNAVAILABLE` code still covers a missing index when
 code facts are required. Failure to load the provider uses the same code with reason
-`codegraph-unavailable`; failure to open or read the index uses `index-open-failed`.
+`code-facts-unavailable`; failure to open or read the index uses `index-open-failed`.
+The doctor's internal readiness diagnostic for a provider load failure is
+`codegraph-unavailable`; consumers of CLI/MCP failure envelopes match the public reason above.
 Both use action `inspect-diagnostics` and `retryable: false`. Raw provider errors are
 not copied into the public response.
 
