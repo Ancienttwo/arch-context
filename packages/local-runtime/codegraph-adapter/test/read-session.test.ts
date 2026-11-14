@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
+import { once } from "node:events";
 import { createHash } from "node:crypto";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -214,8 +215,8 @@ describe("pinned provider bump guard (ADR-0058 Decision 7)", () => {
 });
 
 /**
- * A real index read in this process through the pinned provider: no holder process, so the open
- * also proves the read-only open works after the writer removed its sidecars.
+ * A real index read through the pinned provider, both after the writer removes its sidecars and
+ * while a separate writer still holds a live WAL. All reads stay in this process.
  */
 describe("read session over a real index", () => {
   let root = "";
@@ -295,6 +296,56 @@ describe("read session over a real index", () => {
     }
     expect(inspectRepositoryCodeFacts(root)).toMatchObject({ state: "ready" });
   });
+
+  test("a read sees a live writer's WAL without changing it or the database", async () => {
+    writeFileSync(join(root, "src/b.ts"), "export function b() { return 2; }\n");
+    const { platformRoot, dist } = codeGraphBundle();
+    const database = join(root, ".codegraph", "codegraph.db");
+    const wal = `${database}-wal`;
+    // Only the fixture writer loads native parsers. Its lifetime also bounds their resources.
+    const writer = spawn(join(platformRoot, process.platform === "win32" ? "node.exe" : "node"), ["-e", `
+      const { CodeGraph } = require(process.argv[1]);
+      (async () => {
+        const graph = CodeGraph.openSync(process.argv[2]);
+        try {
+          const indexed = await graph.indexFiles(["src/b.ts"]);
+          if (!indexed.success || indexed.filesIndexed !== 1) throw new Error(JSON.stringify(indexed));
+          process.stdin.resume();
+          process.stdout.write(JSON.stringify(graph.getIndexRevision()) + "\\n");
+          await new Promise(resolve => process.stdin.once("end", resolve));
+        } finally { graph.close(); }
+      })().catch(error => { console.error(error); process.exitCode = 1; });
+    `, join(dist, "index.js"), root], {
+      cwd: root, stdio: ["pipe", "pipe", "pipe"], timeout: 60_000,
+      env: { ...process.env, DO_NOT_TRACK: "1", CODEGRAPH_NO_DOWNLOAD: "1" }
+    });
+    const exited = once(writer, "exit");
+    let stderr = "";
+    writer.stderr.on("data", chunk => { stderr += chunk; });
+    try {
+      const ready = await Promise.race([
+        once(writer.stdout, "data").then(([chunk]) => String(chunk)),
+        exited.then(([code]) => { throw new Error(`writer exited (${code}): ${stderr}`); })
+      ]);
+      const revision = JSON.parse(ready);
+      expect(statSync(wal).size).toBeGreaterThan(32);
+      const before = { database: digest(database), wal: digest(wal) };
+      withCodeGraphReadSession(root, (opened) => {
+        if (opened.state !== "open") throw new Error(opened.state);
+        expect(opened.session.revision()).toEqual(revision);
+        expect(opened.session.graph.getNodesByName("b")).toHaveLength(1);
+        expect(opened.session.freshness()).toEqual({ added: 0, modified: 0, removed: 0 });
+        expect(opened.session.unchangedSinceOpen()).toBe(true);
+      });
+      expect({ database: digest(database), wal: digest(wal) }).toEqual(before);
+      expect(writer.exitCode).toBeNull();
+    } finally {
+      writer.stdin.end();
+      const [code] = await exited;
+      expect(code, stderr).toBe(0);
+    }
+  }, 90_000);
+
 });
 
 describe("withReadyCodeGraphIndex: readiness and the read on one session", () => {
