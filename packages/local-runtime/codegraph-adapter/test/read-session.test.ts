@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { delimiter, join } from "node:path";
+import { join } from "node:path";
 import {
   CODEGRAPH_PROVIDER_INTERNAL_EXPORTS,
   REQUIRED_CODEGRAPH_VERSION,
@@ -18,6 +18,7 @@ import {
 import { codeGraphBundle } from "../src/read-session";
 import { withReadyCodeGraphIndex } from "../src/ready-index-read";
 import { fakeReadProvider } from "./read-provider-fixture";
+import { gitSpy } from "./git-spy";
 import { indexCodeGraphFixture } from "./real-index";
 
 function withRoot<T>(run: (root: string) => T): T {
@@ -243,14 +244,20 @@ describe("read session over a real index", () => {
     const before = { gitIndex: statSync(gitIndex).mtimeMs, database: digest(database) };
     const spy = process.platform === "win32" ? undefined : gitSpy();
     let commands: string[] = [];
+    // The read is in-process, so the spy goes on this process's PATH for its duration.
+    const path = process.env.PATH;
+    if (spy) process.env.PATH = spy.env.PATH;
     try {
       expect(inspectRepositoryCodeFacts(root)).toMatchObject({
         state: "ready", codeGraphVersion: REQUIRED_CODEGRAPH_VERSION, indexBuiltWithVersion: REQUIRED_CODEGRAPH_VERSION,
         pendingChanges: { added: 0, modified: 0, removed: 0 }, issues: []
       });
       expect(() => assertRepositoryCodeFactsReady(root)).not.toThrow();
-      commands = spy?.commands() ?? [];
-    } finally { spy?.restore(); }
+      commands = spy?.subcommands() ?? [];
+    } finally {
+      process.env.PATH = path;
+      spy?.restore();
+    }
     if (spy) {
       // The spy saw the provider enumeration, so an absent status or diff is a real absence.
       expect(commands.some(command => command.startsWith("ls-files"))).toBe(true);
@@ -379,23 +386,3 @@ test("a ready read sees includeIgnored, include and extension sources; a new sou
     }));
   });
 }, 120_000);
-
-/** A `git` first on PATH that logs each command and runs the real one. POSIX only. */
-function gitSpy(): { commands(): string[]; restore(): void } {
-  const dir = realpathSync.native(mkdtempSync(join(tmpdir(), "archctx-git-spy-")));
-  const log = join(dir, "git.log");
-  const real = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
-  writeFileSync(log, "");
-  writeFileSync(join(dir, "git"), `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\nexec '${real}' "$@"\n`);
-  chmodSync(join(dir, "git"), 0o755);
-  const previous = process.env.PATH;
-  process.env.PATH = `${dir}${delimiter}${previous ?? ""}`;
-  return {
-    // `-C <dir>` is a location, not the command.
-    commands: () => readFileSync(log, "utf8").split("\n").filter(Boolean).map(line => line.replace(/^-C \S+ /, "")),
-    restore: () => {
-      process.env.PATH = previous;
-      rmSync(dir, { recursive: true, force: true });
-    }
-  };
-}
