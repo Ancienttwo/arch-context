@@ -1,6 +1,7 @@
 import { FailureError, okEnvelope, type Json, type JsonEnvelope } from "@archcontext/contracts";
 import { architectureDocumentationSourceTreeDigest, checkArchitectureFlowSelectors, loadNativeModelFromArchContext } from "@archcontext/core/projection-engine";
-import { assertProjectionCodeFactsAvailable, codeGraphSnapshotQueries, loadCapabilityCodeGraphProjectionInputs, prepareProjectionCodeFacts, REQUIRED_CODEGRAPH_VERSION, withExistingCodeGraphSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
+import { assertProjectionCodeFactsAvailable, loadCapabilityCodeGraphProjectionInputs, prepareProjectionCodeFacts, REQUIRED_CODEGRAPH_VERSION } from "@archcontext/local-runtime/codegraph-adapter";
+import { withReadyCodeGraphIndex } from "../../codegraph-adapter/src/ready-index-read";
 import { findRepositoryRoot, listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { selectedProducerFailureEnvelope } from "./producer-failure";
 
@@ -10,7 +11,7 @@ import { selectedProducerFailureEnvelope } from "./producer-failure";
  * no daemon, no local store, no runtime state, no task session, no ChangeSet. It takes the same
  * CodeGraph handshake as a projection (version, status, `codegraph sync`) and reads selector
  * evidence through the same producer, but skips the import-graph query and every renderer.
- * `noSync` requires a ready existing index; a provider Node process reads its private snapshot.
+ * `noSync` requires a ready existing index and reads it in-process and read-only (ADR-0058).
  */
 export function runFlowSelectorCheckCommand(cwd: string, options: { binary?: string; noSync?: boolean } = {}): JsonEnvelope {
   try {
@@ -19,9 +20,9 @@ export function runFlowSelectorCheckCommand(cwd: string, options: { binary?: str
     catch { throw new FailureError("AC_REPO_NOT_FOUND", "git-worktree-required"); }
     const model = loadNativeModelFromArchContext(root);
     if (options.noSync) {
-      const selectorEvidence = withExistingCodeGraphSnapshot(root, codeGraphSnapshotQueries(model.nodes), graph => loadCapabilityCodeGraphProjectionInputs(root, model, {
-        readOnly: true, importGraphs: false,
-        // The snapshot boundary owns handle lifetime, including the post-read stability check.
+      const selectorEvidence = withReadyCodeGraphIndex(root, graph => loadCapabilityCodeGraphProjectionInputs(root, model, {
+        importGraphs: false,
+        // The read session owns the handle, including the post-read revision check.
         selectorIndexFactory: () => ({
           getNodesByName: name => graph.getNodesByName(name),
           getNodesInFile: path => graph.getNodesInFile(path),
