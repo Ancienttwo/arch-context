@@ -53,4 +53,4 @@ enforcement 升级、waiver、hook、Context7 pinning、source 更新、rollout 
 - Repo-harness 的 workflow/context/task gate 已完成初始化。
 - CodeGraph 项目索引已建立，用于源码导航。
 - `bun test` 与 `bun run verify` 是目前本地的 code gate。
-- Repo-harness 的 runtime helper 来自全局 `repo-harness` CLI；`scripts/` 下本地生成的 wrapper 属于被忽略的兼容文件，可能不存在。请使用 `repo-harness run <helper>`。
+- Repo-harness 的 runtime helper 来自全局 `rh` CLI（包名为 `repo-harness`）；`scripts/` 下本地生成的 wrapper 属于被忽略的兼容文件，可能不存在。请使用 `rh run <helper>`。

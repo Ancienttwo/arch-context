@@ -56,4 +56,4 @@ source-update, rollout, and rollback operations.
 - Repo-harness workflow/context/task gates are initialized.
 - CodeGraph project index is initialized for source navigation.
 - `bun test` and `bun run verify` are the current local code gates.
-- Repo-harness runtime helpers come from the global `repo-harness` CLI; local generated wrappers under `scripts/` are ignored compatibility files and may be absent. Use `repo-harness run <helper>`.
+- Repo-harness runtime helpers come from the global `rh` CLI (the `repo-harness` package name); local generated wrappers under `scripts/` are ignored compatibility files and may be absent. Use `rh run <helper>`.
