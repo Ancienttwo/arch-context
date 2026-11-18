@@ -748,7 +748,7 @@ describe("base index seed and refresh (#608)", () => {
     const cases: [string, (input: { worktree: string; baseDir: string; head: string }) => void, string, string][] = [
       ["no base", () => undefined, "AC_CODE_FACTS_UNAVAILABLE", "index-missing"],
       ["no base yet, a refresh is running", ({ baseDir }) => { mkdirSync(baseDir, { recursive: true }); writeFileSync(join(baseDir, "refresh.lock"), String(process.pid)); }, "AC_CODE_FACTS_UNAVAILABLE", "index-base-building"],
-      ["a linked .codegraph, with a base", ({ worktree, baseDir, head }) => { publishBase(baseDir, head); symlinkSync(join(baseDir), join(worktree, ".codegraph")); }, "AC_CODE_FACTS_UNAVAILABLE", "index-open-failed"]
+      ["a linked .codegraph, with a base", ({ worktree, baseDir, head }) => { publishBase(baseDir, head); symlinkSync(baseDir, join(worktree, ".codegraph"), process.platform === "win32" ? "junction" : "dir"); }, "AC_CODE_FACTS_UNAVAILABLE", "index-open-failed"]
     ];
     for (const [label, setup, code, reasonCode] of cases) {
       const repo = baseIndexRepository("archctx-base-refusal-");
@@ -836,7 +836,7 @@ describe("base index seed and refresh (#608)", () => {
       expect(refresh()).toBe("published");
       const current = JSON.parse(readFileSync(join(repo.baseDir, "current.json"), "utf8")).snapshot as string;
       expect(existsSync(unreferencedOld)).toBe(false);
-      expect([previous, current, unreferencedYoung, foreignName, foreignVersion].map(name => existsSync(name.includes("/") ? name : join(repo.baseDir, name)))).toEqual([true, true, true, true, true]);
+      expect([join(repo.baseDir, previous), join(repo.baseDir, current), unreferencedYoung, foreignName, foreignVersion].map(path => existsSync(path))).toEqual([true, true, true, true, true]);
     } finally {
       repo.cleanup();
     }

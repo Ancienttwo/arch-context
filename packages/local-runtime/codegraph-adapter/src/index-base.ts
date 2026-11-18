@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { closeSync, constants as fsConstants, copyFileSync, linkSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, writeSync } from "node:fs";
+import { closeSync, constants as fsConstants, copyFileSync, linkSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, unlinkSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import type { CodeGraphBaseRefreshV1 } from "@archcontext/contracts";
 import { codeGraphChildEnv } from "./child-env";
@@ -124,13 +124,20 @@ export function seedCodeGraphIndexFromBase(root: string): CodeGraphSeedOutcomeV1
     catch (error) { if (errorCode(error) === "EEXIST") return "present"; throw error; }
     return "seeded";
   } catch (error) {
-    if (!indexDirExists) rmSync(indexDir, { recursive: true, force: true });
+    rmSync(staging, { force: true });
+    // Remove only the empty directory this seed created; a concurrent writer's files stay.
+    if (!indexDirExists) removeEmptyDirectory(indexDir);
     // A pointer whose snapshot is gone was superseded between the two reads; nothing is seeded.
     if (errorCode(error) === "ENOENT") return "no-base";
     throw error;
   } finally {
     rmSync(staging, { force: true });
   }
+}
+
+function removeEmptyDirectory(path: string): void {
+  try { rmdirSync(path); }
+  catch (error) { if (errorCode(error) !== "ENOTEMPTY" && errorCode(error) !== "EEXIST" && errorCode(error) !== "ENOENT") throw error; }
 }
 
 export interface CodeGraphBaseRefreshOptions {

@@ -41,10 +41,11 @@ the read-only inspection.
 ## Seeding a linked worktree from the base index
 
 A fresh linked worktree (`git worktree add`) has no `.codegraph/codegraph.db`. The commands that
-run `codegraph sync` themselves (`archctx sync`, `prepare`, `complete`, `projection run` and
-`flows check` without `--no-sync`) first copy the repository's
-base index into `<root>/.codegraph/`, and their sync then reconciles the copy with the worktree's
-files through CodeGraph's own change detection. The copy is a real file, never a link; a linked
+run `codegraph sync` themselves first copy the repository's base index into `<root>/.codegraph/`, and their sync then reconciles the copy with the worktree's
+files through CodeGraph's own change detection. These are `archctx sync`, `prepare`,
+`complete`, every projection command that builds a projection snapshot (`projection check`,
+`plan`, `run`, `apply`, `freshness`, `snapshot`, `readback`, `adopt` and `docs apply`), and
+`flows check` without `--no-sync`. The copy is a real file, never a link; a linked
 `.codegraph` stays refused with `index-open-failed`. Read-only commands (`doctor`, `checkpoint`,
 `flows check --no-sync`, `refactor-scan`, `architecture-debt`) never seed.
 
