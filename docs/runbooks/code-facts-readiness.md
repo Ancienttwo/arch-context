@@ -6,8 +6,9 @@ It does not start a CodeGraph process, sync or rebuild the index. The same pinne
 package supplies the SDK reader and the CLI used for index builds.
 
 `complete`, `prepare` and `projection run` check compatibility before CodeGraph sync.
-A read-only `CodeFactsPort.assertCanSync` hook checks them before a runtime session
-is stored, even when prepare requests no symbols.
+The `CodeFactsPort.prepareSync` hook checks them before a runtime session is stored,
+even when prepare requests no symbols. It first seeds a missing index from the
+repository's base index (see below).
 Pending source changes alone may use the existing one incremental sync.
 The index must remain compatible after that sync. Projection reads also require fresh
 code facts and check freshness again after reading; changes during the read fail closed.
@@ -36,6 +37,37 @@ mid-build reading is a guess. The loaded bundle manifest still supplies the prov
 without opening the database or spawning a version command. Wait for the build to finish,
 then inspect again. A stale lock (its PID is gone) or a malformed lock does not suppress
 the read-only inspection.
+
+## Seeding a linked worktree from the base index
+
+A fresh linked worktree (`git worktree add`) has no `.codegraph/codegraph.db`. The commands that
+run `codegraph sync` themselves (`archctx sync`, `prepare`, `complete`, `projection run` and
+`flows check` without `--no-sync`) first copy the repository's
+base index into `<root>/.codegraph/`, and their sync then reconciles the copy with the worktree's
+files through CodeGraph's own change detection. The copy is a real file, never a link; a linked
+`.codegraph` stays refused with `index-open-failed`. Read-only commands (`doctor`, `checkpoint`,
+`flows check --no-sync`, `refactor-scan`, `architecture-debt`) never seed.
+
+The base lives in `<git-common-dir>/archcontext/codegraph/<CodeGraph version>/`:
+
+- `current.json` names the published snapshot and the `HEAD` it was taken at.
+- `base-<uuid>.db` files are snapshots. A published one is never rewritten.
+- `refresh.lock` serializes refreshers.
+
+Only the primary checkout publishes, after its own successful sync, when there is no base or it
+names another `HEAD`. `archctx sync` in the primary checkout is the explicit command that creates or
+refreshes it, and its result reports `codeGraphBase`: `published`, `current`, `skipped-busy`,
+`skipped-moved`, `skipped-unborn`, `not-primary` or `failed`. A refresh never fails the sync.
+
+The snapshot is `VACUUM INTO` on a read-only handle (the ADR-0058 exception). It is published only
+when no provider build ran during it and neither the index revision nor `HEAD` moved; otherwise it
+is discarded. Unreferenced snapshots older than ten minutes are deleted on the next refresh.
+
+With no base published, a sync-owning command keeps the `index-missing` answer, whose message names
+`archctx sync` in the primary checkout. While the first base is still being written, it returns
+`AC_CODE_FACTS_UNAVAILABLE` with reason `index-base-building`, retryable. The first sync of a
+seeded worktree keeps the default 30-second deadline; a worktree far from the base commit may need
+another `archctx sync`, which continues incrementally.
 
 ## Public failure contract
 

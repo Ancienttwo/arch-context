@@ -1,17 +1,20 @@
 import type { Node as CodeGraphNode, NodeKind as CodeGraphNodeKind } from "@colbymchenry/codegraph";
 import { REQUIRED_CODEGRAPH_VERSION, openCodeGraphReadSession, type CodeGraphIndexHandle, type CodeGraphReadProvider, type CodeGraphReadSession, type CodeGraphReadSessionOpenV1 } from "./read-session";
 import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
-import { CODE_FACTS_ISSUE_MESSAGES, FailureError, digestJson, type Json, type NormalizedCodeContext, type NormalizedEdge, type NormalizedSymbol, type SymbolQuery } from "@archcontext/contracts";
+import { CODE_FACTS_ISSUE_MESSAGES, FailureError, digestJson, type CodeGraphBaseRefreshV1, type Json, type NormalizedCodeContext, type NormalizedEdge, type NormalizedSymbol, type SymbolQuery } from "@archcontext/contracts";
 import { DEFAULT_CODEGRAPH_BINARY, syncCodeGraphIndex } from "./cli-invocation";
 import { importEdgesFromQueryNodes, importQuery, uniqueStrings } from "./import-population";
 import { assertRepositoryCodeFactsReady, codeFactsUnavailableError } from "./repository-code-facts";
+import { refreshCodeGraphBase, seedCodeGraphIndexFromBase } from "./index-base";
 
 export interface CodeGraphProvider {
   version: string;
   capabilities: string[];
   assertReady?(workspaceRoot: string): void;
-  assertCanSync?(workspaceRoot: string): void;
-  indexAll(workspaceRoot: string): Promise<void>;
+  /** Seeds a missing index from the repository's base index, then refuses an incompatible one. */
+  prepareSync?(workspaceRoot: string): void;
+  /** Syncs the index; the CodeGraph provider also reports what it did to the base index. */
+  indexAll(workspaceRoot: string): Promise<CodeGraphBaseRefreshV1 | void>;
   buildContext(task: string, options: { maxSymbols: number; includeSource: boolean; changedPaths?: string[] }): Promise<NormalizedCodeContext>;
   findSymbols(query: SymbolQuery): Promise<NormalizedSymbol[]>;
 }
@@ -34,18 +37,31 @@ export class CodeGraphSdkProvider implements CodeGraphProvider {
     this.workspaceRoot = workspaceRoot;
   }
 
-  async indexAll(workspaceRoot: string): Promise<void> {
+  /**
+   * Syncs the index of `workspaceRoot`, seeded from the base index when it has none, then refreshes
+   * the base when `workspaceRoot` is the primary checkout. The refresh never fails the sync.
+   */
+  async indexAll(workspaceRoot: string): Promise<CodeGraphBaseRefreshV1> {
     this.workspaceRoot = workspaceRoot;
-    this.assertCanSync(workspaceRoot);
+    this.prepareSync(workspaceRoot);
     syncCodeGraphIndex(workspaceRoot, { binary: this.binary });
     this.assertReady(workspaceRoot);
+    return refreshCodeGraphBase(workspaceRoot, this.readProvider ? { provider: this.readProvider } : {});
   }
 
   assertReady(workspaceRoot: string): void {
     assertRepositoryCodeFactsReady(workspaceRoot, this.readProvider ? { provider: this.readProvider } : {});
   }
 
-  assertCanSync(workspaceRoot: string): void {
+  /**
+   * Runs before a command's `codegraph sync`. A worktree with no index gets a copy of the base
+   * index, and the sync that follows reconciles it; with no base published while a refresh runs,
+   * the command is told to retry. Then the compatibility gate refuses an incompatible index.
+   */
+  prepareSync(workspaceRoot: string): void {
+    if (seedCodeGraphIndexFromBase(workspaceRoot) === "base-building") {
+      throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "index-base-building");
+    }
     this.assertReady(workspaceRoot);
   }
 

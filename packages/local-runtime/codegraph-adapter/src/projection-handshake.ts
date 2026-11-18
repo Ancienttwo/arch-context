@@ -19,6 +19,7 @@ import { digestJson, type ArchitectureDocumentationProjectionProvenanceV3, type 
 import { codeGraphSyncInvocation, digestFile, packagedCodeGraphRuntimeDigest, syncCodeGraphIndex } from "./cli-invocation";
 import { assertRepositoryCodeFactsReady, codeGraphIndexAvailable, type RepositoryCodeFactsV1 } from "./repository-code-facts";
 import { codeFactsReadinessAfterRead } from "./ready-index-read";
+import { seedCodeGraphIndexFromBase } from "./index-base";
 import { loadCapabilityCodeGraphProjectionInputs, type CapabilityCodeGraphProjectionInputs } from "./selector-index";
 
 // --- Capability documentation projection measurements and exact semantic bindings ---
@@ -82,6 +83,7 @@ export function prepareArchitectureDocumentationProjectionSnapshot(
     indexSynced?: boolean;
   } = {}
 ): PreparedArchitectureDocumentationProjectionSnapshot {
+  if (!options.indexSynced) seedProjectionCodeGraphIndex(root, options.readProvider);
   const baseHeadSha = readProjectionHeadSha(root);
   const sourceFiles = listGitVisibleFiles(root);
   const worktreeDigest = architectureDocumentationProjectionWorktreeDigest(root, model, sourceFiles);
@@ -118,6 +120,17 @@ export function prepareArchitectureDocumentationProjectionSnapshot(
 }
 
 /**
+ * Seeds a missing index from the repository's base index (#608), for a command that lists the
+ * Git-visible files and then runs `codegraph sync` itself. Call it before the listing. A seeded copy
+ * is opened once read-only: the open refuses an incompatible copy, and the provider writes
+ * `.codegraph/.gitignore` during it, so the listing does not move during the sync. With no base
+ * published, or one still building, the handshake reports the missing index as before.
+ */
+export function seedProjectionCodeGraphIndex(root: string, readProvider?: CodeGraphReadProvider): void {
+  if (seedCodeGraphIndexFromBase(root) === "seeded") assertRepositoryCodeFactsReady(root, readProvider ? { provider: readProvider } : {});
+}
+
+/**
  * Thrown when `.archcontext/manifest.yaml` declares `codeFacts.required: true` and the projection
  * snapshot has no code facts. Without them every selector is unproven, so the major-change
  * classifier would report a flow-proof change for every capability; an environment failure must not
@@ -126,7 +139,7 @@ export function prepareArchitectureDocumentationProjectionSnapshot(
 export class ProjectionCodeFactsUnavailableError extends Error {
   readonly code = "AC_CODE_FACTS_UNAVAILABLE" as const;
   constructor(readonly reasonCode: NonNullable<CodeGraphProjectionHandshakeV1["reasonCode"]>) {
-    super(`code facts are required by .archcontext/manifest.yaml but unavailable (${reasonCode}); run \`codegraph init\` and retry`);
+    super(`code facts are required by .archcontext/manifest.yaml but unavailable (${reasonCode}); run \`codegraph init\`, or \`archctx sync\` in a linked worktree once the primary checkout has published a base index, and retry`);
     this.name = "ProjectionCodeFactsUnavailableError";
   }
 }

@@ -645,7 +645,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     const session = await this.openSession(root);
     const codeFacts = await this.codeFacts.sync({ workspace: session.workspace, changedPaths });
     session.codeFactsDigest = codeFacts.schemaDigest;
-    return okEnvelope("sync", { codeFactsDigest: codeFacts.schemaDigest, indexedAt: codeFacts.indexedAt } as Json);
+    return okEnvelope("sync", { codeFactsDigest: codeFacts.schemaDigest, indexedAt: codeFacts.indexedAt, ...(codeFacts.codeGraphBase ? { codeGraphBase: codeFacts.codeGraphBase } : {}) } as Json);
   }
 
   async validate(root: string): Promise<JsonEnvelope> {
@@ -768,9 +768,9 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   private async completeTaskUnchecked(root: string, input: RuntimeCompleteTaskInput): Promise<JsonEnvelope> {
     this.assertRunning();
     assertNoCallerProvidedAttestationFields(input, "complete-task");
-    if (this.codeFacts.assertCanSync) {
+    if (this.codeFacts.prepareSync) {
       root = findRepositoryRoot(root);
-      this.codeFacts.assertCanSync(root);
+      this.codeFacts.prepareSync(root);
     }
     const session = await this.openSession(root);
     let currentHeadSha = input.headSha;

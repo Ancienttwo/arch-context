@@ -1,12 +1,13 @@
 import { expect, spyOn, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { failureIssues } from "@archcontext/contracts";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
+import { refreshCodeGraphBase } from "@archcontext/local-runtime/codegraph-adapter";
 import { runFlowSelectorCheckCommand } from "../src/flow-selector-check";
 import { gitCommandsOutsideCodeFactsRead, gitSpy } from "../../codegraph-adapter/test/git-spy";
 import { incompleteCodeGraphFixture, indexCodeGraphFixture } from "../../codegraph-adapter/test/real-index";
@@ -123,6 +124,25 @@ test("default flow check still syncs stale code facts", async () => {
     expect(runFlowSelectorCheckCommand(root, { noSync: true }).ok).toBe(true);
   } finally {
     Bun.gc(true);
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 60_000);
+
+test("default flow check in a fresh linked worktree seeds its index from the base (#608)", () => {
+  const root = fixture();
+  const linked = `${root}-linked`;
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: root, stdio: "pipe" });
+  try {
+    indexCodeGraphFixture(root);
+    Bun.gc(true);
+    expect(refreshCodeGraphBase(root)).toBe("published");
+    git("worktree", "add", "-q", linked);
+    const result = runFlowSelectorCheckCommand(linked);
+    expect(result).toMatchObject({ ok: true, data: { selectors: [{ status: "proven" }] } });
+    expect(lstatSync(join(linked, ".codegraph")).isDirectory()).toBe(true);
+  } finally {
+    Bun.gc(true);
+    rmSync(linked, { recursive: true, force: true });
     rmSync(root, { recursive: true, force: true });
   }
 }, 60_000);

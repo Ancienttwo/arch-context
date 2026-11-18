@@ -116,9 +116,17 @@ export function pinnedCodeGraphProvider(): CodeGraphReadProvider {
  * so no reader reports its facts (#426).
  */
 export function codeGraphIndexBuildInProgress(workspaceRoot: string): boolean {
+  return pidLockLive(join(workspaceRoot, ".codegraph", "codegraph.lock"));
+}
+
+/**
+ * True while the pid file at `path` names a live process. A missing, unreadable or malformed file,
+ * or a dead holder, is not a live lock.
+ */
+export function pidLockLive(path: string): boolean {
   let raw: string;
   try {
-    raw = readFileSync(join(workspaceRoot, ".codegraph", "codegraph.lock"), "utf8").trim();
+    raw = readFileSync(path, "utf8").trim();
   } catch {
     return false;
   }

@@ -18,6 +18,7 @@ supersedes: []
 > **Amends**:
 > - [ADR-0002](ADR-0002-codegraph-required-code-facts-engine.md), Decision and Consequences: how runtime code reaches CodeGraph for reads, and which provider modules may be called beside the public SDK (Decisions 1 and 7 below). The ADR-0002 rule "No direct reads of CodeGraph internal SQLite or file layout" stays in force for the database.
 > - [ADR-0054](ADR-0054-state-machine-model-kind.md) §7 and §8: the sentences saying that the checkpoint readiness gate "runs `codegraph --version` and `codegraph status`", and that §8 counts those commands in the edit-time read. The gate reads compatibility from the read-only handle instead (Consequences below).
+> **Amended**: by the owner on [#608](https://github.com/Ancienttwo/arch-context/issues/608) on 2026-11-19 (decision https://github.com/Ancienttwo/arch-context/issues/608#issuecomment-6987726659, option (a) of the [step-1 design](https://github.com/Ancienttwo/arch-context/issues/608#issuecomment-6986844998)): Decision 10, one narrow exception to Decisions 1 and 7 and to the ADR-0002 database rule, for the shared base index.
 > **Evidence**: the #574 design pass and its joint review, https://github.com/Ancienttwo/arch-context/issues/574#issuecomment-6842558111. These were measured on main f381b510 against a prototype: identical output from `checkpoint`, `constraints check` and `complete`; no `git status` or `git diff` on any read; wall time down 27–60 %.
 
 ## Context
@@ -68,6 +69,15 @@ Measured on main against a prototype that reads in-process:
    - `pending-source-changes`, `code-facts-read-not-ready` and `index-stale` for an index behind the worktree.
    - The failure reasons `code-facts-snapshot-changed`, `code-facts-snapshot-limit-exceeded` and `code-facts-snapshot-layout-unsupported` are removed in the release that removes the snapshot (0.15.0). The release notes list this as a contracts break, and no unreachable entry is kept.
 
+10. **Base index (#608).** A fresh linked worktree may start from a copy of the repository's base index. This is the only exception to Decisions 1 and 7 and to the ADR-0002 database rule.
+    - **The one direct open.** Only the base-refresh writer path opens `.codegraph/codegraph.db` as an opaque SQLite file. It runs in the primary checkout after a successful `codegraph sync`, opens the file on a read-only handle, and only runs `VACUUM INTO` to a new snapshot file. It reads no table and writes no row. It runs in the pinned platform bundle's `node` executable, because the macOS system SQLite of a Bun process cannot open the file read-only before the sidecars exist (Decision 8). That child is not a CodeGraph process. Every other direct read of the database stays forbidden.
+    - **Consistency.** The snapshot is published only when no provider build held the writer lock and the read session's index revision and `HEAD` are unchanged after the copy, which is the design G4 rule. Otherwise it is discarded.
+    - **Location.** `<git-common-dir>/archcontext/codegraph/<REQUIRED_CODEGRAPH_VERSION>/` holds immutable `base-<uuid>.db` snapshots, `current.json` (written to a temp file, then renamed) and `refresh.lock`. Garbage collection deletes only unreferenced `base-*.db` files older than ten minutes in its own version directory.
+    - **The seed.** The seed copies the bytes of the published snapshot into `<root>/.codegraph/codegraph.db` when the worktree has no index, before that worktree's own `codegraph sync`. It never uses a link, never overwrites, and opens no database. The worktree's sync then reconciles the copy with CodeGraph's own change detection, and the post-sync freshness check stays the authority.
+    - **Who may seed or refresh.** Only commands that run `codegraph sync` themselves seed. A read never seeds and never refreshes. Only the primary checkout refreshes. A linked `.codegraph` stays refused with `index-open-failed`.
+    - **Facts.** Facts are still read only through the read-only handle (Decision 1).
+    - **Failure vocabulary.** `AC_CODE_FACTS_UNAVAILABLE` gains the additive, retryable reason `index-base-building`: no base is published yet and a refresh is running.
+
 ## Implementation
 
 The slices run serially, because each one writes `codegraph-adapter/src/index.ts`:
@@ -96,3 +106,5 @@ Nothing from #574 is released in 0.14.x.
 ## Rollback
 
 Revert the slice pull requests. No data or ledger migration exists. The sidecar files are managed by SQLite and need no cleanup.
+
+For Decision 10, revert its pull request. A worktree seeded before the revert keeps an ordinary index of its own. The base directory under `<git-common-dir>/archcontext/codegraph/` is then inert, and an operator may delete it.

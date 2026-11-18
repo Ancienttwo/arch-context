@@ -32,6 +32,15 @@ export {
 } from "./cli-invocation";
 export { CodeGraphSdkProvider, type CodeGraphProvider } from "./sdk-provider";
 export {
+  CODEGRAPH_BASE_SCHEMA,
+  codeGraphBaseDirectory,
+  refreshCodeGraphBase,
+  seedCodeGraphIndexFromBase,
+  type CodeGraphBasePointerV1,
+  type CodeGraphBaseRefreshOptions,
+  type CodeGraphSeedOutcomeV1
+} from "./index-base";
+export {
   assertRepositoryCodeFactsReady,
   codeGraphIndexAvailable,
   inspectRepositoryCodeFacts,
@@ -46,6 +55,7 @@ export {
   prepareArchitectureDocumentationProjectionSnapshot,
   prepareProjectionCodeFacts,
   projectionCodeFactsRequired,
+  seedProjectionCodeGraphIndex,
   type CodeGraphProjectionHandshakeV1,
   type PreparedArchitectureDocumentationProjectionSnapshot,
   type PreparedProjectionCodeFacts
@@ -78,9 +88,9 @@ export class CodeGraphAdapter implements CodeFactsPort {
     disableCodeGraphTelemetryByDefault();
   }
 
-  assertCanSync(workspaceRoot: string): void {
+  prepareSync(workspaceRoot: string): void {
     this.assertCompatible();
-    this.provider.assertCanSync?.(workspaceRoot);
+    this.provider.prepareSync?.(workspaceRoot);
   }
 
   async ensureReady(workspace: WorkspaceRef): Promise<CodeFactsSnapshot> {
@@ -92,13 +102,14 @@ export class CodeGraphAdapter implements CodeFactsPort {
 
   async sync(input: { workspace: WorkspaceRef; changedPaths?: string[] }): Promise<CodeFactsSnapshot> {
     this.assertCompatible();
-    await this.provider.indexAll(input.workspace.root);
+    const codeGraphBase = await this.provider.indexAll(input.workspace.root);
     this.#snapshot = {
       provider: "codegraph",
       version: this.provider.version,
       schemaDigest: digestJson({ package: REQUIRED_CODEGRAPH_PACKAGE, version: this.provider.version, capabilities: this.provider.capabilities }),
       indexedAt: new Date(0).toISOString(),
-      workspaceDigest: digestJson({ root: input.workspace.root, changedPaths: input.changedPaths ?? [] })
+      workspaceDigest: digestJson({ root: input.workspace.root, changedPaths: input.changedPaths ?? [] }),
+      ...(codeGraphBase ? { codeGraphBase } : {})
     };
     return this.#snapshot;
   }

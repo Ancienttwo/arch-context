@@ -1,10 +1,11 @@
 import { execFileSync } from "node:child_process";
 import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { FailureError, digestJson, type Json } from "@archcontext/contracts";
-import { CODEGRAPH_TELEMETRY_ENV, CodeGraphAdapter, CodeGraphSdkProvider, MultiRepoCodeGraphAdapter, REQUIRED_CODEGRAPH_VERSION, codeGraphCliInvocation, disableCodeGraphTelemetryByDefault, openCodeGraphSymbolReader, packagedCodeGraphCliInvocation, pinnedCodeGraphProvider, prepareProjectionCodeFacts, type CodeGraphReadProvider } from "../src/index";
+import { CODEGRAPH_TELEMETRY_ENV, CodeGraphAdapter, CodeGraphSdkProvider, MultiRepoCodeGraphAdapter, REQUIRED_CODEGRAPH_VERSION, codeGraphBaseDirectory, codeGraphCliInvocation, disableCodeGraphTelemetryByDefault, inspectRepositoryCodeFacts, openCodeGraphSymbolReader, packagedCodeGraphCliInvocation, pinnedCodeGraphProvider, prepareArchitectureDocumentationProjectionSnapshot, prepareProjectionCodeFacts, refreshCodeGraphBase, withCodeGraphReadSession, type CodeGraphReadProvider } from "../src/index";
 import * as readSessionModule from "../src/read-session";
 import { CodeGraphProviderUnavailableError, codeGraphBundle } from "../src/read-session";
 import { fakeReadProvider, type FakeIndexFacts, type FakeReadProvider } from "./read-provider-fixture";
@@ -572,7 +573,8 @@ process.exit(2);
           return Object.assign(handle, { close: () => { attempts++; close(); } });
         } };
         const failure = await readFailure(new CodeGraphSdkProvider(root, undefined, counted).findSymbols({ query: "render" }));
-        expect([label, failure.code, failure.reasonCode, failure.retryable]).toEqual([label, code, reasonCode, retryable]);
+        expect([label, failure.code, failure.reasonCode]).toEqual([label, code, reasonCode]);
+        if (reasonCode === "index-base-building") expect(failure.retryable).toBe(true);
         expect([label, provider.calls.open, attempts]).toEqual([label, opened, closeAttempts]);
         expect(failure.message).not.toContain("outside");
       } finally {
@@ -710,4 +712,202 @@ describe("CodeGraph symbol reader (#298)", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+});
+
+/** A scratch repository with one commit; its base directory lives in its own `.git`. */
+function baseIndexRepository(prefix: string): { primary: string; baseDir: string; git: (...args: string[]) => string; commit: (message: string) => void; cleanup: () => void } {
+  const parent = realpathSync.native(mkdtempSync(join(tmpdir(), prefix)));
+  const primary = join(parent, "primary");
+  mkdirSync(join(primary, "src"), { recursive: true });
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: primary, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  git("init", "-q");
+  for (const [key, value] of [["gc.auto", "0"], ["maintenance.auto", "false"], ["core.hooksPath", join(parent, "no-hooks")]] as const) git("config", key, value);
+  const commit = (message: string) => { git("add", "-A"); git("-c", "user.name=Base Test", "-c", "user.email=base@example.test", "commit", "-qm", message); };
+  writeFileSync(join(primary, "src/a.ts"), "export function a(): number {\n  return 1;\n}\n");
+  commit("base");
+  return { primary, baseDir: codeGraphBaseDirectory(join(primary, ".git")), git, commit, cleanup: () => rmSync(parent, { recursive: true, force: true }) };
+}
+
+/** Publishes `bytes` as the base, as a refresh would. */
+function publishBase(baseDir: string, headSha: string, bytes = "base index bytes"): string {
+  mkdirSync(baseDir, { recursive: true });
+  const snapshot = `base-${randomUUID()}.db`;
+  writeFileSync(join(baseDir, snapshot), bytes);
+  writeFileSync(join(baseDir, "current.json"), JSON.stringify({ schemaVersion: "archcontext.codegraph-base/v1", codeGraphVersion: REQUIRED_CODEGRAPH_VERSION, extractionVersion: 7, headSha, snapshot, createdAt: new Date(0).toISOString() }));
+  return snapshot;
+}
+
+function thrown(run: () => unknown): { code?: string; reasonCode?: string; retryable?: boolean } {
+  try { run(); } catch (error) { return error as { code?: string; reasonCode?: string; retryable?: boolean }; }
+  throw new Error("expected a refusal");
+}
+
+describe("base index seed and refresh (#608)", () => {
+  test("prepareSync seeds only from a published base, and refuses what it cannot seed", () => {
+    // [label, setup of the linked worktree and the base, code, reason]
+    const cases: [string, (input: { worktree: string; baseDir: string; head: string }) => void, string, string][] = [
+      ["no base", () => undefined, "AC_CODE_FACTS_UNAVAILABLE", "index-missing"],
+      ["no base yet, a refresh is running", ({ baseDir }) => { mkdirSync(baseDir, { recursive: true }); writeFileSync(join(baseDir, "refresh.lock"), String(process.pid)); }, "AC_CODE_FACTS_UNAVAILABLE", "index-base-building"],
+      ["a linked .codegraph, with a base", ({ worktree, baseDir, head }) => { publishBase(baseDir, head); symlinkSync(join(baseDir), join(worktree, ".codegraph")); }, "AC_CODE_FACTS_UNAVAILABLE", "index-open-failed"]
+    ];
+    for (const [label, setup, code, reasonCode] of cases) {
+      const repo = baseIndexRepository("archctx-base-refusal-");
+      try {
+        const worktree = join(dirname(repo.primary), "linked");
+        repo.git("worktree", "add", "-q", worktree);
+        setup({ worktree, baseDir: repo.baseDir, head: repo.git("rev-parse", "HEAD").trim() });
+        const before = existsSync(repo.baseDir) ? readdirSync(repo.baseDir).sort() : [];
+        // The provider is never opened on these paths; its fake index lives outside the worktree.
+        const provider = fakeReadProvider(join(dirname(repo.primary), "unused"));
+        const failure = thrown(() => new CodeGraphSdkProvider(worktree, undefined, provider).prepareSync(worktree));
+        expect([label, failure.code, failure.reasonCode]).toEqual([label, code, reasonCode]);
+        if (reasonCode === "index-base-building") expect(failure.retryable).toBe(true);
+        expect([label, existsSync(repo.baseDir) ? readdirSync(repo.baseDir).sort() : []]).toEqual([label, before]);
+        expect([label, existsSync(join(repo.baseDir, "codegraph.db"))]).toEqual([label, false]);
+        if (!lstatSync(join(worktree, ".codegraph"), { throwIfNoEntry: false })?.isSymbolicLink()) expect([label, existsSync(join(worktree, ".codegraph"))]).toEqual([label, false]);
+      } finally {
+        repo.cleanup();
+      }
+    }
+  });
+
+  test("a read-only inspection never seeds", () => {
+    const repo = baseIndexRepository("archctx-base-read-only-");
+    try {
+      const worktree = join(dirname(repo.primary), "linked");
+      repo.git("worktree", "add", "-q", worktree);
+      publishBase(repo.baseDir, repo.git("rev-parse", "HEAD").trim());
+      expect(inspectRepositoryCodeFacts(worktree, { provider: fakeReadProvider(join(dirname(repo.primary), "unused")) })).toMatchObject({ state: "index-missing" });
+      expect(existsSync(join(worktree, ".codegraph"))).toBe(false);
+    } finally {
+      repo.cleanup();
+    }
+  });
+
+  test("a refresh publishes only an unmoved snapshot of the primary checkout, under its lock", () => {
+    const snapshotOf = (source: string, target: string) => writeFileSync(target, `snapshot of ${source}`);
+    const headMovesOnce = () => { let reads = 0; return (root: string) => reads++ === 2 ? "0".repeat(40) : execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim(); };
+    // [label, refresh, outcome]
+    const cases: [string, (input: { primary: string; worktree: string; baseDir: string }) => string, string][] = [
+      ["unmoved", ({ primary }) => refreshCodeGraphBase(primary, { provider: fakeReadProvider(primary), snapshot: snapshotOf }), "published"],
+      ["the index revision moves during the snapshot", ({ primary }) => refreshCodeGraphBase(primary, { provider: fakeReadProvider(primary, { revisionMoves: true }), snapshot: snapshotOf }), "skipped-moved"],
+      ["HEAD moves during the snapshot", ({ primary }) => refreshCodeGraphBase(primary, { provider: fakeReadProvider(primary), snapshot: snapshotOf, readHead: headMovesOnce() }), "skipped-moved"],
+      ["another refresh holds the lock", ({ primary, baseDir }) => { mkdirSync(baseDir, { recursive: true }); writeFileSync(join(baseDir, "refresh.lock"), String(process.pid)); return refreshCodeGraphBase(primary, { provider: fakeReadProvider(primary), snapshot: () => { throw new Error("no snapshot under another lock"); } }); }, "skipped-busy"],
+      ["a linked worktree", ({ worktree }) => refreshCodeGraphBase(worktree, { provider: fakeReadProvider(worktree), snapshot: snapshotOf }), "not-primary"]
+    ];
+    for (const [label, refresh, outcome] of cases) {
+      const repo = baseIndexRepository("archctx-base-refresh-");
+      try {
+        const worktree = join(dirname(repo.primary), "linked");
+        repo.git("worktree", "add", "-q", worktree);
+        expect([label, refresh({ primary: repo.primary, worktree, baseDir: repo.baseDir })]).toEqual([label, outcome]);
+        const snapshots = existsSync(repo.baseDir) ? readdirSync(repo.baseDir).filter(name => name.startsWith("base-")) : [];
+        if (outcome === "published") {
+          const pointer = JSON.parse(readFileSync(join(repo.baseDir, "current.json"), "utf8"));
+          expect(pointer).toMatchObject({ schemaVersion: "archcontext.codegraph-base/v1", codeGraphVersion: REQUIRED_CODEGRAPH_VERSION, headSha: repo.git("rev-parse", "HEAD").trim(), snapshot: snapshots[0] });
+          expect(snapshots).toHaveLength(1);
+          expect(existsSync(join(repo.baseDir, "refresh.lock"))).toBe(false);
+        } else {
+          expect([label, existsSync(join(repo.baseDir, "current.json")), snapshots]).toEqual([label, false, []]);
+        }
+      } finally {
+        repo.cleanup();
+      }
+    }
+  });
+
+  test("garbage collection deletes only old, unreferenced snapshots of its own version", () => {
+    const repo = baseIndexRepository("archctx-base-gc-");
+    try {
+      const refresh = () => refreshCodeGraphBase(repo.primary, { provider: fakeReadProvider(repo.primary), snapshot: (_source, target) => writeFileSync(target, "snapshot") });
+      expect(refresh()).toBe("published");
+      const previous = JSON.parse(readFileSync(join(repo.baseDir, "current.json"), "utf8")).snapshot as string;
+      const hourAgo = new Date(Date.now() - 60 * 60_000);
+      const old = (path: string) => { writeFileSync(path, "x"); utimesSync(path, hourAgo, hourAgo); return path; };
+      const otherVersion = join(dirname(repo.baseDir), "0.0.0-other");
+      mkdirSync(otherVersion);
+      const unreferencedOld = old(join(repo.baseDir, `base-${randomUUID()}.db`));
+      const unreferencedYoung = join(repo.baseDir, `base-${randomUUID()}.db`);
+      writeFileSync(unreferencedYoung, "x");
+      const foreignName = old(join(repo.baseDir, "notes.db"));
+      const foreignVersion = old(join(otherVersion, `base-${randomUUID()}.db`));
+      writeFileSync(join(repo.primary, "src/a.ts"), "export const moved = 1;\n");
+      repo.commit("move HEAD");
+      expect(refresh()).toBe("published");
+      const current = JSON.parse(readFileSync(join(repo.baseDir, "current.json"), "utf8")).snapshot as string;
+      expect(existsSync(unreferencedOld)).toBe(false);
+      expect([previous, current, unreferencedYoung, foreignName, foreignVersion].map(name => existsSync(name.includes("/") ? name : join(repo.baseDir, name)))).toEqual([true, true, true, true, true]);
+    } finally {
+      repo.cleanup();
+    }
+  });
+});
+
+describe("base index on a real index (#608)", () => {
+  let repo: ReturnType<typeof baseIndexRepository>;
+  beforeAll(() => {
+    // No `.codegraph/` ignore rule: the provider's `.codegraph/.gitignore` is Git-visible here.
+    repo = baseIndexRepository("archctx-base-real-");
+    writeFileSync(join(repo.primary, "src/b.ts"), "import { a } from \"./a\";\n\nexport function b(): number {\n  return a() + 1;\n}\n");
+    writeFileSync(join(repo.primary, "src/c.ts"), "export function c(): string {\n  return \"c\";\n}\n");
+    repo.commit("sources");
+    indexCodeGraphFixture(repo.primary);
+  }, 120_000);
+  afterAll(() => repo?.cleanup());
+
+  /** Every file record and node of an index, read through the read-only handle. */
+  const indexRows = (root: string) => withCodeGraphReadSession(root, (opened) => {
+    if (opened.state !== "open") throw new Error(opened.state);
+    const files = opened.session.graph.getFiles().map(file => [file.path, file.contentHash]).sort();
+    const nodes = opened.session.graph.getNodesInFiles(files.map(([path]) => path!)).map(node => [node.id, node.kind, node.name, node.filePath, node.startLine, node.endLine].join("|")).sort();
+    return { files, nodes };
+  });
+  /** The same worktree edits: base older than HEAD, then a dirty edit, a deletion and an untracked file. */
+  const diverge = (worktree: string) => {
+    writeFileSync(join(worktree, "src/a.ts"), "export function a(): number {\n  return 2;\n}\n\nexport function seededEdit(): number {\n  return 3;\n}\n");
+    unlinkSync(join(worktree, "src/c.ts"));
+    writeFileSync(join(worktree, "src/d.ts"), "export function untrackedAdd(): string {\n  return \"d\";\n}\n");
+  };
+
+  test("the primary checkout publishes a base; a linked worktree seeded from it syncs to a fresh index of its tree", async () => {
+    expect(await new CodeGraphSdkProvider(repo.primary).indexAll(repo.primary)).toBe("published");
+    expect(await new CodeGraphSdkProvider(repo.primary).indexAll(repo.primary)).toBe("current");
+    const pointer = JSON.parse(readFileSync(join(repo.baseDir, "current.json"), "utf8"));
+    expect(pointer.headSha).toBe(repo.git("rev-parse", "HEAD").trim());
+    // HEAD moves past the base commit.
+    writeFileSync(join(repo.primary, "src/b.ts"), "import { a } from \"./a\";\n\nexport function b(): number {\n  return a() + 10;\n}\n\nexport function afterBase(): number {\n  return 4;\n}\n");
+    repo.commit("after base");
+
+    const seeded = join(dirname(repo.primary), "seeded");
+    const fresh = join(dirname(repo.primary), "fresh");
+    repo.git("worktree", "add", "-q", seeded);
+    repo.git("worktree", "add", "-q", fresh);
+    diverge(seeded);
+    diverge(fresh);
+
+    expect(await new CodeGraphSdkProvider(seeded).indexAll(seeded)).toBe("not-primary");
+    expect(lstatSync(join(seeded, ".codegraph")).isDirectory()).toBe(true);
+    expect(statSync(join(seeded, ".codegraph", "codegraph.db")).ino).not.toBe(statSync(join(repo.baseDir, pointer.snapshot)).ino);
+    expect(readdirSync(join(seeded, ".codegraph")).filter(name => name.includes(".seed-"))).toEqual([]);
+    expect(inspectRepositoryCodeFacts(seeded)).toMatchObject({ state: "ready", pendingChanges: { added: 0, modified: 0, removed: 0 }, issues: [] });
+
+    indexCodeGraphFixture(fresh);
+    const rows = indexRows(seeded);
+    expect(rows).toEqual(indexRows(fresh));
+    expect(rows.nodes.some(node => node.includes("|seededEdit|"))).toBe(true);
+    expect(rows.nodes.some(node => node.includes("|afterBase|"))).toBe(true);
+    expect(rows.nodes.some(node => node.includes("|untrackedAdd|"))).toBe(true);
+    expect(rows.files.some(([path]) => path === "src/c.ts")).toBe(false);
+    // The published base is unchanged by the worktree's sync.
+    expect(JSON.parse(readFileSync(join(repo.baseDir, "current.json"), "utf8"))).toEqual(pointer);
+  }, 180_000);
+
+  test("a projection snapshot seeds a fresh linked worktree before it lists the worktree's files", async () => {
+    expect(["published", "current"]).toContain(await new CodeGraphSdkProvider(repo.primary).indexAll(repo.primary));
+    const projected = join(dirname(repo.primary), "projected");
+    repo.git("worktree", "add", "-q", projected);
+    const prepared = prepareArchitectureDocumentationProjectionSnapshot(projected, { nodes: [], relations: [] });
+    expect(prepared.handshake).toMatchObject({ availability: "ready" });
+    expect(prepared.sourceFiles).toContain(".codegraph/.gitignore");
+  }, 120_000);
 });
