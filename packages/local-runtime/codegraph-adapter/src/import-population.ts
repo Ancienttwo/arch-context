@@ -1,7 +1,7 @@
 import { posix } from "node:path";
 import type { CapabilitySourceFootprint, CapabilityImportEdge, CapabilityImportGraph } from "@archcontext/core/projection-engine";
 import type { NormalizedEdge } from "@archcontext/contracts";
-import { withCodeGraphReadSession, type CodeGraphReadProvider, type CodeGraphReadSession } from "./read-session";
+import { codeGraphIndexFresh, withCodeGraphReadSession, type CodeGraphReadProvider, type CodeGraphReadSession } from "./read-session";
 
 const SOURCE_EXTENSIONS = [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".json"];
 
@@ -162,7 +162,7 @@ export function repositoryImportPairs(
     const pending = session.freshness();
     // Facts read across a sync are not one index state (design G4).
     const unchanged = session.unchangedSinceOpen();
-    const clean = unchanged && pending.added === 0 && pending.modified === 0 && pending.removed === 0;
+    const clean = unchanged && codeGraphIndexFresh(pending);
     return {
       pairs: importPairsOf(new Set(sourceFiles), nodes.imports),
       truncated: nodes.truncated || !unchanged,

@@ -148,8 +148,8 @@ describe("openCodeGraphReadSession", () => {
       const provider = fakeReadProvider(root, { pending: { added: 2, modified: 1, removed: 3 } });
       withCodeGraphReadSession(root, (opened) => {
         if (opened.state !== "open") throw new Error(opened.state);
-        expect(opened.session.freshness()).toEqual({ added: 2, modified: 1, removed: 3 });
-        expect(opened.session.freshness()).toEqual({ added: 2, modified: 1, removed: 3 });
+        expect(opened.session.freshness()).toEqual({ added: 2, modified: 1, removed: 3 , seedPending: false });
+        expect(opened.session.freshness()).toEqual({ added: 2, modified: 1, removed: 3 , seedPending: false });
       }, { provider });
       expect(provider.calls.scan).toBe(1);
       // Only files in both the index and the enumeration are hashed: fresh.ts and the modified one.
@@ -163,7 +163,7 @@ describe("openCodeGraphReadSession", () => {
       const unreadable = { ...provider, changeHash: () => { throw new Error("EACCES"); } };
       withCodeGraphReadSession(root, (opened) => {
         if (opened.state !== "open") throw new Error(opened.state);
-        expect(opened.session.freshness()).toEqual({ added: 0, modified: 1, removed: 0 });
+        expect(opened.session.freshness()).toEqual({ added: 0, modified: 1, removed: 0 , seedPending: false });
       }, { provider: unreadable });
     });
   });
@@ -272,7 +272,7 @@ describe("read session over a real index", () => {
     withCodeGraphReadSession(root, (opened) => {
       if (opened.state !== "open") throw new Error(opened.state);
       expect(opened.session.graph.getFile(oversize)).not.toBeNull();
-      expect(opened.session.freshness()).toEqual({ added: 0, modified: 0, removed: 0 });
+      expect(opened.session.freshness()).toEqual({ added: 0, modified: 0, removed: 0 , seedPending: false });
     });
   });
 
@@ -340,7 +340,7 @@ describe("read session over a real index", () => {
         if (opened.state !== "open") throw new Error(opened.state);
         expect(opened.session.revision()).toEqual(revision);
         expect(opened.session.graph.getNodesByName("walOnlySymbol")).toHaveLength(1);
-        expect(opened.session.freshness()).toEqual({ added: 0, modified: 0, removed: 0 });
+        expect(opened.session.freshness()).toEqual({ added: 0, modified: 0, removed: 0 , seedPending: false });
         expect(opened.session.unchangedSinceOpen()).toBe(true);
       });
       expect({ database: digest(database), wal: digest(wal) }).toEqual(before);

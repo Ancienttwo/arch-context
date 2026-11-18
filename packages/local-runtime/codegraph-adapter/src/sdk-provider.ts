@@ -5,7 +5,7 @@ import { CODE_FACTS_ISSUE_MESSAGES, FailureError, digestJson, type CodeGraphBase
 import { DEFAULT_CODEGRAPH_BINARY, syncCodeGraphIndex } from "./cli-invocation";
 import { importEdgesFromQueryNodes, importQuery, uniqueStrings } from "./import-population";
 import { assertRepositoryCodeFactsReady, codeFactsUnavailableError } from "./repository-code-facts";
-import { refreshCodeGraphBase, seedCodeGraphIndexFromBase } from "./index-base";
+import { completeCodeGraphSeed, refreshCodeGraphBase, seedCodeGraphIndexFromBase } from "./index-base";
 
 export interface CodeGraphProvider {
   version: string;
@@ -46,6 +46,7 @@ export class CodeGraphSdkProvider implements CodeGraphProvider {
     this.prepareSync(workspaceRoot);
     syncCodeGraphIndex(workspaceRoot, { binary: this.binary });
     this.assertReady(workspaceRoot);
+    completeCodeGraphSeed(workspaceRoot, this.readProvider ? { provider: this.readProvider } : {});
     return refreshCodeGraphBase(workspaceRoot, this.readProvider ? { provider: this.readProvider } : {});
   }
 

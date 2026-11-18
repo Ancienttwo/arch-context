@@ -46,7 +46,9 @@ files through CodeGraph's own change detection. These are `archctx sync`, `prepa
 `complete`, every projection command that builds a projection snapshot (`projection check`,
 `plan`, `run`, `apply`, `freshness`, `snapshot`, `readback`, `adopt` and `docs apply`), and
 `flows check` without `--no-sync`. The copy is a real file, never a link; a linked
-`.codegraph` stays refused with `index-open-failed`. Read-only commands (`doctor`, `checkpoint`,
+`.codegraph` stays refused with `index-open-failed`. Until the first sync of a seeded copy succeeds
+and leaves it fresh, `.codegraph/archctx-seed.pending` keeps it unverified: freshness readers report
+`pending-source-changes`, and the next sync-owning command discards the copy and seeds it again. Read-only commands (`doctor`, `checkpoint`,
 `flows check --no-sync`, `refactor-scan`, `architecture-debt`) never seed.
 
 The base lives in `<git-common-dir>/archcontext/codegraph/<CodeGraph version>/`:

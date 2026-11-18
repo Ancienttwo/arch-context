@@ -10,7 +10,7 @@ import * as readSessionModule from "../src/read-session";
 import { CodeGraphProviderUnavailableError, codeGraphBundle } from "../src/read-session";
 import { fakeReadProvider, type FakeIndexFacts, type FakeReadProvider } from "./read-provider-fixture";
 import { MockCodeGraphProvider } from "./factories";
-import { indexCodeGraphFixture } from "./real-index";
+import { indexCodeGraphFixture, syncCodeGraphFixture } from "./real-index";
 
 /** `fakeReadProvider`, with the SDK reads of `graph` on every handle it opens. */
 function sdkReadProvider(root: string, graph: Record<string, unknown>, facts: FakeIndexFacts = {}): FakeReadProvider {
@@ -573,8 +573,7 @@ process.exit(2);
           return Object.assign(handle, { close: () => { attempts++; close(); } });
         } };
         const failure = await readFailure(new CodeGraphSdkProvider(root, undefined, counted).findSymbols({ query: "render" }));
-        expect([label, failure.code, failure.reasonCode]).toEqual([label, code, reasonCode]);
-        if (reasonCode === "index-base-building") expect(failure.retryable).toBe(true);
+        expect([label, failure.code, failure.reasonCode, failure.retryable]).toEqual([label, code, reasonCode, retryable]);
         expect([label, provider.calls.open, attempts]).toEqual([label, opened, closeAttempts]);
         expect(failure.message).not.toContain("outside");
       } finally {
@@ -900,6 +899,28 @@ describe("base index on a real index (#608)", () => {
     expect(rows.files.some(([path]) => path === "src/c.ts")).toBe(false);
     // The published base is unchanged by the worktree's sync.
     expect(JSON.parse(readFileSync(join(repo.baseDir, "current.json"), "utf8"))).toEqual(pointer);
+  }, 180_000);
+
+  test("a seed whose first sync never succeeded stays unreadable, and the next sync-owning command seeds it again", async () => {
+    expect(["published", "current"]).toContain(await new CodeGraphSdkProvider(repo.primary).indexAll(repo.primary));
+    const interrupted = join(dirname(repo.primary), "interrupted");
+    repo.git("worktree", "add", "-q", interrupted);
+    const database = join(interrupted, ".codegraph", "codegraph.db");
+    const pending = join(interrupted, ".codegraph", "archctx-seed.pending");
+    // The first sync fails, as one stopped by its deadline does.
+    const failing = join(dirname(repo.primary), "failing-codegraph.mjs");
+    writeFileSync(failing, "process.exit(7);\n");
+    await expect(new CodeGraphSdkProvider(interrupted, failing).indexAll(interrupted)).rejects.toThrow();
+    expect(existsSync(pending)).toBe(true);
+    // The provider then commits every file hash, as an interrupted sync can before its references are
+    // complete; no archctx sync verified it. Matching hashes must not make the copy readable.
+    syncCodeGraphFixture(interrupted);
+    expect(inspectRepositoryCodeFacts(interrupted)).toMatchObject({ state: "not-ready", pendingChanges: { added: 0, modified: 0, removed: 0 }, issues: [{ code: "pending-source-changes" }] });
+    const unverified = statSync(database).ino;
+    expect(await new CodeGraphSdkProvider(interrupted).indexAll(interrupted)).toBe("not-primary");
+    expect(statSync(database).ino).not.toBe(unverified);
+    expect(existsSync(pending)).toBe(false);
+    expect(inspectRepositoryCodeFacts(interrupted)).toMatchObject({ state: "ready", issues: [] });
   }, 180_000);
 
   test("a projection snapshot seeds a fresh linked worktree before it lists the worktree's files", async () => {

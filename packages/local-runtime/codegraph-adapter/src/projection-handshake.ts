@@ -19,7 +19,7 @@ import { digestJson, type ArchitectureDocumentationProjectionProvenanceV3, type 
 import { codeGraphSyncInvocation, digestFile, packagedCodeGraphRuntimeDigest, syncCodeGraphIndex } from "./cli-invocation";
 import { assertRepositoryCodeFactsReady, codeGraphIndexAvailable, type RepositoryCodeFactsV1 } from "./repository-code-facts";
 import { codeFactsReadinessAfterRead } from "./ready-index-read";
-import { seedCodeGraphIndexFromBase } from "./index-base";
+import { completeCodeGraphSeed, seedCodeGraphIndexFromBase } from "./index-base";
 import { loadCapabilityCodeGraphProjectionInputs, type CapabilityCodeGraphProjectionInputs } from "./selector-index";
 
 // --- Capability documentation projection measurements and exact semantic bindings ---
@@ -240,6 +240,7 @@ export function prepareProjectionCodeFacts(
   assertRepositoryCodeFactsReady(root, { provider });
   if (!options.indexSynced) {
     syncCodeGraphIndex(root, { ...(options.binary ? { binary: options.binary } : {}), timeoutMs: options.timeouts?.syncMs ?? 120_000 });
+    completeCodeGraphSeed(root, { provider });
   }
   const { indexDigest, inputs } = withProjectionIndexSession(root, provider, (session) => {
     const digest = projectionIndexStateDigest(session);

@@ -1,10 +1,10 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { closeSync, constants as fsConstants, copyFileSync, linkSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, unlinkSync, writeSync } from "node:fs";
+import { closeSync, constants as fsConstants, copyFileSync, linkSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import type { CodeGraphBaseRefreshV1 } from "@archcontext/contracts";
 import { codeGraphChildEnv } from "./child-env";
-import { REQUIRED_CODEGRAPH_VERSION, codeGraphBundle, openCodeGraphReadSession, pidLockLive, type CodeGraphReadProvider } from "./read-session";
+import { CODEGRAPH_SEED_PENDING_FILE, REQUIRED_CODEGRAPH_VERSION, codeGraphBundle, openCodeGraphReadSession, pidLockLive, withCodeGraphReadSession, type CodeGraphReadProvider } from "./read-session";
 
 // The shared base index of one Git repository (#608). The primary checkout publishes a consistent
 // snapshot of its own index after a successful sync; a linked worktree with no index of its own
@@ -29,7 +29,8 @@ export interface CodeGraphBasePointerV1 {
 }
 
 /**
- * What the seed did. `present`: the worktree already has an index. `seeded`: the base was copied in.
+ * What the seed did. `present`: the worktree already has an index that is not an unverified seed.
+ * `seeded`: the base was copied in (again, when an earlier seed's first sync never verified).
  * `no-base`: nothing is published. `base-building`: nothing is published and a refresh is running.
  * `refused`: `.codegraph` is a link or unreadable, or a provider build holds its lock; the caller's
  * own readiness check reports that state.
@@ -91,11 +92,14 @@ function errorCode(error: unknown): string | undefined {
  * Only commands that run `codegraph sync` next call it. The copy is a byte copy or a copy-on-write
  * clone, never a link, so the worktree's sync never writes the shared file, and it is placed
  * without overwriting, so a concurrent seed or `codegraph init` wins and no reader sees a partial
- * file. It writes nothing outside `<root>/.codegraph`, and creates that directory only to copy into it.
+ * file. Until `completeCodeGraphSeed` verifies the first sync, `CODEGRAPH_SEED_PENDING_FILE` makes
+ * every freshness reader refuse the copy. It writes nothing outside `<root>/.codegraph`, and creates
+ * that directory only to copy into it.
  */
 export function seedCodeGraphIndexFromBase(root: string): CodeGraphSeedOutcomeV1 {
   const indexDir = join(root, ".codegraph");
   const database = join(indexDir, "codegraph.db");
+  const pending = join(indexDir, CODEGRAPH_SEED_PENDING_FILE);
   let indexDirExists: boolean;
   try {
     if (lstatSync(indexDir).isSymbolicLink()) return "refused";
@@ -105,9 +109,17 @@ export function seedCodeGraphIndexFromBase(root: string): CodeGraphSeedOutcomeV1
     indexDirExists = false;
   }
   if (indexDirExists) {
-    try { statSync(database); return "present"; }
-    catch (error) { if (errorCode(error) !== "ENOENT") return "refused"; }
+    let databaseExists = true;
+    try { statSync(database); }
+    catch (error) {
+      if (errorCode(error) !== "ENOENT") return "refused";
+      databaseExists = false;
+    }
+    if (databaseExists && !existsFile(pending)) return "present";
     if (pidLockLive(join(indexDir, "codegraph.lock"))) return "refused";
+    // A seed whose first sync never completed and verified: a later sync would not re-extract the
+    // files whose hashes it already committed, so the copy is discarded and seeded again.
+    if (databaseExists) for (const name of ["codegraph.db", "codegraph.db-wal", "codegraph.db-shm"]) rmSync(join(indexDir, name), { force: true });
   }
   const dirs = gitDirs(root);
   if (!dirs) return "no-base";
@@ -119,12 +131,17 @@ export function seedCodeGraphIndexFromBase(root: string): CodeGraphSeedOutcomeV1
   if (lstatSync(indexDir).isSymbolicLink()) return "refused";
   const staging = join(indexDir, `codegraph.db.seed-${randomUUID()}`);
   try {
+    // Written before the copy becomes visible, so no sync of it starts unmarked. It is never removed
+    // here once a database exists: a concurrent seed's or init's index stays unverified until a
+    // verified sync clears it (`completeCodeGraphSeed`).
+    writeFileSync(pending, `${pointer.snapshot}\n`);
     copyFileSync(join(baseDir, pointer.snapshot), staging, fsConstants.COPYFILE_FICLONE);
     try { linkSync(staging, database); }
     catch (error) { if (errorCode(error) === "EEXIST") return "present"; throw error; }
     return "seeded";
   } catch (error) {
     rmSync(staging, { force: true });
+    if (!existsFile(database)) rmSync(pending, { force: true });
     // Remove only the empty directory this seed created; a concurrent writer's files stay.
     if (!indexDirExists) removeEmptyDirectory(indexDir);
     // A pointer whose snapshot is gone was superseded between the two reads; nothing is seeded.
@@ -133,6 +150,21 @@ export function seedCodeGraphIndexFromBase(root: string): CodeGraphSeedOutcomeV1
   } finally {
     rmSync(staging, { force: true });
   }
+}
+
+/**
+ * Run after a successful `codegraph sync` of `root`. When the index is a seed whose first sync was
+ * pending, it becomes readable only if the sync left it fresh against the worktree and unchanged
+ * during the check; otherwise the marker stays and the next sync-owning command seeds again.
+ */
+export function completeCodeGraphSeed(root: string, options: { provider?: CodeGraphReadProvider } = {}): void {
+  const pending = join(root, ".codegraph", CODEGRAPH_SEED_PENDING_FILE);
+  if (!existsFile(pending)) return;
+  withCodeGraphReadSession(root, (opened) => {
+    if (opened.state !== "open") return;
+    const { added, modified, removed } = opened.session.freshness();
+    if (added === 0 && modified === 0 && removed === 0 && opened.session.unchangedSinceOpen()) rmSync(pending, { force: true });
+  }, options);
 }
 
 function removeEmptyDirectory(path: string): void {

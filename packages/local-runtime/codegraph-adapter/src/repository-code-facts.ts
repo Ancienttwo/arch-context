@@ -4,6 +4,7 @@ import { join } from "node:path";
 import {
   REQUIRED_CODEGRAPH_VERSION,
   CodeGraphProviderUnavailableError,
+  codeGraphIndexFresh,
   pinnedCodeGraphProvider,
   withCodeGraphReadSession,
   type CodeGraphIndexCompatibilityV1,
@@ -102,8 +103,9 @@ function repositoryCodeFactsFromSession(
   pending: CodeGraphIndexFreshnessV1 | undefined
 ): RepositoryCodeFactsV1 {
   const issues = compatibilityIssues(root, compatibility);
-  // Pending changes mean the index lags the worktree; the compatibility tier does not measure them.
-  if (pending && (pending.added !== 0 || pending.modified !== 0 || pending.removed !== 0)) issues.push(PENDING_SOURCE_CHANGES_ISSUE);
+  // Pending changes, or an unverified seed, mean the index lags the worktree; the compatibility
+  // tier does not measure them.
+  if (pending && !codeGraphIndexFresh(pending)) issues.push(PENDING_SOURCE_CHANGES_ISSUE);
   return {
     schemaVersion: REPOSITORY_CODE_FACTS_SCHEMA,
     state: issues.length === 0 ? "ready" : "not-ready",

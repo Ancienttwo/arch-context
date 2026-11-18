@@ -155,11 +155,25 @@ export interface CodeGraphIndexCompatibilityV1 {
   pendingRefs: number;
 }
 
+/**
+ * `.codegraph/<this>` marks an index seeded from the base index (#608) whose first sync has not yet
+ * completed and passed freshness verification. A sync interrupted after it committed file hashes can
+ * leave a copy whose hashes match but whose references are incomplete, so readers never trust it.
+ */
+export const CODEGRAPH_SEED_PENDING_FILE = "archctx-seed.pending";
+
 /** CodeGraph's own change test against the worktree: sources it would add, re-extract or drop. */
 export interface CodeGraphIndexFreshnessV1 {
   added: number;
   modified: number;
   removed: number;
+  /** The index is a seeded copy whose first sync is not verified; it is not fresh whatever the counts. */
+  seedPending: boolean;
+}
+
+/** True when the index holds every current source and is not an unverified seed. */
+export function codeGraphIndexFresh(freshness: CodeGraphIndexFreshnessV1): boolean {
+  return !freshness.seedPending && freshness.added === 0 && freshness.modified === 0 && freshness.removed === 0;
 }
 
 /** The cheapest marker of a moved index: last index time and file count. */
@@ -300,5 +314,5 @@ function indexFreshness(root: string, graph: CodeGraphIndexHandle, provider: Cod
   }
   // A tracked file deleted from the worktree stays in the enumeration but is not a new source.
   for (const path of current) if (!indexed.has(path) && existsSync(join(root, path))) added++;
-  return { added, modified, removed };
+  return { added, modified, removed, seedPending: existsSync(join(root, ".codegraph", CODEGRAPH_SEED_PENDING_FILE)) };
 }

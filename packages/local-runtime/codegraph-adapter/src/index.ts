@@ -82,7 +82,9 @@ export {
 } from "./selector-index";
 
 export class CodeGraphAdapter implements CodeFactsPort {
+  /** The last successful sync, and the worktree it synced; reuse is only for that worktree. */
   #snapshot?: CodeFactsSnapshot;
+  #snapshotRoot?: string;
 
   constructor(private readonly provider: CodeGraphProvider) {
     disableCodeGraphTelemetryByDefault();
@@ -93,16 +95,25 @@ export class CodeGraphAdapter implements CodeFactsPort {
     this.provider.prepareSync?.(workspaceRoot);
   }
 
+  /**
+   * Reuses the last sync only for the worktree it synced. Another worktree (a warm daemon serving a
+   * fresh linked worktree, #608) is synced first, which also points the provider's reads at it.
+   */
   async ensureReady(workspace: WorkspaceRef): Promise<CodeFactsSnapshot> {
     this.assertCompatible();
-    if (this.#snapshot) this.provider.assertReady?.(workspace.root);
-    this.#snapshot ??= await this.sync({ workspace });
-    return this.#snapshot;
+    if (this.#snapshot && this.#snapshotRoot === workspace.root) {
+      this.provider.assertReady?.(workspace.root);
+      return this.#snapshot;
+    }
+    return this.sync({ workspace });
   }
 
   async sync(input: { workspace: WorkspaceRef; changedPaths?: string[] }): Promise<CodeFactsSnapshot> {
     this.assertCompatible();
+    this.#snapshot = undefined;
+    this.#snapshotRoot = undefined;
     const codeGraphBase = await this.provider.indexAll(input.workspace.root);
+    this.#snapshotRoot = input.workspace.root;
     this.#snapshot = {
       provider: "codegraph",
       version: this.provider.version,
