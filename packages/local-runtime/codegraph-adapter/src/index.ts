@@ -83,9 +83,9 @@ export {
   type CodeGraphSymbolReaderResult
 } from "./selector-index";
 
-/** One worktree's last successful sync, and the identity of its database when it was verified. */
+/** One worktree's last verified index: the identity of its database then, and its snapshot. */
 interface VerifiedCodeFacts {
-  identity: string | undefined;
+  identity: string;
   snapshot: CodeFactsSnapshot;
 }
 
@@ -105,39 +105,53 @@ export class CodeGraphAdapter implements CodeFactsPort {
   }
 
   /**
-   * The first call for a worktree syncs it, as before. A later call never starts a writable sync:
-   * it re-runs the read-only readiness check and records the database identity it found, so a
-   * rebuilt or re-created index is verified again without being rewritten. A worktree whose index
-   * identity cannot be verified is never reused: a later call refuses as not ready (retryable), and
-   * only a sync-owning command verifies it again.
+   * Never starts a writable sync on its own: an existing index is verified read-only, on a first
+   * call and on every later one, and its database identity is recorded for the reads. Only a
+   * command that owns a sync passes `syncOnMiss`, which syncs a workspace this adapter has not
+   * verified yet. An index whose database identity archctx cannot verify is never served: the
+   * cached entry is dropped and the call refuses as not ready (retryable).
    */
-  async ensureReady(workspace: WorkspaceRef): Promise<CodeFactsSnapshot> {
+  async ensureReady(workspace: WorkspaceRef, options: { syncOnMiss?: boolean } = {}): Promise<CodeFactsSnapshot> {
     this.assertCompatible();
-    const verified = this.#verified.get(workspace.root);
-    if (!verified) return this.sync({ workspace });
-    if (verified.identity === undefined) throw codeFactsNotReady();
-    this.provider.assertReady?.(workspace.root);
-    verified.identity = this.provider.indexIdentity(workspace.root);
-    return verified.snapshot;
+    const root = workspace.root;
+    const verified = this.#verified.get(root);
+    if (!verified && options.syncOnMiss) return this.sync({ workspace });
+    this.#verified.delete(root);
+    this.provider.assertReady?.(root);
+    const identity = this.provider.indexIdentity(root);
+    if (identity === undefined) throw codeFactsNotReady();
+    const snapshot = verified?.snapshot ?? this.snapshotOf(root, []);
+    this.#verified.set(root, { identity, snapshot });
+    return snapshot;
   }
 
+  /**
+   * Syncs `input.workspace`. Only commands that own a sync call it. The workspace becomes readable
+   * only when the provider-resolved database identity of the synced index can be verified.
+   */
   async sync(input: { workspace: WorkspaceRef; changedPaths?: string[] }): Promise<CodeFactsSnapshot> {
     this.assertCompatible();
     const root = input.workspace.root;
     this.#verified.delete(root);
     this.#latest = undefined;
-    const codeGraphBase = await this.provider.indexAll(root);
-    const snapshot: CodeFactsSnapshot = {
+    const report = await this.provider.indexAll(root);
+    const snapshot = this.snapshotOf(root, input.changedPaths ?? [], report ?? undefined);
+    const identity = this.provider.indexIdentity(root);
+    if (identity !== undefined) this.#verified.set(root, { identity, snapshot });
+    this.#latest = snapshot;
+    return snapshot;
+  }
+
+  private snapshotOf(root: string, changedPaths: string[], report?: Pick<CodeFactsSnapshot, "codeGraphBase" | "codeGraphKept">): CodeFactsSnapshot {
+    return {
       provider: "codegraph",
       version: this.provider.version,
       schemaDigest: digestJson({ package: REQUIRED_CODEGRAPH_PACKAGE, version: this.provider.version, capabilities: this.provider.capabilities }),
       indexedAt: new Date(0).toISOString(),
-      workspaceDigest: digestJson({ root, changedPaths: input.changedPaths ?? [] }),
-      ...(codeGraphBase ? { codeGraphBase } : {})
+      workspaceDigest: digestJson({ root, changedPaths }),
+      ...(report?.codeGraphBase ? { codeGraphBase: report.codeGraphBase } : {}),
+      ...(report?.codeGraphKept?.length ? { codeGraphKept: report.codeGraphKept } : {})
     };
-    this.#verified.set(root, { identity: this.provider.indexIdentity(root), snapshot });
-    this.#latest = snapshot;
-    return snapshot;
   }
 
   async buildTaskContext(input: { workspace: WorkspaceRef; task: string; maxSymbols: number; includeSource: boolean; changedPaths?: string[] }): Promise<NormalizedCodeContext> {
@@ -196,7 +210,7 @@ export class CodeGraphAdapter implements CodeFactsPort {
   private readTarget(workspace: WorkspaceRef): { root: string; identity?: string } {
     const verified = this.#verified.get(workspace.root);
     if (!verified) throw codeFactsNotReady();
-    return verified.identity === undefined ? { root: workspace.root } : { root: workspace.root, identity: verified.identity };
+    return { root: workspace.root, identity: verified.identity };
   }
 
   async resolveEvidence(selectors: SourceSelector[]): Promise<ObservedEvidence[]> {

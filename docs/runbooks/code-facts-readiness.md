@@ -61,18 +61,26 @@ and the command answers `index-missing` as without a seed, when:
 
 A retry starts again from the base; no partial seed is reused. A `.codegraph-seed-*` folder left by
 a crash is removed by the next seed attempt once its owner process is gone, if it holds only seed
-files; otherwise it can be deleted by hand.
+files and archctx proves it created them; otherwise it stays, is listed in `codeGraphKept`, and can
+be deleted by hand.
 
 The base lives in `<git-common-dir>/archcontext/codegraph/<CodeGraph version>/`:
 
 - `current.json` names the published snapshot and the `HEAD` it was taken at.
 - `base-<uuid>.db` files are snapshots. A published one is never rewritten.
 - `refresh.lock` serializes refreshers.
+- `records/` holds one empty file per path archctx created there or as a staging folder, named by
+  the path's creation identity. archctx removes or replaces a snapshot, `current.json`, a stale
+  `refresh.lock` or a staging folder only with a matching record, so a restored backup or a file
+  re-created with the same bytes stays in place and is listed in `codeGraphKept`.
 
 Only the primary checkout publishes, after its own successful sync, when there is no base or it
 names another `HEAD`. `archctx sync` in the primary checkout is the explicit command that creates or
 refreshes it, and its result reports `codeGraphBase`: `published`, `current`, `skipped-busy`,
-`skipped-moved`, `skipped-unborn`, `not-primary` or `failed`. A refresh never fails the sync.
+`skipped-moved`, `skipped-unborn`, `skipped-unverifiable` (the SDK resolves another database than
+`.codegraph/codegraph.db`), `skipped-unproven` (`current.json` or a stale `refresh.lock` without a
+matching record; delete it by hand to let a refresh publish), `not-primary` or `failed`. A refresh
+never fails the sync.
 
 The snapshot is `VACUUM INTO` on a read-only handle (the ADR-0058 exception). It is published only
 when no provider build ran during it and neither the index revision nor `HEAD` moved; otherwise it

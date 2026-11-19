@@ -81,7 +81,7 @@ export class PracticeCheckpointService {
       this.codeFacts.prepareSync(root);
     }
     const session = await this.openSession(root);
-    if (this.codeFacts.prepareSync) await this.codeFacts.ensureReady(session.workspace);
+    if (this.codeFacts.prepareSync) await this.codeFacts.ensureReady(session.workspace, { syncOnMiss: true });
     const result = await prepareTask({
       workspace: session.workspace,
       task,

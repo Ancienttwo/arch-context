@@ -1,7 +1,7 @@
 import type { Node as CodeGraphNode, NodeKind as CodeGraphNodeKind } from "@colbymchenry/codegraph";
 import { REQUIRED_CODEGRAPH_VERSION, codeGraphIndexIdentity, openCodeGraphReadSession, type CodeGraphIndexHandle, type CodeGraphReadProvider, type CodeGraphReadSession, type CodeGraphReadSessionOpenV1 } from "./read-session";
 import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
-import { CODE_FACTS_ISSUE_MESSAGES, FailureError, digestJson, type CodeGraphBaseRefreshV1, type Json, type NormalizedCodeContext, type NormalizedEdge, type NormalizedSymbol, type SymbolQuery } from "@archcontext/contracts";
+import { CODE_FACTS_ISSUE_MESSAGES, FailureError, digestJson, type CodeFactsSnapshot, type Json, type NormalizedCodeContext, type NormalizedEdge, type NormalizedSymbol, type SymbolQuery } from "@archcontext/contracts";
 import { DEFAULT_CODEGRAPH_BINARY, syncCodeGraphIndex } from "./cli-invocation";
 import { importEdgesFromQueryNodes, importQuery, uniqueStrings } from "./import-population";
 import { assertRepositoryCodeFactsReady, codeFactsUnavailableError } from "./repository-code-facts";
@@ -23,7 +23,7 @@ export interface CodeGraphProvider {
   /** Seeds a missing index from the repository's base index, then refuses an incompatible one. */
   prepareSync?(workspaceRoot: string): void;
   /** Syncs the index; the CodeGraph provider also reports what it did to the base index. */
-  indexAll(workspaceRoot: string): Promise<CodeGraphBaseRefreshV1 | void>;
+  indexAll(workspaceRoot: string): Promise<Pick<CodeFactsSnapshot, "codeGraphBase" | "codeGraphKept"> | void>;
   /**
    * The identity of the database the provider's reads of `workspaceRoot` open, or `undefined` when
    * archctx cannot verify which file that is (or there is none); an unverified index is never reused.
@@ -52,11 +52,14 @@ export class CodeGraphSdkProvider implements CodeGraphProvider {
    * Syncs the index of `workspaceRoot`, seeded from the base index when it has none, then refreshes
    * the base when `workspaceRoot` is the primary checkout. The refresh never fails the sync.
    */
-  async indexAll(workspaceRoot: string): Promise<CodeGraphBaseRefreshV1> {
-    this.prepareSync(workspaceRoot);
+  async indexAll(workspaceRoot: string): Promise<Pick<CodeFactsSnapshot, "codeGraphBase" | "codeGraphKept">> {
+    const kept: string[] = [];
+    const report = (path: string) => { kept.push(path); };
+    this.seed(workspaceRoot, report);
     syncCodeGraphIndex(workspaceRoot, { binary: this.binary });
     this.assertReady(workspaceRoot);
-    return refreshCodeGraphBase(workspaceRoot, this.readProvider ? { provider: this.readProvider } : {});
+    const codeGraphBase = refreshCodeGraphBase(workspaceRoot, { ...(this.readProvider ? { provider: this.readProvider } : {}), report });
+    return { codeGraphBase, ...(kept.length > 0 ? { codeGraphKept: kept } : {}) };
   }
 
   indexIdentity(workspaceRoot: string): string | undefined {
@@ -73,7 +76,11 @@ export class CodeGraphSdkProvider implements CodeGraphProvider {
    * compatibility gate refuses an incompatible or missing index, as without a seed.
    */
   prepareSync(workspaceRoot: string): void {
-    if (seedCodeGraphIndexFromBase(workspaceRoot, { binary: this.binary }) === "base-building") {
+    this.seed(workspaceRoot);
+  }
+
+  private seed(workspaceRoot: string, report?: (kept: string) => void): void {
+    if (seedCodeGraphIndexFromBase(workspaceRoot, { binary: this.binary, ...(report ? { report } : {}) }) === "base-building") {
       throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "index-base-building");
     }
     this.assertReady(workspaceRoot);

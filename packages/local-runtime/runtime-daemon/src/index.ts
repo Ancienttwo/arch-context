@@ -645,7 +645,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     const session = await this.openSession(root);
     const codeFacts = await this.codeFacts.sync({ workspace: session.workspace, changedPaths });
     session.codeFactsDigest = codeFacts.schemaDigest;
-    return okEnvelope("sync", { codeFactsDigest: codeFacts.schemaDigest, indexedAt: codeFacts.indexedAt, ...(codeFacts.codeGraphBase ? { codeGraphBase: codeFacts.codeGraphBase } : {}) } as Json);
+    return okEnvelope("sync", { codeFactsDigest: codeFacts.schemaDigest, indexedAt: codeFacts.indexedAt, ...(codeFacts.codeGraphBase ? { codeGraphBase: codeFacts.codeGraphBase } : {}), ...(codeFacts.codeGraphKept?.length ? { codeGraphKept: codeFacts.codeGraphKept } : {}) } as Json);
   }
 
   async validate(root: string): Promise<JsonEnvelope> {

@@ -25,9 +25,12 @@ export interface RepositorySnapshot {
  * is current. `current`: the base already names this `HEAD`. `skipped-busy`: another refresh holds
  * the lock. `skipped-moved`: a build ran, the index revision moved or `HEAD` moved during the
  * snapshot. `skipped-unborn`: `HEAD` names no commit. `not-primary`: a linked worktree never
- * publishes. `failed`: the snapshot or the publish failed; the sync itself still succeeded.
+ * publishes. `skipped-unverifiable`: the SDK resolves another database than `.codegraph/codegraph.db`.
+ * `skipped-unproven`: `current.json` or a stale `refresh.lock` is not a file archctx can prove it
+ * created, so it is left in place (and listed in `codeGraphKept`). `failed`: the snapshot or the
+ * publish failed; the sync itself still succeeded.
  */
-export type CodeGraphBaseRefreshV1 = "published" | "current" | "skipped-busy" | "skipped-moved" | "skipped-unborn" | "not-primary" | "failed";
+export type CodeGraphBaseRefreshV1 = "published" | "current" | "skipped-busy" | "skipped-moved" | "skipped-unborn" | "skipped-unverifiable" | "skipped-unproven" | "not-primary" | "failed";
 
 export interface CodeFactsSnapshot {
   provider: "codegraph";
@@ -37,6 +40,11 @@ export interface CodeFactsSnapshot {
   workspaceDigest: string;
   /** Set by a provider that refreshes the base index after its sync. */
   codeGraphBase?: CodeGraphBaseRefreshV1;
+  /**
+   * Paths at names the base index uses (seed staging folders, snapshots, `current.json`,
+   * `refresh.lock`) that archctx left in place because it cannot prove it created them.
+   */
+  codeGraphKept?: string[];
 }
 
 export interface NormalizedSymbol {
@@ -125,7 +133,12 @@ export interface CodeFactsPort {
    * index (#608), then refuses an incompatible one. No retry or rebuild.
    */
   prepareSync?(workspaceRoot: string): void;
-  ensureReady(workspace: WorkspaceRef): Promise<CodeFactsSnapshot>;
+  /**
+   * Makes `workspace`'s facts readable. An existing index is verified read-only, on the first call
+   * and every later one. Only a command that owns a sync passes `syncOnMiss`, which syncs the
+   * workspace once when this port has not verified it yet.
+   */
+  ensureReady(workspace: WorkspaceRef, options?: { syncOnMiss?: boolean }): Promise<CodeFactsSnapshot>;
   sync(input: { workspace: WorkspaceRef; changedPaths?: string[] }): Promise<CodeFactsSnapshot>;
   /**
    * Reads facts of `workspace`'s own index only, after `ensureReady` or `sync` of that workspace;

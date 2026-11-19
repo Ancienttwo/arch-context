@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { repositoryFingerprint } from "@archcontext/core/architecture-domain";
@@ -75,6 +76,7 @@ for (const transport of ["embedded", "json", "http"] as const) {
 test("a warm daemon prepares a fresh linked worktree at another commit from that worktree's facts, not the primary's (#608)", async () => {
   const root = realpathSync.native(createInitializedGitRepo());
   const linked = `${root}-linked`;
+  const other = `${root}-other`;
   const git = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
   const commit = (cwd: string, message: string) => { git(cwd, "add", "-A"); git(cwd, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-qm", message); };
   const daemon = await createStartedTestDaemon({ codeFacts: new CodeGraphAdapter(new CodeGraphSdkProvider()) });
@@ -95,9 +97,21 @@ test("a warm daemon prepares a fresh linked worktree at another commit from that
     const facts = JSON.stringify(prepared.data);
     expect(facts).toContain("src/linked.ts");
     expect(facts).not.toContain("src/primary.ts");
+    // A read of an indexed worktree the daemon has not seen verifies it read-only: its database
+    // keeps its bytes and its inode.
+    git(root, "worktree", "add", "-q", "-b", "other-work", other);
+    indexCodeGraphFixture(other);
+    expect((await daemon.context(root, "marker")).ok).toBe(true);
+    const database = join(other, ".codegraph", "codegraph.db");
+    const fingerprint = () => [statSync(database).ino, createHash("sha256").update(readFileSync(database)).digest("hex")];
+    const before = fingerprint();
+    const read = await daemon.context(other, "marker");
+    expect(read.ok, JSON.stringify(read)).toBe(true);
+    expect(fingerprint()).toEqual(before);
   } finally {
     await daemon.stop();
     Bun.gc(true);
+    removeTempRepo(other);
     removeTempRepo(linked);
     removeTempRepo(root);
   }
