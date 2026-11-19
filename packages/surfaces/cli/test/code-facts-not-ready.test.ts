@@ -139,7 +139,8 @@ for (const cached of [false, true]) {
       if (cached) await adapter.ensureReady(workspace);
       input.setFacts({ ...ready, pending: { added: 1, modified: 0, removed: 0 } });
       writeFileSync(input.calls, "");
-      await expect(adapter.ensureReady(workspace)).resolves.toMatchObject({ provider: "codegraph" });
+      // A cold call syncs only for a command that owns a sync.
+      await expect(adapter.ensureReady(workspace, cached ? {} : { syncOnMiss: true })).resolves.toMatchObject({ provider: "codegraph" });
       // Only the build starts CodeGraph; readiness reads the index in process.
       expect(readFileSync(input.calls, "utf8")).toBe(cached ? "" : "sync\n");
       if (cached) {
