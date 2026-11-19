@@ -74,6 +74,7 @@ for (const transport of ["embedded", "json", "http"] as const) {
 }
 
 test("a warm daemon prepares a fresh linked worktree at another commit from that worktree's facts, not the primary's (#608)", async () => {
+  if (process.platform === "win32") return; // The seed is off on Windows.
   const root = realpathSync.native(createInitializedGitRepo());
   const linked = `${root}-linked`;
   const other = `${root}-other`;

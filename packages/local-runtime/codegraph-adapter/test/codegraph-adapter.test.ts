@@ -850,6 +850,7 @@ function thrown(run: () => unknown): { code?: string; reasonCode?: string; retry
 
 describe("base index seed and refresh (#608)", () => {
   test("prepareSync seeds only from a published base, and refuses what it cannot seed", () => {
+    if (process.platform === "win32") return; // The seed is off on Windows.
     // [label, setup of the linked worktree and the base, code, reason]
     const cases: [string, (input: { worktree: string; baseDir: string; head: string }) => void, string, string][] = [
       ["no base", () => undefined, "AC_CODE_FACTS_UNAVAILABLE", "index-missing"],
@@ -968,6 +969,7 @@ describe("base index seed and refresh (#608)", () => {
   });
 
   test("a seed attempt reaps only dead staging folders it can prove are its own kind, even beside a live index", () => {
+    if (process.platform === "win32") return; // The seed is off on Windows.
     const repo = baseIndexRepository("archctx-base-reaper-");
     try {
       const worktree = join(dirname(repo.primary), "linked");
@@ -1013,6 +1015,7 @@ describe("base index seed and refresh (#608)", () => {
       ["HEAD moves during the snapshot", ({ primary }) => refreshCodeGraphBase(primary, { provider: fakeReadProvider(primary), snapshot: snapshotOf, readHead: headMovesOnce() }), "skipped-moved"],
       ["another refresh holds the lock", ({ primary, baseDir }) => { mkdirSync(baseDir, { recursive: true }); writeFileSync(join(baseDir, "refresh.lock"), String(process.pid)); return refreshCodeGraphBase(primary, { provider: fakeReadProvider(primary), snapshot: () => { throw new Error("no snapshot under another lock"); } }); }, "skipped-busy"],
       ["a linked worktree", ({ worktree }) => refreshCodeGraphBase(worktree, { provider: fakeReadProvider(worktree), snapshot: snapshotOf }), "not-primary"],
+      ["the database is re-created during the snapshot", ({ primary }) => refreshCodeGraphBase(primary, { provider: fakeReadProvider(primary), snapshot: (source, target) => { const database = join(primary, ".codegraph", "codegraph.db"); rmSync(database); writeFileSync(database, ""); snapshotOf(source, target); } }), "skipped-moved"],
       ["a stale refresh.lock archctx did not create", ({ primary, baseDir }) => { mkdirSync(baseDir, { recursive: true }); writeFileSync(join(baseDir, "refresh.lock"), "999999999"); return refreshCodeGraphBase(primary, { provider: fakeReadProvider(primary), snapshot: snapshotOf }); }, "skipped-unproven"],
       ["a stale refresh.lock archctx created", ({ primary, baseDir }) => { mkdirSync(baseDir, { recursive: true }); writeFileSync(join(baseDir, "refresh.lock"), "999999999"); recordAsArchctx(baseDir, "refresh.lock", join(baseDir, "refresh.lock")); return refreshCodeGraphBase(primary, { provider: fakeReadProvider(primary), snapshot: snapshotOf }); }, "published"],
       ["the SDK resolves another database than .codegraph/codegraph.db", ({ primary }) => withCodeGraphDir(".codegraph-alt", () => refreshCodeGraphBase(primary, { provider: fakeReadProvider(primary), snapshot: snapshotOf })), "skipped-unverifiable"]
@@ -1112,6 +1115,8 @@ describe("base index seed and refresh (#608)", () => {
       }, (repo, _worktree, report) => refreshCodeGraphBase(repo.primary, { provider: fakeReadProvider(repo.primary), snapshot: snapshotOf, report }), "skipped-unproven"]
     ];
     for (const [target, setup, operate, outcome] of targets) {
+      // The seed, which reaps staging folders, is off on Windows.
+      if (process.platform === "win32" && target === "a dead seed's staging folder") continue;
       for (const [replacement, replace] of REPLACEMENTS) {
         const label = `${target}, after ${replacement}`;
         const repo = baseIndexRepository("archctx-base-provenance-");
@@ -1119,7 +1124,12 @@ describe("base index seed and refresh (#608)", () => {
           const worktree = join(dirname(repo.primary), "linked");
           repo.git("worktree", "add", "-q", worktree);
           const path = setup(repo, worktree);
+          const identity = () => { const stat = lstatSync(path, { bigint: true }); return `${stat.dev}-${stat.ino}-${stat.birthtimeNs}`; };
+          const created = identity();
+          // A re-creation in the same file-system time tick can reuse the inode and the birth time.
+          Bun.sleepSync(30);
           replace(path);
+          expect([label, identity() === created]).toEqual([label, false]);
           const before = fingerprint(path);
           const kept: string[] = [];
           expect([label, operate(repo, worktree, (reported) => kept.push(reported))]).toEqual([label, outcome]);
@@ -1159,6 +1169,7 @@ describe("base index on a real index (#608)", () => {
   };
 
   test("the primary checkout publishes a base; a linked worktree seeded from it syncs to a fresh index of its tree", async () => {
+    if (process.platform === "win32") return; // The seed is off on Windows.
     expect((await new CodeGraphSdkProvider().indexAll(repo.primary)).codeGraphBase).toBe("published");
     expect((await new CodeGraphSdkProvider().indexAll(repo.primary)).codeGraphBase).toBe("current");
     const pointer = JSON.parse(readFileSync(join(repo.baseDir, "current.json"), "utf8"));
@@ -1221,6 +1232,7 @@ describe("base index on a real index (#608)", () => {
   }, 180_000);
 
   test("an existing index is never replaced or rewritten by a seed, and a seed links into an accepted empty .codegraph", async () => {
+    if (process.platform === "win32") return; // The seed is off on Windows.
     expect(["published", "current"]).toContain((await new CodeGraphSdkProvider().indexAll(repo.primary)).codeGraphBase!);
     // The CG-609-7 shape: an earlier seed died, then the user built the index themselves.
     const rebuilt = join(dirname(repo.primary), "rebuilt");
@@ -1254,6 +1266,7 @@ describe("base index on a real index (#608)", () => {
   }, 180_000);
 
   test("a projection snapshot seeds a fresh linked worktree before it lists the worktree's files", async () => {
+    if (process.platform === "win32") return; // The seed is off on Windows.
     expect(["published", "current"]).toContain((await new CodeGraphSdkProvider().indexAll(repo.primary)).codeGraphBase!);
     const projected = join(dirname(repo.primary), "projected");
     repo.git("worktree", "add", "-q", projected);
