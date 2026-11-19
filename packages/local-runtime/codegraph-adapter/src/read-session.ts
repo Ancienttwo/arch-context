@@ -111,14 +111,41 @@ export function pinnedCodeGraphProvider(): CodeGraphReadProvider {
 }
 
 /**
+ * The identity (`dev:ino:ctimeNs`) of the database the pinned SDK opens for `root` in this process,
+ * resolved by the SDK itself. `undefined` when there is no such file, the SDK cannot load, or the SDK
+ * resolves another directory than `<root>/.codegraph` (a `CODEGRAPH_DIR` override, or the WSL
+ * `.codegraph-wsl` choice): archctx's lock and link checks cover only `.codegraph`, so that layout
+ * cannot be verified. `ctimeNs` changes on every write, link or re-create of the file.
+ */
+export function codeGraphIndexIdentity(root: string): string | undefined {
+  try {
+    const { sdk } = codeGraphBundle();
+    const database = sdk.getDatabasePath(root);
+    if (dirname(database) !== join(root, ".codegraph") || sdk.getCodeGraphDir(root) !== join(root, ".codegraph")) return undefined;
+    const stat = lstatSync(database, { bigint: true });
+    return stat.isFile() ? `${stat.dev}:${stat.ino}:${stat.ctimeNs}` : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * `.codegraph/codegraph.lock` is the provider's cross-process writer lock, held for a whole
  * `codegraph init`, `index` or `sync` build. While it names a live process the index is mid-build,
  * so no reader reports its facts (#426).
  */
 export function codeGraphIndexBuildInProgress(workspaceRoot: string): boolean {
+  return pidLockLive(join(workspaceRoot, ".codegraph", "codegraph.lock"));
+}
+
+/**
+ * True while the pid file at `path` names a live process. A missing, unreadable or malformed file,
+ * or a dead holder, is not a live lock.
+ */
+export function pidLockLive(path: string): boolean {
   let raw: string;
   try {
-    raw = readFileSync(join(workspaceRoot, ".codegraph", "codegraph.lock"), "utf8").trim();
+    raw = readFileSync(path, "utf8").trim();
   } catch {
     return false;
   }
@@ -280,17 +307,31 @@ function readSession(root: string, handle: { graph?: CodeGraphIndexHandle }, pro
  * A file that exists but cannot be read cannot be attested, so it counts as modified, not fresh.
  */
 function indexFreshness(root: string, graph: CodeGraphIndexHandle, provider: CodeGraphReadProvider): CodeGraphIndexFreshnessV1 {
-  const current = new Set(provider.scanSourceFiles(root));
-  const indexed = new Map(graph.getFiles().map(file => [file.path, file.contentHash] as const));
+  return codeGraphChangeCounts(graph.getFiles(), provider.scanSourceFiles(root), {
+    exists: (path) => existsSync(join(root, path)),
+    changeHash: (path) => provider.changeHash(join(root, path))
+  });
+}
+
+/**
+ * The counting rule of `indexFreshness`. The staged-index check of the base-index seed runs this
+ * function's own source in a child process (index-base.ts), so it reads nothing but its arguments.
+ */
+export function codeGraphChangeCounts(
+  indexedFiles: ReadonlyArray<{ path: string; contentHash: string }>,
+  currentPaths: readonly string[],
+  source: { exists(path: string): boolean; changeHash(path: string): string }
+): CodeGraphIndexFreshnessV1 {
+  const current = new Set(currentPaths);
+  const indexed = new Map(indexedFiles.map((file) => [file.path, file.contentHash] as const));
   let added = 0, modified = 0, removed = 0;
   for (const [path, contentHash] of indexed) {
-    const absolute = join(root, path);
-    if (!current.has(path) || !existsSync(absolute)) { removed++; continue; }
+    if (!current.has(path) || !source.exists(path)) { removed++; continue; }
     let hash: string | undefined;
-    try { hash = provider.changeHash(absolute); } catch { hash = undefined; }
+    try { hash = source.changeHash(path); } catch { hash = undefined; }
     if (hash !== contentHash) modified++;
   }
   // A tracked file deleted from the worktree stays in the enumeration but is not a new source.
-  for (const path of current) if (!indexed.has(path) && existsSync(join(root, path))) added++;
+  for (const path of current) if (!indexed.has(path) && source.exists(path)) added++;
   return { added, modified, removed };
 }

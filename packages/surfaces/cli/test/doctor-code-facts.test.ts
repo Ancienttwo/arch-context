@@ -73,7 +73,7 @@ describe("archctx doctor code facts", () => {
       execFileSync("git", ["init", "--quiet"], { cwd: root, stdio: "ignore" });
       const lines = doctorHuman(root, stateDir).split("\n");
       expect(lines[0]).toBe("OK doctor");
-      expect(lines[1]).toBe("code facts: index missing; run `codegraph init`");
+      expect(lines[1]).toBe("code facts: index missing; run `codegraph init`, or `archctx sync` in a linked worktree once the primary checkout has published a base index");
       expect(lines.filter((line) => line.startsWith("code facts:"))).toHaveLength(1);
     } finally {
       rmSync(root, { recursive: true, force: true });

@@ -1,19 +1,36 @@
 import type { Node as CodeGraphNode, NodeKind as CodeGraphNodeKind } from "@colbymchenry/codegraph";
-import { REQUIRED_CODEGRAPH_VERSION, openCodeGraphReadSession, type CodeGraphIndexHandle, type CodeGraphReadProvider, type CodeGraphReadSession, type CodeGraphReadSessionOpenV1 } from "./read-session";
+import { REQUIRED_CODEGRAPH_VERSION, codeGraphIndexIdentity, openCodeGraphReadSession, type CodeGraphIndexHandle, type CodeGraphReadProvider, type CodeGraphReadSession, type CodeGraphReadSessionOpenV1 } from "./read-session";
 import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
-import { CODE_FACTS_ISSUE_MESSAGES, FailureError, digestJson, type Json, type NormalizedCodeContext, type NormalizedEdge, type NormalizedSymbol, type SymbolQuery } from "@archcontext/contracts";
+import { CODE_FACTS_ISSUE_MESSAGES, FailureError, digestJson, type CodeGraphBaseRefreshV1, type Json, type NormalizedCodeContext, type NormalizedEdge, type NormalizedSymbol, type SymbolQuery } from "@archcontext/contracts";
 import { DEFAULT_CODEGRAPH_BINARY, syncCodeGraphIndex } from "./cli-invocation";
 import { importEdgesFromQueryNodes, importQuery, uniqueStrings } from "./import-population";
 import { assertRepositoryCodeFactsReady, codeFactsUnavailableError } from "./repository-code-facts";
+import { refreshCodeGraphBase, seedCodeGraphIndexFromBase } from "./index-base";
+
+/**
+ * The index one read is for: the worktree root, and the identity of its database at the last sync
+ * or readiness check. With an identity, the read refuses an index that is no longer that file.
+ */
+export interface CodeGraphReadTarget {
+  root: string;
+  identity?: string;
+}
 
 export interface CodeGraphProvider {
   version: string;
   capabilities: string[];
   assertReady?(workspaceRoot: string): void;
-  assertCanSync?(workspaceRoot: string): void;
-  indexAll(workspaceRoot: string): Promise<void>;
-  buildContext(task: string, options: { maxSymbols: number; includeSource: boolean; changedPaths?: string[] }): Promise<NormalizedCodeContext>;
-  findSymbols(query: SymbolQuery): Promise<NormalizedSymbol[]>;
+  /** Seeds a missing index from the repository's base index, then refuses an incompatible one. */
+  prepareSync?(workspaceRoot: string): void;
+  /** Syncs the index; the CodeGraph provider also reports what it did to the base index. */
+  indexAll(workspaceRoot: string): Promise<CodeGraphBaseRefreshV1 | void>;
+  /**
+   * The identity of the database the provider's reads of `workspaceRoot` open, or `undefined` when
+   * archctx cannot verify which file that is (or there is none); an unverified index is never reused.
+   */
+  indexIdentity(workspaceRoot: string): string | undefined;
+  buildContext(target: CodeGraphReadTarget, task: string, options: { maxSymbols: number; includeSource: boolean; changedPaths?: string[] }): Promise<NormalizedCodeContext>;
+  findSymbols(target: CodeGraphReadTarget, query: SymbolQuery): Promise<NormalizedSymbol[]>;
 }
 
 /**
@@ -23,29 +40,42 @@ export interface CodeGraphProvider {
 export class CodeGraphSdkProvider implements CodeGraphProvider {
   version: string = REQUIRED_CODEGRAPH_VERSION;
   capabilities = ["index", "context"];
-  private workspaceRoot: string;
 
   /**
    * `binary` builds the index (`sync`); reads never start it. `readProvider` is the read-only
    * provider every read and readiness check opens the index through, the pinned one unless a test
-   * injects one.
+   * injects one. The provider holds no worktree: every read names its own target.
    */
-  constructor(workspaceRoot = process.cwd(), private readonly binary = DEFAULT_CODEGRAPH_BINARY, private readonly readProvider?: CodeGraphReadProvider) {
-    this.workspaceRoot = workspaceRoot;
-  }
+  constructor(private readonly binary = DEFAULT_CODEGRAPH_BINARY, private readonly readProvider?: CodeGraphReadProvider) {}
 
-  async indexAll(workspaceRoot: string): Promise<void> {
-    this.workspaceRoot = workspaceRoot;
-    this.assertCanSync(workspaceRoot);
+  /**
+   * Syncs the index of `workspaceRoot`, seeded from the base index when it has none, then refreshes
+   * the base when `workspaceRoot` is the primary checkout. The refresh never fails the sync.
+   */
+  async indexAll(workspaceRoot: string): Promise<CodeGraphBaseRefreshV1> {
+    this.prepareSync(workspaceRoot);
     syncCodeGraphIndex(workspaceRoot, { binary: this.binary });
     this.assertReady(workspaceRoot);
+    return refreshCodeGraphBase(workspaceRoot, this.readProvider ? { provider: this.readProvider } : {});
+  }
+
+  indexIdentity(workspaceRoot: string): string | undefined {
+    return codeGraphIndexIdentity(workspaceRoot);
   }
 
   assertReady(workspaceRoot: string): void {
     assertRepositoryCodeFactsReady(workspaceRoot, this.readProvider ? { provider: this.readProvider } : {});
   }
 
-  assertCanSync(workspaceRoot: string): void {
+  /**
+   * Runs before a command's `codegraph sync`. A worktree with no index gets a checked copy of the
+   * base index; with no base published while a refresh runs, the command is told to retry. Then the
+   * compatibility gate refuses an incompatible or missing index, as without a seed.
+   */
+  prepareSync(workspaceRoot: string): void {
+    if (seedCodeGraphIndexFromBase(workspaceRoot, { binary: this.binary }) === "base-building") {
+      throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "index-base-building");
+    }
     this.assertReady(workspaceRoot);
   }
 
@@ -54,11 +84,11 @@ export class CodeGraphSdkProvider implements CodeGraphProvider {
    * `searchNodes`, both read in one session. Symbols are the query nodes, then the file nodes of the
    * relevant files in relevance order, capped at `maxSymbols`.
    */
-  async buildContext(task: string, options: { maxSymbols: number; includeSource: boolean; changedPaths?: string[] }): Promise<NormalizedCodeContext> {
+  async buildContext(target: CodeGraphReadTarget, task: string, options: { maxSymbols: number; includeSource: boolean; changedPaths?: string[] }): Promise<NormalizedCodeContext> {
     const changedPaths = options.changedPaths ?? [];
     const query = scopedTaskQuery(task, changedPaths);
     const scopedImportQuery = importQuery(changedPaths);
-    const read = await this.read(async (graph) => {
+    const read = await this.read(target, async (graph) => {
       const relevantFiles = relevantFilesOf(await graph.findRelevantContext(query)).slice(0, options.maxSymbols);
       return {
         relevantFiles,
@@ -71,7 +101,7 @@ export class CodeGraphSdkProvider implements CodeGraphProvider {
       ...read.queryNodes.filter((node) => node.kind !== "import"),
       ...read.fileNodes
     ].map(normalizeNode)).slice(0, options.maxSymbols);
-    const edges = uniqueEdges(importEdgesFromQueryNodes(new Set(listGitVisibleFiles(this.workspaceRoot)), read.importNodes.length > 0 ? read.importNodes : read.queryNodes));
+    const edges = uniqueEdges(importEdgesFromQueryNodes(new Set(listGitVisibleFiles(target.root)), read.importNodes.length > 0 ? read.importNodes : read.queryNodes));
     return {
       task,
       symbols,
@@ -92,8 +122,8 @@ export class CodeGraphSdkProvider implements CodeGraphProvider {
   }
 
   /** `searchNodes`, restricted to `query.kinds` when given, ranked deterministically. */
-  async findSymbols(query: SymbolQuery): Promise<NormalizedSymbol[]> {
-    const nodes = await this.read((graph) => rankedSearch(graph, query.query, query.limit ?? 10, query.kinds));
+  async findSymbols(target: CodeGraphReadTarget, query: SymbolQuery): Promise<NormalizedSymbol[]> {
+    const nodes = await this.read(target, (graph) => rankedSearch(graph, query.query, query.limit ?? 10, query.kinds));
     return nodes.map(normalizeNode);
   }
 
@@ -103,21 +133,28 @@ export class CodeGraphSdkProvider implements CodeGraphProvider {
    * open:
    * - the pinned provider cannot load: `code-facts-unavailable`, as the readiness gate maps it;
    * - the session does not open: its state's refusal;
+   * - the target names an identity and the opened database is no longer that file: retryable
+   *   not-ready, so a rebuilt or replaced index is re-verified before it is read;
    * - the index moved during the read, whether the read then threw or not: retryable not-ready,
    *   because facts read across a build or a sync are not one index state (design G4);
    * - any other throw inside the read, including a write the read-only handle refuses:
    *   `index-open-failed`.
    * A failing `close()` never replaces the read's own error; after a good read it is `index-open-failed`.
    */
-  private async read<T>(read: (graph: CodeGraphIndexHandle) => T | Promise<T>): Promise<T> {
+  private async read<T>(target: CodeGraphReadTarget, read: (graph: CodeGraphIndexHandle) => T | Promise<T>): Promise<T> {
     let opened: CodeGraphReadSessionOpenV1;
     try {
-      opened = openCodeGraphReadSession(this.workspaceRoot, this.readProvider ? { provider: this.readProvider } : {});
+      opened = openCodeGraphReadSession(target.root, this.readProvider ? { provider: this.readProvider } : {});
     } catch {
       throw codeFactsUnavailableError();
     }
     if (opened.state !== "open") throw readRefusal(opened.state);
     const { session } = opened;
+    // Checked after the open, so a file replaced before or during the open is never read as the verified one.
+    if (target.identity !== undefined && this.indexIdentity(target.root) !== target.identity) {
+      try { session.close(); } catch { /* the refusal stands */ }
+      throw readRefusal("build-in-progress");
+    }
     let outcome: { value: T } | { error: FailureError };
     try {
       const value = await read(session.graph);

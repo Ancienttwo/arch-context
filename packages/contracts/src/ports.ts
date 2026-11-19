@@ -20,12 +20,23 @@ export interface RepositorySnapshot {
   modelDigest?: string;
 }
 
+/**
+ * What a sync did to the repository's shared CodeGraph base index (#608). `published`: a new base
+ * is current. `current`: the base already names this `HEAD`. `skipped-busy`: another refresh holds
+ * the lock. `skipped-moved`: a build ran, the index revision moved or `HEAD` moved during the
+ * snapshot. `skipped-unborn`: `HEAD` names no commit. `not-primary`: a linked worktree never
+ * publishes. `failed`: the snapshot or the publish failed; the sync itself still succeeded.
+ */
+export type CodeGraphBaseRefreshV1 = "published" | "current" | "skipped-busy" | "skipped-moved" | "skipped-unborn" | "not-primary" | "failed";
+
 export interface CodeFactsSnapshot {
   provider: "codegraph";
   version: string;
   schemaDigest: string;
   indexedAt: string;
   workspaceDigest: string;
+  /** Set by a provider that refreshes the base index after its sync. */
+  codeGraphBase?: CodeGraphBaseRefreshV1;
 }
 
 export interface NormalizedSymbol {
@@ -109,12 +120,19 @@ export interface SourceSelector {
 }
 
 export interface CodeFactsPort {
-  /** Read-only compatibility check before the existing incremental sync. No retry or rebuild. */
-  assertCanSync?(workspaceRoot: string): void;
+  /**
+   * Runs before a command's incremental sync: seeds a missing index from the repository's base
+   * index (#608), then refuses an incompatible one. No retry or rebuild.
+   */
+  prepareSync?(workspaceRoot: string): void;
   ensureReady(workspace: WorkspaceRef): Promise<CodeFactsSnapshot>;
   sync(input: { workspace: WorkspaceRef; changedPaths?: string[] }): Promise<CodeFactsSnapshot>;
-  buildTaskContext(input: { task: string; maxSymbols: number; includeSource: boolean; changedPaths?: string[] }): Promise<NormalizedCodeContext>;
-  findSymbols(query: SymbolQuery): Promise<NormalizedSymbol[]>;
+  /**
+   * Reads facts of `workspace`'s own index only, after `ensureReady` or `sync` of that workspace;
+   * a workspace with no successful sync, or whose index changed since it was verified, is refused.
+   */
+  buildTaskContext(input: { workspace: WorkspaceRef; task: string; maxSymbols: number; includeSource: boolean; changedPaths?: string[] }): Promise<NormalizedCodeContext>;
+  findSymbols(query: SymbolQuery, workspace: WorkspaceRef): Promise<NormalizedSymbol[]>;
   resolveEvidence(selectors: SourceSelector[]): Promise<ObservedEvidence[]>;
 }
 

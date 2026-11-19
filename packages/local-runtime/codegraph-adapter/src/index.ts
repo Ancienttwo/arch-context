@@ -1,7 +1,7 @@
 import { REQUIRED_CODEGRAPH_PACKAGE, REQUIRED_CODEGRAPH_VERSION } from "./read-session";
 import { buildArchitectureCandidateDelta, type ArchitectureDeltaDeclaredGraph, type ArchitectureDeltaGitChangeMetadata } from "@archcontext/core/architecture-delta";
 import { repoScopedArchitectureId, type CrossRepoRelation } from "@archcontext/core/architecture-domain";
-import { digestJson, type ArchitectureCandidateDeltaV1, type ArchitectureRepositoryIdentityV1, type ArchitectureWorktreeIdentityV1, type CodeFactsPort, type CodeFactsSnapshot, type NormalizedCodeContext, type NormalizedEdge, type NormalizedSymbol, type ObservedEvidence, type SourceSelector, type SymbolQuery, type WorkspaceRef } from "@archcontext/contracts";
+import { CODE_FACTS_ISSUE_MESSAGES, FailureError, digestJson, type ArchitectureCandidateDeltaV1, type ArchitectureRepositoryIdentityV1, type ArchitectureWorktreeIdentityV1, type CodeFactsPort, type CodeFactsSnapshot, type NormalizedCodeContext, type NormalizedEdge, type NormalizedSymbol, type ObservedEvidence, type SourceSelector, type SymbolQuery, type WorkspaceRef } from "@archcontext/contracts";
 import { disableCodeGraphTelemetryByDefault } from "./cli-invocation";
 import type { CodeGraphProvider } from "./sdk-provider";
 import { normalizeChangedPaths, uniqueStrings } from "./import-population";
@@ -30,7 +30,18 @@ export {
   packagedCodeGraphRuntimeDigest,
   type CodeGraphCliInvocation
 } from "./cli-invocation";
-export { CodeGraphSdkProvider, type CodeGraphProvider } from "./sdk-provider";
+export { CodeGraphSdkProvider, type CodeGraphProvider, type CodeGraphReadTarget } from "./sdk-provider";
+export {
+  CODEGRAPH_BASE_SCHEMA,
+  codeGraphBaseDirectory,
+  codeGraphRewritesGitignore,
+  refreshCodeGraphBase,
+  seedCodeGraphIndexFromBase,
+  type CodeGraphBasePointerV1,
+  type CodeGraphBaseRefreshOptions,
+  type CodeGraphSeedOptions,
+  type CodeGraphSeedOutcomeV1
+} from "./index-base";
 export {
   assertRepositoryCodeFactsReady,
   codeGraphIndexAvailable,
@@ -46,6 +57,7 @@ export {
   prepareArchitectureDocumentationProjectionSnapshot,
   prepareProjectionCodeFacts,
   projectionCodeFactsRequired,
+  seedProjectionCodeGraphIndex,
   type CodeGraphProjectionHandshakeV1,
   type PreparedArchitectureDocumentationProjectionSnapshot,
   type PreparedProjectionCodeFacts
@@ -71,41 +83,70 @@ export {
   type CodeGraphSymbolReaderResult
 } from "./selector-index";
 
+/** One worktree's last successful sync, and the identity of its database when it was verified. */
+interface VerifiedCodeFacts {
+  identity: string | undefined;
+  snapshot: CodeFactsSnapshot;
+}
+
 export class CodeGraphAdapter implements CodeFactsPort {
-  #snapshot?: CodeFactsSnapshot;
+  /** Per worktree root; a read is served only for a root listed here, at the identity listed. */
+  readonly #verified = new Map<string, VerifiedCodeFacts>();
+  /** The most recent successful sync, for `resolveEvidence`, which reads no index. */
+  #latest?: CodeFactsSnapshot;
 
   constructor(private readonly provider: CodeGraphProvider) {
     disableCodeGraphTelemetryByDefault();
   }
 
-  assertCanSync(workspaceRoot: string): void {
+  prepareSync(workspaceRoot: string): void {
     this.assertCompatible();
-    this.provider.assertCanSync?.(workspaceRoot);
+    this.provider.prepareSync?.(workspaceRoot);
   }
 
+  /**
+   * The first call for a worktree syncs it, as before. A later call never starts a writable sync:
+   * it re-runs the read-only readiness check and records the database identity it found, so a
+   * rebuilt or re-created index is verified again without being rewritten. A worktree whose index
+   * identity cannot be verified is never reused: a later call refuses as not ready (retryable), and
+   * only a sync-owning command verifies it again.
+   */
   async ensureReady(workspace: WorkspaceRef): Promise<CodeFactsSnapshot> {
     this.assertCompatible();
-    if (this.#snapshot) this.provider.assertReady?.(workspace.root);
-    this.#snapshot ??= await this.sync({ workspace });
-    return this.#snapshot;
+    const verified = this.#verified.get(workspace.root);
+    if (!verified) return this.sync({ workspace });
+    if (verified.identity === undefined) throw codeFactsNotReady();
+    this.provider.assertReady?.(workspace.root);
+    verified.identity = this.provider.indexIdentity(workspace.root);
+    return verified.snapshot;
   }
 
   async sync(input: { workspace: WorkspaceRef; changedPaths?: string[] }): Promise<CodeFactsSnapshot> {
     this.assertCompatible();
-    await this.provider.indexAll(input.workspace.root);
-    this.#snapshot = {
+    const root = input.workspace.root;
+    this.#verified.delete(root);
+    this.#latest = undefined;
+    const codeGraphBase = await this.provider.indexAll(root);
+    const snapshot: CodeFactsSnapshot = {
       provider: "codegraph",
       version: this.provider.version,
       schemaDigest: digestJson({ package: REQUIRED_CODEGRAPH_PACKAGE, version: this.provider.version, capabilities: this.provider.capabilities }),
       indexedAt: new Date(0).toISOString(),
-      workspaceDigest: digestJson({ root: input.workspace.root, changedPaths: input.changedPaths ?? [] })
+      workspaceDigest: digestJson({ root, changedPaths: input.changedPaths ?? [] }),
+      ...(codeGraphBase ? { codeGraphBase } : {})
     };
-    return this.#snapshot;
+    this.#verified.set(root, { identity: this.provider.indexIdentity(root), snapshot });
+    this.#latest = snapshot;
+    return snapshot;
   }
 
-  async buildTaskContext(input: { task: string; maxSymbols: number; includeSource: boolean; changedPaths?: string[] }): Promise<NormalizedCodeContext> {
+  async buildTaskContext(input: { workspace: WorkspaceRef; task: string; maxSymbols: number; includeSource: boolean; changedPaths?: string[] }): Promise<NormalizedCodeContext> {
     this.assertCompatible();
-    return this.provider.buildContext(input.task, { ...input, changedPaths: normalizeChangedPaths(input.changedPaths ?? []) });
+    return this.provider.buildContext(this.readTarget(input.workspace), input.task, {
+      maxSymbols: input.maxSymbols,
+      includeSource: input.includeSource,
+      changedPaths: normalizeChangedPaths(input.changedPaths ?? [])
+    });
   }
 
   async analyzeChangedSubjects(input: {
@@ -121,6 +162,7 @@ export class CodeGraphAdapter implements CodeFactsPort {
     const changedPaths = normalizeChangedPaths(input.git.paths.flatMap((change) => [change.path, change.previousPath ?? ""]));
     await this.sync({ workspace: input.workspace, changedPaths });
     const codeContext = await this.buildTaskContext({
+      workspace: input.workspace,
       task: architectureDeltaTask(input.git),
       maxSymbols: input.maxSymbols ?? Math.max(8, changedPaths.length * 4),
       includeSource: false,
@@ -141,13 +183,24 @@ export class CodeGraphAdapter implements CodeFactsPort {
     });
   }
 
-  async findSymbols(query: SymbolQuery): Promise<NormalizedSymbol[]> {
+  async findSymbols(query: SymbolQuery, workspace: WorkspaceRef): Promise<NormalizedSymbol[]> {
     this.assertCompatible();
-    return this.provider.findSymbols(query);
+    return this.provider.findSymbols(this.readTarget(workspace), query);
+  }
+
+  /**
+   * The read target of `workspace`: its root and verified identity. A worktree that has no
+   * successful sync in this adapter is not read at all, so a failed sync of another worktree can
+   * never redirect a read.
+   */
+  private readTarget(workspace: WorkspaceRef): { root: string; identity?: string } {
+    const verified = this.#verified.get(workspace.root);
+    if (!verified) throw codeFactsNotReady();
+    return verified.identity === undefined ? { root: workspace.root } : { root: workspace.root, identity: verified.identity };
   }
 
   async resolveEvidence(selectors: SourceSelector[]): Promise<ObservedEvidence[]> {
-    const snapshot = this.#snapshot;
+    const snapshot = this.#latest;
     if (!snapshot) throw new Error("CodeGraph snapshot unavailable; call ensureReady first");
     return selectors.map((selector, index) => ({
       id: `evidence_${index + 1}`,
@@ -173,6 +226,13 @@ export class CodeGraphAdapter implements CodeFactsPort {
       }
     }
   }
+}
+
+/** Retryable not-ready: the worktree has no verified sync in this adapter that a read may use. */
+function codeFactsNotReady(): FailureError {
+  return new FailureError("AC_CODE_FACTS_NOT_READY", "code-facts-not-ready", {
+    issues: [{ code: "index-incomplete", message: CODE_FACTS_ISSUE_MESSAGES["index-incomplete"] }]
+  }, { action: "codegraph-index", retryable: true });
 }
 
 export interface LandscapeContextInput {
@@ -209,6 +269,7 @@ export class MultiRepoCodeGraphAdapter {
       contexts.push({
         workspace,
         context: await adapter.buildTaskContext({
+          workspace,
           task: input.task,
           maxSymbols: perRepoMax,
           includeSource: input.includeSource

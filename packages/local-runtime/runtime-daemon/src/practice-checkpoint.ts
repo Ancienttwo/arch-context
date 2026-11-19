@@ -76,12 +76,12 @@ export class PracticeCheckpointService {
 
   private async prepareUnchecked(root: string, task: string, maxBytes = 12_288, maxItems = 12, taskSessionId = "task_runtime"): Promise<JsonEnvelope> {
     this.assertRunning();
-    if (this.codeFacts.assertCanSync) {
+    if (this.codeFacts.prepareSync) {
       root = findRepositoryRoot(root);
-      this.codeFacts.assertCanSync(root);
+      this.codeFacts.prepareSync(root);
     }
     const session = await this.openSession(root);
-    if (this.codeFacts.assertCanSync) await this.codeFacts.ensureReady(session.workspace);
+    if (this.codeFacts.prepareSync) await this.codeFacts.ensureReady(session.workspace);
     const result = await prepareTask({
       workspace: session.workspace,
       task,
