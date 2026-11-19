@@ -3892,7 +3892,7 @@ function renderResult(result: any, format: string): string {
 function doctorCodeFactsLine(codeFacts: any): string {
   if (!codeFacts) return "code facts: not reported";
   if (codeFacts.state === "unavailable") return `code facts: unavailable (${codeFacts.message})`;
-  if (codeFacts.state === "index-missing") return "code facts: index missing; run `codegraph init`";
+  if (codeFacts.state === "index-missing") return "code facts: index missing; run `codegraph init`, or `archctx sync` in a linked worktree once the primary checkout has published a base index";
   const issues = codeFacts.issues.length === 0 ? "" : ` (${codeFacts.issues.map((issue: { code: string }) => issue.code).join(", ")})`;
   return `code facts: ${codeFacts.state}${issues}; CodeGraph ${codeFacts.codeGraphVersion}`;
 }

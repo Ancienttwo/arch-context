@@ -27,7 +27,7 @@ export function disableCodeGraphTelemetryByDefault(env: MutableEnv = process.env
 }
 
 /** Default bound on one `sync` of the index; the projection handshake passes its own. */
-const CODEGRAPH_SYNC_TIMEOUT_MS = 30_000;
+export const CODEGRAPH_SYNC_TIMEOUT_MS = 30_000;
 
 export interface CodeGraphCliInvocation {
   command: string;

@@ -6,8 +6,9 @@ It does not start a CodeGraph process, sync or rebuild the index. The same pinne
 package supplies the SDK reader and the CLI used for index builds.
 
 `complete`, `prepare` and `projection run` check compatibility before CodeGraph sync.
-A read-only `CodeFactsPort.assertCanSync` hook checks them before a runtime session
-is stored, even when prepare requests no symbols.
+The `CodeFactsPort.prepareSync` hook checks them before a runtime session is stored,
+even when prepare requests no symbols. It first seeds a missing index from the
+repository's base index (see below).
 Pending source changes alone may use the existing one incremental sync.
 The index must remain compatible after that sync. Projection reads also require fresh
 code facts and check freshness again after reading; changes during the read fail closed.
@@ -36,6 +37,63 @@ mid-build reading is a guess. The loaded bundle manifest still supplies the prov
 without opening the database or spawning a version command. Wait for the build to finish,
 then inspect again. A stale lock (its PID is gone) or a malformed lock does not suppress
 the read-only inspection.
+
+## Seeding a linked worktree from the base index
+
+A fresh linked worktree (`git worktree add`) has no `.codegraph/codegraph.db`. The commands that
+run `codegraph sync` themselves first try to seed it from the repository's base index: `archctx
+sync`, `prepare`, `complete`, every projection command that builds a projection snapshot
+(`projection check`, `plan`, `run`, `apply`, `freshness`, `snapshot`, `readback`, `adopt` and
+`docs apply`), and `flows check` without `--no-sync`. Read-only commands (`doctor`, `checkpoint`,
+`flows check --no-sync`, `refactor-scan`, `architecture-debt`) never seed.
+
+The seed syncs a private copy in `<root>/.codegraph-seed-<pid>-<uuid>/` (it ignores itself, and
+CodeGraph skips it), checks that the result is complete and fresh by full content hash, and only
+then hard-links `codegraph.db` into `.codegraph/`. It never touches an existing database. It declines,
+and the command answers `index-missing` as without a seed, when:
+
+- the platform is Windows, `CODEGRAPH_DIR` is set, a CodeGraph binary is named, or the packaged
+  CodeGraph is not the pinned version;
+- `.codegraph/` holds anything but an ignore file CodeGraph keeps (an old `-wal`, `-shm` or journal,
+  `codegraph.lock`, `daemon.pid`, a link), or its database paths are not ignored or are tracked;
+- the staged sync fails or exceeds its deadline, or the staged index is not fresh, for example after
+  a same-size edit that kept its mtime.
+
+A retry starts again from the base; no partial seed is reused. archctx removes only what it created
+in the same run. A `.codegraph-seed-*` folder left by a crash stays: the next `archctx sync` lists
+it in `codeGraphKept`, and you delete it by hand once no archctx or codegraph process is using the
+worktree.
+
+The base lives in `<git-common-dir>/archcontext/codegraph/<CodeGraph version>/`:
+
+- `current.json` names the published snapshot and the `HEAD` it was taken at.
+- `base-<uuid>.db` files are snapshots. A published one is never rewritten.
+- `refresh.lock` serializes refreshers.
+- `records/` holds one empty `current.json@<identity>` file per publish, never deleted. archctx
+  replaces `current.json` only when its creation identity (device, inode, birth time) has a record,
+  so a restored or re-created `current.json` stays in place.
+
+Only the primary checkout publishes, after its own successful sync, when there is no base or it
+names another `HEAD`. `archctx sync` in the primary checkout is the explicit command that creates or
+refreshes it, and its result reports `codeGraphBase`: `published`, `current`, `skipped-busy`,
+`skipped-moved`, `skipped-unborn`, `skipped-unverifiable` (the SDK resolves another database than
+`.codegraph/codegraph.db`), `skipped-unproven` (`current.json` without a record, or a stale
+`refresh.lock`; delete it by hand to let a refresh publish), `not-primary` or `failed`. A refresh
+never fails the sync. `codeGraphKept` lists each path archctx left for hand cleanup, with its kind
+(`abandoned-staging`, `staging-not-removed`, `unreferenced-snapshot`, `snapshot-not-removed`,
+`stale-refresh-lock`, `unproven-pointer`) and a cleanup hint.
+
+The snapshot is `VACUUM INTO` on a read-only handle (the ADR-0058 exception). It is published only
+when no provider build ran during it and neither the index revision nor `HEAD` moved; otherwise it
+is discarded. Unreferenced snapshots older than ten minutes are listed in `codeGraphKept`; delete
+them by hand, as archctx never deletes a snapshot an earlier run wrote. Record files accumulate in
+`records/` and may be deleted by hand together with the whole base directory.
+
+With no base published, a sync-owning command keeps the `index-missing` answer, whose message names
+`archctx sync` in the primary checkout. While the first base is still being written, it returns
+`AC_CODE_FACTS_UNAVAILABLE` with reason `index-base-building`, retryable. The staged sync keeps the
+command's sync deadline (30 seconds by default); a worktree too far from the base commit for that
+deadline gets no seed and needs `codegraph init`.
 
 ## Public failure contract
 

@@ -227,6 +227,7 @@ export class ExplorerProjectionService {
     try {
       await this.codeFacts.ensureReady(workspace);
       observed = await this.codeFacts.buildTaskContext({
+        workspace,
         task,
         maxSymbols: Math.min(1000, Math.max(query.budget.maxNodes, query.budget.maxNodes * 4)),
         includeSource: false

@@ -19,5 +19,5 @@ CodeGraph is a product-level hard dependency. Runtime code reaches it only throu
 
 # Consequences
 
-- No direct reads of CodeGraph internal SQLite or file layout.
+- No direct reads of CodeGraph internal SQLite or file layout. One exception, [ADR-0058](ADR-0058-codegraph-reads-in-process-read-only.md) Decision 10 ([#608](https://github.com/Ancienttwo/arch-context/issues/608)): the base-index refresh opens `codegraph.db` as an opaque SQLite file on a read-only handle, only for `VACUUM INTO`. It reads no table and writes no row.
 - Compatibility is guarded by adapter contract tests and version checks.

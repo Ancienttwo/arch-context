@@ -20,12 +20,39 @@ export interface RepositorySnapshot {
   modelDigest?: string;
 }
 
+/**
+ * What a sync did to the repository's shared CodeGraph base index (#608). `published`: a new base
+ * is current. `current`: the base already names this `HEAD`. `skipped-busy`: another refresh holds
+ * the lock. `skipped-moved`: a build ran, the index revision moved or `HEAD` moved during the
+ * snapshot. `skipped-unborn`: `HEAD` names no commit. `not-primary`: a linked worktree never
+ * publishes. `skipped-unverifiable`: the SDK resolves another database than `.codegraph/codegraph.db`.
+ * `skipped-unproven`: `current.json` has no creation record, or `refresh.lock` is stale; archctx
+ * replaces or removes neither, and lists it in `codeGraphKept`. `failed`: the snapshot or the
+ * publish failed; the sync itself still succeeded.
+ */
+/**
+ * A path at a name the base index uses that archctx left in place, with how to clean it up by hand.
+ * archctx removes only what it created in the same run, so leftovers of a crashed seed, old
+ * unreferenced snapshots, a stale `refresh.lock` and an unproven `current.json` stay.
+ */
+export interface CodeGraphKeptPathV1 {
+  path: string;
+  kind: "abandoned-staging" | "staging-not-removed" | "unreferenced-snapshot" | "snapshot-not-removed" | "stale-refresh-lock" | "unproven-pointer";
+  cleanup: string;
+}
+
+export type CodeGraphBaseRefreshV1 = "published" | "current" | "skipped-busy" | "skipped-moved" | "skipped-unborn" | "skipped-unverifiable" | "skipped-unproven" | "not-primary" | "failed";
+
 export interface CodeFactsSnapshot {
   provider: "codegraph";
   version: string;
   schemaDigest: string;
   indexedAt: string;
   workspaceDigest: string;
+  /** Set by a provider that refreshes the base index after its sync. */
+  codeGraphBase?: CodeGraphBaseRefreshV1;
+  /** Paths at names the base index uses that archctx left in place for hand cleanup. */
+  codeGraphKept?: CodeGraphKeptPathV1[];
 }
 
 export interface NormalizedSymbol {
@@ -109,12 +136,24 @@ export interface SourceSelector {
 }
 
 export interface CodeFactsPort {
-  /** Read-only compatibility check before the existing incremental sync. No retry or rebuild. */
-  assertCanSync?(workspaceRoot: string): void;
-  ensureReady(workspace: WorkspaceRef): Promise<CodeFactsSnapshot>;
+  /**
+   * Runs before a command's incremental sync: seeds a missing index from the repository's base
+   * index (#608), then refuses an incompatible one. No retry or rebuild.
+   */
+  prepareSync?(workspaceRoot: string): void;
+  /**
+   * Makes `workspace`'s facts readable. An existing index is verified read-only, on the first call
+   * and every later one. Only a command that owns a sync passes `syncOnMiss`, which syncs the
+   * workspace once when this port has not verified it yet.
+   */
+  ensureReady(workspace: WorkspaceRef, options?: { syncOnMiss?: boolean }): Promise<CodeFactsSnapshot>;
   sync(input: { workspace: WorkspaceRef; changedPaths?: string[] }): Promise<CodeFactsSnapshot>;
-  buildTaskContext(input: { task: string; maxSymbols: number; includeSource: boolean; changedPaths?: string[] }): Promise<NormalizedCodeContext>;
-  findSymbols(query: SymbolQuery): Promise<NormalizedSymbol[]>;
+  /**
+   * Reads facts of `workspace`'s own index only, after `ensureReady` or `sync` of that workspace;
+   * a workspace with no successful sync, or whose index changed since it was verified, is refused.
+   */
+  buildTaskContext(input: { workspace: WorkspaceRef; task: string; maxSymbols: number; includeSource: boolean; changedPaths?: string[] }): Promise<NormalizedCodeContext>;
+  findSymbols(query: SymbolQuery, workspace: WorkspaceRef): Promise<NormalizedSymbol[]>;
   resolveEvidence(selectors: SourceSelector[]): Promise<ObservedEvidence[]>;
 }
 

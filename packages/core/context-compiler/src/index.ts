@@ -173,6 +173,7 @@ export async function compileTaskContext(input: {
     : undefined;
   const codeGraphContext = missingSymbols > 0
     ? await input.codeFacts.buildTaskContext({
+      workspace: input.workspace,
       task: input.task,
       maxSymbols: missingSymbols,
       includeSource: false,

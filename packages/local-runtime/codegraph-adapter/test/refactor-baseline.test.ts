@@ -247,8 +247,8 @@ describe("RF0 baseline: normalized task-context import edges", () => {
     test(`${fixture.id} — ${fixture.description}`, async () => {
       const { root, binary } = seedWorkspace();
       try {
-        const provider = new CodeGraphSdkProvider(root, binary, importDumpReadProvider(root));
-        const context = await provider.buildContext(fixture.input.task, {
+        const provider = new CodeGraphSdkProvider(binary, importDumpReadProvider(root));
+        const context = await provider.buildContext({ root }, fixture.input.task, {
           maxSymbols: fixture.input.maxSymbols,
           includeSource: fixture.input.includeSource,
           changedPaths: fixture.input.changedPaths

@@ -1,7 +1,7 @@
 import { digestJson, type Json, type NormalizedCodeContext, type NormalizedSymbol, type SymbolQuery } from "@archcontext/contracts";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { type CodeGraphProvider, REQUIRED_CODEGRAPH_VERSION } from "../src/index";
+import { type CodeGraphProvider, type CodeGraphReadTarget, REQUIRED_CODEGRAPH_VERSION } from "../src/index";
 
 /**
  * Projection fixtures that run without a CodeGraph index declare code facts optional; with the
@@ -19,12 +19,18 @@ export class MockCodeGraphProvider implements CodeGraphProvider {
   version = REQUIRED_CODEGRAPH_VERSION;
   capabilities = ["index", "context"];
   indexedRoots: string[] = [];
+  readRoots: string[] = [];
 
   async indexAll(workspaceRoot: string): Promise<void> {
     this.indexedRoots.push(workspaceRoot);
   }
 
-  async buildContext(task: string, options: { maxSymbols: number; includeSource: boolean; changedPaths?: string[] }): Promise<NormalizedCodeContext> {
+  indexIdentity(_root?: string): string | undefined {
+    return "mock-index";
+  }
+
+  async buildContext(target: CodeGraphReadTarget, task: string, options: { maxSymbols: number; includeSource: boolean; changedPaths?: string[] }): Promise<NormalizedCodeContext> {
+    this.readRoots.push(target.root);
     const symbols: NormalizedSymbol[] = [
       { id: "symbol.prepareTask", name: "prepareTask", kind: "function", path: "packages/core/application/src/index.ts" }
     ].slice(0, options.maxSymbols);
@@ -37,7 +43,8 @@ export class MockCodeGraphProvider implements CodeGraphProvider {
     };
   }
 
-  async findSymbols(query: SymbolQuery): Promise<NormalizedSymbol[]> {
+  async findSymbols(target: CodeGraphReadTarget, query: SymbolQuery): Promise<NormalizedSymbol[]> {
+    this.readRoots.push(target.root);
     return [{ id: `symbol.${query.query}`, name: query.query, kind: query.kinds?.[0] ?? "symbol", path: "src/index.ts" }];
   }
 }

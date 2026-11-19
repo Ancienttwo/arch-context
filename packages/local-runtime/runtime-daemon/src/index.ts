@@ -299,7 +299,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     if (options.compositionMode === "production") assertProductionRuntimeDeps(deps);
     this.legacyLocalStoreMigrationRoot = options.legacyLocalStoreMigrationRoot;
     this.codeFacts = deps.codeFacts ?? new CodeGraphAdapter(new CodeGraphSdkProvider());
-    this.codeGraphProviderFactory = deps.codeGraphProviderFactory ?? ((repository) => new CodeGraphSdkProvider(repository.root ?? repository.repositoryId));
+    this.codeGraphProviderFactory = deps.codeGraphProviderFactory ?? (() => new CodeGraphSdkProvider());
     this.modelStore = deps.modelStore ?? new YamlModelStore();
     this.localStore = deps.localStore ?? new SqliteLocalStore(deps.localStorePath ?? defaultLocalStorePath());
     this.architectureLedger = runtimeArchitectureLedgerModes(deps.architectureLedger);
@@ -645,7 +645,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     const session = await this.openSession(root);
     const codeFacts = await this.codeFacts.sync({ workspace: session.workspace, changedPaths });
     session.codeFactsDigest = codeFacts.schemaDigest;
-    return okEnvelope("sync", { codeFactsDigest: codeFacts.schemaDigest, indexedAt: codeFacts.indexedAt } as Json);
+    return okEnvelope("sync", { codeFactsDigest: codeFacts.schemaDigest, indexedAt: codeFacts.indexedAt, ...(codeFacts.codeGraphBase ? { codeGraphBase: codeFacts.codeGraphBase } : {}), ...(codeFacts.codeGraphKept?.length ? { codeGraphKept: codeFacts.codeGraphKept } : {}) } as unknown as Json);
   }
 
   async validate(root: string): Promise<JsonEnvelope> {
@@ -768,9 +768,9 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   private async completeTaskUnchecked(root: string, input: RuntimeCompleteTaskInput): Promise<JsonEnvelope> {
     this.assertRunning();
     assertNoCallerProvidedAttestationFields(input, "complete-task");
-    if (this.codeFacts.assertCanSync) {
+    if (this.codeFacts.prepareSync) {
       root = findRepositoryRoot(root);
-      this.codeFacts.assertCanSync(root);
+      this.codeFacts.prepareSync(root);
     }
     const session = await this.openSession(root);
     let currentHeadSha = input.headSha;

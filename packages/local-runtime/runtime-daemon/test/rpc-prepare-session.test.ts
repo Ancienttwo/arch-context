@@ -1,9 +1,13 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { repositoryFingerprint } from "@archcontext/core/architecture-domain";
+import { CodeGraphAdapter, CodeGraphSdkProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
+import { indexCodeGraphFixture } from "../../codegraph-adapter/test/real-index";
 import { RuntimeRpcClient } from "../src/rpc-client";
 import { RUNTIME_RPC_METHODS } from "../src/rpc-methods";
 import { ArchctxRuntimeRpcServer } from "../src/rpc-server";
@@ -68,3 +72,48 @@ for (const transport of ["embedded", "json", "http"] as const) {
     });
   }
 }
+
+test("a warm daemon prepares a fresh linked worktree at another commit from that worktree's facts, not the primary's (#608)", async () => {
+  if (process.platform === "win32") return; // The seed is off on Windows.
+  const root = realpathSync.native(createInitializedGitRepo());
+  const linked = `${root}-linked`;
+  const other = `${root}-other`;
+  const git = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+  const commit = (cwd: string, message: string) => { git(cwd, "add", "-A"); git(cwd, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-qm", message); };
+  const daemon = await createStartedTestDaemon({ codeFacts: new CodeGraphAdapter(new CodeGraphSdkProvider()) });
+  try {
+    writeFileSync(join(root, ".gitignore"), ".codegraph/\n");
+    mkdirSync(join(root, "src"));
+    writeFileSync(join(root, "src/primary.ts"), "export function primaryMarker(): number {\n  return 1;\n}\n");
+    commit(root, "primary source");
+    indexCodeGraphFixture(root);
+    // The primary checkout's prepare syncs its index and publishes the base.
+    expect((await daemon.prepare(root, "marker")).ok).toBe(true);
+    git(root, "worktree", "add", "-q", "-b", "linked-work", linked);
+    unlinkSync(join(linked, "src/primary.ts"));
+    writeFileSync(join(linked, "src/linked.ts"), "export function linkedMarker(): number {\n  return 2;\n}\n");
+    commit(linked, "linked source");
+    const prepared = await daemon.prepare(linked, "marker");
+    expect(prepared.ok, JSON.stringify(prepared)).toBe(true);
+    const facts = JSON.stringify(prepared.data);
+    expect(facts).toContain("src/linked.ts");
+    expect(facts).not.toContain("src/primary.ts");
+    // A read of an indexed worktree the daemon has not seen verifies it read-only: its database
+    // keeps its bytes and its inode.
+    git(root, "worktree", "add", "-q", "-b", "other-work", other);
+    indexCodeGraphFixture(other);
+    expect((await daemon.context(root, "marker")).ok).toBe(true);
+    const database = join(other, ".codegraph", "codegraph.db");
+    const fingerprint = () => [statSync(database).ino, createHash("sha256").update(readFileSync(database)).digest("hex")];
+    const before = fingerprint();
+    const read = await daemon.context(other, "marker");
+    expect(read.ok, JSON.stringify(read)).toBe(true);
+    expect(fingerprint()).toEqual(before);
+  } finally {
+    await daemon.stop();
+    Bun.gc(true);
+    removeTempRepo(other);
+    removeTempRepo(linked);
+    removeTempRepo(root);
+  }
+}, 120_000);

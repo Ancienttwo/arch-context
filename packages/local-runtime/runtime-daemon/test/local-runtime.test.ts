@@ -3341,7 +3341,7 @@ test("SM-S15 projection plan, apply readback proof and completion drift render t
     // A real index is required by the apply readback proof, even for a model-only fixture.
     execFileSync("codegraph", ["init", root], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
     // Completion reuses its code-facts sync for the projection (#584), so that sync has to be CodeGraph's.
-    daemon = await createStartedTestDaemon({ codeFacts: new CodeGraphAdapter(new CodeGraphSdkProvider(root)) });
+    daemon = await createStartedTestDaemon({ codeFacts: new CodeGraphAdapter(new CodeGraphSdkProvider()) });
     const baseline = await runArchitectureDocsProjectionCommand({ action: "apply", profile: "repo-harness/v1", approved: true }, root, daemon);
     expect(baseline.ok, JSON.stringify(baseline)).toBe(true);
 
