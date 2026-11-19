@@ -26,10 +26,21 @@ export interface RepositorySnapshot {
  * the lock. `skipped-moved`: a build ran, the index revision moved or `HEAD` moved during the
  * snapshot. `skipped-unborn`: `HEAD` names no commit. `not-primary`: a linked worktree never
  * publishes. `skipped-unverifiable`: the SDK resolves another database than `.codegraph/codegraph.db`.
- * `skipped-unproven`: `current.json` or a stale `refresh.lock` is not a file archctx can prove it
- * created, so it is left in place (and listed in `codeGraphKept`). `failed`: the snapshot or the
+ * `skipped-unproven`: `current.json` has no creation record, or `refresh.lock` is stale; archctx
+ * replaces or removes neither, and lists it in `codeGraphKept`. `failed`: the snapshot or the
  * publish failed; the sync itself still succeeded.
  */
+/**
+ * A path at a name the base index uses that archctx left in place, with how to clean it up by hand.
+ * archctx removes only what it created in the same run, so leftovers of a crashed seed, old
+ * unreferenced snapshots, a stale `refresh.lock` and an unproven `current.json` stay.
+ */
+export interface CodeGraphKeptPathV1 {
+  path: string;
+  kind: "abandoned-staging" | "staging-not-removed" | "unreferenced-snapshot" | "snapshot-not-removed" | "stale-refresh-lock" | "unproven-pointer";
+  cleanup: string;
+}
+
 export type CodeGraphBaseRefreshV1 = "published" | "current" | "skipped-busy" | "skipped-moved" | "skipped-unborn" | "skipped-unverifiable" | "skipped-unproven" | "not-primary" | "failed";
 
 export interface CodeFactsSnapshot {
@@ -40,11 +51,8 @@ export interface CodeFactsSnapshot {
   workspaceDigest: string;
   /** Set by a provider that refreshes the base index after its sync. */
   codeGraphBase?: CodeGraphBaseRefreshV1;
-  /**
-   * Paths at names the base index uses (seed staging folders, snapshots, `current.json`,
-   * `refresh.lock`) that archctx left in place because it cannot prove it created them.
-   */
-  codeGraphKept?: string[];
+  /** Paths at names the base index uses that archctx left in place for hand cleanup. */
+  codeGraphKept?: CodeGraphKeptPathV1[];
 }
 
 export interface NormalizedSymbol {

@@ -1,7 +1,7 @@
 import type { Node as CodeGraphNode, NodeKind as CodeGraphNodeKind } from "@colbymchenry/codegraph";
 import { REQUIRED_CODEGRAPH_VERSION, codeGraphIndexIdentity, openCodeGraphReadSession, type CodeGraphIndexHandle, type CodeGraphReadProvider, type CodeGraphReadSession, type CodeGraphReadSessionOpenV1 } from "./read-session";
 import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
-import { CODE_FACTS_ISSUE_MESSAGES, FailureError, digestJson, type CodeFactsSnapshot, type Json, type NormalizedCodeContext, type NormalizedEdge, type NormalizedSymbol, type SymbolQuery } from "@archcontext/contracts";
+import { CODE_FACTS_ISSUE_MESSAGES, FailureError, digestJson, type CodeFactsSnapshot, type CodeGraphKeptPathV1, type Json, type NormalizedCodeContext, type NormalizedEdge, type NormalizedSymbol, type SymbolQuery } from "@archcontext/contracts";
 import { DEFAULT_CODEGRAPH_BINARY, syncCodeGraphIndex } from "./cli-invocation";
 import { importEdgesFromQueryNodes, importQuery, uniqueStrings } from "./import-population";
 import { assertRepositoryCodeFactsReady, codeFactsUnavailableError } from "./repository-code-facts";
@@ -53,8 +53,8 @@ export class CodeGraphSdkProvider implements CodeGraphProvider {
    * the base when `workspaceRoot` is the primary checkout. The refresh never fails the sync.
    */
   async indexAll(workspaceRoot: string): Promise<Pick<CodeFactsSnapshot, "codeGraphBase" | "codeGraphKept">> {
-    const kept: string[] = [];
-    const report = (path: string) => { kept.push(path); };
+    const kept: CodeGraphKeptPathV1[] = [];
+    const report = (path: CodeGraphKeptPathV1) => { kept.push(path); };
     this.seed(workspaceRoot, report);
     syncCodeGraphIndex(workspaceRoot, { binary: this.binary });
     this.assertReady(workspaceRoot);
@@ -79,7 +79,7 @@ export class CodeGraphSdkProvider implements CodeGraphProvider {
     this.seed(workspaceRoot);
   }
 
-  private seed(workspaceRoot: string, report?: (kept: string) => void): void {
+  private seed(workspaceRoot: string, report?: (kept: CodeGraphKeptPathV1) => void): void {
     if (seedCodeGraphIndexFromBase(workspaceRoot, { binary: this.binary, ...(report ? { report } : {}) }) === "base-building") {
       throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "index-base-building");
     }

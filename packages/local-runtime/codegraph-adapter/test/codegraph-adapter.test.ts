@@ -4,7 +4,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import { FailureError, digestJson, type Json } from "@archcontext/contracts";
+import { FailureError, digestJson, type CodeGraphKeptPathV1, type Json } from "@archcontext/contracts";
 import { CODEGRAPH_TELEMETRY_ENV, CodeGraphAdapter, CodeGraphSdkProvider, MultiRepoCodeGraphAdapter, REQUIRED_CODEGRAPH_VERSION, codeGraphBaseDirectory, codeGraphCliInvocation, codeGraphRewritesGitignore, disableCodeGraphTelemetryByDefault, inspectRepositoryCodeFacts, openCodeGraphSymbolReader, packagedCodeGraphCliInvocation, pinnedCodeGraphProvider, prepareArchitectureDocumentationProjectionSnapshot, prepareProjectionCodeFacts, refreshCodeGraphBase, seedCodeGraphIndexFromBase, withCodeGraphReadSession, type CodeGraphReadProvider } from "../src/index";
 import * as readSessionModule from "../src/read-session";
 import { CodeGraphProviderUnavailableError, codeGraphBundle } from "../src/read-session";
@@ -814,13 +814,6 @@ function publishBase(baseDir: string, headSha: string, bytes = "base index bytes
   return snapshot;
 }
 
-/** Records `path` as archctx records a path it created: an empty `records/<item>@<dev>-<ino>-<birth>` file. */
-function recordAsArchctx(baseDir: string, item: string, path: string): void {
-  const stat = lstatSync(path, { bigint: true });
-  mkdirSync(join(baseDir, "records"), { recursive: true });
-  writeFileSync(join(baseDir, "records", `${item}@${stat.dev}-${stat.ino}-${stat.birthtimeNs}`), "");
-}
-
 /** Runs `run` with `CODEGRAPH_DIR` set in this process, as a user's shell can set it. */
 function withCodeGraphDir<T>(name: string, run: () => T): T {
   const saved = process.env.CODEGRAPH_DIR;
@@ -968,37 +961,39 @@ describe("base index seed and refresh (#608)", () => {
     }
   });
 
-  test("a seed attempt reaps only dead staging folders it can prove are its own kind, even beside a live index", () => {
+  test("a seed attempt never removes another run's staging folder, and reports the abandoned ones, even beside a live index", () => {
     if (process.platform === "win32") return; // The seed is off on Windows.
     const repo = baseIndexRepository("archctx-base-reaper-");
     try {
       const worktree = join(dirname(repo.primary), "linked");
       repo.git("worktree", "add", "-q", worktree);
       const deadPid = spawnSync(process.execPath, ["-e", ""]).pid!;
-      // Each folder is set up as archctx creates one: the folder, its ignore file and its copy recorded.
       const staging = (pid: number, files: Record<string, string>) => {
-        const name = `.codegraph-seed-${pid}-${randomUUID()}`;
-        const dir = join(worktree, name);
+        const dir = join(worktree, `.codegraph-seed-${pid}-${randomUUID()}`);
         mkdirSync(dir);
-        recordAsArchctx(repo.baseDir, name, dir);
-        for (const [file, content] of Object.entries(files)) {
-          writeFileSync(join(dir, file), content);
-          if (file === ".gitignore") recordAsArchctx(repo.baseDir, `${name}.gitignore`, join(dir, file));
-          if (file === "codegraph.db") recordAsArchctx(repo.baseDir, `${name}.db`, join(dir, file));
-        }
+        for (const [file, content] of Object.entries(files)) writeFileSync(join(dir, file), content);
         return dir;
       };
-      const reaped = staging(deadPid, { ".gitignore": "*\n", "codegraph.db": "x", "codegraph.db-wal": "", "codegraph.db-shm": "", "codegraph.lock": String(deadPid) });
+      const tree = (dir: string) => readdirSync(dir).sort().map(name => { const path = join(dir, name); return [name, lstatSync(path).ino, readFileSync(path, "utf8")]; });
+      const abandoned = staging(deadPid, { ".gitignore": "*\n", "codegraph.db": "x", "codegraph.db-wal": "", "codegraph.db-shm": "", "codegraph.lock": String(deadPid) });
       const liveOwner = staging(process.pid, { ".gitignore": "*\n", "codegraph.db": "x" });
       const liveWriter = staging(deadPid, { ".gitignore": "*\n", "codegraph.db": "x", "codegraph.lock": String(process.pid) });
       const unknownEntry = staging(deadPid, { ".gitignore": "*\n", "notes.txt": "keep" });
+      // A crashed seed's folder whose WAL and lock were restored from a backup, beside a restored record.
+      const restored = staging(deadPid, { ".gitignore": "*\n", "codegraph.db": "x", "codegraph.db-wal": "frames", "codegraph.lock": String(deadPid) });
+      for (const name of ["codegraph.db-wal", "codegraph.lock"]) { const path = join(restored, name); cpSync(path, `${path}.backup`, { preserveTimestamps: true }); rmSync(path); renameSync(`${path}.backup`, path); }
+      mkdirSync(join(repo.baseDir, "records"), { recursive: true });
+      writeFileSync(join(repo.baseDir, "records", `${basename(restored)}@0-0-0`), "");
       mkdirSync(join(worktree, ".codegraph"));
       writeFileSync(join(worktree, ".codegraph", "codegraph.db"), "live index");
       const live = lstatSync(join(worktree, ".codegraph", "codegraph.db")).ino;
-      const unknownIgnore = lstatSync(join(unknownEntry, ".gitignore")).ino;
-      expect(seedCodeGraphIndexFromBase(worktree)).toBe("present");
-      expect([reaped, liveOwner, liveWriter, unknownEntry].map(dir => existsSync(dir))).toEqual([false, true, true, true]);
-      expect([readdirSync(unknownEntry).sort(), lstatSync(join(unknownEntry, ".gitignore")).ino]).toEqual([[".gitignore", "notes.txt"], unknownIgnore]);
+      const folders = [abandoned, liveOwner, liveWriter, unknownEntry, restored];
+      const before = folders.map(tree);
+      const kept: CodeGraphKeptPathV1[] = [];
+      expect(seedCodeGraphIndexFromBase(worktree, { report: (path) => kept.push(path) })).toBe("present");
+      expect(folders.map(tree)).toEqual(before);
+      expect(readdirSync(join(repo.baseDir, "records"))).toEqual([`${basename(restored)}@0-0-0`]);
+      expect(kept.map(({ path, kind }) => [path, kind]).sort()).toEqual([abandoned, unknownEntry, restored].map(path => [path, "abandoned-staging"]).sort());
       expect([lstatSync(join(worktree, ".codegraph", "codegraph.db")).ino, readFileSync(join(worktree, ".codegraph", "codegraph.db"), "utf8")]).toEqual([live, "live index"]);
     } finally {
       repo.cleanup();
@@ -1016,8 +1011,7 @@ describe("base index seed and refresh (#608)", () => {
       ["another refresh holds the lock", ({ primary, baseDir }) => { mkdirSync(baseDir, { recursive: true }); writeFileSync(join(baseDir, "refresh.lock"), String(process.pid)); return refreshCodeGraphBase(primary, { provider: fakeReadProvider(primary), snapshot: () => { throw new Error("no snapshot under another lock"); } }); }, "skipped-busy"],
       ["a linked worktree", ({ worktree }) => refreshCodeGraphBase(worktree, { provider: fakeReadProvider(worktree), snapshot: snapshotOf }), "not-primary"],
       ["the database is re-created during the snapshot", ({ primary }) => refreshCodeGraphBase(primary, { provider: fakeReadProvider(primary), snapshot: (source, target) => { const database = join(primary, ".codegraph", "codegraph.db"); rmSync(database); writeFileSync(database, ""); snapshotOf(source, target); } }), "skipped-moved"],
-      ["a stale refresh.lock archctx did not create", ({ primary, baseDir }) => { mkdirSync(baseDir, { recursive: true }); writeFileSync(join(baseDir, "refresh.lock"), "999999999"); return refreshCodeGraphBase(primary, { provider: fakeReadProvider(primary), snapshot: snapshotOf }); }, "skipped-unproven"],
-      ["a stale refresh.lock archctx created", ({ primary, baseDir }) => { mkdirSync(baseDir, { recursive: true }); writeFileSync(join(baseDir, "refresh.lock"), "999999999"); recordAsArchctx(baseDir, "refresh.lock", join(baseDir, "refresh.lock")); return refreshCodeGraphBase(primary, { provider: fakeReadProvider(primary), snapshot: snapshotOf }); }, "published"],
+      ["a stale refresh.lock", ({ primary, baseDir }) => { mkdirSync(baseDir, { recursive: true }); writeFileSync(join(baseDir, "refresh.lock"), "999999999"); return refreshCodeGraphBase(primary, { provider: fakeReadProvider(primary), snapshot: snapshotOf }); }, "skipped-unproven"],
       ["the SDK resolves another database than .codegraph/codegraph.db", ({ primary }) => withCodeGraphDir(".codegraph-alt", () => refreshCodeGraphBase(primary, { provider: fakeReadProvider(primary), snapshot: snapshotOf })), "skipped-unverifiable"]
     ];
     for (const [label, refresh, outcome] of cases) {
@@ -1041,7 +1035,7 @@ describe("base index seed and refresh (#608)", () => {
     }
   });
 
-  test("garbage collection deletes only old, unreferenced snapshots archctx created, in its own version", () => {
+  test("old unreferenced snapshots of its own version are reported for hand cleanup, never deleted", () => {
     const repo = baseIndexRepository("archctx-base-gc-");
     try {
       const refresh = () => refreshCodeGraphBase(repo.primary, { provider: fakeReadProvider(repo.primary), snapshot: (_source, target) => writeFileSync(target, "snapshot") });
@@ -1052,78 +1046,50 @@ describe("base index seed and refresh (#608)", () => {
       moveHead(1);
       expect(refresh()).toBe("published");
       const second = join(repo.baseDir, pointed());
-      // The collecting refresh runs an hour later; `second` stays young by an mtime in that hour.
-      // (Moving an mtime back would move a macOS birth time, and void the proof.)
+      // The reporting refresh runs an hour later; `second` stays young by an mtime in that hour.
       const later = Date.now() + 60 * 60_000;
       utimesSync(second, new Date(later), new Date(later));
       const old = (path: string) => { writeFileSync(path, "x"); return path; };
       const otherVersion = join(dirname(repo.baseDir), "0.0.0-other");
       mkdirSync(otherVersion);
-      const unrecordedOld = old(join(repo.baseDir, `base-${randomUUID()}.db`));
+      const otherOld = old(join(repo.baseDir, `base-${randomUUID()}.db`));
       const foreignName = old(join(repo.baseDir, "notes.db"));
       const foreignVersion = old(join(otherVersion, `base-${randomUUID()}.db`));
       moveHead(2);
-      const kept: string[] = [];
+      const kept: CodeGraphKeptPathV1[] = [];
       expect(refreshCodeGraphBase(repo.primary, { provider: fakeReadProvider(repo.primary), snapshot: (_source, target) => writeFileSync(target, "snapshot"), report: (path) => kept.push(path), now: () => later })).toBe("published");
       const third = join(repo.baseDir, pointed());
-      // The old snapshot archctx wrote is collected; the young one and everything unrecorded or foreign stays.
-      expect([first, second, third, unrecordedOld, foreignName, foreignVersion].map(path => existsSync(path))).toEqual([false, true, true, true, true, true]);
-      expect(kept).toEqual([unrecordedOld]);
+      // Every file stays; only the old unreferenced snapshots of this version are reported.
+      expect([first, second, third, otherOld, foreignName, foreignVersion].map(path => existsSync(path))).toEqual([true, true, true, true, true, true]);
+      expect(kept.map(({ path, kind }) => [path, kind]).sort()).toEqual([first, otherOld].map(path => [path, "unreferenced-snapshot"]).sort());
     } finally {
       repo.cleanup();
     }
   });
 
-  test("a backup restore or a same-bytes re-creation at a path archctx created is never removed or replaced", () => {
+  test("a backup restore or a same-bytes re-creation at current.json or a stale refresh.lock is never replaced or removed", () => {
     const fingerprint = (path: string) => { const stat = lstatSync(path); return [stat.ino, stat.isDirectory() ? readdirSync(path).sort().map(name => `${name}:${readFileSync(join(path, name), "utf8")}`) : readFileSync(path, "utf8")]; };
     const snapshotOf = (_source: string, target: string) => writeFileSync(target, "snapshot");
-    const later = Date.now() + 60 * 60_000;
     // [target, set up the archctx-created occupant and return its path, run the operation that would remove or replace it, outcome]
-    const targets: [string, (repo: ReturnType<typeof baseIndexRepository>, worktree: string) => string, (repo: ReturnType<typeof baseIndexRepository>, worktree: string, report: (path: string) => void) => unknown, unknown][] = [
-      ["a dead seed's staging folder", (repo, worktree) => {
-        const name = `.codegraph-seed-${spawnSync(process.execPath, ["-e", ""]).pid}-${randomUUID()}`;
-        const dir = join(worktree, name);
-        mkdirSync(dir);
-        recordAsArchctx(repo.baseDir, name, dir);
-        writeFileSync(join(dir, ".gitignore"), "*\n");
-        recordAsArchctx(repo.baseDir, `${name}.gitignore`, join(dir, ".gitignore"));
-        return dir;
-      }, (_repo, worktree, report) => seedCodeGraphIndexFromBase(worktree, { report }), "no-base"],
-      ["an old unreferenced base snapshot", (repo) => {
-        expect(refreshCodeGraphBase(repo.primary, { provider: fakeReadProvider(repo.primary), snapshot: snapshotOf })).toBe("published");
-        const first = join(repo.baseDir, JSON.parse(readFileSync(join(repo.baseDir, "current.json"), "utf8")).snapshot);
-        writeFileSync(join(repo.primary, "src/a.ts"), "export const moved = 1;\n");
-        repo.commit("move HEAD 1");
-        expect(refreshCodeGraphBase(repo.primary, { provider: fakeReadProvider(repo.primary), snapshot: snapshotOf })).toBe("published");
-        const second = join(repo.baseDir, JSON.parse(readFileSync(join(repo.baseDir, "current.json"), "utf8")).snapshot);
-        utimesSync(second, new Date(later), new Date(later));
-        writeFileSync(join(repo.primary, "src/a.ts"), "export const moved = 2;\n");
-        repo.commit("move HEAD 2");
-        return first;
-      }, (repo, _worktree, report) => refreshCodeGraphBase(repo.primary, { provider: fakeReadProvider(repo.primary), snapshot: snapshotOf, report, now: () => later }), "published"],
+    const targets: [string, (repo: ReturnType<typeof baseIndexRepository>) => string, (repo: ReturnType<typeof baseIndexRepository>, report: (path: CodeGraphKeptPathV1) => void) => unknown, unknown][] = [
       ["current.json", (repo) => {
         expect(refreshCodeGraphBase(repo.primary, { provider: fakeReadProvider(repo.primary), snapshot: snapshotOf })).toBe("published");
         writeFileSync(join(repo.primary, "src/a.ts"), "export const moved = 1;\n");
         repo.commit("move HEAD");
         return join(repo.baseDir, "current.json");
-      }, (repo, _worktree, report) => refreshCodeGraphBase(repo.primary, { provider: fakeReadProvider(repo.primary), snapshot: snapshotOf, report }), "skipped-unproven"],
+      }, (repo, report) => refreshCodeGraphBase(repo.primary, { provider: fakeReadProvider(repo.primary), snapshot: snapshotOf, report }), "skipped-unproven"],
       ["a stale refresh.lock", (repo) => {
         mkdirSync(repo.baseDir, { recursive: true });
         writeFileSync(join(repo.baseDir, "refresh.lock"), "999999999");
-        recordAsArchctx(repo.baseDir, "refresh.lock", join(repo.baseDir, "refresh.lock"));
         return join(repo.baseDir, "refresh.lock");
-      }, (repo, _worktree, report) => refreshCodeGraphBase(repo.primary, { provider: fakeReadProvider(repo.primary), snapshot: snapshotOf, report }), "skipped-unproven"]
+      }, (repo, report) => refreshCodeGraphBase(repo.primary, { provider: fakeReadProvider(repo.primary), snapshot: snapshotOf, report }), "skipped-unproven"]
     ];
     for (const [target, setup, operate, outcome] of targets) {
-      // The seed, which reaps staging folders, is off on Windows.
-      if (process.platform === "win32" && target === "a dead seed's staging folder") continue;
       for (const [replacement, replace] of REPLACEMENTS) {
         const label = `${target}, after ${replacement}`;
         const repo = baseIndexRepository("archctx-base-provenance-");
         try {
-          const worktree = join(dirname(repo.primary), "linked");
-          repo.git("worktree", "add", "-q", worktree);
-          const path = setup(repo, worktree);
+          const path = setup(repo);
           const identity = () => { const stat = lstatSync(path, { bigint: true }); return `${stat.dev}-${stat.ino}-${stat.birthtimeNs}`; };
           const created = identity();
           // A re-creation in the same file-system time tick can reuse the inode and the birth time.
@@ -1132,7 +1098,7 @@ describe("base index seed and refresh (#608)", () => {
           expect([label, identity() === created]).toEqual([label, false]);
           const before = fingerprint(path);
           const kept: string[] = [];
-          expect([label, operate(repo, worktree, (reported) => kept.push(reported))]).toEqual([label, outcome]);
+          expect([label, operate(repo, (reported) => kept.push(reported.path))]).toEqual([label, outcome]);
           expect([label, fingerprint(path), kept]).toEqual([label, before, [path]]);
         } finally {
           repo.cleanup();
@@ -1239,18 +1205,17 @@ describe("base index on a real index (#608)", () => {
     repo.git("worktree", "add", "-q", "--detach", rebuilt);
     const dead = join(rebuilt, `.codegraph-seed-${spawnSync(process.execPath, ["-e", ""]).pid}-${randomUUID()}`);
     mkdirSync(dead);
-    recordAsArchctx(repo.baseDir, basename(dead), dead);
     writeFileSync(join(dead, ".gitignore"), "*\n");
-    recordAsArchctx(repo.baseDir, `${basename(dead)}.gitignore`, join(dead, ".gitignore"));
     writeFileSync(join(dead, "codegraph.db"), "partial");
-    recordAsArchctx(repo.baseDir, `${basename(dead)}.db`, join(dead, "codegraph.db"));
     indexCodeGraphFixture(rebuilt);
     const database = join(rebuilt, ".codegraph", "codegraph.db");
     const digest = () => createHash("sha256").update(readFileSync(database)).digest("hex");
     const before = { ino: statSync(database).ino, digest: digest(), rows: indexRows(rebuilt) };
     expect(seedCodeGraphIndexFromBase(rebuilt)).toBe("present");
-    expect([existsSync(dead), statSync(database).ino, digest()]).toEqual([false, before.ino, before.digest]);
-    expect((await new CodeGraphSdkProvider().indexAll(rebuilt)).codeGraphBase).toBe("not-primary");
+    expect([readFileSync(join(dead, "codegraph.db"), "utf8"), statSync(database).ino, digest()]).toEqual(["partial", before.ino, before.digest]);
+    // The crashed seed's folder stays, and the sync reports it for hand cleanup.
+    const synced = await new CodeGraphSdkProvider().indexAll(rebuilt);
+    expect([synced.codeGraphBase, synced.codeGraphKept?.map(({ path, kind }) => [path, kind])]).toEqual(["not-primary", [[dead, "abandoned-staging"]]]);
     expect([statSync(database).ino, indexRows(rebuilt)]).toEqual([before.ino, before.rows]);
 
     // `.codegraph/` holding only the provider's own default ignore file receives the database.

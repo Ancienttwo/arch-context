@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { closeSync, constants as fsConstants, copyFileSync, fstatSync, linkSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, unlinkSync, writeSync } from "node:fs";
 import { join } from "node:path";
-import type { CodeGraphBaseRefreshV1 } from "@archcontext/contracts";
+import type { CodeGraphBaseRefreshV1, CodeGraphKeptPathV1 } from "@archcontext/contracts";
 import { codeGraphChildEnv } from "./child-env";
 import { CODEGRAPH_OUTPUT_MAX_BYTES, CODEGRAPH_SYNC_TIMEOUT_MS, DEFAULT_CODEGRAPH_BINARY, disableCodeGraphTelemetryByDefault, packagedCodeGraphCliInvocation } from "./cli-invocation";
 import { REQUIRED_CODEGRAPH_VERSION, codeGraphBundle, codeGraphChangeCounts, codeGraphIndexIdentity, openCodeGraphReadSession, pidLockLive, type CodeGraphBundle, type CodeGraphReadProvider } from "./read-session";
@@ -43,13 +43,22 @@ export interface CodeGraphSeedOptions {
   binary?: string;
   /** Bound on the staged sync; the default sync bound unless the caller has its own. */
   timeoutMs?: number;
-  /** Receives each path the seed left in place because it could not prove archctx created it. */
-  report?: (kept: string) => void;
+  /** Receives each path the seed leaves in place for hand cleanup. */
+  report?: (kept: CodeGraphKeptPathV1) => void;
 }
 
 const SNAPSHOT_NAME = /^base-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.db$/;
-/** An unreferenced snapshot younger than this may still be a refresher's staging file or a seeder's source. */
-const SNAPSHOT_GC_AGE_MS = 10 * 60_000;
+/** An unreferenced snapshot younger than this may still be a seeder's source; an older one is reported for hand cleanup. */
+const SNAPSHOT_REPORT_AGE_MS = 10 * 60_000;
+/** How to clean up each kind of path archctx leaves in place. archctx itself never removes them. */
+const KEPT_CLEANUP: Record<CodeGraphKeptPathV1["kind"], string> = {
+  "abandoned-staging": "A seed that is no longer running left this folder. Delete it by hand when no archctx or codegraph process is using this worktree.",
+  "staging-not-removed": "This seed's folder holds an entry the seed did not create, so it was left as it is. Check the entry, then delete the folder by hand.",
+  "unreferenced-snapshot": "current.json does not name this snapshot and it is older than ten minutes. Delete it by hand.",
+  "snapshot-not-removed": "This refresh did not publish this snapshot and it is no longer the file the refresh wrote. Check it, then delete it by hand.",
+  "stale-refresh-lock": "The refresh that held this lock is gone. Delete the lock by hand so a later refresh can publish.",
+  "unproven-pointer": "archctx cannot prove it wrote this current.json. Delete it by hand so a later refresh can publish."
+};
 /** A seed's private staging folder in the worktree root; the owner pid is part of the name. */
 const STAGING_NAME = /^\.codegraph-seed-(\d+)-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 /** The only entries a staging folder may hold; a folder with any other entry is never removed. */
@@ -117,9 +126,9 @@ export function seedCodeGraphIndexFromBase(root: string, options: CodeGraphSeedO
   const bundle = seedBundle(options);
   if (!bundle) return "declined";
   const report = options.report ?? (() => undefined);
+  reportAbandonedStagings(root, report);
   const dirs = gitDirs(root);
   const baseDir = dirs ? codeGraphBaseDirectory(dirs.commonDir) : undefined;
-  if (baseDir) reapDeadStagings(root, baseDir, report);
   const indexDir = join(root, ".codegraph");
   const database = join(indexDir, "codegraph.db");
   const existing = pathState(database);
@@ -136,30 +145,34 @@ export function seedCodeGraphIndexFromBase(root: string, options: CodeGraphSeedO
   const staging = join(root, stagingName);
   try { mkdirSync(staging); }
   catch { return "declined"; }
-  try { recordCreation(baseDir, stagingName, staging); }
-  catch { removeEmptyDirectory(staging); return "declined"; }
+  const run = new StagingRun(staging);
+  if (!run.ownFolder()) { removeEmptyDirectory(staging); return "declined"; }
   try {
     writeExclusive(join(staging, ".gitignore"), "*\n");
-    recordCreation(baseDir, `${stagingName}.gitignore`, join(staging, ".gitignore"));
+    run.created(".gitignore");
     const staged = join(staging, "codegraph.db");
     try { copyFileSync(join(baseDir, pointer.snapshot), staged, fsConstants.COPYFILE_FICLONE); }
     // A pointer whose snapshot is gone was superseded between the two reads.
     catch (error) { if (errorCode(error) === "ENOENT") return "no-base"; throw error; }
-    recordCreation(baseDir, `${stagingName}.db`, staged);
+    run.created("codegraph.db");
     const copiedAt = statSync(staged, { bigint: true }).mtimeNs;
-    runStagedSync(bundle, root, stagingName, options.timeoutMs ?? CODEGRAPH_SYNC_TIMEOUT_MS);
+    try { runStagedSync(bundle, root, stagingName, options.timeoutMs ?? CODEGRAPH_SYNC_TIMEOUT_MS); }
+    finally { run.childExited(); }
     if (pathState(database) !== "absent") return "present";
     // Proof that the provider wrote into the staging folder, and left no writer state behind.
     if (statSync(staged, { bigint: true }).mtimeNs === copiedAt) return "declined";
     if (pathState(join(staging, "codegraph.lock")) !== "absent" || nonEmptyFile(join(staging, "codegraph.db-wal"))) return "declined";
-    if (!stagedIndexReady(bundle, root, stagingName)) return "declined";
+    let ready: boolean;
+    try { ready = stagedIndexReady(bundle, root, stagingName); }
+    finally { run.childExited(); }
+    if (!ready) return "declined";
     if (nonEmptyFile(join(staging, "codegraph.db-wal"))) return "declined";
     return installStagedDatabase(root, staged);
   } catch {
     return "declined";
   } finally {
     // Only `codegraph.db` is ever linked out; the staging name of it and any sidecars go here.
-    if (!removeOwnStaging(baseDir, stagingName, staging)) report(staging);
+    if (!run.remove()) report({ path: staging, kind: "staging-not-removed", cleanup: KEPT_CLEANUP["staging-not-removed"] });
   }
 }
 
@@ -326,11 +339,11 @@ function liveDatabasePathsIgnored(root: string): boolean {
 }
 
 /**
- * Removes staging folders whose owner pid (in the name) is dead and whose provider lock names no
- * live process, with proof that archctx created them. It runs on every seed attempt, with or
- * without a live database; a folder it cannot prove is left in place and reported.
+ * Reports staging folders whose owner pid (in the name) is dead and whose provider lock names no
+ * live process. archctx never removes them: it cannot prove what a crashed run left there, so they
+ * are left for hand cleanup.
  */
-function reapDeadStagings(root: string, baseDir: string, report: (kept: string) => void): void {
+function reportAbandonedStagings(root: string, report: (kept: CodeGraphKeptPathV1) => void): void {
   let names: string[];
   try { names = readdirSync(root); }
   catch { return; }
@@ -339,7 +352,7 @@ function reapDeadStagings(root: string, baseDir: string, report: (kept: string) 
     if (!match || processAlive(Number(match[1]))) continue;
     const staging = join(root, name);
     if (pidLockLive(join(staging, "codegraph.lock"))) continue;
-    if (!removeOwnStaging(baseDir, name, staging)) report(staging);
+    report({ path: staging, kind: "abandoned-staging", cleanup: KEPT_CLEANUP["abandoned-staging"] });
   }
 }
 
@@ -353,78 +366,94 @@ function processAlive(pid: number): boolean {
 }
 
 /**
- * Removes the staging folder `name` only with proof: the folder, its ignore file and its database
- * copy carry the creation identities archctx recorded, and every other entry is a regular file with
- * a provider database name (the sidecars and lock the provider made inside that proven folder).
- * Non-recursive: those files are unlinked, then the folder is removed with `rmdir`. Returns false
- * when anything stays.
+ * One seed run's staging folder, and the creation identity of each entry created in it during this
+ * run, held in memory only. The seed creates the folder (with a fresh name), its `.gitignore` and
+ * the database copy; the provider children it runs there create the sidecars and the lock, which
+ * are recorded right after each child exits. `remove` unlinks only entries whose identity still
+ * matches and removes the folder with `rmdir`; when any entry does not match, nothing is removed.
  */
-function removeOwnStaging(baseDir: string, name: string, staging: string): boolean {
-  let entries: string[];
-  try {
-    if (!lstatSync(staging).isDirectory() || !provenCreation(baseDir, name, staging)) return false;
-    entries = readdirSync(staging);
-    for (const entry of entries) {
-      const path = join(staging, entry);
-      if (!STAGING_ENTRIES.has(entry) || !lstatSync(path).isFile()) return false;
-      const item = entry === ".gitignore" ? `${name}.gitignore` : entry === "codegraph.db" ? `${name}.db` : undefined;
-      if (item !== undefined && !provenCreation(baseDir, item, path)) return false;
-    }
-  } catch (error) {
-    return errorCode(error) === "ENOENT";
+class StagingRun {
+  readonly #entries = new Map<string, string>();
+  #folder: string | undefined;
+
+  constructor(private readonly staging: string) {}
+
+  ownFolder(): boolean {
+    this.#folder = creationIdentity(this.staging);
+    return this.#folder !== undefined;
   }
-  for (const entry of entries) rmSync(join(staging, entry), { force: true });
-  removeEmptyDirectory(staging);
-  if (pathState(staging) !== "absent") return false;
-  for (const item of [name, `${name}.gitignore`, `${name}.db`]) forgetCreation(baseDir, item);
-  return true;
+
+  created(entry: string): void {
+    const identity = creationIdentity(join(this.staging, entry));
+    if (identity === undefined) throw new Error("created entry is gone");
+    this.#entries.set(entry, identity);
+  }
+
+  childExited(): void {
+    for (const entry of STAGING_ENTRIES) {
+      if (this.#entries.has(entry)) continue;
+      const identity = creationIdentity(join(this.staging, entry));
+      if (identity !== undefined) this.#entries.set(entry, identity);
+    }
+  }
+
+  remove(): boolean {
+    let entries: string[];
+    try {
+      if (creationIdentity(this.staging) !== this.#folder || !lstatSync(this.staging).isDirectory()) return false;
+      entries = readdirSync(this.staging);
+      for (const entry of entries) {
+        const path = join(this.staging, entry);
+        if (!lstatSync(path).isFile() || this.#entries.get(entry) !== creationIdentity(path)) return false;
+      }
+    } catch (error) {
+      return errorCode(error) === "ENOENT";
+    }
+    for (const entry of entries) rmSync(join(this.staging, entry), { force: true });
+    removeEmptyDirectory(this.staging);
+    return pathState(this.staging) === "absent";
+  }
 }
 
 /**
- * Proof of creation. When archctx creates a path it may later remove or replace, it records the
- * path's creation identity (device, inode and birth time) as an empty file
- * `records/<item>@<identity>` in the base directory, created exclusively and never rewritten. A
- * backup restore or a same-bytes re-creation at that path has another identity, so it has no
- * record and archctx leaves it in place. Birth time, not ctime: a sync's writes and the install's
- * hard link change ctime but not the file. Moving a file's mtime before its birth time moves the
- * birth time on macOS, which also voids the proof, so that file is kept.
+ * A path's creation identity: device, inode and birth time. A backup restore or a same-bytes
+ * re-creation at the path has another one. Birth time, not ctime: a sync's writes and the install's
+ * hard link change ctime but not the file. A file system that reports no birth time gives none.
  */
 function creationIdentity(path: string): string | undefined {
   try {
     const stat = lstatSync(path, { bigint: true });
-    // A file system that reports no birth time gives no proof.
     return stat.birthtimeNs > 0n ? `${stat.dev}-${stat.ino}-${stat.birthtimeNs}` : undefined;
   } catch {
     return undefined;
   }
 }
 
-function recordCreation(baseDir: string, item: string, path: string): void {
-  const identity = creationIdentity(path);
-  if (identity === undefined) throw new Error("created path is gone");
+/**
+ * The record that `current.json` is the file archctx wrote: an empty file
+ * `records/current.json@<identity>`, created exclusively after each publish and never deleted, so
+ * one accumulates per publish. Only a `current.json` whose identity has a record is replaced; a
+ * restored or re-created one has none.
+ */
+function recordPointer(baseDir: string, current: string): void {
+  const identity = creationIdentity(current);
+  if (identity === undefined) throw new Error("published pointer is gone");
   const records = join(baseDir, "records");
   mkdirSync(records, { recursive: true });
-  try { closeSync(openSync(join(records, `${item}@${identity}`), "wx")); }
+  try { closeSync(openSync(join(records, `current.json@${identity}`), "wx")); }
   catch (error) { if (errorCode(error) !== "EEXIST") throw error; }
 }
 
-function provenCreation(baseDir: string, item: string, path: string): boolean {
-  const identity = creationIdentity(path);
-  return identity !== undefined && existsFile(join(baseDir, "records", `${item}@${identity}`));
+function pointerProven(baseDir: string, current: string): boolean {
+  const identity = creationIdentity(current);
+  return identity !== undefined && existsFile(join(baseDir, "records", `current.json@${identity}`));
 }
 
-function forgetCreation(baseDir: string, item: string): void {
-  let names: string[];
-  try { names = readdirSync(join(baseDir, "records")); }
-  catch { return; }
-  for (const name of names) if (name.startsWith(`${item}@`)) rmSync(join(baseDir, "records", name), { force: true });
-}
-
-/** Removes a path archctx created, with proof; otherwise leaves it and reports it. */
-function removeOwnFileWithProof(baseDir: string, item: string, path: string, report: (kept: string) => void): void {
-  if (!provenCreation(baseDir, item, path)) { if (pathState(path) !== "absent") report(path); return; }
-  try { unlinkSync(path); forgetCreation(baseDir, item); }
-  catch { report(path); }
+/** Unlinks a file this process created in this run, while it is still that file. */
+function removeCreatedFile(path: string, identity: string | undefined): boolean {
+  if (identity === undefined || creationIdentity(path) !== identity) return pathState(path) === "absent";
+  try { unlinkSync(path); return true; }
+  catch { return false; }
 }
 
 function pathState(path: string): "absent" | "present" | "unreadable" {
@@ -465,10 +494,10 @@ export interface CodeGraphBaseRefreshOptions {
   readHead?: (root: string) => string | undefined;
   /** Writes a consistent copy of `source` to `target`; `snapshotCodeGraphIndex` unless injected. */
   snapshot?: (source: string, target: string) => void;
-  /** The clock of `createdAt` and of garbage collection. */
+  /** The clock of `createdAt` and of the unreferenced-snapshot report. */
   now?: () => number;
-  /** Receives each path the refresh left in place because it could not prove archctx created it. */
-  report?: (kept: string) => void;
+  /** Receives each path the refresh leaves in place for hand cleanup. */
+  report?: (kept: CodeGraphKeptPathV1) => void;
 }
 
 /**
@@ -501,8 +530,8 @@ function refreshCodeGraphBaseUnchecked(root: string, options: CodeGraphBaseRefre
   const report = options.report ?? (() => undefined);
   mkdirSync(baseDir, { recursive: true });
   const lock = join(baseDir, "refresh.lock");
-  const acquired = acquirePidLock(baseDir, lock, report);
-  if (acquired !== "acquired") return acquired;
+  const acquired = acquirePidLock(lock, report);
+  if (acquired.state !== "acquired") return acquired.state;
   try {
     // The session and the copy must read the same file: the database the SDK resolves must be
     // `<root>/.codegraph/codegraph.db`, and must still be that file after the copy.
@@ -514,18 +543,23 @@ function refreshCodeGraphBaseUnchecked(root: string, options: CodeGraphBaseRefre
     const { session } = opened;
     const snapshot = `base-${randomUUID()}.db`;
     const target = join(baseDir, snapshot);
+    let written: string | undefined;
+    // An unpublished snapshot is removed only while it is still the file this refresh wrote.
+    const discard = () => {
+      if (!removeCreatedFile(target, written)) report({ path: target, kind: "snapshot-not-removed", cleanup: KEPT_CLEANUP["snapshot-not-removed"] });
+    };
     try {
       const headBefore = head(root);
       (options.snapshot ?? snapshotCodeGraphIndex)(join(root, ".codegraph", "codegraph.db"), target);
-      recordCreation(baseDir, snapshot, target);
+      written = creationIdentity(target);
       if (headBefore === undefined || !session.unchangedSinceOpen() || head(root) !== headBefore || codeGraphIndexIdentity(root) !== identityAtStart) {
-        removeOwnFileWithProof(baseDir, snapshot, target, report);
+        discard();
         return "skipped-moved";
       }
       const current = join(baseDir, "current.json");
-      if (pathState(current) !== "absent" && !provenCreation(baseDir, "current.json", current)) {
-        report(current);
-        removeOwnFileWithProof(baseDir, snapshot, target, report);
+      if (pathState(current) !== "absent" && !pointerProven(baseDir, current)) {
+        report({ path: current, kind: "unproven-pointer", cleanup: KEPT_CLEANUP["unproven-pointer"] });
+        discard();
         return "skipped-unproven";
       }
       const pointer: CodeGraphBasePointerV1 = {
@@ -537,18 +571,17 @@ function refreshCodeGraphBaseUnchecked(root: string, options: CodeGraphBaseRefre
         createdAt: new Date(now()).toISOString()
       };
       writeFileAtomically(current, `${JSON.stringify(pointer, null, 2)}\n`);
-      forgetCreation(baseDir, "current.json");
-      recordCreation(baseDir, "current.json", current);
+      recordPointer(baseDir, current);
     } catch (error) {
-      removeOwnFileWithProof(baseDir, snapshot, target, report);
+      if (readBasePointer(baseDir)?.snapshot !== snapshot) discard();
       throw error;
     } finally {
       session.close();
     }
-    collectUnreferencedSnapshots(baseDir, snapshot, now(), report);
+    reportUnreferencedSnapshots(baseDir, snapshot, now(), report);
     return "published";
   } finally {
-    releasePidLock(baseDir, lock);
+    releasePidLock(lock, acquired.identity);
   }
 }
 
@@ -570,66 +603,54 @@ function existsFile(path: string): boolean {
 }
 
 /**
- * A pid file created exclusively and recorded. A stale one (dead or malformed holder) is replaced
- * once, only with proof that archctx created it; an unproven one stays and is reported.
+ * A pid file created exclusively. A stale one (dead or malformed holder) is never removed: it is
+ * reported for hand cleanup and the refresh is skipped.
  */
-function acquirePidLock(baseDir: string, path: string, report: (kept: string) => void): "acquired" | "skipped-busy" | "skipped-unproven" {
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const fd = openSync(path, "wx");
-      try { writeSync(fd, String(process.pid)); }
-      finally { closeSync(fd); }
-      try { recordCreation(baseDir, "refresh.lock", path); }
-      catch (error) { unlinkSync(path); throw error; }
-      return "acquired";
-    } catch (error) {
-      if (errorCode(error) !== "EEXIST" || pidLockLive(path)) return "skipped-busy";
-      if (!provenCreation(baseDir, "refresh.lock", path)) { report(path); return "skipped-unproven"; }
-      rmSync(path, { force: true });
-      forgetCreation(baseDir, "refresh.lock");
-    }
+function acquirePidLock(path: string, report: (kept: CodeGraphKeptPathV1) => void): { state: "acquired"; identity: string | undefined } | { state: "skipped-busy" | "skipped-unproven" } {
+  try {
+    const fd = openSync(path, "wx");
+    try { writeSync(fd, String(process.pid)); }
+    finally { closeSync(fd); }
+    return { state: "acquired", identity: creationIdentity(path) };
+  } catch (error) {
+    if (errorCode(error) !== "EEXIST" || pidLockLive(path)) return { state: "skipped-busy" };
+    report({ path, kind: "stale-refresh-lock", cleanup: KEPT_CLEANUP["stale-refresh-lock"] });
+    return { state: "skipped-unproven" };
   }
-  return "skipped-busy";
 }
 
-function releasePidLock(baseDir: string, path: string): void {
-  try {
-    if (readFileSync(path, "utf8").trim() === String(process.pid)) {
-      unlinkSync(path);
-      forgetCreation(baseDir, "refresh.lock");
-    }
-  } catch {
-    // Already gone, or replaced by a refresher that judged it stale; it is not ours to remove.
-  }
+/** Removes the lock only while it is still the file this refresh created. */
+function releasePidLock(path: string, identity: string | undefined): void {
+  removeCreatedFile(path, identity);
 }
 
 function writeFileAtomically(path: string, content: string): void {
   const temp = `${path}.${randomUUID()}.tmp`;
+  const fd = openSync(temp, "wx");
+  const identity = creationIdentity(temp);
   try {
-    const fd = openSync(temp, "wx");
     try { writeSync(fd, content); }
     finally { closeSync(fd); }
     renameSync(temp, path);
-  } finally {
-    rmSync(temp, { force: true });
+  } catch (error) {
+    removeCreatedFile(temp, identity);
+    throw error;
   }
 }
 
 /**
- * Deletes the `base-*.db` files of this version's directory that `current.json` does not name, that
- * are older than `SNAPSHOT_GC_AGE_MS`, and that carry the creation identity archctx recorded when
- * it wrote them. Nothing else, and no other version's directory, is touched; an unproven snapshot
- * stays and is reported. A file that cannot be deleted (on Windows, one a seeder still has open) is
- * left for the next refresh.
+ * Reports the `base-*.db` files of this version's directory that `current.json` does not name and
+ * that are older than `SNAPSHOT_REPORT_AGE_MS`. archctx never deletes a snapshot an earlier process
+ * wrote; these are left for hand cleanup.
  */
-function collectUnreferencedSnapshots(baseDir: string, current: string, now: number, report: (kept: string) => void): void {
+function reportUnreferencedSnapshots(baseDir: string, current: string, now: number, report: (kept: CodeGraphKeptPathV1) => void): void {
   for (const name of readdirSync(baseDir)) {
     if (name === current || !SNAPSHOT_NAME.test(name)) continue;
     const path = join(baseDir, name);
     try {
-      if (now - statSync(path).mtimeMs >= SNAPSHOT_GC_AGE_MS) removeOwnFileWithProof(baseDir, name, path, report);
+      if (now - statSync(path).mtimeMs >= SNAPSHOT_REPORT_AGE_MS) report({ path, kind: "unreferenced-snapshot", cleanup: KEPT_CLEANUP["unreferenced-snapshot"] });
     } catch {
-      // Left for the next refresh.
+      // Gone since the listing.
     }
   }
 }
