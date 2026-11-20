@@ -105,6 +105,7 @@ async function readDelta(root: string, ref: string, ...flags: string[]): Promise
   // SAFETY: The CLI's successful --base command returns this result contract.
   const report = result.data as unknown as ArchitectureDebtDeltaReportV1;
   expect(report.schemaVersion).toBe("archcontext.architecture-debt-delta/v1");
+  expect(publishedSchemaIssues("runtime/architecture-debt-delta.schema.json", report)).toEqual([]);
   return report;
 }
 

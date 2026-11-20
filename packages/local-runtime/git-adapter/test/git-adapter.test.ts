@@ -44,8 +44,7 @@ describe("@archcontext/local-runtime/git-adapter", () => {
     try {
       mkdirSync(join(root, "omitted"));
       writeFileSync(join(root, hidden), "export const value = 1;\n");
-      git(root, "add", hidden);
-      git(root, "commit", "-qm", "add sparse path");
+      commitAll(root, "add sparse path");
       const sha = gitOut(root, "rev-parse", "HEAD");
       mkdirSync(join(root, ".git", "info"), { recursive: true });
       writeFileSync(join(root, ".git", "info", "sparse-checkout"), "/tracked.txt\n");

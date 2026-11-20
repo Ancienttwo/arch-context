@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archctx.repoharness.com/schemas/runtime/architecture-debt-delta.schema.json",
+  "title": "ArchitectureDebtDeltaReportV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "head", "base", "introduced", "resolvedIds"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.architecture-debt-delta/v1" },
+    "head": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha", "debt"],
+      "properties": {
+        "sha": { "$ref": "#/$defs/commitSha" },
+        "debt": { "$ref": "architecture-debt.schema.json" }
+      }
+    },
+    "base": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "sha", "debtDigest", "coverage", "coverageReasonCodes"],
+      "properties": {
+        "ref": { "type": "string", "minLength": 1 },
+        "sha": { "$ref": "#/$defs/commitSha" },
+        "debtDigest": { "$ref": "architecture-debt.schema.json#/properties/digest" },
+        "coverage": { "$ref": "architecture-debt.schema.json#/properties/coverage" },
+        "coverageReasonCodes": { "$ref": "architecture-debt.schema.json#/properties/coverageReasonCodes" }
+      }
+    },
+    "introduced": {
+      "description": "Items ordered by item ID.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "architecture-debt.schema.json#/properties/items/items" }
+    },
+    "resolvedIds": {
+      "description": "Resolved item IDs in ascending order.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "architecture-debt.schema.json#/properties/items/items/properties/id" }
+    }
+  },
+  "$defs": {
+    "commitSha": { "type": "string", "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$" }
+  }
+}
