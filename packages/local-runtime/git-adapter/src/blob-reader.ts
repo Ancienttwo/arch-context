@@ -59,7 +59,7 @@ export function readOnlyGit(root: string, operation: GitReadOperation, args: str
   }
   if (operation === "ls-files") {
     const end = args.indexOf("--");
-    if (end < 0 || !args.slice(0, end).includes("-z") || args.slice(0, end).some(flag => !["--cached", "--others", "--exclude-standard", "--stage", "-z"].includes(flag))) unsafeArguments();
+    if (end < 0 || !args.slice(0, end).includes("-z") || args.slice(0, end).some(flag => !["--cached", "--others", "--exclude-standard", "--stage", "-t", "-z"].includes(flag))) unsafeArguments();
     for (const path of args.slice(end + 1)) if (!path || path.startsWith("-") || /[\\\u0000-\u001f\u007f-\u009f]/.test(path)) unsafeArguments();
   }
   if (operation === "cat-file") {

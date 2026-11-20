@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { LocalEgressPolicyError, localEgressAdmission, withLocalEgress } from "@archcontext/local-runtime/egress-admission";
-import { runArchitectureDebtCommand, runArchitectureDebtDeltaCommand, selectedProducerFailureEnvelope } from "@archcontext/local-runtime/architecture-debt";
+import { runArchitectureDebtCommand, selectedProducerFailureEnvelope } from "@archcontext/local-runtime/architecture-debt";
+import { runArchitectureDebtDeltaCommand } from "./architecture-debt-delta";
 import { runNativeContextCommand } from "./native-context";
 import { runRefImpactCommand } from "./ref-impact";
 import { runArchitectureHistoryCommand } from "./architecture-history";
@@ -950,7 +951,7 @@ function cliHelpEnvelope(command: string, args: string[]): JsonEnvelope {
       usage: ["archctx debt [--changed-path <path>]... [--json]", "archctx debt [--base <ref>] [--complete] [--json]"],
       schemaVersion: "archcontext.architecture-debt/v1",
       deltaSchemaVersion: "archcontext.architecture-debt-delta/v1",
-      description: "Measure the current working tree. --base compares it with a committed Git revision. --complete also reads dependency and flow evidence from CodeGraph. Coverage gaps are reported for each side.",
+      description: "Measure the current working tree. --base compares it with a committed Git revision. --complete also reads dependency and flow evidence from CodeGraph. Coverage gaps are reported for each side. Use a full head checkout for delta measurements.",
       writes: "With --base, caches the committed measurement in local SQLite and uses a temporary detached worktree on a cache miss. Runs without starting a daemon."
     });
   case "checkpoint":

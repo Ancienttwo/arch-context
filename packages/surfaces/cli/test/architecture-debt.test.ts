@@ -139,6 +139,38 @@ test("debt delta reports worktree changes and sorts introduced and resolved item
   });
 });
 
+test("debt delta refuses sparse head omissions and distinguishes full-checkout deletions", async () => {
+  const { root } = fixture();
+  const hidden = "src/unowned.ts";
+  write(root, hidden, "export const value = 1;\n");
+  git(root, "add", hidden);
+  git(root, "commit", "-qm", "add unchanged debt");
+  const sha = git(root, "rev-parse", "HEAD").trim();
+  await withDebtSandbox(async () => {
+    const full = await readDelta(root, sha);
+    expect(full.head.debt.items.map(item => item.kind)).toEqual(["unowned-path"]);
+    const debtId = full.head.debt.items[0]!.id;
+    expect(full.base.debtDigest).toBe(full.head.debt.digest);
+    git(root, "sparse-checkout", "set", "--no-cone", "/.archcontext/", "/docs/", "/src/a/", "/src/b/", "/.gitignore");
+    expect(git(root, "ls-files", "-t", "--", hidden).trim()).toBe(`S ${hidden}`);
+    expect(existsSync(join(root, hidden))).toBe(false);
+    const worktrees = git(root, "worktree", "list", "--porcelain");
+    const index = readFileSync(join(root, ".git", "index"));
+    for (const flags of [[], ["--complete"]]) {
+      const result = await runCli("debt", ["--base", sha, "--json", ...flags], root, { runtimeClient: noRuntime });
+      expect(result).toMatchObject({ ok: false, error: { code: "AC_PRECONDITION_FAILED", reasonCode: "debt-head-sparse-checkout" } });
+    }
+    expect(git(root, "worktree", "list", "--porcelain")).toBe(worktrees);
+    expect(readFileSync(join(root, ".git", "index"))).toEqual(index);
+
+    git(root, "sparse-checkout", "disable");
+    rmSync(join(root, hidden));
+    const deleted = await readDelta(root, sha);
+    expect(deleted.base.debtDigest).toBe(full.base.debtDigest);
+    expect(deleted.resolvedIds).toEqual([debtId]);
+  });
+});
+
 for (const profiles of [["edit-time", "complete"], ["complete", "edit-time"]] as const) {
   // The shared CodeGraph seeder is disabled on Windows.
   test.skipIf(process.platform === "win32")(`debt cache isolates ${profiles.join(" then ")} and hits on same-profile reruns`, async () => {

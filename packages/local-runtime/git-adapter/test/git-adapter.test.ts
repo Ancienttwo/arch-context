@@ -18,7 +18,8 @@ import {
   findRepositoryRoot,
   listGitVisibleFiles,
   ignoredRepositoryPaths,
-  GitVisibleFilesUnavailableError
+  GitVisibleFilesUnavailableError,
+  withDetachedGitWorktree
 } from "../src/index";
 
 describe("@archcontext/local-runtime/git-adapter", () => {
@@ -35,6 +36,37 @@ describe("@archcontext/local-runtime/git-adapter", () => {
     expect(binding.headSha).toBe(headSha);
     expect(binding.repositoryId).toMatch(/^repo\.[a-f0-9]{16}$/);
     expect(binding.worktreeDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
+  });
+
+  test("detached measurement materializes the full commit despite shared sparse checkout config", async () => {
+    const root = createGitFixture();
+    const hidden = "omitted/source.ts";
+    try {
+      mkdirSync(join(root, "omitted"));
+      writeFileSync(join(root, hidden), "export const value = 1;\n");
+      git(root, "add", hidden);
+      git(root, "commit", "-qm", "add sparse path");
+      const sha = gitOut(root, "rev-parse", "HEAD");
+      mkdirSync(join(root, ".git", "info"), { recursive: true });
+      writeFileSync(join(root, ".git", "info", "sparse-checkout"), "/tracked.txt\n");
+      git(root, "config", "--local", "core.sparseCheckout", "true");
+      git(root, "read-tree", "-mu", "HEAD");
+      expect(gitOut(root, "ls-files", "-t", "--", hidden)).toBe(`S ${hidden}`);
+      expect(existsSync(join(root, hidden))).toBe(false);
+
+      const worktrees = gitOut(root, "worktree", "list", "--porcelain");
+      await withDetachedGitWorktree(root, sha, checkout => {
+        expect(gitOut(checkout, "rev-parse", "HEAD")).toBe(sha);
+        expect(listGitVisibleFiles(checkout)).toEqual([hidden, "tracked.txt"]);
+        expect(gitOut(checkout, "ls-files", "-t", "--", hidden)).toBe(`H ${hidden}`);
+      });
+      expect(gitOut(root, "worktree", "list", "--porcelain")).toBe(worktrees);
+      expect(gitOut(root, "config", "--local", "--get", "core.sparseCheckout")).toBe("true");
+      expect(gitOut(root, "ls-files", "-t", "--", hidden)).toBe(`S ${hidden}`);
+      expect(existsSync(join(root, hidden))).toBe(false);
+    } finally {
+      removeTempRoot(root);
+    }
   });
 
   test("non-repository roots fail without walking past the filesystem root", () => {

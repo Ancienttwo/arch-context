@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import { bindRepository, type GitTrackedTreeEntry, type RepositoryBinding } from "@archcontext/core/architecture-domain";
 import { matchesGlob } from "@archcontext/core/projection-engine";
 import { digestJson, FailureError, type Json } from "@archcontext/contracts";
-import { isGitRevisionArgument, localGitEnv, readGitBlobTree, readGitBlobs } from "./blob-reader";
+import { isGitRevisionArgument, localGitEnv, readGitBlobTree, readGitBlobs, readOnlyGit } from "./blob-reader";
 export * from "./blob-reader";
 
 /** One `git cat-file --batch` carries every measured blob; a repository-sized tree needs the headroom. */
@@ -38,7 +38,8 @@ export async function withDetachedGitWorktree<T>(root: string, commitSha: string
   const exec = promisify(execFile);
   const git = (...args: string[]) => exec("git", [
     "--no-replace-objects", "-c", `core.hooksPath=${parent}`, "-c", "core.fsmonitor=false",
-    "-c", "submodule.recurse=false", "worktree", ...args
+    "-c", "submodule.recurse=false", "-c", "core.sparseCheckout=false", "-c", "index.sparse=false",
+    "worktree", ...args
   ], { cwd: root, env: localGitEnv(), timeout: 120_000, encoding: "utf8" });
   const registered = async (): Promise<boolean> => (await git("list", "--porcelain", "-z")).stdout.split("\0")
     .some(entry => entry.startsWith("worktree ") && resolve(entry.slice("worktree ".length)) === worktree);
@@ -118,6 +119,12 @@ export function listGitVisibleFiles(root: string, pathspec?: string): string[] {
       }
     })
     .sort((left, right) => left.localeCompare(right));
+}
+
+/** Distinguishes absent skip-worktree entries from tracked paths deleted in a full checkout. */
+export function hasSkippedWorktreePaths(root: string): boolean {
+  const entries = readOnlyGit(root, "ls-files", ["--cached", "-t", "-z", "--"], { maxBytes: 256 * 1024 * 1024 });
+  return entries.toString("utf8").split("\0").some(entry => entry.startsWith("S ") && !existsSync(join(root, entry.slice(2))));
 }
 
 /** A repo-relative path that the repository's ignore rules exclude, and the rule that excludes it. */

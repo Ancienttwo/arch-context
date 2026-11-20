@@ -1,16 +1,14 @@
 import {
-  ARCHCONTEXT_PRODUCT_VERSION, ARCHITECTURE_DEBT_CHECKS, ARCHITECTURE_DEBT_DELTA_SCHEMA_VERSION,
-  architectureDebtReportIssues, FailureError, failureEnvelope, knownFailure, normalizeFailureResult, isRepoRelativePosixPath, okEnvelope,
-  type ArchContextErrorCode, type StrictFailure, type ArchitectureDebtCheck, type ArchitectureDebtKind,
-  type ArchitectureDebtDeltaReportV1, type ArchitectureDebtReportV1, type Json, type JsonEnvelope, type PracticeEnforcementEvaluationV1
+  ARCHITECTURE_DEBT_CHECKS, architectureDebtReportIssues, FailureError, failureEnvelope, knownFailure, normalizeFailureResult, isRepoRelativePosixPath, okEnvelope,
+  type ArchContextErrorCode, type StrictFailure,
+  type ArchitectureDebtReportV1, type Json, type JsonEnvelope, type PracticeEnforcementEvaluationV1
 } from "@archcontext/contracts";
 import { resolveOwnership } from "@archcontext/core/module-statistics";
 import { ancestorChain, loadNativeModelFromArchContext, nativeNodeSource, type NativeModel } from "@archcontext/core/projection-engine";
 import { evaluateArchitectureDebt, type ArchitectureDebtEvidence } from "@archcontext/core/review-engine";
 import { checkStateMachines, loadStateMachinesFromArchContext } from "@archcontext/core/state-machine-engine";
-import { findRepositoryRoot, listGitVisibleFiles, readGitBlobTree, readNativeGitRoot, resolveNativeGitSnapshot, withDetachedGitWorktree } from "@archcontext/local-runtime/git-adapter";
-import { assertRepositoryCodeFactsReady, codeGraphIndexAvailable, REQUIRED_CODEGRAPH_VERSION, seedCodeGraphIndexFromBase, type RepositoryCodeFactsInspectionOptions } from "@archcontext/local-runtime/codegraph-adapter";
-import { runtimeStatePaths, SqliteLocalStore, type ArchitectureDebtBaseCacheKey } from "@archcontext/local-runtime/local-store-sqlite";
+import { findRepositoryRoot, listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
+import { assertRepositoryCodeFactsReady, codeGraphIndexAvailable, type RepositoryCodeFactsInspectionOptions } from "@archcontext/local-runtime/codegraph-adapter";
 import { selectedProducerFailure, selectedProducerFailureEnvelope } from "./producer-failure";
 export { selectedProducerFailure, selectedProducerFailureEnvelope } from "./producer-failure";
 import { readArchitectureDebtCodeFacts } from "./architecture-debt-code-facts";
@@ -21,19 +19,6 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 export interface ArchitectureDebtReadInput { changedPaths?: string[] }
-
-type DebtMeasurementProfile = ArchitectureDebtBaseCacheKey["measurementProfile"];
-const ARCHITECTURE_DEBT_ENGINE_VERSION = `${ARCHCONTEXT_PRODUCT_VERSION}/1`;
-const CHECK_BY_DEBT_KIND: Record<ArchitectureDebtKind, ArchitectureDebtCheck> = {
-  "unowned-path": "ownership",
-  "ambiguous-owner": "ownership",
-  "undeclared-dependency": "dependencies",
-  "flow-proof-failed": "flows",
-  "stale-anchor": "anchors",
-  "practice-regression": "practices",
-  "state-machine-rule": "state-machines",
-  "state-machine-stale": "state-machines"
-};
 
 /**
  * Edit-time debt (#328's measured >3s falsifier): ownership, human citation and state machine anchor checks only.
@@ -61,7 +46,7 @@ export function readCompleteTaskArchitectureDebt(root: string, practices?: Pract
   } catch (error) { throw selectedProducerFailure(error, "debt"); }
 }
 
-function unadoptedDebt(): ArchitectureDebtReportV1 {
+export function unadoptedDebt(): ArchitectureDebtReportV1 {
   return checkedDebt({ scope: { kind: "repository", changedPaths: [], capabilityIds: [] },
     unavailable: Object.fromEntries(ARCHITECTURE_DEBT_CHECKS.map(check => [check, ["model-not-adopted"]])) });
 }
@@ -152,78 +137,6 @@ export function runArchitectureDebtCommand(cwd: string, input: ArchitectureDebtR
     return okEnvelope("debt", readArchitectureDebt(root, input) as unknown as Json);
   }
   catch (error) { return selectedProducerFailureEnvelope("debt", error, "debt"); }
-}
-
-export async function runArchitectureDebtDeltaCommand(cwd: string, ref: string, complete: boolean, signal?: AbortSignal): Promise<JsonEnvelope> {
-  try {
-    const root = readNativeGitRoot(cwd);
-    const { commitSha: baseSha, treeOid } = resolveNativeGitSnapshot(root, ref);
-    const { commitSha: headSha } = resolveNativeGitSnapshot(root, "HEAD");
-    signal?.throwIfAborted();
-    const measurementProfile = complete ? "complete" : "edit-time";
-    const head = readDebtForDelta(root, measurementProfile);
-    const archcontext = readGitBlobTree(root, treeOid, { recursive: false, trees: false, sizes: false })
-      .find(entry => entry.path === ".archcontext" && entry.type === "tree");
-    const paths = runtimeStatePaths(root);
-    const key: ArchitectureDebtBaseCacheKey = {
-      repositoryId: paths.storageRepositoryId,
-      baseSha,
-      archcontextTreeOid: archcontext?.objectId ?? null,
-      codeGraphVersion: REQUIRED_CODEGRAPH_VERSION,
-      engineVersion: ARCHITECTURE_DEBT_ENGINE_VERSION,
-      measurementProfile
-    };
-    const base = await readBaseDebt(root, join(paths.sharedCacheDir, "architecture-debt.sqlite"), key, signal);
-    signal?.throwIfAborted();
-    const report: ArchitectureDebtDeltaReportV1 = {
-      schemaVersion: ARCHITECTURE_DEBT_DELTA_SCHEMA_VERSION,
-      head: { sha: headSha, debt: head },
-      base: { ref, sha: baseSha, debtDigest: base.digest, coverage: base.coverage, coverageReasonCodes: base.coverageReasonCodes },
-      introduced: debtAbsentFrom(head, base),
-      resolvedIds: debtAbsentFrom(base, head).map(item => item.id)
-    };
-    // SAFETY: The delta and its checked debt report contain only JSON fields.
-    return okEnvelope("debt", report as unknown as Json);
-  } catch (error) {
-    return selectedProducerFailureEnvelope("debt", error, "debt");
-  }
-}
-
-function readDebtForDelta(root: string, profile: DebtMeasurementProfile): ArchitectureDebtReportV1 {
-  if (profile === "complete") return readCompleteTaskArchitectureDebt(root);
-  if (!existsSync(join(root, ".archcontext/manifest.yaml"))) return unadoptedDebt();
-  return readArchitectureDebt(root);
-}
-
-async function readBaseDebt(root: string, cachePath: string, key: ArchitectureDebtBaseCacheKey, signal?: AbortSignal): Promise<ArchitectureDebtReportV1> {
-  const store = new SqliteLocalStore(cachePath);
-  try {
-    const cached = existsSync(cachePath) ? await store.readArchitectureDebtBase(key) : undefined;
-    if (cached !== undefined) return cached;
-    signal?.throwIfAborted();
-    const report = await withDetachedGitWorktree(root, key.baseSha, worktree => {
-      signal?.throwIfAborted();
-      seedCodeGraphIndexFromBase(worktree);
-      return readDebtForDelta(worktree, key.measurementProfile);
-    });
-    signal?.throwIfAborted();
-    // CodeGraph and other evidence can become available later. Cache only coverage gaps
-    // intrinsic to this commit or to the requested profile.
-    if (report.checks.every(check => check.coverage === "complete" || check.reasonCodes.every(reason =>
-      ["not-evaluated", "deferred-to-complete", "not-enabled", "model-not-adopted"].includes(reason)))) {
-      await store.saveArchitectureDebtBase(key, report);
-    }
-    return report;
-  } finally {
-    store.close();
-  }
-}
-
-/** Reports are already sorted. Only an opposing check with complete coverage proves absence. */
-function debtAbsentFrom(observed: ArchitectureDebtReportV1, compared: ArchitectureDebtReportV1) {
-  const otherIds = new Set(compared.items.map(item => item.id));
-  const complete = new Set(compared.checks.filter(check => check.coverage === "complete").map(check => check.check));
-  return observed.items.filter(item => !otherIds.has(item.id) && complete.has(CHECK_BY_DEBT_KIND[item.kind]));
 }
 
 function nodeCapabilities(model: NativeModel): Map<string, string> {
