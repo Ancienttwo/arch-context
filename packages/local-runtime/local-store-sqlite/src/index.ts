@@ -1,4 +1,4 @@
-import { FailureError } from "@archcontext/contracts";
+import { FailureError, type ArchitectureDebtReportV1 } from "@archcontext/contracts";
 import { AGENT_JOB_STATE_TRANSITIONS } from "@archcontext/core/agent-orchestrator";
 import { readPrivateControlFile } from "@archcontext/local-runtime/control-file-security";
 import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
@@ -1446,7 +1446,23 @@ export interface RuntimeAgentJobQueueStats {
   lastFailureJobId?: string;
 }
 
+export interface ArchitectureDebtBaseCacheKey {
+  repositoryId: string;
+  baseSha: string;
+  archcontextTreeOid: string | null;
+  codeGraphVersion: string;
+  engineVersion: string;
+  measurementProfile: "edit-time" | "complete";
+}
+
+function architectureDebtBaseKeyValues(key: ArchitectureDebtBaseCacheKey): string[] {
+  // A commit without an .archcontext subtree uses an empty OID, outside Git's OID space.
+  return [key.repositoryId, key.baseSha, key.archcontextTreeOid ?? "", key.codeGraphVersion, key.engineVersion, key.measurementProfile];
+}
+
 export interface RuntimeLocalStore extends LocalStorePort, ChangeSetJournalPort {
+  readArchitectureDebtBase(key: ArchitectureDebtBaseCacheKey): Promise<ArchitectureDebtReportV1 | undefined>;
+  saveArchitectureDebtBase(key: ArchitectureDebtBaseCacheKey, report: ArchitectureDebtReportV1): Promise<void>;
   recoverPendingSnapshots(): number;
   saveRepositorySession(session: PersistedRepositorySession): Promise<void>;
   listRepositorySessions(): Promise<PersistedRepositorySession[]>;
@@ -1747,6 +1763,41 @@ export class SqliteLocalStore implements RuntimeLocalStore {
     backfillArchitectureEventDirectScope(db);
     backfillArchitectureChangeFeed(db);
     collectExplorerProjectionCacheFromDb(db, undefined, this.explorerCachePolicy, canonicalLifecycleTime(this.clock()), "startup-retention");
+  }
+
+  async readArchitectureDebtBase(key: ArchitectureDebtBaseCacheKey): Promise<ArchitectureDebtReportV1 | undefined> {
+    const db = await this.architectureDebtBaseCacheDatabase();
+    const row = db.prepare(
+      `SELECT report_json FROM architecture_debt_base_cache
+       WHERE (repository_id, base_sha, archcontext_tree_oid, codegraph_version, engine_version, measurement_profile) = (?, ?, ?, ?, ?, ?)`
+    ).get(...architectureDebtBaseKeyValues(key));
+    return row ? JSON.parse(String(row.report_json)) as ArchitectureDebtReportV1 : undefined;
+  }
+
+  async saveArchitectureDebtBase(key: ArchitectureDebtBaseCacheKey, report: ArchitectureDebtReportV1): Promise<void> {
+    const db = await this.architectureDebtBaseCacheDatabase();
+    db.prepare(
+      `INSERT INTO architecture_debt_base_cache
+       (repository_id, base_sha, archcontext_tree_oid, codegraph_version, engine_version, measurement_profile, report_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING`
+    ).run(...architectureDebtBaseKeyValues(key), JSON.stringify(report));
+  }
+
+  // This derived cache can use a repository-shared database without migrating a daemon's store.
+  private async architectureDebtBaseCacheDatabase(): Promise<SqliteDatabase> {
+    const db = await this.database();
+    db.exec("PRAGMA busy_timeout = 5000");
+    db.exec(`CREATE TABLE IF NOT EXISTS architecture_debt_base_cache (
+      repository_id TEXT NOT NULL,
+      base_sha TEXT NOT NULL,
+      archcontext_tree_oid TEXT NOT NULL,
+      codegraph_version TEXT NOT NULL,
+      engine_version TEXT NOT NULL,
+      measurement_profile TEXT NOT NULL CHECK(measurement_profile IN ('edit-time', 'complete')),
+      report_json TEXT NOT NULL,
+      PRIMARY KEY (repository_id, base_sha, archcontext_tree_oid, codegraph_version, engine_version, measurement_profile)
+    )`);
+    return db;
   }
 
   async beginSnapshot(snapshot: RepositorySnapshot): Promise<string> {

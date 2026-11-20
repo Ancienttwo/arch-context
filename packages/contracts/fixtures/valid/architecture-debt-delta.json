@@ -1,0 +1,68 @@
+{
+  "schemaVersion": "archcontext.architecture-debt-delta/v1",
+  "head": {
+    "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "debt": {
+      "schemaVersion": "archcontext.architecture-debt/v1",
+      "scope": { "kind": "repository", "changedPaths": [], "capabilityIds": [] },
+      "coverage": "partial",
+      "coverageReasonCodes": [
+        "dependencies:deferred-to-complete",
+        "dependencies:not-evaluated",
+        "flows:deferred-to-complete",
+        "flows:not-evaluated",
+        "practices:deferred-to-complete",
+        "practices:not-evaluated"
+      ],
+      "checks": [
+        { "check": "ownership", "coverage": "complete", "reasonCodes": [] },
+        { "check": "anchors", "coverage": "complete", "reasonCodes": [] },
+        { "check": "dependencies", "coverage": "unknown", "reasonCodes": ["deferred-to-complete", "not-evaluated"] },
+        { "check": "flows", "coverage": "unknown", "reasonCodes": ["deferred-to-complete", "not-evaluated"] },
+        { "check": "state-machines", "coverage": "complete", "reasonCodes": [] },
+        { "check": "practices", "coverage": "unknown", "reasonCodes": ["deferred-to-complete", "not-evaluated"] }
+      ],
+      "items": [
+        {
+          "id": "debt.f37e5304bec66f53c154a70b3abf8d61be20afc14040f61f3371eab270488426",
+          "kind": "unowned-path",
+          "nodeIds": [],
+          "capabilityIds": [],
+          "paths": ["src/new.ts"],
+          "reasonCode": "source-owner-missing",
+          "action": "archctx plan --id changeset.<id> --operations-file <ownership-operations.json>",
+          "details": { "modelField": "source.include/source.exclude/parent", "ownershipRule": "parent-chain" }
+        }
+      ],
+      "actionsRequired": ["archctx plan --id changeset.<id> --operations-file <ownership-operations.json>"],
+      "digest": "sha256:878b42fa0587301d41fe55ce73bcb15d8d23ab7a817c9fee0db4528ab6c86a7c"
+    }
+  },
+  "base": {
+    "ref": "HEAD^",
+    "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "debtDigest": "sha256:40b2be136b799d523fe5d3cd1742da6a74758c3ec77f653d023e1935ebb46e69",
+    "coverage": "partial",
+    "coverageReasonCodes": [
+      "dependencies:deferred-to-complete",
+      "dependencies:not-evaluated",
+      "flows:deferred-to-complete",
+      "flows:not-evaluated",
+      "practices:deferred-to-complete",
+      "practices:not-evaluated"
+    ]
+  },
+  "introduced": [
+    {
+      "id": "debt.f37e5304bec66f53c154a70b3abf8d61be20afc14040f61f3371eab270488426",
+      "kind": "unowned-path",
+      "nodeIds": [],
+      "capabilityIds": [],
+      "paths": ["src/new.ts"],
+      "reasonCode": "source-owner-missing",
+      "action": "archctx plan --id changeset.<id> --operations-file <ownership-operations.json>",
+      "details": { "modelField": "source.include/source.exclude/parent", "ownershipRule": "parent-chain" }
+    }
+  ],
+  "resolvedIds": ["debt.acfe6e8bbcf23a10d9531f62d0e23fd3a26861eddae8cb9a775dd9ff89170d2d"]
+}

@@ -1,10 +1,12 @@
-import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, lstatSync, readdirSync, readFileSync } from "node:fs";
+import { execFile, execFileSync, spawnSync } from "node:child_process";
+import { existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { promisify } from "node:util";
 import { bindRepository, type GitTrackedTreeEntry, type RepositoryBinding } from "@archcontext/core/architecture-domain";
 import { matchesGlob } from "@archcontext/core/projection-engine";
 import { digestJson, FailureError, type Json } from "@archcontext/contracts";
-import { isGitRevisionArgument, readGitBlobTree, readGitBlobs } from "./blob-reader";
+import { isGitRevisionArgument, localGitEnv, readGitBlobTree, readGitBlobs, readOnlyGit } from "./blob-reader";
 export * from "./blob-reader";
 
 /** One `git cat-file --batch` carries every measured blob; a repository-sized tree needs the headroom. */
@@ -26,6 +28,43 @@ export function findRepositoryRoot(start: string): string {
       cursor = parent;
     }
     throw new Error(`Repository root not found from ${start}`);
+  }
+}
+
+/** Owns a private, detached checkout of a previously resolved commit for the duration of a read. */
+export async function withDetachedGitWorktree<T>(root: string, commitSha: string, read: (worktree: string) => T): Promise<T> {
+  const parent = mkdtempSync(join(realpathSync(tmpdir()), "archctx-debt-base-"));
+  const worktree = join(parent, "checkout");
+  const exec = promisify(execFile);
+  const git = (...args: string[]) => exec("git", [
+    "--no-replace-objects", "-c", `core.hooksPath=${parent}`, "-c", "core.fsmonitor=false",
+    "-c", "submodule.recurse=false", "-c", "core.sparseCheckout=false", "-c", "index.sparse=false",
+    "worktree", ...args
+  ], { cwd: root, env: localGitEnv(), timeout: 120_000, encoding: "utf8" });
+  const registered = async (): Promise<boolean> => (await git("list", "--porcelain", "-z")).stdout.split("\0")
+    .some(entry => entry.startsWith("worktree ") && resolve(entry.slice("worktree ".length)) === worktree);
+  const remove = () => git("remove", "--force", "--", worktree);
+  let added = false;
+  try {
+    await git("add", "--detach", "--", worktree, commitSha);
+    added = true;
+    return await read(worktree);
+  } finally {
+    try {
+      // A failed add can leave a registration if Git was interrupted after creating it.
+      if (added || await registered()) {
+        try {
+          await remove();
+        } catch (error) {
+          // A terminal interrupt can reach Git as well as archctx, even during removal.
+          const child = error as { signal?: NodeJS.Signals };
+          if (child.signal !== "SIGINT" && child.signal !== "SIGTERM") throw error;
+          if (await registered()) await remove();
+        }
+      }
+    } finally {
+      rmSync(parent, { recursive: true, force: true });
+    }
   }
 }
 
@@ -80,6 +119,12 @@ export function listGitVisibleFiles(root: string, pathspec?: string): string[] {
       }
     })
     .sort((left, right) => left.localeCompare(right));
+}
+
+/** Distinguishes absent skip-worktree entries from tracked paths deleted in a full checkout. */
+export function hasSkippedWorktreePaths(root: string): boolean {
+  const entries = readOnlyGit(root, "ls-files", ["--cached", "-t", "-z", "--"], { maxBytes: 256 * 1024 * 1024 });
+  return entries.toString("utf8").split("\0").some(entry => entry.startsWith("S ") && !existsSync(join(root, entry.slice(2))));
 }
 
 /** A repo-relative path that the repository's ignore rules exclude, and the rule that excludes it. */

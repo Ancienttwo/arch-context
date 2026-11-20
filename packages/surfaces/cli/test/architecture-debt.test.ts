@@ -1,14 +1,16 @@
 import { afterEach, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, rmdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { architectureDebtReportIssues, digestJson, stableYaml, type ArchitectureDebtReportV1 } from "@archcontext/contracts";
+import { dirname, join, resolve } from "node:path";
+import { architectureDebtReportIssues, digestJson, stableYaml, type ArchitectureDebtDeltaReportV1, type ArchitectureDebtReportV1 } from "@archcontext/contracts";
 import { loadNativeModelFromArchContext, resolveArchitectureDocumentationLayout } from "@archcontext/core/projection-engine";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { readArchitectureDebt } from "@archcontext/local-runtime/architecture-debt";
 import type { RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-daemon";
 import { publishedSchemaIssues } from "../../../contracts/test/published-schemas";
+import { CodeGraphSdkProvider, codeGraphBaseDirectory } from "@archcontext/local-runtime/codegraph-adapter";
+import { indexCodeGraphFixture } from "../../../local-runtime/codegraph-adapter/test/real-index";
 import { runCli } from "../src/main";
 import { McpLocalServer } from "@archcontext/surfaces/mcp-local";
 
@@ -70,6 +72,264 @@ async function read(root: string, paths: string[]) {
     else process.env.ARCHCONTEXT_STATE_DIR = previous;
   }
 }
+
+async function withDebtSandbox(run: (paths: { state: string; scratch: string }) => Promise<void>) {
+  const sandbox = realpathSync(mkdtempSync(join(tmpdir(), "archctx-debt-test-")));
+  roots.push(sandbox);
+  const state = join(sandbox, "state");
+  const scratch = join(sandbox, "scratch");
+  mkdirSync(state);
+  mkdirSync(scratch);
+  const tempEnv = process.platform === "win32" ? "TEMP" : "TMPDIR";
+  const previousState = process.env.ARCHCONTEXT_STATE_DIR;
+  const previousTemp = process.env[tempEnv];
+  const previousCompileCache = process.env.NODE_DISABLE_COMPILE_CACHE;
+  process.env.ARCHCONTEXT_STATE_DIR = state;
+  process.env[tempEnv] = scratch;
+  process.env.NODE_DISABLE_COMPILE_CACHE = "1";
+  try {
+    await run({ state, scratch });
+  } finally {
+    if (previousCompileCache === undefined) delete process.env.NODE_DISABLE_COMPILE_CACHE;
+    else process.env.NODE_DISABLE_COMPILE_CACHE = previousCompileCache;
+    if (previousTemp === undefined) delete process.env[tempEnv];
+    else process.env[tempEnv] = previousTemp;
+    if (previousState === undefined) delete process.env.ARCHCONTEXT_STATE_DIR;
+    else process.env.ARCHCONTEXT_STATE_DIR = previousState;
+  }
+}
+
+async function readDelta(root: string, ref: string, ...flags: string[]): Promise<ArchitectureDebtDeltaReportV1> {
+  const result = await runCli("debt", ["--base", ref, "--json", ...flags], root, { runtimeClient: noRuntime });
+  expect(result.ok, JSON.stringify(result)).toBe(true);
+  // SAFETY: The CLI's successful --base command returns this result contract.
+  const report = result.data as unknown as ArchitectureDebtDeltaReportV1;
+  expect(report.schemaVersion).toBe("archcontext.architecture-debt-delta/v1");
+  expect(publishedSchemaIssues("runtime/architecture-debt-delta.schema.json", report)).toEqual([]);
+  return report;
+}
+
+test("debt delta reports worktree changes and sorts introduced and resolved item identities", async () => {
+  const { root } = fixture();
+  write(root, "src/old-one.ts", "export const oldOne = 1;\n");
+  write(root, "src/old-two.ts", "export const oldTwo = 2;\n");
+  git(root, "add", "-A"); git(root, "commit", "-qm", "base debt");
+  git(root, "tag", "-a", "base-debt", "-m", "base debt");
+  const baseSha = git(root, "rev-parse", "HEAD").trim();
+  const base = readArchitectureDebt(root);
+  expect(base.items).toHaveLength(2);
+  rmSync(join(root, "src/old-one.ts"));
+  rmSync(join(root, "src/old-two.ts"));
+  write(root, "src/new-one.ts", "export const newOne = 1;\n");
+  write(root, "src/new-two.ts", "export const newTwo = 2;\n");
+  const head = readArchitectureDebt(root);
+  expect(head.items).toHaveLength(2);
+  const before = tree(root);
+  await withDebtSandbox(async ({ scratch }) => {
+    const worktrees = git(root, "worktree", "list", "--porcelain");
+    expect(await readDelta(root, "base-debt")).toEqual({
+      schemaVersion: "archcontext.architecture-debt-delta/v1",
+      head: { sha: baseSha, debt: head },
+      base: { ref: "base-debt", sha: baseSha, debtDigest: base.digest, coverage: base.coverage, coverageReasonCodes: base.coverageReasonCodes },
+      introduced: head.items,
+      resolvedIds: base.items.map(item => item.id)
+    });
+    expect(tree(root)).toBe(before);
+    expect(git(root, "worktree", "list", "--porcelain")).toBe(worktrees);
+    expect(readdirSync(scratch)).toEqual([]);
+  });
+});
+
+test("debt delta refuses sparse head omissions and distinguishes full-checkout deletions", async () => {
+  const { root } = fixture();
+  const hidden = "src/unowned.ts";
+  write(root, hidden, "export const value = 1;\n");
+  git(root, "add", hidden);
+  git(root, "commit", "-qm", "add unchanged debt");
+  const sha = git(root, "rev-parse", "HEAD").trim();
+  await withDebtSandbox(async () => {
+    const full = await readDelta(root, sha);
+    expect(full.head.debt.items.map(item => item.kind)).toEqual(["unowned-path"]);
+    const debtId = full.head.debt.items[0]!.id;
+    expect(full.base.debtDigest).toBe(full.head.debt.digest);
+    git(root, "sparse-checkout", "set", "--no-cone", "/.archcontext/", "/docs/", "/src/a/", "/src/b/", "/.gitignore");
+    expect(git(root, "ls-files", "-t", "--", hidden).trim()).toBe(`S ${hidden}`);
+    expect(existsSync(join(root, hidden))).toBe(false);
+    const worktrees = git(root, "worktree", "list", "--porcelain");
+    const index = readFileSync(join(root, ".git", "index"));
+    for (const flags of [[], ["--complete"]]) {
+      const result = await runCli("debt", ["--base", sha, "--json", ...flags], root, { runtimeClient: noRuntime });
+      expect(result).toMatchObject({ ok: false, error: { code: "AC_PRECONDITION_FAILED", reasonCode: "debt-head-sparse-checkout" } });
+    }
+    expect(git(root, "worktree", "list", "--porcelain")).toBe(worktrees);
+    expect(readFileSync(join(root, ".git", "index"))).toEqual(index);
+
+    git(root, "sparse-checkout", "disable");
+    rmSync(join(root, hidden));
+    const deleted = await readDelta(root, sha);
+    expect(deleted.base.debtDigest).toBe(full.base.debtDigest);
+    expect(deleted.resolvedIds).toEqual([debtId]);
+  });
+});
+
+for (const profiles of [["edit-time", "complete"], ["complete", "edit-time"]] as const) {
+  // The shared CodeGraph seeder is disabled on Windows.
+  test.skipIf(process.platform === "win32")(`debt cache isolates ${profiles.join(" then ")} and hits on same-profile reruns`, async () => {
+    const { root } = fixture();
+    write(root, "src/a/main.ts", "import { other } from '../b/main';\nexport const value = other;\n");
+    git(root, "add", "-A"); git(root, "commit", "-qm", "base dependency");
+    git(root, "tag", "base");
+    const baseSha = git(root, "rev-parse", "HEAD").trim();
+    write(root, "src/b/main.ts", "import { value } from '../a/main';\nexport const other = () => value;\n");
+    git(root, "add", "-A"); git(root, "commit", "-qm", "head adds a reverse dependency");
+    indexCodeGraphFixture(root);
+    expect((await new CodeGraphSdkProvider().indexAll(root)).codeGraphBase).toBe("published");
+    const sharedBase = codeGraphBaseDirectory(join(root, ".git"));
+    const pointer = readFileSync(join(sharedBase, "current.json"), "utf8");
+    const worktrees = git(root, "worktree", "list", "--porcelain");
+    await withDebtSandbox(async ({ scratch }) => {
+      const deltas = new Map<string, ArchitectureDebtDeltaReportV1>();
+      for (const profile of profiles) {
+        const complete = profile === "complete";
+        const delta = await readDelta(root, "base", ...(complete ? ["--complete"] : []));
+        expect(delta.base.sha).toBe(baseSha);
+        const dependencies = delta.head.debt.checks.find(check => check.check === "dependencies");
+        expect(dependencies?.coverage).toBe(complete ? "complete" : "unknown");
+        expect(delta.head.debt.items.filter(item => item.kind === "undeclared-dependency")).toHaveLength(complete ? 2 : 0);
+        expect(delta.base.coverageReasonCodes.filter(reason => reason.startsWith("dependencies:"))).toEqual(
+          complete ? [] : ["dependencies:deferred-to-complete", "dependencies:not-evaluated"]);
+        expect(delta.introduced).toEqual(complete ? [expect.objectContaining({
+          kind: "undeclared-dependency", details: expect.objectContaining({ fromCapabilityId: "capability.b", toCapabilityId: "capability.a" })
+        })] : []);
+        expect(delta.resolvedIds).toEqual([]);
+        deltas.set(profile, delta);
+      }
+      expect(deltas.get("complete")?.base.debtDigest).not.toBe(deltas.get("edit-time")?.base.debtDigest);
+      expect(readFileSync(join(sharedBase, "current.json"), "utf8")).toBe(pointer);
+      expect(readdirSync(scratch)).toEqual([]);
+      // A cache miss would fail before Git can create the worktree under this missing temp root.
+      rmdirSync(scratch);
+      for (const profile of profiles) {
+        const repeat = await readDelta(root, baseSha, ...(profile === "complete" ? ["--complete"] : []));
+        const first = deltas.get(profile)!;
+        expect(repeat).toEqual({ ...first, base: { ...first.base, ref: baseSha } });
+      }
+      expect(git(root, "worktree", "list", "--porcelain")).toBe(worktrees);
+    });
+  }, 60_000);
+}
+
+test("missing CodeGraph evidence on either side does not manufacture a dependency delta", async () => {
+  const { root } = fixture();
+  write(root, "src/a/main.ts", "import { other } from '../b/main';\nexport const value = other;\n");
+  git(root, "add", "-A"); git(root, "commit", "-qm", "same dependency");
+  indexCodeGraphFixture(root);
+  await withDebtSandbox(async () => {
+    const noBaseIndex = await readDelta(root, "HEAD", "--complete");
+    expect(noBaseIndex.head.debt.items.some(item => item.kind === "undeclared-dependency")).toBe(true);
+    expect(noBaseIndex.base.coverage).toBe("partial");
+    expect(noBaseIndex.base.coverageReasonCodes).toContain("dependencies:index-missing");
+    expect(noBaseIndex.introduced).toEqual([]);
+    if (process.platform === "win32") return;
+    expect((await new CodeGraphSdkProvider().indexAll(root)).codeGraphBase).toBe("published");
+    rmSync(join(root, ".codegraph"), { recursive: true });
+    const noHeadIndex = await readDelta(root, "HEAD", "--complete");
+    expect(noHeadIndex.base.coverageReasonCodes.filter(reason => reason.startsWith("dependencies:"))).toEqual([]);
+    expect(noHeadIndex.head.debt.coverageReasonCodes).toContain("dependencies:index-missing");
+    expect(noHeadIndex.resolvedIds).toEqual([]);
+  });
+}, 60_000);
+
+test("an unadopted base reports unknown coverage without classifying existing debt as introduced", async () => {
+  const { root } = fixture();
+  rmSync(join(root, ".archcontext/manifest.yaml"));
+  git(root, "add", "-A"); git(root, "commit", "-qm", "unadopted base");
+  git(root, "checkout", "HEAD^", "--", ".archcontext/manifest.yaml");
+  write(root, "src/unowned.ts", "export const current = 1;\n");
+  await withDebtSandbox(async () => {
+    const delta = await readDelta(root, "HEAD");
+    expect(delta.base.coverage).toBe("unknown");
+    expect(delta.base.coverageReasonCodes).toContain("ownership:model-not-adopted");
+    expect(delta.head.debt.items.some(item => item.kind === "unowned-path")).toBe(true);
+    expect(delta.introduced).toEqual([]);
+    expect(delta.resolvedIds).toEqual([]);
+  });
+});
+
+test("unresolvable debt base returns a typed error before touching Git or runtime state", async () => {
+  const { root } = fixture();
+  await withDebtSandbox(async ({ state, scratch }) => {
+    const gitState = () => [git(root, "for-each-ref"), git(root, "worktree", "list", "--porcelain"),
+      readFileSync(join(root, ".git", "HEAD"), "utf8"), readFileSync(join(root, ".git", "index"))];
+    const before = gitState();
+    const contents = tree(root);
+    const result = await runCli("debt", ["--base", "no-such-revision", "--complete", "--json"], root, { runtimeClient: noRuntime });
+    expect(result).toMatchObject({ ok: false, requestId: "debt", error: { code: "AC_PRECONDITION_FAILED", reasonCode: "native-context-ref-unavailable" } });
+    expect(gitState()).toEqual(before);
+    expect(tree(root)).toBe(contents);
+    expect(readdirSync(state)).toEqual([]);
+    expect(readdirSync(scratch)).toEqual([]);
+  });
+});
+
+test("a base measurement failure removes its checkout without starting a daemon", async () => {
+  const { root } = fixture();
+  const manifest = "docs/architecture/.projection-manifest.json";
+  write(root, manifest, JSON.stringify({ schemaVersion: "archcontext.architecture-docs-projection-manifest/v2", profile: "default" }));
+  git(root, "add", "-A"); git(root, "commit", "-qm", "base with old projection manifest");
+  rmSync(join(root, manifest));
+  git(root, "add", "-A"); git(root, "commit", "-qm", "remove old manifest");
+  await withDebtSandbox(async ({ state, scratch }) => {
+    const worktrees = git(root, "worktree", "list", "--porcelain");
+    const result = await runCli("debt", ["--base", "HEAD^", "--json"], root, { runtimeClient: noRuntime });
+    expect(result).toMatchObject({ ok: false, error: { reasonCode: "projection-manifest-upgrade-required" } });
+    expect(git(root, "worktree", "list", "--porcelain")).toBe(worktrees);
+    expect(readdirSync(state)).toEqual([]);
+    expect(readdirSync(scratch)).toEqual([]);
+  });
+});
+
+test.skipIf(process.platform === "win32")("SIGINT during debt checkout leaves no worktree or daemon", async () => {
+  const { root } = fixture();
+  await withDebtSandbox(async ({ state, scratch }) => {
+    const worktrees = git(root, "worktree", "list", "--porcelain");
+    const realGit = Bun.which("git")!;
+    const bin = join(dirname(scratch), "bin");
+    const release = join(bin, "release");
+    const ready = join(bin, "ready");
+    write(bin, "git", `#!/bin/sh
+case " $* " in
+  *" worktree add "*)
+    "$DEBT_TEST_GIT" "$@" || exit $?
+    : > "$DEBT_TEST_READY"
+    while [ ! -f "$DEBT_TEST_RELEASE" ]; do sleep 0.02; done
+    ;;
+  *) exec "$DEBT_TEST_GIT" "$@" ;;
+esac
+`);
+    chmodSync(join(bin, "git"), 0o700);
+    const cli = Bun.spawn([process.execPath, resolve(import.meta.dir, "../src/main.ts"), "debt", "--base", "HEAD", "--json"], {
+      cwd: root,
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, DEBT_TEST_GIT: realGit, DEBT_TEST_READY: ready, DEBT_TEST_RELEASE: release },
+      stdout: "pipe", stderr: "pipe"
+    });
+    try {
+      const deadline = performance.now() + 5_000;
+      while (!existsSync(ready) && cli.exitCode === null && performance.now() < deadline) await Bun.sleep(20);
+      expect(existsSync(ready)).toBe(true);
+      expect(git(root, "worktree", "list", "--porcelain")).not.toBe(worktrees);
+      cli.kill("SIGINT");
+    } finally {
+      writeFileSync(release, "");
+      await cli.exited;
+    }
+    expect(cli.exitCode).toBe(1);
+    expect(await new Response(cli.stdout).json()).toMatchObject({ ok: false, error: { reasonCode: "debt-measurement-interrupted" } });
+    expect(git(root, "worktree", "list", "--porcelain")).toBe(worktrees);
+    expect(readdirSync(state)).toEqual([]);
+    expect(readdirSync(scratch)).toEqual([]);
+  });
+}, 15_000);
 
 test("former checkpoint fields are rejected before any runtime access", async () => {
   const { root } = fixture();

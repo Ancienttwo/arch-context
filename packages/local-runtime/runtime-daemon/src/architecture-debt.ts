@@ -37,16 +37,18 @@ export function readArchitectureDebt(root: string, input: ArchitectureDebtReadIn
 /** Repository-wide completion measurement; practice evidence stays owned by the daemon. */
 export function readCompleteTaskArchitectureDebt(root: string, practices?: PracticeEnforcementEvaluationV1): ArchitectureDebtReportV1 {
   try {
-    if (!existsSync(join(root, ".archcontext/manifest.yaml"))) {
-      return checkedDebt({ scope: { kind: "repository", changedPaths: [], capabilityIds: [] },
-        unavailable: Object.fromEntries(ARCHITECTURE_DEBT_CHECKS.map(check => [check, ["model-not-adopted"]])) });
-    }
+    if (!existsSync(join(root, ".archcontext/manifest.yaml"))) return unadoptedDebt();
     const { model, evidence } = readArchitectureDebtEvidence(root, {});
     const codeFacts = readArchitectureDebtCodeFacts(root, model);
     return checkedDebt({ ...evidence, ...codeFacts, practices,
       unavailable: { ...codeFacts.unavailable, ...(practices === undefined ? { practices: ["not-enabled"] } : {}) }
     });
   } catch (error) { throw selectedProducerFailure(error, "debt"); }
+}
+
+export function unadoptedDebt(): ArchitectureDebtReportV1 {
+  return checkedDebt({ scope: { kind: "repository", changedPaths: [], capabilityIds: [] },
+    unavailable: Object.fromEntries(ARCHITECTURE_DEBT_CHECKS.map(check => [check, ["model-not-adopted"]])) });
 }
 
 function checkedDebt(evidence: ArchitectureDebtEvidence): ArchitectureDebtReportV1 {
@@ -120,11 +122,15 @@ function stateMachineEvidence(root: string, model: NativeModel, files: ReadonlyS
     : [{ id: machine.id, capabilityId: machine.capabilityId, rules: [], breaks: [], anchors: anchors[index]! }]) };
 }
 
-export function runArchitectureDebtCommand(cwd: string, input: ArchitectureDebtReadInput = {}, codeFactsOptions: RepositoryCodeFactsInspectionOptions = {}): JsonEnvelope {
+export function runArchitectureDebtCommand(cwd: string, input: ArchitectureDebtReadInput & { complete?: boolean } = {}, codeFactsOptions: RepositoryCodeFactsInspectionOptions = {}): JsonEnvelope {
   let root: string;
   try { root = findRepositoryRoot(cwd); }
   catch { return failureEnvelope("debt", knownFailure("AC_REPO_NOT_FOUND", "git-worktree-required", { checks: ["ownership", "anchors"] })); }
   try {
+    if (input.complete) {
+      // SAFETY: Debt reports contain only JSON fields, including their coverage metadata.
+      return okEnvelope("debt", readCompleteTaskArchitectureDebt(root) as unknown as Json);
+    }
     // Checkpoint can report partial ownership/anchor debt without an index. A present but
     // incompatible index must be repaired, rather than treated as usable code facts.
     if (codeGraphIndexAvailable(root)) assertRepositoryCodeFactsReady(root, codeFactsOptions);
