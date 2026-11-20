@@ -1,0 +1,147 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archcontext.dev/schemas/runtime/projection-slice.schema.json",
+  "title": "ProjectionSliceV1",
+  "description": "Read-only pull request projection of capability diagrams and entrypoint anchors from the same merge base and HEAD used to select changed paths.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "base",
+    "baseSha",
+    "mergeBase",
+    "headSha",
+    "changedPaths",
+    "changed",
+    "affectedCapabilities",
+    "markdown"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "archcontext.projection-slice/v1"
+    },
+    "base": {
+      "$ref": "#/$defs/nonEmpty"
+    },
+    "baseSha": {
+      "$ref": "#/$defs/sha"
+    },
+    "mergeBase": {
+      "$ref": "#/$defs/sha"
+    },
+    "headSha": {
+      "$ref": "#/$defs/sha"
+    },
+    "changedPaths": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/nonEmpty"
+      },
+      "description": "Sorted union of paths changed between the merge base and HEAD and explicit changed path overrides."
+    },
+    "changed": {
+      "type": "boolean"
+    },
+    "affectedCapabilities": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/capability"
+      }
+    },
+    "markdown": {
+      "$ref": "#/$defs/nonEmpty"
+    }
+  },
+  "if": {
+    "properties": {
+      "changed": {
+        "const": true
+      }
+    }
+  },
+  "then": {
+    "properties": {
+      "affectedCapabilities": {
+        "minItems": 1
+      }
+    }
+  },
+  "else": {
+    "properties": {
+      "affectedCapabilities": {
+        "maxItems": 0
+      }
+    }
+  },
+  "$defs": {
+    "sha": {
+      "type": "string",
+      "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+    },
+    "nonEmpty": {
+      "type": "string",
+      "minLength": 1
+    },
+    "capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "capabilityId",
+        "modulePath",
+        "diagramMermaid",
+        "entrypoints",
+        "markdown"
+      ],
+      "properties": {
+        "capabilityId": {
+          "$ref": "#/$defs/nonEmpty"
+        },
+        "modulePath": {
+          "$ref": "#/$defs/nonEmpty"
+        },
+        "diagramMermaid": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "description": "Unfenced Mermaid or null when the capability was removed or its P1 diagram is unprovable."
+        },
+        "entrypoints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/entrypoint"
+          }
+        },
+        "markdown": {
+          "$ref": "#/$defs/nonEmpty"
+        }
+      }
+    },
+    "entrypoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "nodeId",
+        "entrypointId",
+        "path",
+        "symbol"
+      ],
+      "properties": {
+        "nodeId": {
+          "$ref": "#/$defs/nonEmpty"
+        },
+        "entrypointId": {
+          "$ref": "#/$defs/nonEmpty"
+        },
+        "path": {
+          "$ref": "#/$defs/nonEmpty"
+        },
+        "symbol": {
+          "$ref": "#/$defs/nonEmpty"
+        }
+      }
+    }
+  }
+}

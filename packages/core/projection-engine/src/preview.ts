@@ -1,8 +1,147 @@
 import {
   PROJECTION_FILE_PREVIEW_MAX_BYTES,
   PROJECTION_PREVIEW_TOTAL_MAX_BYTES,
-  type ProjectionFilePreviewV1
+  type ProjectionFilePreviewV1,
+  type ProjectionSliceCapabilityV1
 } from "@archcontext/contracts";
+import { matchesGlob, nativeNodeSource, renderProjectionEntrypoints, type NativeModel } from "./index";
+import { resolveArchitectureDocumentationLayout, type ArchitectureProjectionProfile } from "./layout";
+import { compileSemanticP1, renderSemanticFlowchartSource, semanticP1Scope } from "./semantic-diagrams";
+
+const SLICE_DIAGRAM_HEADING = "1.1 架構圖";
+const SLICE_ENTRYPOINTS_HEADING = "1.2 模組職責表";
+
+function projectionSliceRevision(model: NativeModel, profile: ArchitectureProjectionProfile) {
+  return {
+    model,
+    nodes: new Map(model.nodes.map((node) => [node.id, node])),
+    modulePaths: resolveArchitectureDocumentationLayout({ ...model, profile }).entityPathByNodeId
+  };
+}
+
+/** Compare visible P1 structure and entrypoint rows before adding presentation-only highlights. */
+export function renderArchitectureProjectionSlice(input: {
+  before: { model: NativeModel; profile: ArchitectureProjectionProfile };
+  after: { model: NativeModel; profile: ArchitectureProjectionProfile };
+  changedPaths: readonly string[];
+}): { changed: boolean; affectedCapabilities: ProjectionSliceCapabilityV1[]; markdown: string } {
+  const before = projectionSliceRevision(input.before.model, input.before.profile);
+  const after = projectionSliceRevision(input.after.model, input.after.profile);
+  const changedNodes = changedEntityIds(before.model.nodes, after.model.nodes);
+  const changedRelations = changedEntityIds(before.model.relations, after.model.relations);
+  const capabilityIds = [...new Set([...before.model.nodes, ...after.model.nodes]
+    .filter((node) => node.kind === "capability").map((node) => node.id))].sort();
+  const affectedCapabilities: ProjectionSliceCapabilityV1[] = [];
+
+  for (const capabilityId of capabilityIds) {
+    const baseScope = sliceScope(before, capabilityId);
+    const headScope = sliceScope(after, capabilityId);
+    const affected = scopeAffected(before, baseScope, changedNodes, changedRelations, input.changedPaths)
+      || scopeAffected(after, headScope, changedNodes, changedRelations, input.changedPaths)
+      || baseScope?.size !== headScope?.size
+      || (baseScope && [...baseScope].some((id) => !headScope?.has(id)));
+    if (!affected) continue;
+
+    const baseline = baseScope && renderSliceSections(before, capabilityId, baseScope);
+    const current = headScope && renderSliceSections(after, capabilityId, headScope);
+    // The shared compilation digest also covers P2 evidence. Compare the rendered P1 diagram
+    // (or its refusal) and §1.2 rows so unrelated proof changes cannot move the slice.
+    if (baseline && current && baseline.p1.mermaid === current.p1.mermaid
+      && JSON.stringify(baseline.p1.diagnostics) === JSON.stringify(current.p1.diagnostics)
+      && JSON.stringify(baseline.lines) === JSON.stringify(current.lines)) continue;
+
+    const modulePath = (current ? after : before).modulePaths.get(capabilityId)!;
+    const diagramMermaid = current?.p1.status === "proven" ? renderTargetedSliceDiagram(current, sliceTargets(baseline, current)) : null;
+    const markdown = [
+      `### [${capabilityId}](${modulePath})`,
+      "",
+      ...(current ? [
+        `#### ${SLICE_DIAGRAM_HEADING}`,
+        "",
+        ...(diagramMermaid ? ["```mermaid", diagramMermaid, "```"] : [
+          "> **human-action-required**: P1 semantic authority is unprovable; no diagram was generated.",
+          ...current.p1.diagnostics.map(({ code, detail }) => `- \`${code}\`: ${detail}`)
+        ]),
+        "",
+        `#### ${SLICE_ENTRYPOINTS_HEADING}`,
+        "",
+        ...current.lines
+      ] : ["Capability removed."])
+    ].join("\n");
+    affectedCapabilities.push({ capabilityId, modulePath, diagramMermaid, entrypoints: current?.entrypoints ?? [], markdown });
+  }
+
+  const changed = affectedCapabilities.length > 0;
+  const body = changed ? affectedCapabilities.map((entry) => entry.markdown).join("\n\n") : "Architecture slice unchanged";
+  return { changed, affectedCapabilities, markdown: `## Architecture slice\n\n${body}\n` };
+}
+
+function changedEntityIds<T extends { id: string }>(before: readonly T[], after: readonly T[]): Set<string> {
+  const prior = new Map(before.map((entry) => [entry.id, JSON.stringify(entry)]));
+  const current = new Map(after.map((entry) => [entry.id, JSON.stringify(entry)]));
+  return new Set([...prior.keys(), ...current.keys()].filter((id) => prior.get(id) !== current.get(id)));
+}
+
+function sliceScope(revision: ReturnType<typeof projectionSliceRevision>, capabilityId: string): Set<string> | undefined {
+  const { model, nodes } = revision;
+  if (nodes.get(capabilityId)?.kind !== "capability") return undefined;
+  return semanticP1Scope(capabilityId, model.nodes, model.flows ?? []);
+}
+
+function scopeAffected(
+  { model, nodes }: ReturnType<typeof projectionSliceRevision>,
+  scope: ReadonlySet<string> | undefined,
+  changedNodes: ReadonlySet<string>,
+  changedRelations: ReadonlySet<string>,
+  changedPaths: readonly string[]
+): boolean {
+  if (!scope) return false;
+  return [...scope].some((id) => {
+    if (changedNodes.has(id)) return true;
+    const source = nativeNodeSource(nodes.get(id)!);
+    return source && changedPaths.some((path) => source.entrypoints?.some((entry) => entry.path === path)
+      || (source.include?.some((glob) => matchesGlob(path, glob)) && !source.exclude?.some((glob) => matchesGlob(path, glob))));
+  }) || model.relations.some((relation) => changedRelations.has(relation.id) && scope.has(relation.source) && scope.has(relation.target));
+}
+
+function renderSliceSections({ model, nodes }: ReturnType<typeof projectionSliceRevision>, capabilityId: string, scope: ReadonlySet<string>) {
+  const node = nodes.get(capabilityId)!;
+  const components = model.nodes.filter((entry) => entry.parent === capabilityId && entry.kind === "component");
+  const p1 = compileSemanticP1(capabilityId, model.nodes, model.relations, scope);
+  const entriesByNode = new Map([node, ...components].map((entry) => [entry.id, JSON.stringify(nativeNodeSource(entry)?.entrypoints ?? [])]));
+  return { p1, entriesByNode, ...renderProjectionEntrypoints(node, components) };
+}
+
+function renderTargetedSliceDiagram({ p1 }: ReturnType<typeof renderSliceSections>, targets: ReadonlySet<string>): string {
+  const included = new Set(p1.nodes.filter((node) => targets.has(node.id)).map((node) => node.id));
+  if (included.size === 0) return renderSemanticFlowchartSource(p1.nodes, p1.edges);
+  for (const edge of p1.edges) {
+    if (targets.has(edge.source) || targets.has(edge.target)) {
+      included.add(edge.source);
+      included.add(edge.target);
+    }
+  }
+  return renderSemanticFlowchartSource(
+    p1.nodes.filter((node) => included.has(node.id)),
+    p1.edges.filter((edge) => included.has(edge.source) && included.has(edge.target)),
+    targets
+  );
+}
+
+function sliceTargets(baseline: ReturnType<typeof renderSliceSections> | undefined, current: ReturnType<typeof renderSliceSections>): Set<string> {
+  const targets = changedEntityIds(baseline?.p1.nodes ?? [], current.p1.nodes);
+  const beforeEdges = baseline?.p1.edges ?? [];
+  const changedEdges = changedEntityIds(beforeEdges, current.p1.edges);
+  for (const edge of [...beforeEdges, ...current.p1.edges]) {
+    if (!changedEdges.has(edge.id)) continue;
+    targets.add(edge.source);
+    targets.add(edge.target);
+  }
+  for (const id of new Set([...(baseline?.entriesByNode.keys() ?? []), ...current.entriesByNode.keys()])) {
+    if (baseline?.entriesByNode.get(id) !== current.entriesByNode.get(id)) targets.add(id);
+  }
+  return targets;
+}
 
 /**
  * What one projection file entry would write, as the `plan` preview carries it (#264). `create`

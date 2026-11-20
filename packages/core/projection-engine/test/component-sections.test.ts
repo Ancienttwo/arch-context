@@ -1,4 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { checkArchitectureMermaid } from "../../../../scripts/check-architecture-mermaid.mjs";
 import { fixtureArchitectureHistory } from "./fixture-source-files";
 import {
   ARCHITECTURE_DOCS_LAYOUT_VERSION,
@@ -6,6 +10,7 @@ import {
   REPO_HARNESS_PROJECTION_PROFILE,
   architectureDocumentationProjectionProvenance,
   renderArchitectureDocumentationProjection,
+  renderArchitectureProjectionSlice,
   type ArchitectureDocumentationProjectionPlan,
   type CapabilitySourceScaleSignal,
   type NativeModel,
@@ -124,6 +129,47 @@ const modelWithoutComponents: NativeModel = {
   ...model,
   nodes: model.nodes.map((node) => node.kind === "component" ? { ...node, kind: "module" } : node)
 };
+
+describe("architecture projection slice", () => {
+  test("renders a changed relation with both endpoints highlighted and the original §1.2 rows", async () => {
+    const after = { ...model, relations: relations.map((relation) => relation.id === "relation.cli-writes-journal"
+      ? { ...relation, intent: "store, index; publish #1" } : relation) };
+    const result = renderArchitectureProjectionSlice({
+      before: { model, profile: REPO_HARNESS_PROJECTION_PROFILE },
+      after: { model: after, profile: REPO_HARNESS_PROJECTION_PROFILE },
+      changedPaths: [".archcontext/model/relations/relation.cli-writes-journal.yaml"]
+    });
+    expect(result.changed).toBe(true);
+    expect(result.affectedCapabilities).toHaveLength(1);
+    const slice = result.affectedCapabilities[0]!;
+    expect(slice.modulePath).toBe("docs/architecture/modules/runtime/reconciliation.md");
+    expect(slice.diagramMermaid).toMatch(/class p1_component_reconciliation_cli_root_[a-f0-9]{8},p1_component_reconciliation_journal_[a-f0-9]{8} target/);
+    expect(slice.diagramMermaid).not.toMatch(/(?:CLI \| Root|Journal)"\]:::/);
+    expect(slice.diagramMermaid).not.toContain("Helper");
+    const projected = section(body(render(), capabilityId), "### 1.2 模組職責表").trim();
+    expect(slice.markdown).toContain(projected);
+
+    const root = mkdtempSync(join(tmpdir(), "archctx-slice-mermaid-"));
+    try {
+      mkdirSync(join(root, "docs", "architecture"), { recursive: true });
+      writeFileSync(join(root, "docs", "architecture", "slice.md"), result.markdown);
+      const check = await checkArchitectureMermaid({ root });
+      expect(check.blockCount).toBe(1);
+      expect(check.ok, JSON.stringify(check.blocks)).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("ignores changes outside the rendered diagram and the entrypoint table", () => {
+    const after = { ...model, nodes: model.nodes.map((node) => node.id === cliRoot.id ? { ...node, summary: "A new description." } : node) };
+    expect(renderArchitectureProjectionSlice({
+      before: { model, profile: REPO_HARNESS_PROJECTION_PROFILE },
+      after: { model: after, profile: REPO_HARNESS_PROJECTION_PROFILE },
+      changedPaths: [".archcontext/model/nodes/component.reconciliation.cli-root.yaml"]
+    })).toEqual({ changed: false, affectedCapabilities: [], markdown: "## Architecture slice\n\nArchitecture slice unchanged\n" });
+  });
+});
 
 describe("component sections on a module document (#299)", () => {
   test("§1.5 lists each direct component with id, name, size buckets and entrypoints", () => {

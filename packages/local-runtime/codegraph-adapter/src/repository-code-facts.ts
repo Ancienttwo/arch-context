@@ -207,10 +207,14 @@ function inspectRepositoryCodeFactsTier(root: string, tier: "compatibility" | "f
  * build-in-progress answer; `retryable` follows `inspectRepositoryCodeFactsTier`. Throws when a
  * read of the handle fails.
  */
-export function openSessionCodeFacts(session: CodeGraphReadSession, tier: "compatibility" | "freshness"): { facts: RepositoryCodeFactsV1; retryable: boolean } {
+export function openSessionCodeFacts(
+  session: CodeGraphReadSession,
+  tier: "compatibility" | "freshness",
+  measureFreshness = () => session.freshness()
+): { facts: RepositoryCodeFactsV1; retryable: boolean } {
   const codeGraphVersion = session.version();
   const compatibility = session.compatibility();
-  const pendingChanges = tier === "freshness" ? session.freshness() : undefined;
+  const pendingChanges = tier === "freshness" ? measureFreshness() : undefined;
   // Facts read across a build or a sync are not one index state (design G4).
   if (!session.unchangedSinceOpen()) return movingCodeFacts(codeGraphVersion);
   return { facts: repositoryCodeFactsFromSession(session.root, codeGraphVersion, compatibility, pendingChanges), retryable: false };

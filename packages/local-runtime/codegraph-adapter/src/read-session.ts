@@ -285,7 +285,7 @@ function readSession(root: string, handle: { graph?: CodeGraphIndexHandle }, pro
         pendingRefs: graph.getPendingReferenceCount()
       };
     },
-    freshness: () => freshness ??= indexFreshness(root, open(), provider),
+    freshness: () => freshness ??= measureCodeGraphIndexFreshness(root, open(), provider),
     revision: () => revisionOf(open()),
     unchangedSinceOpen: () => {
       if (codeGraphIndexBuildInProgress(root)) return false;
@@ -306,7 +306,7 @@ function readSession(root: string, handle: { graph?: CodeGraphIndexHandle }, pro
  * hash differs from its record. An indexed file that left the enumeration or the disk is removed.
  * A file that exists but cannot be read cannot be attested, so it counts as modified, not fresh.
  */
-function indexFreshness(root: string, graph: CodeGraphIndexHandle, provider: CodeGraphReadProvider): CodeGraphIndexFreshnessV1 {
+export function measureCodeGraphIndexFreshness(root: string, graph: CodeGraphIndexHandle, provider: CodeGraphReadProvider): CodeGraphIndexFreshnessV1 {
   return codeGraphChangeCounts(graph.getFiles(), provider.scanSourceFiles(root), {
     exists: (path) => existsSync(join(root, path)),
     changeHash: (path) => provider.changeHash(join(root, path))
@@ -314,7 +314,7 @@ function indexFreshness(root: string, graph: CodeGraphIndexHandle, provider: Cod
 }
 
 /**
- * The counting rule of `indexFreshness`. The staged-index check of the base-index seed runs this
+ * The counting rule of `measureCodeGraphIndexFreshness`. The staged-index check of the base-index seed runs this
  * function's own source in a child process (index-base.ts), so it reads nothing but its arguments.
  */
 export function codeGraphChangeCounts(

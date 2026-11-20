@@ -1,24 +1,100 @@
 import { FailureError, failureEnvelope, knownFailure, PROJECTION_RECOVERY_DETAILS_LIMIT_BYTES, projectionApplyCommittedDetails, projectionApplyManualOnlyDetails, projectionApplyRecoveryDetailsBytes, projectionApplyRecoveryDetailsFit } from "@archcontext/contracts";
 import { publicFailureEnvelope, publicOperationErrorEnvelope, publicOperationFailure, publicOperationResult } from "./public-operation-failure";
+import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { computeWorktreeDigest, manifestDecisionDiagnostics, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { GitVisibleFilesUnavailableError, findRepositoryRoot, ignoredRepositoryPaths, readHeadSha, listGitVisibleFiles, type IgnoredRepositoryPath } from "@archcontext/local-runtime/git-adapter";
+import { decodeUtf8, isGitRevisionArgument, localGitEnv, readGitBlobTree, readGitBlobs, readNativeGitRoot, readOnlyGit, resolveNativeGitSnapshot } from "@archcontext/local-runtime/git-adapter";
 import { architectureModelIgnoreProbePaths, readArchitectureHistory } from "@archcontext/local-runtime/model-store-yaml";
 import { ProjectionCodeFactsUnavailableError, assertProjectionCodeFactsAvailable, prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
+import { assertReadyCodeGraphIndexWithoutWorktreeWrites } from "@archcontext/local-runtime/codegraph-adapter";
+import { isSemanticModelPath } from "@archcontext/core/projection-engine";
 import { projectionProtocolGeneratedFrom, projectionWorkspaceId } from "./projection-inputs";
 import { projectionFreshnessContract } from "./projection-freshness";
 import { projectionArchitectureDebt } from "./projection-architecture-debt";
 import { classifyProjectionTargetChanges } from "./projection-target-changes";
 import type { RuntimeDaemonClient } from "./rpc-protocol";
-import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, PROJECTION_APPLY_RECOVERY_BINDING_SCHEMA_VERSION, PROJECTION_RESULT_SCHEMA_VERSION, architectureDocsProjectionManifestSchemaVersion, isSupersededArchitectureDocsProjectionManifestSchemaVersion, PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_TARGETS, createProjectionApplyIdentity, digestJson, isRepoRelativePosixPath, okEnvelope, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestFromReceipt, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryResultInvariantIssues, projectionApplyLookupKey, projectionFreshnessIssues, projectionPriorCommittedAppliesIssues, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest, projectionResultRequestModeIssues } from "@archcontext/contracts";
-import type { AcceptedArchitectureChangeReferenceV1, ArchitectureDocumentationProjectionProvenanceV3, ArchitectureHistory, ArchitectureRefreshSignalV2, Json, JsonEnvelope, ProjectionApplyAbsenceV1, ProjectionApplyReadbackResultV2, ProjectionApplyIdentityV1, ProjectionApplyReceiptV1, ProjectionApplyRecoveryBindingV2, ProjectionApplyRecoveryIntentV1, ProjectionApplyRecoveryProofV2, ProjectionApplyRecoveryResultV2, ProjectionFreshnessV2, ProjectionCoverageV1, ProjectionPriorCommittedApplyV1, ProjectionRequestV1, ProjectionResultV3, ProjectionSnapshotV1, ProjectionExpectedSnapshotV1, ProjectionTargetChangeV2, Sha256Digest } from "@archcontext/contracts";
-import { REPO_HARNESS_PROJECTION_PROFILE, ARCHITECTURE_HISTORY_TARGET, architectureAdoptionReceipt, architectureHistoryCarryForwardBlocker, architectureProjectionFilePreviews, architectureDocumentationSourceDigest, ProjectionPreconditionError, buildArchitectureDocumentationAdoptionPlan, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, architectureProjectionFootprintOwners, architectureProjectionFreshnessWithoutBaseline, loadArchitectureDocumentationProfile, readCommittedArchitectureDocsProjectionManifest, measureCapabilitySourceScaleSignals, loadNativeModelFromArchContext, projectionOwnedWriteBody, renderAgentContextProjection, renderArchitectureDocumentationProjection, architectureDocumentationProjectionWorktreeDigest, type ArchitectureProjectionProfile, type ProjectionOwnedFile, type ArchitectureMajorChangeClassificationV1, type ArchitectureDocumentationProjectionRuntimeSnapshot } from "@archcontext/core/projection-engine";
+import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, PROJECTION_APPLY_RECOVERY_BINDING_SCHEMA_VERSION, PROJECTION_RESULT_SCHEMA_VERSION, architectureDocsProjectionManifestSchemaVersion, isSupersededArchitectureDocsProjectionManifestSchemaVersion, PROJECTION_APPLY_READBACK_RESULT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_SLICE_SCHEMA_VERSION, PROJECTION_TARGETS, createProjectionApplyIdentity, digestJson, isRepoRelativePosixPath, okEnvelope, projectionApplyAbsenceInvariantIssues, projectionApplyReadbackRequestFromReceipt, projectionApplyReadbackRequestInvariantIssues, projectionApplyReadbackResultInvariantIssues, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryResultInvariantIssues, projectionApplyLookupKey, projectionFreshnessIssues, projectionPriorCommittedAppliesIssues, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest, projectionResultRequestModeIssues } from "@archcontext/contracts";
+import type { AcceptedArchitectureChangeReferenceV1, ArchitectureDocumentationProjectionProvenanceV3, ArchitectureHistory, ArchitectureRefreshSignalV2, Json, JsonEnvelope, ProjectionApplyAbsenceV1, ProjectionApplyReadbackResultV2, ProjectionApplyIdentityV1, ProjectionApplyReceiptV1, ProjectionApplyRecoveryBindingV2, ProjectionApplyRecoveryIntentV1, ProjectionApplyRecoveryProofV2, ProjectionApplyRecoveryResultV2, ProjectionFreshnessV2, ProjectionCoverageV1, ProjectionPriorCommittedApplyV1, ProjectionRequestV1, ProjectionResultV3, ProjectionSliceV1, ProjectionSnapshotV1, ProjectionExpectedSnapshotV1, ProjectionTargetChangeV2, Sha256Digest } from "@archcontext/contracts";
+import { REPO_HARNESS_PROJECTION_PROFILE, ARCHITECTURE_HISTORY_TARGET, architectureAdoptionReceipt, architectureHistoryCarryForwardBlocker, architectureProjectionFilePreviews, architectureDocumentationSourceDigest, ProjectionPreconditionError, buildArchitectureDocumentationAdoptionPlan, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, architectureProjectionFootprintOwners, architectureProjectionFreshnessWithoutBaseline, loadArchitectureDocumentationProfile, readCommittedArchitectureDocsProjectionManifest, measureCapabilitySourceScaleSignals, loadNativeModelFromArchContext, loadNativeModelFromModelFiles, parseArchitectureDocumentationProfile, projectionOwnedWriteBody, renderAgentContextProjection, renderArchitectureProjectionSlice, renderArchitectureDocumentationProjection, architectureDocumentationProjectionWorktreeDigest, type ArchitectureProjectionProfile, type ProjectionOwnedFile, type ArchitectureMajorChangeClassificationV1, type ArchitectureDocumentationProjectionRuntimeSnapshot } from "@archcontext/core/projection-engine";
 import { loadStateMachinesFromArchContext } from "@archcontext/core/state-machine-engine";
 import type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./rpc-types";
 export type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./rpc-types";
 
 export type ProjectionServiceHost = Pick<RuntimeDaemonClient, "planUpdate" | "applyUpdate" | "listProjectionPriorCommittedApplies" | "inspectProjectionApplyReceipt" | "readbackProjectionApply" | "recoverProjectionApply">;
+
+/** Git model snapshots are read directly from objects. CodeGraph is a read-only readiness gate. */
+export function runProjectionSliceCommand(options: { cwd: string; base: string; changedPaths: string[] }): JsonEnvelope {
+  const requestId = "projection.slice";
+  if (!isGitRevisionArgument(options.base) || options.changedPaths.some((path) => !isRepoRelativePosixPath(path))) {
+    return publicFailureEnvelope(requestId, "AC_SCHEMA_INVALID", "projection-input-invalid");
+  }
+  let root: string;
+  try { root = readNativeGitRoot(options.cwd); }
+  catch { return publicFailureEnvelope(requestId, "AC_REPO_NOT_FOUND", "git-worktree-required"); }
+  try {
+    const gitArgs = ["-c", "core.fsmonitor=false"];
+    const gitOptions = { cwd: root, env: localGitEnv(), encoding: "utf8" as const, timeout: 10_000 };
+    const git = (...args: string[]) => execFileSync("git", [...gitArgs, ...args], { ...gitOptions, stdio: ["ignore", "pipe", "pipe"] });
+    let head: ReturnType<typeof resolveNativeGitSnapshot>;
+    let baseSha: string;
+    let mergeBase: string;
+    try {
+      head = resolveNativeGitSnapshot(root, "HEAD");
+      baseSha = resolveNativeGitSnapshot(root, options.base).commitSha;
+      mergeBase = git("merge-base", baseSha, head.commitSha).trim();
+    } catch {
+      return publicFailureEnvelope(requestId, "AC_PRECONDITION_FAILED", "projection-slice-base-unresolved");
+    }
+    const headSha = head.commitSha;
+    const assertClean = () => {
+      const diff = ["diff", "--quiet", "--no-ext-diff", "--no-textconv", "--ignore-submodules=none"];
+      for (const args of [["--"], ["--cached", headSha, "--"]]) {
+        const result = spawnSync("git", [...gitArgs, ...diff, ...args], { ...gitOptions, stdio: "ignore" });
+        if (result.status !== 0) throw new FailureError("AC_PRECONDITION_FAILED", "projection-slice-worktree-dirty");
+      }
+      if (decodeUtf8(readOnlyGit(root, "rev-parse", ["--verify", "--end-of-options", "HEAD^{commit}"])).trim() !== headSha) {
+        throw new FailureError("AC_PRECONDITION_FAILED", "projection-inputs-changed-during-run", { field: "headSha" });
+      }
+    };
+    assertClean();
+    const diffPaths = git("diff", "--name-only", "-z", "--no-renames", `${mergeBase}..${headSha}`, "--").split("\0").filter(Boolean);
+    const changedPaths = [...new Set([...diffPaths, ...options.changedPaths])].sort();
+    assertReadyCodeGraphIndexWithoutWorktreeWrites(root);
+    assertClean();
+    const after = readProjectionSliceModel(root, head.treeOid);
+    const before = mergeBase === headSha ? after : readProjectionSliceModel(root, mergeBase);
+    const data: ProjectionSliceV1 = {
+      schemaVersion: PROJECTION_SLICE_SCHEMA_VERSION,
+      base: options.base,
+      baseSha,
+      mergeBase,
+      headSha,
+      changedPaths,
+      ...renderArchitectureProjectionSlice({ before, after, changedPaths })
+    };
+    // SAFETY: The slice consists solely of JSON data.
+    return okEnvelope(requestId, data as unknown as Json);
+  } catch (error) {
+    return publicOperationErrorEnvelope(requestId, error);
+  }
+}
+
+function readProjectionSliceModel(root: string, tree: string) {
+  const entries = readGitBlobTree(root, tree).filter(({ path }) => isSemanticModelPath(path)
+    || path === ".archcontext/manifest.yaml" || path === ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH);
+  if (entries.some(({ utf8Valid, mode }) => !utf8Valid || (mode !== "100644" && mode !== "100755"))) {
+    throw new FailureError("AC_PRECONDITION_FAILED", "projection-slice-model-entry-invalid");
+  }
+  const blobs = readGitBlobs(root, entries);
+  const files = new Map(entries.map((entry, index) => [entry.path, decodeUtf8(blobs[index]!)]));
+  const manifest = files.get(ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH);
+  return {
+    model: loadNativeModelFromModelFiles(files),
+    profile: manifest === undefined ? "default" as const : parseArchitectureDocumentationProfile(manifest)
+  };
+}
 
 export async function runArchitectureDocsProjectionCommand(input: RuntimeDocsProjectionInput, cwd: string, daemon: ProjectionServiceHost) {
   try {

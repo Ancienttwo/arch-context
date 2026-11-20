@@ -52,6 +52,8 @@ describe("@archcontext/contracts source package", () => {
       expect(files).toContain("src/projection.ts");
       expect(files).toContain("fixtures/valid/projection-request.json");
       expect(files).toContain("fixtures/valid/projection-result.json");
+      expect(files).toContain("schemas/runtime/projection-slice.schema.json");
+      expect(files).toContain("fixtures/valid/projection-slice.json");
       expect(files).toContain("fixtures/valid/architecture-refresh-signal.json");
       expect(files).toContain("fixtures/valid/archctx-capabilities.json");
       for (const name of ["architecture-debt-delta", "docs-anchors", "native-context-export", "recommendation-v3", "runtime-refactor-scan", "runtime-recommendation-show"]) {

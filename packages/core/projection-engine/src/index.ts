@@ -60,6 +60,7 @@ import {
   type ProjectionFreshnessReasonCode,
   type ProjectionFreshnessStaleTargetV2,
   type ProjectionMixedTargetV1,
+  type ProjectionSliceEntrypointV1,
   type ProjectionTargetV1,
   type StateMachineV1
 } from "@archcontext/contracts";
@@ -1295,7 +1296,10 @@ export function architectureDocumentationSourceDigest(input: {
 
 /** The applied manifest selects the layout to verify; never guess a missing profile. */
 export function loadArchitectureDocumentationProfile(root: string): ArchitectureProjectionProfile {
-  const body = readFileSync(resolve(root, ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH), "utf8");
+  return parseArchitectureDocumentationProfile(readFileSync(resolve(root, ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH), "utf8"));
+}
+
+export function parseArchitectureDocumentationProfile(body: string): ArchitectureProjectionProfile {
   // A superseded manifest is read for its schemaVersion only, so it names no profile.
   const schemaVersion = architectureDocsProjectionManifestSchemaVersion(body);
   if (isSupersededArchitectureDocsProjectionManifestSchemaVersion(schemaVersion)) throw new ProjectionManifestUpgradeRequiredError(schemaVersion!);
@@ -2044,6 +2048,11 @@ export function loadNativeModelFromArchContext(root: string): NativeModel {
   });
 }
 
+/** Direct YAML entries read by the native model loader. */
+export function isSemanticModelPath(path: string): boolean {
+  return /^\.archcontext\/model\/(nodes|relations|flows)\/[^/]+\.ya?ml$/.test(path);
+}
+
 /**
  * The same model `loadNativeModelFromArchContext` builds, from bytes the caller already read: keys
  * are repo-relative paths, and only direct YAML children of the model directories count. Lets a
@@ -2358,7 +2367,6 @@ function renderEntitySummary(
 ): string {
   const source = nativeNodeSource(node);
   const include = source?.include ?? [];
-  const entrypoints = source?.entrypoints ?? [];
   if (include.length > 0 && (!input.scaleSignal || !input.scale)) {
     throw new Error(`architecture-docs-projection-scale-signal-missing: ${node.id}`);
   }
@@ -2383,16 +2391,7 @@ function renderEntitySummary(
     "",
     "### 1.2 模組職責表",
     "",
-    ...(entrypoints.length > 0
-      ? [
-        "| 宣告入口 | 錨點 | 職責 |",
-        "| --- | --- | --- |",
-        ...entrypoints.flatMap((entry) => entry.symbols.map((symbol) =>
-          `| \`${entry.id}\` | \`${entry.path}#${symbol.name}\` | ${symbol.sinks.map((sink) => `\`${sink.id}\` → \`${sink.path}#${sink.symbol}\``).join("、")} |`
-        ))
-      ]
-      : ["- 未宣告 `source.entrypoints`,入口清單無法從架構模型推導。"]),
-    ...renderComponentEntrypoints(components),
+    ...renderProjectionEntrypoints(node, components).lines,
     "",
     "### 1.3 規模信號",
     "",
@@ -2427,20 +2426,34 @@ function renderEntitySummary(
   return `${lines.join("\n")}\n`;
 }
 
-/** §1.2 addition for a node with components: the entrypoints each component declares (#299). */
-function renderComponentEntrypoints(components: readonly NativeNode[]): string[] {
-  if (components.length === 0) return [];
-  const rows = components.flatMap((component) => (nativeNodeSource(component)?.entrypoints ?? []).flatMap((entry) => entry.symbols.map((symbol) =>
-    `| \`${component.id}\` | \`${entry.id}\` | \`${entry.path}#${symbol.name}\` | ${symbol.sinks.map((sink) => `\`${sink.id}\` → \`${sink.path}#${sink.symbol}\``).join("、")} |`
-  )));
-  return [
+/** Shared §1.2 rows for a module document and its pull request slice. */
+export function renderProjectionEntrypoints(node: NativeNode, components: readonly NativeNode[]): {
+  entrypoints: ProjectionSliceEntrypointV1[];
+  lines: string[];
+} {
+  const entrypoints: ProjectionSliceEntrypointV1[] = [];
+  const rows = (owner: NativeNode, component: boolean) => (nativeNodeSource(owner)?.entrypoints ?? []).flatMap((entry) =>
+    entry.symbols.map((symbol) => {
+      entrypoints.push({ nodeId: owner.id, entrypointId: entry.id, path: entry.path, symbol: symbol.name });
+      const sinks = symbol.sinks.map((sink) => `\`${sink.id}\` → \`${sink.path}#${sink.symbol}\``).join("、");
+      const ownerCell = component ? `\`${owner.id}\` | ` : "";
+      return `| ${ownerCell}\`${entry.id}\` | \`${entry.path}#${symbol.name}\` | ${sinks} |`;
+    })
+  );
+  const capabilityRows = rows(node, false);
+  const componentRows = components.flatMap((component) => rows(component, true));
+  const lines = capabilityRows.length > 0
+    ? ["| 宣告入口 | 錨點 | 職責 |", "| --- | --- | --- |", ...capabilityRows]
+    : ["- 未宣告 `source.entrypoints`,入口清單無法從架構模型推導。"];
+  if (components.length > 0) lines.push(
     "",
     "組件入口:",
     "",
-    ...(rows.length > 0
-      ? ["| 組件 | 宣告入口 | 錨點 | 職責 |", "| --- | --- | --- | --- |", ...rows]
+    ...(componentRows.length > 0
+      ? ["| 組件 | 宣告入口 | 錨點 | 職責 |", "| --- | --- | --- | --- |", ...componentRows]
       : ["- 組件均未宣告 `source.entrypoints`。"])
-  ];
+  );
+  return { entrypoints, lines };
 }
 
 /** §1.4 addition for a node with components: each component's outbound relations, grouped by component (#299). */
