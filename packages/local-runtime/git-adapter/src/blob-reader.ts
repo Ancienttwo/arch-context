@@ -33,6 +33,12 @@ export function assertNativeGitRevision(ref: string): void {
 type GitReadOperation = "rev-parse" | "ls-tree" | "ls-files" | "cat-file" | "log";
 export interface GitReadOptions { input?: string; maxBytes?: number; timeoutMs?: number }
 
+export function localGitEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env, LC_ALL: "C", GIT_NO_REPLACE_OBJECTS: "1", GIT_NO_LAZY_FETCH: "1", GIT_OPTIONAL_LOCKS: "0", GIT_PAGER: "cat", GIT_ALLOW_PROTOCOL: "", GIT_TERMINAL_PROMPT: "0" };
+  for (const key of ["GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE"]) delete env[key];
+  return env;
+}
+
 /** Whitelisted read operations only; never a shell, lazy fetch, filter or index writer. */
 export function readOnlyGit(root: string, operation: GitReadOperation, args: string[], options: GitReadOptions = {}): Buffer {
   if (!["rev-parse", "ls-tree", "ls-files", "cat-file", "log"].includes(operation)) throw new NativeContextError("native-context-git-read-failed", { category: "unsupported-operation" });
@@ -48,7 +54,7 @@ export function readOnlyGit(root: string, operation: GitReadOperation, args: str
   }
   if (operation === "ls-tree") {
     const flags = args.slice(0, -1);
-    if (!flags.includes("-r") || !flags.includes("-z") || flags.some(flag => !["-r", "-z", "-t", "-l"].includes(flag)) || new Set(flags).size !== flags.length) unsafeArguments();
+    if (!flags.includes("-z") || flags.some(flag => !["-r", "-z", "-t", "-l"].includes(flag)) || new Set(flags).size !== flags.length) unsafeArguments();
     assertNativeGitRevision(args[args.length - 1] ?? "");
   }
   if (operation === "ls-files") {
@@ -60,11 +66,9 @@ export function readOnlyGit(root: string, operation: GitReadOperation, args: str
     if (args.length !== 1 || !["--batch", "--batch-check"].includes(args[0]!)) unsafeArguments();
     if (options.input && (!options.input.endsWith("\n") || options.input.slice(0, -1).split("\n").some(oid => !OBJECT_ID.test(oid)))) unsafeArguments();
   }
-  const env = { ...process.env, LC_ALL: "C", GIT_NO_REPLACE_OBJECTS: "1", GIT_NO_LAZY_FETCH: "1", GIT_OPTIONAL_LOCKS: "0", GIT_PAGER: "cat", GIT_ALLOW_PROTOCOL: "", GIT_TERMINAL_PROMPT: "0" };
-  for (const key of ["GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE"]) delete (env as NodeJS.ProcessEnv)[key];
   const result = spawnSync("git", ["--no-pager", "--no-replace-objects", "-c", "core.fsmonitor=false", ...(operation === "log" ? ["-c", "log.showSignature=false"] : []), operation, ...args], {
     cwd: root,
-    env,
+    env: localGitEnv(),
     input: options.input,
     maxBuffer: options.maxBytes ?? NATIVE_CONTEXT_LIMITS.treeListingBytes,
     timeout: options.timeoutMs ?? NATIVE_CONTEXT_LIMITS.gitTimeoutMs,
@@ -139,9 +143,9 @@ export function decodeGitTreeEntries(bytes: Buffer): GitBlobTreeEntry[] {
   return entries.sort((a, b) => nativeByteCompare(a.path, b.path));
 }
 
-export function readGitBlobTree(root: string, treeOid: string, options: { maxBytes?: number; sizes?: boolean; trees?: boolean } = {}): GitBlobTreeEntry[] {
+export function readGitBlobTree(root: string, treeOid: string, options: { maxBytes?: number; sizes?: boolean; trees?: boolean; recursive?: boolean } = {}): GitBlobTreeEntry[] {
   assertNativeGitRevision(treeOid);
-  return decodeGitTreeEntries(readOnlyGit(root, "ls-tree", ["-r", "-z", ...(options.trees === false ? [] : ["-t"]), ...(options.sizes === false ? [] : ["-l"]), treeOid], { maxBytes: options.maxBytes }));
+  return decodeGitTreeEntries(readOnlyGit(root, "ls-tree", [...(options.recursive === false ? [] : ["-r"]), "-z", ...(options.trees === false ? [] : ["-t"]), ...(options.sizes === false ? [] : ["-l"]), treeOid], { maxBytes: options.maxBytes }));
 }
 
 /** Shared by native export and existing tracked-source metrics, with their respective bounds. */

@@ -42,6 +42,7 @@ export const CODE_FACTS_ISSUE_MESSAGES = Object.freeze({
 });
 /** Each reason has a closed fact vocabulary. No source text or recovery binding is a summary fact. */
 const policies: Record<string, Policy> = {
+  "debt-measurement-interrupted": { code: "AC_RUNTIME_UNAVAILABLE", message: "Architecture debt measurement was interrupted.", retryable: true },
   "history-shallow-repository": { code: "AC_PRECONDITION_FAILED", message: "Architecture history requires a complete Git repository.", action: "unshallow-repository", facts: { historyReadReason: "optional:historyReadReason" } },
   "code-facts-read-not-ready": { code: "AC_CODE_FACTS_UNAVAILABLE", message: "The existing CodeGraph index does not attest to the current source population.", facts: { issues: "codeFactsIssues" }, action: "codegraph-sync", retryable: false },
   "daemon-root-missing": { code: "AC_RUNTIME_UNAVAILABLE", message: "The daemon start worktree no longer exists. Stop this daemon using its workspace state directory.", action: "stop-targeted-daemon", retryable: false, facts: {} },

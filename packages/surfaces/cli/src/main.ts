@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { LocalEgressPolicyError, localEgressAdmission, withLocalEgress } from "@archcontext/local-runtime/egress-admission";
-import { runArchitectureDebtCommand, selectedProducerFailureEnvelope } from "@archcontext/local-runtime/architecture-debt";
+import { runArchitectureDebtCommand, runArchitectureDebtDeltaCommand, selectedProducerFailureEnvelope } from "@archcontext/local-runtime/architecture-debt";
 import { runNativeContextCommand } from "./native-context";
 import { runRefImpactCommand } from "./ref-impact";
 import { runArchitectureHistoryCommand } from "./architecture-history";
@@ -108,7 +108,7 @@ interface CliFlagSpec {
  * apply to any other first token.
  */
 export const CLI_COMMAND_FLAGS: Readonly<Record<string, CliFlagSpec & { subcommands?: Readonly<Record<string, CliFlagSpec>> }>> = {
-  "debt": { value: ["--changed-path"], boolean: [] },
+  "debt": { value: ["--changed-path", "--base"], boolean: ["--complete"] },
   "agent-context": { value: ["--expected-worktree-digest", "--id", "--task-session-id"], boolean: ["--approved"] },
   "agents": {
     value: [],
@@ -845,7 +845,7 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         }
       };
     case "debt":
-      return runArchitectureDebtCommand(cwd, { changedPaths: readRepeatedFlag(args, "--changed-path") });
+      return runDebtCommand(args, cwd);
     case "deps":
       return runDepsCommand(args, cwd);
     case "constraints":
@@ -944,8 +944,16 @@ function cliHelpEnvelope(command: string, args: string[]): JsonEnvelope {
       description: "Read-only debt hook with redacted logging. Producer failures fail open with unknown coverage and a typed error; invalid arguments are rejected."
     });
     break;
-  case "checkpoint":
   case "debt":
+    return okEnvelope("help", {
+      command: "archctx debt",
+      usage: ["archctx debt [--changed-path <path>]... [--json]", "archctx debt [--base <ref>] [--complete] [--json]"],
+      schemaVersion: "archcontext.architecture-debt/v1",
+      deltaSchemaVersion: "archcontext.architecture-debt-delta/v1",
+      description: "Measure the current working tree. --base compares it with a committed Git revision. --complete also reads dependency and flow evidence from CodeGraph. Coverage gaps are reported for each side.",
+      writes: "With --base, caches the committed measurement in local SQLite and uses a temporary detached worktree on a cache miss. Runs without starting a daemon."
+    });
+  case "checkpoint":
     return okEnvelope("help", {
       command: `archctx ${command}`,
       usage: `archctx ${command} [--changed-path <path>]... [--json]`,
@@ -3959,6 +3967,29 @@ const CLI_RESOLVE_HELP = {
   result: "Each result carries path, matched, ambiguous and owningCapabilityId. A match adds stableId, kind, name, source and extensions of the most specific node. An ambiguous result adds candidates. owningCapabilityId is the nearest kind: capability node on the owner's parent chain (the owner itself when it is a capability), or null. For an ambiguous result it is set only when all candidates share one owning capability.",
   exitCodes: "--path: 0 matched, 1 no match or error, 2 ambiguous. --paths-from: 0 when no path is ambiguous (unowned paths included), 2 when any path is ambiguous, 1 on error."
 };
+
+async function runDebtCommand(args: string[], cwd: string): Promise<JsonEnvelope> {
+  const base = readFlag(args, "--base");
+  const complete = args.includes("--complete");
+  const changedPaths = readRepeatedFlag(args, "--changed-path");
+  if ((base !== undefined || complete) && changedPaths.length > 0) {
+    return cliArgumentFailure("debt", "--changed-path cannot be combined with --base or --complete");
+  }
+  if (base === undefined) return runArchitectureDebtCommand(cwd, { changedPaths, complete });
+  if (readRepeatedFlag(args, "--base").length > 1) return cliArgumentFailure("debt", "Provide only one --base revision");
+
+  // Let in-flight Git and CodeGraph operations settle, then remove the private worktree on interrupt.
+  const controller = new AbortController();
+  const stop = () => controller.abort(new FailureError("AC_RUNTIME_UNAVAILABLE", "debt-measurement-interrupted"));
+  process.on("SIGINT", stop);
+  process.on("SIGTERM", stop);
+  try {
+    return await runArchitectureDebtDeltaCommand(cwd, base, complete, controller.signal);
+  } finally {
+    process.off("SIGINT", stop);
+    process.off("SIGTERM", stop);
+  }
+}
 
 function cliArgumentFailure(requestId: string, message: string): JsonEnvelope {
   // Local CLI diagnostics retain the specific flag or input line, with canonical recovery policy.

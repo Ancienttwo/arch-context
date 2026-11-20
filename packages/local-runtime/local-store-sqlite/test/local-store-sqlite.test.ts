@@ -20,6 +20,7 @@ import {
   replayArchitectureLedgerEvents
 } from "@archcontext/core/architecture-ledger";
 import { ChangeSetEngine } from "@archcontext/core/changeset-engine";
+import { evaluateArchitectureDebt } from "@archcontext/core/review-engine";
 import { canonicalProjectionReadPlanV1, createProjectionApplyIdentity, digestJson, projectionApplyRecoveryProofDigest, projectionPriorCommittedAppliesIssues, projectionResultReceiptDigest, type AgentJobV1, type ArchitectureEventV1, type ArchitectureRefreshSignalV2, type EvidenceBindingV1, type EvidenceItemV2, type EvidenceLifecycleOperationV1, type ExplorerProjectionV2, type Json, type ProjectionApplyReceiptV1, type ProjectionApplyRecoveryProofV2, type ProjectionResultV3 } from "@archcontext/contracts";
 import { initializeArchContextModel, planGeneratedProjection, YamlModelStore } from "@archcontext/local-runtime/model-store-yaml";
 import {
@@ -40,7 +41,8 @@ import {
   migrateLegacyLocalStoreIfNeeded,
   migrationSql,
   recoverRuntimeStateTarget,
-  runtimeStatePaths
+  runtimeStatePaths,
+  type ArchitectureDebtBaseCacheKey
 } from "../src/index";
 import { TestLocalStore } from "./factories";
 
@@ -64,6 +66,38 @@ function gitWorktreeTempDir(prefix: string): string {
 }
 
 describe("@archcontext/local-runtime/local-store-sqlite", () => {
+  test("debt bases are immutable and keyed by the full measurement identity", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "archctx-debt-sqlite-"));
+    const path = join(dir, "cache.sqlite");
+    const writer = new SqliteLocalStore(path);
+    const reader = new SqliteLocalStore(path);
+    const key: ArchitectureDebtBaseCacheKey = {
+      repositoryId: "repo-a", baseSha: "a".repeat(40), archcontextTreeOid: "b".repeat(40),
+      codeGraphVersion: "1.6.2", engineVersion: "1", measurementProfile: "edit-time"
+    };
+    const scope = { kind: "repository" as const, changedPaths: [], capabilityIds: [] };
+    const editTime = evaluateArchitectureDebt({ scope, unavailable: { dependencies: ["deferred-to-complete"] } });
+    const complete = evaluateArchitectureDebt({ scope, unavailable: { practices: ["not-enabled"] } });
+    try {
+      expect(await writer.readArchitectureDebtBase(key)).toBeUndefined();
+      await writer.saveArchitectureDebtBase(key, editTime);
+      await reader.saveArchitectureDebtBase(key, complete);
+      expect(await reader.readArchitectureDebtBase(key)).toEqual(editTime);
+      const completeKey = { ...key, measurementProfile: "complete" as const };
+      for (const distinct of [completeKey, { repositoryId: "repo-b" }, { baseSha: "c".repeat(40) },
+        { archcontextTreeOid: null }, { codeGraphVersion: "1.6.3" }, { engineVersion: "2" }]) {
+        expect(await reader.readArchitectureDebtBase({ ...key, ...distinct })).toBeUndefined();
+      }
+      await writer.saveArchitectureDebtBase(completeKey, complete);
+      expect(await reader.readArchitectureDebtBase(completeKey)).toEqual(complete);
+      expect(await reader.readArchitectureDebtBase(key)).toEqual(editTime);
+    } finally {
+      reader.close();
+      writer.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("migration SQL enables required SQLite safety pragmas", () => {
     const sql = migrationSql();
     expect(sql.slice(0, SQLITE_PRAGMAS.length)).toEqual([...SQLITE_PRAGMAS]);

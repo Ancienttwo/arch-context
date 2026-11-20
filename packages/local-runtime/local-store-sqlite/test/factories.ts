@@ -29,7 +29,20 @@ import {
 import { FailureError, canonicalProjectionReadPlanV1, digestJson, projectionApplyReceiptInvariantIssues, projectionApplyRecoveryProofReceiptInvariantIssues, type AgentJobV1, type ArchitectureChangeFeedBatchV1, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type ArchitectureSnapshotV2, type AuthorityCursorV1, type EvidenceStateAtCursorV1, type ExplorerProjectionCachePolicyV1, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExternalDocumentationCacheEntry, type ExternalDocumentationProvider, type Json, type ProjectionApplyReceiptV1, type ProjectionApplyRecoveryProofV2, type ProjectionReadPlanV1, type RepositorySnapshot } from "@archcontext/contracts";
 import { DEFAULT_EXPLORER_PROJECTION_CACHE_POLICY, LOCAL_SQLITE_MIGRATIONS, assertChangeSetModelTransition, type ChangeSetModelTransitionV1, RUNTIME_AGENT_JOB_STATUSES, architectureAffectedSubjects, committedChangeSetFileOperation, assertExplorerProjectionCacheIntegrity, rebuildDerivedLandscapeState, type ExplorerProjectionAuthorityResult, type ExplorerProjectionCacheCollectionResultV1, type ExplorerProjectionCacheStatsV1, type ExplorerProjectionMetadataResult, type ExplorerProjectionPinReason, type CommittedChangeSetForTaskSession, type ExplorerProjectionReadResult, type ExplorerRuntimeMetricSampleV1, type LandscapeRebuildInput, type LandscapeRebuildResult, type PersistedRepositorySession, type RuntimeAgentJobCancelInput, type RuntimeAgentJobClaimInput, type RuntimeAgentJobCompleteInput, type RuntimeAgentJobEnqueueInput, type RuntimeAgentJobEnqueueResult, type RuntimeAgentJobQueueScope, type RuntimeAgentJobQueueStats, type RuntimeAgentJobRecord, type RuntimeAgentJobRetryInput, type RuntimeAgentJobStaleCancellationInput, type RuntimeAgentJobStatus, type RuntimeLocalStore, type UnresolvedChangeSetJournal } from "../src/index";
 
+import type { ArchitectureDebtReportV1 } from "@archcontext/contracts";
+import type { ArchitectureDebtBaseCacheKey } from "../src/index";
+
 export class TestLocalStore implements RuntimeLocalStore {
+  private readonly debtBaseReports = new Map<string, ArchitectureDebtReportV1>();
+
+  async readArchitectureDebtBase(key: ArchitectureDebtBaseCacheKey): Promise<ArchitectureDebtReportV1 | undefined> {
+    return structuredClone(this.debtBaseReports.get(digestJson({ ...key })));
+  }
+
+  async saveArchitectureDebtBase(key: ArchitectureDebtBaseCacheKey, report: ArchitectureDebtReportV1): Promise<void> {
+    const id = digestJson({ ...key });
+    if (!this.debtBaseReports.has(id)) this.debtBaseReports.set(id, structuredClone(report));
+  }
   readonly migrations = new Set<string>();
   readonly snapshots = new Map<string, { snapshot: RepositorySnapshot; state: "pending" | "committed" }>();
   readonly repositorySessions = new Map<string, PersistedRepositorySession>();

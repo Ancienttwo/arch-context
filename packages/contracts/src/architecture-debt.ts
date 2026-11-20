@@ -40,6 +40,24 @@ export interface ArchitectureDebtReportV1 {
   digest: string;
 }
 
+export const ARCHITECTURE_DEBT_DELTA_SCHEMA_VERSION = "archcontext.architecture-debt-delta/v1" as const;
+
+export interface ArchitectureDebtDeltaReportV1 {
+  schemaVersion: typeof ARCHITECTURE_DEBT_DELTA_SCHEMA_VERSION;
+  /** The current working tree, anchored to its checked-out commit. */
+  head: { sha: string; debt: ArchitectureDebtReportV1 };
+  base: {
+    ref: string;
+    sha: string;
+    debtDigest: string;
+    coverage: ArchitectureDebtReportV1["coverage"];
+    coverageReasonCodes: string[];
+  };
+  /** Ordered by item ID. An absence requires complete coverage from the opposing check. */
+  introduced: ArchitectureDebtItemV1[];
+  resolvedIds: string[];
+}
+
 export interface ArchitectureDebtHookLogV1 {
   schemaVersion: "archcontext.hook-log/v1";
   event: string;
