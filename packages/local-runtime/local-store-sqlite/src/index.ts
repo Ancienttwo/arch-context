@@ -3242,7 +3242,10 @@ export class SqliteLocalStore implements RuntimeLocalStore {
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, NULL)
           ON CONFLICT(projection_digest) DO UPDATE SET
             projection_json = excluded.projection_json,
-            body_bytes = excluded.body_bytes`
+            body_bytes = excluded.body_bytes,
+            created_at = CASE WHEN invalidated_at IS NOT NULL THEN excluded.created_at ELSE created_at END,
+            last_accessed_at = CASE WHEN invalidated_at IS NOT NULL THEN excluded.last_accessed_at ELSE last_accessed_at END,
+            invalidated_at = NULL`
       ).run(
         input.projection.projectionDigest,
         input.projection.inputManifest.manifestDigest,
@@ -3755,7 +3758,7 @@ function collectExplorerProjectionCacheFromDb(
         if (selected.authorityScope) {
           recordExplorerRuntimeMetricInDb(db, selected.authorityScope, {
             metricName: "cache-eviction",
-            reasonCode: row.invalidated_at ? "invalidated" : expired ? "expired" : bytePressure ? "byte-pressure" : "count-pressure",
+            reasonCode: expired ? "expired" : row.invalidated_at ? "invalidated" : bytePressure ? "byte-pressure" : "count-pressure",
             value: 1,
             recordedAt: now
           });
