@@ -3736,14 +3736,15 @@ function collectExplorerProjectionCacheFromDb(
           WHERE storage_repository_id = ? AND storage_workspace_id = ?
             AND (pinned_until IS NULL OR pinned_until <= ?)
           ORDER BY
-            CASE WHEN invalidated_at IS NOT NULL THEN 0 WHEN created_at <= ? THEN 1 ELSE 2 END,
+            CASE WHEN created_at <= ? THEN 0 WHEN invalidated_at IS NOT NULL THEN 1 ELSE 2 END,
             COALESCE(last_accessed_at, created_at), created_at, projection_digest`
       ).all(selected.repositoryId, selected.workspaceId, now, cutoff);
       for (const row of rows) {
-        const mandatory = row.invalidated_at !== null && row.invalidated_at !== undefined || String(row.created_at) <= cutoff;
+        // Fresh invalidated rows remain digest-addressable until age or capacity eviction.
+        const expired = String(row.created_at) <= cutoff;
         const countPressure = remainingEntries > policy.maxEntriesPerScope;
         const bytePressure = remainingBytes > policy.maxBytesPerScope;
-        if (!mandatory && !countPressure && !bytePressure) break;
+        if (!expired && !countPressure && !bytePressure) break;
         db.prepare(
           `DELETE FROM explorer_projection_cache
             WHERE storage_repository_id = ? AND storage_workspace_id = ? AND projection_digest = ?`
@@ -3754,7 +3755,7 @@ function collectExplorerProjectionCacheFromDb(
         if (selected.authorityScope) {
           recordExplorerRuntimeMetricInDb(db, selected.authorityScope, {
             metricName: "cache-eviction",
-            reasonCode: row.invalidated_at ? "invalidated" : String(row.created_at) <= cutoff ? "expired" : bytePressure ? "byte-pressure" : "count-pressure",
+            reasonCode: row.invalidated_at ? "invalidated" : expired ? "expired" : bytePressure ? "byte-pressure" : "count-pressure",
             value: 1,
             recordedAt: now
           });

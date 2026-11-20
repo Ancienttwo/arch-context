@@ -1267,8 +1267,8 @@ export class TestLocalStore implements RuntimeLocalStore {
       .sort(([left], [right]) => {
         const a = this.explorerCacheMetadata.get(left)!;
         const b = this.explorerCacheMetadata.get(right)!;
-        const aPriority = this.invalidatedExplorerProjections.has(left) ? 0 : a.createdAt <= cutoff ? 1 : 2;
-        const bPriority = this.invalidatedExplorerProjections.has(right) ? 0 : b.createdAt <= cutoff ? 1 : 2;
+        const aPriority = a.createdAt <= cutoff ? 0 : this.invalidatedExplorerProjections.has(left) ? 1 : 2;
+        const bPriority = b.createdAt <= cutoff ? 0 : this.invalidatedExplorerProjections.has(right) ? 1 : 2;
         return aPriority - bPriority || a.lastAccessedAt.localeCompare(b.lastAccessedAt) || a.createdAt.localeCompare(b.createdAt) || left.localeCompare(right);
       });
     let entries = before.entryCount;
@@ -1279,7 +1279,7 @@ export class TestLocalStore implements RuntimeLocalStore {
       const invalidated = this.invalidatedExplorerProjections.has(digest);
       const expired = metadata.createdAt <= cutoff;
       const bytePressure = bytes > policy.maxBytesPerScope;
-      if (!invalidated && !expired && entries <= policy.maxEntriesPerScope && !bytePressure) break;
+      if (!expired && entries <= policy.maxEntriesPerScope && !bytePressure) break;
       this.explorerProjections.delete(digest);
       this.explorerCacheMetadata.delete(digest);
       this.invalidatedExplorerProjections.delete(digest);

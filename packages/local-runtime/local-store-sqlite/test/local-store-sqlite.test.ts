@@ -561,6 +561,51 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
     }
   });
 
+  test.each(["age", "entry count", "byte count"])("Explorer cache GC evicts invalidated unpinned projections under %s limits", async (limit) => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-explorer-cache-invalidated-"));
+    const policy = { ...DEFAULT_EXPLORER_PROJECTION_CACHE_POLICY, maxAgeMs: 60_000 };
+    let now = "2026-07-11T20:00:00.000Z";
+    const store = new SqliteLocalStore(join(root, "runtime.sqlite"), policy, () => now);
+    const scope = ARCHITECTURE_LEDGER_SCOPE;
+    try {
+      await store.migrate();
+      const olderLive = explorerProjectionFixture("older-live");
+      const base = explorerProjectionFixture("invalidated-base");
+      const head = explorerProjectionFixture("live-head");
+      await store.saveExplorerProjection({ ...scope, projection: olderLive, dependencies: [] });
+      now = "2026-07-11T20:00:01.000Z";
+      const occurrenceId = base.occurrences[0]!.occurrenceId;
+      await store.saveExplorerProjection({ ...scope, projection: base, dependencies: [{ occurrenceId, dependencyKeys: ["graph:base"] }] });
+      await store.invalidateExplorerOccurrences({ ...scope, occurrenceIds: [occurrenceId] });
+      now = "2026-07-11T20:00:02.000Z";
+      await store.saveExplorerProjection({ ...scope, projection: head, dependencies: [] });
+
+      now = "2026-07-11T20:01:00.000Z";
+      const collected = await store.collectExplorerProjectionCache(scope);
+      expect(collected.evictedProjectionDigests).toEqual([olderLive.projectionDigest]);
+      const baseByDigest = { ...scope, projectionDigest: base.projectionDigest };
+      await expect(store.readExplorerProjection(baseByDigest)).resolves.toEqual(base);
+
+      const narrowed = { ...policy };
+      if (limit === "age") {
+        now = "2026-07-11T20:01:01.000Z";
+      } else if (limit === "entry count") {
+        narrowed.maxEntriesPerScope = 1;
+        narrowed.maxPinnedEntriesPerScope = 1;
+      } else {
+        narrowed.maxBytesPerScope = collected.after.bodyBytes - 1;
+      }
+      const evicted = await store.collectExplorerProjectionCache({ ...scope, policy: narrowed });
+      expect(evicted.limitsSatisfied).toBe(true);
+      expect(evicted.evictedProjectionDigests).toEqual([base.projectionDigest]);
+      await expect(store.readExplorerProjection(baseByDigest)).resolves.toBeUndefined();
+      await expect(store.readExplorerProjection({ ...scope, projectionDigest: head.projectionDigest })).resolves.toEqual(head);
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("Explorer save and retention roll back together when GC fails", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-explorer-cache-atomic-gc-"));
     const databasePath = join(root, "runtime.sqlite");
