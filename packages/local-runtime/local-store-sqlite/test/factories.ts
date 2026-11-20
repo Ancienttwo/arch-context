@@ -1129,14 +1129,17 @@ export class TestLocalStore implements RuntimeLocalStore {
     const invalidatedBefore = [...this.invalidatedExplorerProjections];
     const dependenciesBefore = [...this.explorerDependencies.entries()].map(([key, value]) => [key, new Set(value)] as const);
     try {
-      this.explorerProjections.set(input.projection.projectionDigest, { scope: input, projection: structuredClone(input.projection) });
+      const digest = input.projection.projectionDigest;
+      this.explorerProjections.set(digest, { scope: input, projection: structuredClone(input.projection) });
       const now = new Date(Date.parse(this.clock())).toISOString();
-      this.explorerCacheMetadata.set(input.projection.projectionDigest, {
-        createdAt: now,
-        lastAccessedAt: now,
+      const metadata = this.explorerCacheMetadata.get(digest);
+      const revived = this.invalidatedExplorerProjections.delete(digest);
+      this.explorerCacheMetadata.set(digest, {
+        ...metadata,
+        createdAt: revived ? now : metadata?.createdAt ?? now,
+        lastAccessedAt: revived ? now : metadata?.lastAccessedAt ?? now,
         bodyBytes: new TextEncoder().encode(JSON.stringify(input.projection)).byteLength
       });
-      this.invalidatedExplorerProjections.delete(input.projection.projectionDigest);
       for (const entry of input.dependencies) this.explorerDependencies.set(`${input.projection.projectionDigest}\0${entry.occurrenceId}`, new Set(entry.dependencyKeys));
       const collection = await this.collectExplorerProjectionCache(input);
       if (!collection.limitsSatisfied) throw new Error("explorer-cache-retention-limits-unsatisfied");
@@ -1187,10 +1190,13 @@ export class TestLocalStore implements RuntimeLocalStore {
   }
 
   async readLatestExplorerProjection(input: ArchitectureLedgerScope & { viewId: string }): Promise<ExplorerProjectionV2 | undefined> {
-    const record = [...this.explorerProjections.values()].reverse().find((record) =>
-      !this.invalidatedExplorerProjections.has(record.projection.projectionDigest)
-      && testSameExplorerScope(record.scope, input)
-      && record.projection.view.id === input.viewId);
+    const [record] = [...this.explorerProjections.values()].reverse()
+      .filter((record) =>
+        !this.invalidatedExplorerProjections.has(record.projection.projectionDigest)
+        && testSameExplorerScope(record.scope, input)
+        && record.projection.view.id === input.viewId)
+      .sort((left, right) => this.explorerCacheMetadata.get(right.projection.projectionDigest)!.createdAt
+        .localeCompare(this.explorerCacheMetadata.get(left.projection.projectionDigest)!.createdAt));
     if (!record) return undefined;
     assertExplorerProjectionCacheIntegrity(record.projection, input);
     const metadata = this.explorerCacheMetadata.get(record.projection.projectionDigest);
@@ -1267,8 +1273,8 @@ export class TestLocalStore implements RuntimeLocalStore {
       .sort(([left], [right]) => {
         const a = this.explorerCacheMetadata.get(left)!;
         const b = this.explorerCacheMetadata.get(right)!;
-        const aPriority = this.invalidatedExplorerProjections.has(left) ? 0 : a.createdAt <= cutoff ? 1 : 2;
-        const bPriority = this.invalidatedExplorerProjections.has(right) ? 0 : b.createdAt <= cutoff ? 1 : 2;
+        const aPriority = a.createdAt <= cutoff ? 0 : this.invalidatedExplorerProjections.has(left) ? 1 : 2;
+        const bPriority = b.createdAt <= cutoff ? 0 : this.invalidatedExplorerProjections.has(right) ? 1 : 2;
         return aPriority - bPriority || a.lastAccessedAt.localeCompare(b.lastAccessedAt) || a.createdAt.localeCompare(b.createdAt) || left.localeCompare(right);
       });
     let entries = before.entryCount;
@@ -1279,7 +1285,7 @@ export class TestLocalStore implements RuntimeLocalStore {
       const invalidated = this.invalidatedExplorerProjections.has(digest);
       const expired = metadata.createdAt <= cutoff;
       const bytePressure = bytes > policy.maxBytesPerScope;
-      if (!invalidated && !expired && entries <= policy.maxEntriesPerScope && !bytePressure) break;
+      if (!expired && entries <= policy.maxEntriesPerScope && !bytePressure) break;
       this.explorerProjections.delete(digest);
       this.explorerCacheMetadata.delete(digest);
       this.invalidatedExplorerProjections.delete(digest);
@@ -1290,7 +1296,7 @@ export class TestLocalStore implements RuntimeLocalStore {
       await this.recordExplorerRuntimeMetric({
         ...input,
         metricName: "cache-eviction",
-        reasonCode: invalidated ? "invalidated" : expired ? "expired" : bytePressure ? "byte-pressure" : "count-pressure",
+        reasonCode: expired ? "expired" : invalidated ? "invalidated" : bytePressure ? "byte-pressure" : "count-pressure",
         value: 1,
         recordedAt: now
       });

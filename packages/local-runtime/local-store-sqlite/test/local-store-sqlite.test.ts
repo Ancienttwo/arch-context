@@ -455,6 +455,71 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
     }
   });
 
+  test.each(["SQLite", "in-memory"])("%s Explorer cache revives a retained projection on re-save", async (backend) => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-explorer-cache-revive-"));
+    const databasePath = join(root, "runtime.sqlite");
+    const scope = ARCHITECTURE_LEDGER_SCOPE;
+    const policy = { ...DEFAULT_EXPLORER_PROJECTION_CACHE_POLICY, maxAgeMs: 60_000 };
+    let now = "2026-07-11T20:00:00.000Z";
+    const clock = () => now;
+    const store = backend === "SQLite" ? new SqliteLocalStore(databasePath, policy, clock) : new TestLocalStore(policy, clock);
+    const base = explorerProjectionFixture("revived-base");
+    const head = explorerProjectionFixture("replacement-head");
+    const occurrenceId = base.occurrences[0]!.occurrenceId;
+    const saveBase = { ...scope, projection: base, dependencies: [{ occurrenceId, dependencyKeys: ["graph:base"] }] };
+    const baseByManifest = { ...scope, manifestDigest: base.inputManifest.manifestDigest };
+    const baseByDigest = { ...scope, projectionDigest: base.projectionDigest };
+    const latest = { ...scope, viewId: base.view.id };
+    const pinExpiry = "2026-07-11T20:01:05.000Z";
+    try {
+      await store.migrate();
+      await store.saveExplorerProjection(saveBase);
+      await store.invalidateExplorerOccurrences({ ...scope, occurrenceIds: [occurrenceId] });
+      await expect(store.readExplorerProjectionByManifest(baseByManifest)).resolves.toBeUndefined();
+      await expect(store.readExplorerProjection(baseByDigest)).resolves.toEqual(base);
+      await expect(store.readExplorerProjectionByManifest(baseByManifest)).resolves.toBeUndefined();
+
+      now = "2026-07-11T20:00:02.000Z";
+      await store.saveExplorerProjection({ ...scope, projection: head, dependencies: [] });
+      await expect(store.readExplorerProjectionCacheStats(scope)).resolves.toMatchObject({ entryCount: 2, invalidatedEntryCount: 1, pinnedEntryCount: 0 });
+      await expect(store.readLatestExplorerProjection(latest)).resolves.toEqual(head);
+      await expect(store.pinExplorerProjections({ ...scope, projectionDigests: [base.projectionDigest], reason: "delta-base", expiresAt: pinExpiry })).resolves.toBe(1);
+
+      now = "2026-07-11T20:00:59.000Z";
+      await store.saveExplorerProjection(saveBase);
+      const expectedMetadata = { createdAt: now, lastAccessedAt: now, pinnedUntil: pinExpiry, pinReason: "delta-base" };
+      if (store instanceof TestLocalStore) {
+        expect(store.explorerCacheMetadata.get(base.projectionDigest)).toMatchObject(expectedMetadata);
+      } else {
+        const database = new Database(databasePath, { readonly: true });
+        try {
+          expect(database.prepare(
+            `SELECT created_at AS createdAt, last_accessed_at AS lastAccessedAt, pinned_until AS pinnedUntil, pin_reason AS pinReason
+             FROM explorer_projection_cache WHERE projection_digest = ?`
+          ).get(base.projectionDigest)).toEqual(expectedMetadata);
+        } finally {
+          database.close();
+        }
+      }
+      await expect(store.readExplorerProjectionByManifest(baseByManifest)).resolves.toEqual(base);
+      await expect(store.readLatestExplorerProjection(latest)).resolves.toEqual(base);
+      await expect(store.readExplorerProjectionCacheStats(scope)).resolves.toMatchObject({ invalidatedEntryCount: 0, pinnedEntryCount: 1 });
+
+      now = pinExpiry;
+      await expect(store.collectExplorerProjectionCache(scope)).resolves.toMatchObject({
+        evictedProjectionDigests: [head.projectionDigest], after: { entryCount: 1, pinnedEntryCount: 0 }
+      });
+      await expect(store.readExplorerProjectionByManifest(baseByManifest)).resolves.toEqual(base);
+      await store.saveExplorerProjection(saveBase);
+
+      now = "2026-07-11T20:01:59.000Z";
+      await expect(store.collectExplorerProjectionCache(scope)).resolves.toMatchObject({ evictedProjectionDigests: [base.projectionDigest] });
+    } finally {
+      if (store instanceof SqliteLocalStore) store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("deleting every Explorer cache row cannot change authoritative ledger results", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-explorer-cache-authority-independent-"));
     const store = new SqliteLocalStore(join(root, "runtime.sqlite"));
@@ -555,6 +620,61 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       });
       expect(afterExpiry.after).toMatchObject({ entryCount: 1, pinnedEntryCount: 0 });
       expect(afterExpiry.limitsSatisfied).toBe(true);
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test.each(["age", "entry count", "byte count"])("Explorer cache GC evicts invalidated unpinned projections under %s limits", async (limit) => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-explorer-cache-invalidated-"));
+    const policy = { ...DEFAULT_EXPLORER_PROJECTION_CACHE_POLICY, maxAgeMs: 60_000 };
+    let now = "2026-07-11T20:00:00.000Z";
+    const store = new SqliteLocalStore(join(root, "runtime.sqlite"), policy, () => now);
+    const scope = ARCHITECTURE_LEDGER_SCOPE;
+    try {
+      await store.migrate();
+      const olderLive = explorerProjectionFixture("older-live");
+      const base = explorerProjectionFixture("invalidated-base");
+      const head = explorerProjectionFixture("live-head");
+      await store.saveExplorerProjection({ ...scope, projection: olderLive, dependencies: [] });
+      now = "2026-07-11T20:00:01.000Z";
+      const occurrenceId = base.occurrences[0]!.occurrenceId;
+      await store.saveExplorerProjection({ ...scope, projection: base, dependencies: [{ occurrenceId, dependencyKeys: ["graph:base"] }] });
+      await store.invalidateExplorerOccurrences({ ...scope, occurrenceIds: [occurrenceId] });
+      now = "2026-07-11T20:00:02.000Z";
+      await store.saveExplorerProjection({ ...scope, projection: head, dependencies: [] });
+
+      now = "2026-07-11T20:01:00.000Z";
+      const collected = await store.collectExplorerProjectionCache({
+        ...scope,
+        policy: { ...policy, maxEntriesPerScope: 2, maxPinnedEntriesPerScope: 2 }
+      });
+      expect(collected.before.entryCount).toBe(3);
+      expect(collected.evictedProjectionDigests).toEqual([olderLive.projectionDigest]);
+      const baseByDigest = { ...scope, projectionDigest: base.projectionDigest };
+      await expect(store.readExplorerProjection(baseByDigest)).resolves.toEqual(base);
+
+      const narrowed = { ...policy };
+      if (limit === "age") {
+        now = "2026-07-11T20:01:01.000Z";
+      } else if (limit === "entry count") {
+        narrowed.maxEntriesPerScope = 1;
+        narrowed.maxPinnedEntriesPerScope = 1;
+      } else {
+        narrowed.maxBytesPerScope = collected.after.bodyBytes - 1;
+      }
+      const evicted = await store.collectExplorerProjectionCache({ ...scope, policy: narrowed });
+      expect(evicted.limitsSatisfied).toBe(true);
+      expect(evicted.evictedProjectionDigests).toEqual([base.projectionDigest]);
+      const stats = await store.readExplorerProjectionCacheStats(scope);
+      expect(stats.metrics).toContainEqual(expect.objectContaining({
+        metricName: "cache-eviction",
+        reasonCode: limit === "age" ? "expired" : "invalidated",
+        sampleCount: limit === "age" ? 2 : 1
+      }));
+      await expect(store.readExplorerProjection(baseByDigest)).resolves.toBeUndefined();
+      await expect(store.readExplorerProjection({ ...scope, projectionDigest: head.projectionDigest })).resolves.toEqual(head);
     } finally {
       store.close();
       rmSync(root, { recursive: true, force: true });

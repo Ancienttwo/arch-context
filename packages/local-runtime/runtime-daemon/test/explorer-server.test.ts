@@ -3,8 +3,10 @@ import { afterAll, describe, expect, spyOn, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { digestJson, type JsonEnvelope } from "@archcontext/contracts";
-import { DEFAULT_EXPLORER_PROJECTION_CACHE_POLICY } from "@archcontext/local-runtime/local-store-sqlite";
+import { digestJson, type ExplorerProjectionV2, type JsonEnvelope } from "@archcontext/contracts";
+import { planYamlToArchitectureLedgerRebuild } from "@archcontext/core/architecture-ledger";
+import { DEFAULT_EXPLORER_PROJECTION_CACHE_POLICY, SqliteLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
+import { listModelFiles } from "@archcontext/local-runtime/model-store-yaml";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
 import { ArchctxDaemon } from "../src/index";
 
@@ -357,6 +359,94 @@ describe("daemon Explorer server", () => {
       expect((daemon.explorerStatus().data as any).running).toBe(false);
     } finally {
       removeTempRepo(root);
+    }
+  });
+
+  test("Explorer compares unpinned projections across a same-scope graph change", async () => {
+    const root = tempRepo();
+    const stateDir = mkdtempSync(join(RUNTIME_TEST_STATE_ROOT, "delta-"));
+    let now = "2026-06-20T00:00:00.000Z";
+    const clock = () => now;
+    const localStore = new SqliteLocalStore(join(stateDir, "runtime.sqlite"), DEFAULT_EXPLORER_PROJECTION_CACHE_POLICY, clock);
+    let daemon: ArchctxDaemon | undefined;
+    try {
+      daemon = await createStartedTestDaemon({ localStore, clock, architectureLedger: { rolloutMode: "ledger-authoritative" } });
+      await daemon.init(root, "Explorer Graph Delta App");
+      const runtimeStatus = await daemon.runtimeStatus(root);
+      const migrated = await daemon.ledgerMigrate(root, {
+        fromYaml: true,
+        dryRun: false,
+        expectedWorktreeDigest: (runtimeStatus.data as { worktreeDigest: string }).worktreeDigest
+      });
+      expect(migrated.ok).toBe(true);
+      const started = await daemon.startExplorer(root, { port: 0, tokenTtlSeconds: 60 });
+      expect(started.ok).toBe(true);
+      const { url, token } = started.data as { url: string; token: string };
+      const headers = { Authorization: `Bearer ${token}` };
+      const readProjection = async () => {
+        const response = await fetch(`${url}projection/v2?maxNodes=20&maxRelations=20`, { headers });
+        expect(response.status).toBe(200);
+        return (await response.json() as { data: ExplorerProjectionV2 }).data;
+      };
+
+      const base = await readProjection();
+      expect(base.occurrences.length).toBeGreaterThan(0);
+      const baseCursor = base.cursor.authorityCursor!;
+      expect(baseCursor.eventSequence).toBe(1);
+      const scope = { repository: baseCursor.repository, worktree: baseCursor.worktree };
+      const manifest = { ...scope, manifestDigest: base.inputManifest.manifestDigest };
+      await expect(localStore.readExplorerProjectionByManifest(manifest)).resolves.toEqual(base);
+
+      now = "2026-06-20T00:00:01.000Z";
+      const entityId = "module.delta-head";
+      const path = `.archcontext/model/nodes/${entityId}.yaml`;
+      const schemaVersion = "archcontext.node/v2";
+      const body = `schemaVersion: ${schemaVersion}
+id: ${entityId}
+kind: module
+name: New module
+status: active
+summary: Add an Explorer module
+`;
+      const { event } = planYamlToArchitectureLedgerRebuild({
+        ...scope,
+        // Plan the changed graph in memory so both events use the same checkout and worktree digest.
+        files: [...listModelFiles(root), { path, schemaVersion, body, digest: digestJson({ path, body }) }],
+        previousState: await localStore.readArchitectureLedgerState(scope),
+        previousEvidenceState: await localStore.replayArchitectureLedgerEvidence(scope),
+        createdAt: now
+      });
+      expect(event.resultingDigest).not.toBe(event.baseDigest);
+      await localStore.appendArchitectureEvents({ writer: "runtime-daemon", events: [event] });
+
+      const head = await readProjection();
+      expect(head.cursor.authorityCursor).toMatchObject({ ...scope, eventId: event.eventId, eventSequence: 2, graphDigest: event.resultingDigest });
+      expect(head.projectionDigest).not.toBe(base.projectionDigest);
+      await expect(localStore.readExplorerProjectionByManifest(manifest)).resolves.toBeUndefined();
+      await expect(localStore.readExplorerProjectionCacheStats(scope)).resolves.toMatchObject({ pinnedEntryCount: 0 });
+
+      const params = new URLSearchParams({
+        baseEventId: baseCursor.eventId,
+        headEventId: event.eventId,
+        baseProjectionDigest: base.projectionDigest,
+        headProjectionDigest: head.projectionDigest
+      });
+      const delta = await fetch(`${url}delta?${params}`, { headers });
+      expect(await delta.json()).toMatchObject({
+        ok: true,
+        data: {
+          base: { eventId: baseCursor.eventId, projectionDigest: base.projectionDigest },
+          head: { eventId: event.eventId, projectionDigest: head.projectionDigest },
+          factChanges: [{ subjectId: `entity:${entityId}`, change: "added" }]
+        }
+      });
+      expect(delta.status).toBe(200);
+      await expect(localStore.readExplorerProjectionCacheStats(scope)).resolves.toMatchObject({ entryCount: 2, invalidatedEntryCount: 1 });
+    } finally {
+      await daemon?.stop();
+      localStore.close();
+      removeTempRepo(root);
+      rmSync(stateDir, { recursive: true, force: true });
     }
   });
 
