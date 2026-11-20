@@ -23,7 +23,7 @@ import { dependencyAudit, diagnostics, installMarker, secretScan, uninstallMarke
 import { completeRuntimeStateRecovery, defaultArchContextStateRoot, defaultLocalStorePath, inspectLegacyLocalStoreMigration, LOCAL_STORE_WRITER_OWNED_ERROR, inspectRuntimeStateRecovery, migrateLegacyLocalStoreIfNeeded, recoverRuntimeStateTarget, runtimeStatePaths, runtimeStateRecoveryWorktreeDigest } from "@archcontext/local-runtime/local-store-sqlite";
 import { GitVisibleFilesUnavailableError, findRepositoryRoot, readHeadSha, listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { listWorkspaceStateDirs } from "@archcontext/local-runtime/runtime-state-paths";
-import { ArchctxRuntimeRpcServer, runDocsAnchorsCommand, runProjectionCheckInvocation, runProjectionFreshnessCommand, runProjectionSnapshotCommand, AUDIT_APPROVE_GH_TOKEN_ENV, AUDIT_RUN_DEFAULT_TIMEOUT_MS, auditConsentRequiredEnvelope, grantAuditConsent, readAuditConsent, revokeAuditConsent, RUNTIME_RPC_VERSION, runtimeRpcDaemonIdentity, type RuntimeRpcConnection, createRuntimeRpcClientFromConnectionFile, createRuntimeRpcClientFromWorkspaceStateDir, createStartedDaemon, createStartedProductionDaemon, defaultDaemonConnectionPath, defaultDaemonLockPath, listDaemonControlStates, liveDaemonLockOwnerPid, readRuntimeRpcConnectionFile, recoverStaleDaemonControlFiles, runtimeRpcCompatibilityIssue, type RuntimeRpcCompatibilityIssue, type RuntimeDaemonClient, type RuntimeDocsProjectionInput, type RuntimeProjectionInvocation, type RuntimeAgentContextProjectionInput, type RuntimeAgentJobEnqueueGitInput, type RuntimeAuditRunInput, type RuntimeRecommendationInput, type RuntimeDeps, runFlowSelectorCheckCommand, runStateMachineCheckCommand, CapabilityDependenciesError, readCapabilityDependencies, createCommandProjectionPublisher, createGhProjectionPublisher, createNoneProjectionPublisher, runProjectionPublishCommand, runProjectionPublishFollow, runProjectionPublishStatusCommand, runProjectionVerifyPrCommand, type ProjectionPublisherPort } from "@archcontext/local-runtime/runtime-daemon";
+import { ArchctxRuntimeRpcServer, runDocsAnchorsCommand, runProjectionCheckInvocation, runProjectionFreshnessCommand, runProjectionSliceCommand, runProjectionSnapshotCommand, AUDIT_APPROVE_GH_TOKEN_ENV, AUDIT_RUN_DEFAULT_TIMEOUT_MS, auditConsentRequiredEnvelope, grantAuditConsent, readAuditConsent, revokeAuditConsent, RUNTIME_RPC_VERSION, runtimeRpcDaemonIdentity, type RuntimeRpcConnection, createRuntimeRpcClientFromConnectionFile, createRuntimeRpcClientFromWorkspaceStateDir, createStartedDaemon, createStartedProductionDaemon, defaultDaemonConnectionPath, defaultDaemonLockPath, listDaemonControlStates, liveDaemonLockOwnerPid, readRuntimeRpcConnectionFile, recoverStaleDaemonControlFiles, runtimeRpcCompatibilityIssue, type RuntimeRpcCompatibilityIssue, type RuntimeDaemonClient, type RuntimeDocsProjectionInput, type RuntimeProjectionInvocation, type RuntimeAgentContextProjectionInput, type RuntimeAgentJobEnqueueGitInput, type RuntimeAuditRunInput, type RuntimeRecommendationInput, type RuntimeDeps, runFlowSelectorCheckCommand, runStateMachineCheckCommand, CapabilityDependenciesError, readCapabilityDependencies, createCommandProjectionPublisher, createGhProjectionPublisher, createNoneProjectionPublisher, runProjectionPublishCommand, runProjectionPublishFollow, runProjectionPublishStatusCommand, runProjectionVerifyPrCommand, type ProjectionPublisherPort } from "@archcontext/local-runtime/runtime-daemon";
 import { inspectRepositoryCodeFacts } from "@archcontext/local-runtime/codegraph-adapter";
 import { RuntimeRpcTransportError, RuntimeRpcClient } from "@archcontext/local-runtime/runtime-rpc-client";
 import { exportLikeC4Model, importLikeC4InitialModel } from "@archcontext/surfaces/adapter-likec4";
@@ -213,6 +213,7 @@ export const CLI_COMMAND_FLAGS: Readonly<Record<string, CliFlagSpec & { subcomma
       readback: { value: ["--request-json"], boolean: [] },
       snapshot: { value: [], boolean: [] },
       freshness: { value: [], boolean: [] },
+      slice: { value: ["--base", "--changed-path"], boolean: [] },
       publish: { value: PROJECTION_PUBLISH_VALUE_FLAGS, boolean: PROJECTION_PUBLISH_BOOLEAN_FLAGS },
       "publish-status": { value: PROJECTION_PUBLISH_STATUS_VALUE_FLAGS, boolean: [] },
       "verify-pr": { value: PROJECTION_VERIFY_PR_VALUE_FLAGS, boolean: [] }
@@ -1004,6 +1005,12 @@ function cliHelpEnvelope(command: string, args: string[]): JsonEnvelope {
     break;
   case "projection":
     if (subcommand === "freshness") return okEnvelope("help", CLI_PROJECTION_FRESHNESS_HELP as unknown as Json);
+    if (subcommand === "slice") return okEnvelope("help", {
+      usage: "archctx projection slice --base <ref> [--changed-path <path>...] [--format json|markdown]",
+      description: "Compare the merge base and HEAD. Print highlighted capability diagrams and entrypoint anchors for a pull request.",
+      schemaVersion: "archcontext.projection-slice/v1",
+      requirements: "A clean tracked worktree and a ready existing CodeGraph index. Extra changed paths only select scope. The command writes no files."
+    });
     if (subcommand === "publish") return okEnvelope("help", CLI_PROJECTION_PUBLISH_HELP as unknown as Json);
     if (subcommand === "publish-status") return okEnvelope("help", CLI_PROJECTION_PUBLISH_STATUS_HELP as unknown as Json);
     if (subcommand === "verify-pr") return okEnvelope("help", CLI_PROJECTION_VERIFY_PR_HELP as unknown as Json);
@@ -1776,7 +1783,8 @@ async function runProjectionProtocolCommand(args: string[], cwd: string, runtime
   // `freshness` runs check's projection build in-process, with no daemon and no repository write
   // (ADR-0056 §2).
   if (action === "freshness") return runProjectionFreshnessCliCommand(args.slice(1), cwd);
-  if (!["run", "recover", "readback"].includes(action)) return errorEnvelope("projection", "AC_SCHEMA_INVALID", "projection requires run|recover|readback --request-json <request>, snapshot|freshness [--json], or publish|publish-status|verify-pr");
+  if (action === "slice") return runProjectionSliceCliCommand(args.slice(1), cwd);
+  if (!["run", "recover", "readback"].includes(action)) return errorEnvelope("projection", "AC_SCHEMA_INVALID", "projection requires run|recover|readback --request-json <request>, snapshot|freshness [--json], slice --base <ref>, or publish|publish-status|verify-pr");
   const raw = readFlag(args, "--request-json");
   if (!raw) return errorEnvelope(`projection.${action}`, "AC_SCHEMA_INVALID", `projection ${action} requires --request-json`);
   let request: RuntimeProjectionInvocation["request"];
@@ -1788,6 +1796,20 @@ async function runProjectionProtocolCommand(args: string[], cwd: string, runtime
     return runProjectionCheckInvocation(request, cwd);
   }
   return (await runtime()).projection(findRepositoryRoot(cwd), { action, request } as RuntimeProjectionInvocation);
+}
+
+function runProjectionSliceCliCommand(args: string[], cwd: string): JsonEnvelope {
+  const requestId = "projection.slice";
+  const stray = projectionWriterStrayToken(args, ["--base", "--changed-path"]);
+  if (stray !== undefined) return cliArgumentFailure(requestId, `projection slice does not accept ${stray}; use --help`);
+  const base = readFlag(args, "--base");
+  if (!base || readRepeatedFlag(args, "--base").length !== 1) return cliArgumentFailure(requestId, "projection slice requires exactly one --base <ref>");
+  const format = readFlag(args, "--format") ?? "json";
+  if (format !== "json" && format !== "markdown") return cliArgumentFailure(requestId, "projection slice --format must be json or markdown");
+  if (args.some((arg, index) => arg === "--changed-path" && args[index + 1] === "")) {
+    return cliArgumentFailure(requestId, "projection slice --changed-path requires a nonempty path");
+  }
+  return runProjectionSliceCommand({ cwd, base, changedPaths: readRepeatedFlag(args, "--changed-path") });
 }
 
 function runProjectionFreshnessCliCommand(args: string[], cwd: string): JsonEnvelope {
@@ -3931,6 +3953,7 @@ function paginate(value: any, args: string[]) {
 }
 
 function renderResult(result: any, format: string): string {
+  if (format === "markdown" && result.requestId === "projection.slice" && result.ok) return result.data.markdown.trimEnd();
   if (format !== "human") return JSON.stringify(result, null, 2);
   if (!result.ok) return `ERROR ${result.error?.code}: ${result.error?.message}`;
   const codeFactsLine = result.requestId === "doctor" ? `${doctorCodeFactsLine(result.data?.codeFacts)}\n` : "";

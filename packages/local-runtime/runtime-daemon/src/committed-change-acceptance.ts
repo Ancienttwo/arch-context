@@ -5,18 +5,12 @@ import { resolve } from "node:path";
 import { parseJsonOrStableYaml } from "@archcontext/core/architecture-domain";
 import type { AcceptedCommittedChangeJournalV2, AcceptedCommittedChangePayloadV2, ArchitectureLedgerScope } from "@archcontext/core/architecture-ledger";
 import { assertPathHasNoSymlinkSegments, type ChangeSetDraft } from "@archcontext/core/changeset-engine";
-import { classifyArchitectureMajorChange, loadNativeModelFromModelFiles, parseArchitectureDocsProjectionManifest, type ArchitectureMajorChangeClassificationV1, type NativeModel } from "@archcontext/core/projection-engine";
+import { classifyArchitectureMajorChange, isSemanticModelPath, loadNativeModelFromModelFiles, parseArchitectureDocsProjectionManifest, type ArchitectureMajorChangeClassificationV1, type NativeModel } from "@archcontext/core/projection-engine";
 import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, architectureDocsProjectionManifestProofEvidence, architectureDocsProjectionManifestSemanticState, digestJson, type AcceptedArchitectureChangeReferenceV1, type ArchitectureEventV1, type ArchitectureProjectionProofEvidenceV2, type ArchitectureSemanticStateV1, type Json } from "@archcontext/contracts";
 import { CHANGESET_MODEL_TRANSITION_SCHEMA_VERSION, type ChangeSetModelTransitionV1, type CommittedChangeSetForTaskSession, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 
 /** Exactly the files `loadNativeModelFromArchContext` reads: direct YAML children of these directories. */
 const SEMANTIC_MODEL_DIRECTORIES = ["nodes", "relations", "flows"] as const;
-const SEMANTIC_MODEL_PATH = /^\.archcontext\/model\/(nodes|relations|flows)\/[^/]+\.ya?ml$/;
-
-export function isSemanticModelPath(path: string): boolean {
-  return SEMANTIC_MODEL_PATH.test(path);
-}
-
 export interface ModelTransitionBase {
   before: string;
   files: Map<string, string>;

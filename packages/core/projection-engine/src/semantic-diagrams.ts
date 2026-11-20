@@ -160,7 +160,6 @@ export function compileSemanticCapabilityDiagrams(input: {
   const requiredSelectorKeys: string[] = [];
   const provenSelectorKeys = new Set<string>();
   const diagrams: SemanticP2DiagramAst[] = [];
-  const semanticNodeIds = new Set<string>(capability ? [capability.id] : []);
 
   if (!capability) {
     p2Diagnostics.push({ code: "capability-node-missing", detail: `missing ${input.capabilityId}` });
@@ -180,8 +179,6 @@ export function compileSemanticCapabilityDiagrams(input: {
       participantsById.set(participant.id, participant);
       if (!nodesById.has(participant.nodeId)) {
         p2Diagnostics.push({ code: "participant-node-missing", flowId: flow.id, detail: `${participant.id} references ${participant.nodeId}` });
-      } else {
-        semanticNodeIds.add(participant.nodeId);
       }
     }
 
@@ -243,34 +240,7 @@ export function compileSemanticCapabilityDiagrams(input: {
     mermaid: p2Status === "proven" ? diagrams.map(renderSemanticSequenceDiagram) : []
   };
 
-  const scopedNodeIds = descendantNodeIds(input.capabilityId, input.nodes);
-  for (const nodeId of semanticNodeIds) scopedNodeIds.add(nodeId);
-  const p1Nodes = [...scopedNodeIds]
-    .map((id) => nodesById.get(id))
-    .filter((node): node is SemanticArchitectureNode => node !== undefined)
-    .sort((left, right) => left.id.localeCompare(right.id))
-    .map((node) => ({ id: node.id, label: node.name, kind: node.kind }));
-  const p1Edges = input.relations
-    .filter((relation) => scopedNodeIds.has(relation.source) && scopedNodeIds.has(relation.target))
-    .sort((left, right) => left.id.localeCompare(right.id))
-    .map((relation) => ({ id: relation.id, source: relation.source, target: relation.target, label: relation.intent }));
-  const p1Diagnostics: SemanticProofDiagnostic[] = [];
-  if (!capability) p1Diagnostics.push({ code: "capability-node-missing", detail: `missing ${input.capabilityId}` });
-  for (const node of input.nodes.filter((entry) => entry.parent && !nodesById.has(entry.parent))) {
-    p1Diagnostics.push({ code: "parent-node-missing", detail: `${node.id} references ${node.parent}` });
-  }
-  if (p1Edges.length === 0) {
-    p1Diagnostics.push({ code: "semantic-edge-missing", detail: `${input.capabilityId} has no declared in-scope relation` });
-  }
-  const p1Status = p1Diagnostics.length === 0 ? "proven" : "unprovable";
-  const p1: SemanticP1DiagramProof = {
-    status: p1Status,
-    nodes: p1Status === "proven" ? p1Nodes : [],
-    edges: p1Status === "proven" ? p1Edges : [],
-    diagnostics: p1Diagnostics,
-    ...(p1Status === "proven" ? { mermaid: renderSemanticFlowchart(p1Nodes, p1Edges) } : {})
-  };
-
+  const p1 = compileSemanticP1(input.capabilityId, input.nodes, input.relations, semanticP1Scope(input.capabilityId, input.nodes, requiredFlows));
   const unboundSelectors = [...new Set(requiredSelectorKeys.filter((key) => !provenSelectorKeys.has(key)))].sort();
   const withoutDigest = {
     schemaVersion: "archcontext.semantic-diagram-compilation/v1" as const,
@@ -285,7 +255,60 @@ export function compileSemanticCapabilityDiagrams(input: {
   };
   return {
     ...withoutDigest,
+    // SAFETY: The compilation contains only JSON data.
     proofDigest: digestJson(withoutDigest as unknown as Json)
+  };
+}
+
+/** P1 binds declared participants whether or not CodeGraph can prove their P2 flow. */
+type SemanticP1ModelNode = Pick<SemanticArchitectureNode, "id" | "parent" | "name" | "kind">;
+
+export function semanticP1Scope(capabilityId: string, nodes: SemanticP1ModelNode[], flows: ArchitectureFlowV1[]): Set<string> {
+  const scopedNodeIds = descendantNodeIds(capabilityId, nodes);
+  const known = new Set(nodes.map((node) => node.id));
+  for (const flow of flows) {
+    if (flow.capabilityId !== capabilityId || flow.applicability !== "required") continue;
+    const participants = new Set<string>();
+    for (const participant of flow.participants) {
+      if (participants.has(participant.id)) continue;
+      participants.add(participant.id);
+      if (known.has(participant.nodeId)) scopedNodeIds.add(participant.nodeId);
+    }
+  }
+  return scopedNodeIds;
+}
+
+export function compileSemanticP1(
+  capabilityId: string,
+  nodes: SemanticP1ModelNode[],
+  relations: SemanticArchitectureRelation[],
+  scopedNodeIds: ReadonlySet<string>
+): SemanticP1DiagramProof {
+  const nodesById = uniqueById(nodes, "architecture node");
+  const p1Nodes = [...scopedNodeIds]
+    .map((id) => nodesById.get(id))
+    .filter((node): node is SemanticP1ModelNode => node !== undefined)
+    .sort((left, right) => left.id.localeCompare(right.id))
+    .map((node) => ({ id: node.id, label: node.name, kind: node.kind }));
+  const p1Edges = relations
+    .filter((relation) => scopedNodeIds.has(relation.source) && scopedNodeIds.has(relation.target))
+    .sort((left, right) => left.id.localeCompare(right.id))
+    .map((relation) => ({ id: relation.id, source: relation.source, target: relation.target, label: relation.intent }));
+  const p1Diagnostics: SemanticProofDiagnostic[] = [];
+  if (!nodesById.has(capabilityId)) p1Diagnostics.push({ code: "capability-node-missing", detail: `missing ${capabilityId}` });
+  for (const node of nodes.filter((entry) => entry.parent && !nodesById.has(entry.parent))) {
+    p1Diagnostics.push({ code: "parent-node-missing", detail: `${node.id} references ${node.parent}` });
+  }
+  if (p1Edges.length === 0) {
+    p1Diagnostics.push({ code: "semantic-edge-missing", detail: `${capabilityId} has no declared in-scope relation` });
+  }
+  const p1Status = p1Diagnostics.length === 0 ? "proven" : "unprovable";
+  return {
+    status: p1Status,
+    nodes: p1Status === "proven" ? p1Nodes : [],
+    edges: p1Status === "proven" ? p1Edges : [],
+    diagnostics: p1Diagnostics,
+    ...(p1Status === "proven" ? { mermaid: renderSemanticFlowchart(p1Nodes, p1Edges) } : {})
   };
 }
 
@@ -488,7 +511,7 @@ function evidenceSelectorKey(selector: ArchitectureFlowEvidenceSelectorV1): stri
   return `${selector.entrypointId}\0${selector.sourceSymbol}\0${selector.sinkId}`;
 }
 
-function descendantNodeIds(capabilityId: string, nodes: SemanticArchitectureNode[]): Set<string> {
+function descendantNodeIds(capabilityId: string, nodes: SemanticP1ModelNode[]): Set<string> {
   const out = new Set<string>([capabilityId]);
   let changed = true;
   while (changed) {
@@ -513,17 +536,24 @@ function uniqueById<T extends { id: string }>(values: T[], kind: string): Map<st
 }
 
 export function renderSemanticFlowchart(nodes: SemanticP1NodeAst[], edges: SemanticP1EdgeAst[]): string {
+  return `\`\`\`mermaid\n${renderSemanticFlowchartSource(nodes, edges)}\n\`\`\``;
+}
+
+export function renderSemanticFlowchartSource(nodes: SemanticP1NodeAst[], edges: SemanticP1EdgeAst[], targets?: ReadonlySet<string>): string {
   const ids = new Map(nodes.map((node) => [node.id, mermaidStableId("p1", node.id)]));
+  const targetIds = nodes.filter((node) => targets?.has(node.id)).map((node) => ids.get(node.id)!).sort();
   return [
-    "```mermaid",
     "flowchart LR",
-    ...nodes.map((node) => `  ${ids.get(node.id)}[\"${escapeMermaidLabel(node.label)}\"]:::${mermaidClass(node.kind)}`),
+    ...nodes.map((node) => `  ${ids.get(node.id)}[\"${escapeMermaidLabel(node.label)}\"]${targets?.has(node.id) ? "" : `:::${mermaidClass(node.kind)}`}`),
     ...edges.map((edge) => `  ${ids.get(edge.source)} -->|\"${escapeMermaidLabel(edge.label)}\"| ${ids.get(edge.target)}`),
     "  classDef actor fill:#111827,color:#ffffff,stroke:#f9fafb,stroke-width:2px",
     "  classDef component fill:#075985,color:#ffffff,stroke:#bae6fd,stroke-width:2px",
     "  classDef datastore fill:#3f6212,color:#ffffff,stroke:#d9f99d,stroke-width:2px",
     "  classDef external fill:#7c2d12,color:#ffffff,stroke:#fed7aa,stroke-width:2px",
-    "```"
+    ...(targetIds.length === 0 ? [] : [
+      "  classDef target fill:#FFF4D6,stroke:#B42318,stroke-width:2px,color:#5C3D0A",
+      `  class ${targetIds.join(",")} target`
+    ])
   ].join("\n");
 }
 

@@ -31,6 +31,7 @@ export {
   type CodeGraphCliInvocation
 } from "./cli-invocation";
 export { CodeGraphSdkProvider, type CodeGraphProvider, type CodeGraphReadTarget } from "./sdk-provider";
+export { assertReadyCodeGraphIndexWithoutWorktreeWrites } from "./ready-index-read";
 export {
   CODEGRAPH_BASE_SCHEMA,
   codeGraphBaseDirectory,

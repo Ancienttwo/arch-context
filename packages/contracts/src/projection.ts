@@ -109,6 +109,7 @@ export const ARCHCTX_FEATURES = [
   "projection-prior-committed-applies-v1",
   "projection-protocol-v2",
   "projection-publish-v1",
+  "projection-slice-v1",
   "projection-snapshot-v1",
   "projection-verify-pr-v1",
   "recommendation-scan-decision-v1",
@@ -203,6 +204,7 @@ export interface ArchitectureFlowSelectorCheckV1 {
 }
 
 /** `files[].preview.format`: a `create` carries the rendered body, an `update` or `delete` a unified diff. */
+export const PROJECTION_SLICE_SCHEMA_VERSION = "archcontext.projection-slice/v1" as const;
 export const PROJECTION_FILE_PREVIEW_FORMATS = ["body", "unified-diff"] as const;
 /** Upper bound, in UTF-8 bytes, on one `files[].preview.content`. */
 export const PROJECTION_FILE_PREVIEW_MAX_BYTES = 65_536;
@@ -342,6 +344,34 @@ export interface ArchitectureCapabilityChangeV1 {
  * order; `byteLength` is the UTF-8 length of the complete content and `truncated` says whether
  * `content` is shorter.
  */
+export interface ProjectionSliceEntrypointV1 {
+  nodeId: string;
+  entrypointId: string;
+  path: string;
+  symbol: string;
+}
+
+export interface ProjectionSliceCapabilityV1 {
+  capabilityId: string;
+  modulePath: string;
+  /** Unfenced Mermaid. Null when the capability was removed or P1 cannot be rendered. */
+  diagramMermaid: string | null;
+  entrypoints: ProjectionSliceEntrypointV1[];
+  markdown: string;
+}
+
+export interface ProjectionSliceV1 {
+  schemaVersion: typeof PROJECTION_SLICE_SCHEMA_VERSION;
+  base: string;
+  baseSha: string;
+  mergeBase: string;
+  headSha: string;
+  changedPaths: string[];
+  changed: boolean;
+  affectedCapabilities: ProjectionSliceCapabilityV1[];
+  markdown: string;
+}
+
 export interface ProjectionFilePreviewV1 {
   format: ProjectionFilePreviewFormat;
   content: string;

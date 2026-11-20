@@ -373,6 +373,19 @@ version-mismatched artifact.
 - 完整待确认清单见 PRD §29。
 
 
+### Pull request architecture slice
+
+`archctx projection slice --base <ref> [--changed-path <path>...] [--format json|markdown]`
+compares capability diagrams (§1.1) and declared entrypoint rows (§1.2) from the committed merge
+base and HEAD. Path overrides add to the changed paths from that same pair and only select scope.
+The default JSON envelope carries `archcontext.projection-slice/v1` with `baseSha`, `mergeBase`,
+`headSha`, `changed`, the affected capability excerpts and the combined `## Architecture slice`
+Markdown. Consumers can discover the command through `projection-slice-v1`. Markdown mode
+prints the combined excerpt directly. Equivalent slices say
+`Architecture slice unchanged`. The command requires a clean tracked checkout and an existing
+ready CodeGraph index. Missing or stale facts return `AC_CODE_FACTS_UNAVAILABLE`. It runs in
+process without writing the worktree, model or index.
+
 ### Public failure boundaries
 
 Runtime operation failures carry registered code, action, reasonCode and bounded own-data details.
