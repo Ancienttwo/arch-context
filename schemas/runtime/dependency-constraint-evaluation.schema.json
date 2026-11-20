@@ -48,6 +48,7 @@
           "code-facts-unavailable",
           "unresolved-import",
           "layer-endpoint-unclassified",
+          "forbid-target-unowned",
           "workspace-resolution-failed"
         ]
       }

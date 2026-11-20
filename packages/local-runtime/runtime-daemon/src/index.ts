@@ -658,6 +658,9 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     const session = await this.openSession(root);
     const result = await this.readModelStore.validateModel(session.workspace);
     session.modelDigest = result.modelDigest;
+    if (result.allowedTargetErrors?.length) {
+      return publicFailureEnvelope("validate", "AC_SCHEMA_INVALID", "constraint-model-invalid", { issueCount: result.allowedTargetErrors.length });
+    }
     return okEnvelope("validate", result as unknown as Json);
   }
 

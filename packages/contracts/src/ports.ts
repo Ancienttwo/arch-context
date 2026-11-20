@@ -187,6 +187,8 @@ export interface ModelValidationResult {
   nodeSchemaErrors?: { path: string; error: string }[];
   /** Errors specifically repairable by replacing manifest model.layers; after validation remains strict. */
   layerOrderErrors?: string[];
+  /** Constraint declaration errors specific to `rule.allowedTargets`. */
+  allowedTargetErrors?: string[];
   /** Problems that do not invalidate the model, such as an ignored legacy setting. Omitted when empty. */
   warnings?: string[];
   modelDigest: string;

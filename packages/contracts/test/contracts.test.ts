@@ -49,7 +49,8 @@ import {
 } from "../src/product-version";
 import { ERROR_CATALOG, digestJson, errorEnvelope, okEnvelope, stableId, stableYaml, type Json } from "../src/schema";
 import { validateJsonSchema } from "../src/validator";
-import { publishedSchemaFiles, publishedSchemaResolver } from "./published-schemas";
+import { publishedSchemaFiles, publishedSchemaIssues, publishedSchemaResolver } from "./published-schemas";
+import { DEPENDENCY_CONSTRAINT_REASON_CODES } from "../src/architecture";
 import { EXPLORER_PROJECTION_CACHE_POLICY_SCHEMA_VERSION, EXPLORER_VIEW_IDS, type ExplorerProjectionCachePolicyV1 } from "../src/ports";
 import {
   architectureDocsProjectionManifestDigests,
@@ -100,6 +101,29 @@ import {
 import { DOCS_ANCHOR_FINDING_KINDS, DOCS_ANCHOR_UNCHECKED_REASON_CODES, docsAnchorsReportIssues, type DocsAnchorsReportV1 } from "../src/docs-anchors";
 
 const root = fileURLToPath(new URL("../../../", import.meta.url));
+
+test("constraint schema accepts only explicit, unique allowedTargets for forbid-dependency", () => {
+  const schema = "repo/constraint.schema.json";
+  const fixture = readJson("packages/contracts/fixtures/valid/constraint.json") as Record<string, Json>;
+  const rule = { type: "forbid-dependency", targets: ["capability.runtime"] };
+  const contract = "component.runtime.contract";
+  expect(publishedSchemaIssues(schema, { ...fixture, rule })).toEqual([]);
+  expect(publishedSchemaIssues(schema, { ...fixture, rule: { ...rule, allowedTargets: [contract, "host::component.runtime.shared"] } })).toEqual([]);
+  for (const allowedTargets of [null, contract, [], [contract, contract], ["component.runtime.*"], [1]]) {
+    expect(publishedSchemaIssues(schema, { ...fixture, rule: { ...rule, allowedTargets } })).not.toEqual([]);
+  }
+  expect(publishedSchemaIssues(schema, { ...fixture, rule: { type: "layer-direction", allowedTargets: [contract] } })).not.toEqual([]);
+});
+
+test("dependency evaluation schema represents a resolved target with unknown ownership", () => {
+  const schema = "runtime/dependency-constraint-evaluation.schema.json";
+  const fixture = readJson("packages/contracts/fixtures/valid/dependency-constraint-evaluation.json") as Record<string, Json>;
+  expect(DEPENDENCY_CONSTRAINT_REASON_CODES).toContain("forbid-target-unowned");
+  expect(publishedSchemaIssues(schema, {
+    ...fixture, status: "undetermined", coverage: "complete", reasonCodes: ["forbid-target-unowned"],
+    unresolvedImports: [], violations: []
+  })).toEqual([]);
+});
 
 test("Explorer cache policy contract keeps every retention and pin limit explicit", () => {
   const policy: ExplorerProjectionCachePolicyV1 = {

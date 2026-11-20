@@ -155,10 +155,10 @@ export interface DependencyConstraintInputV1 {
  * over the index answer and the ownership universe, exactly like `buildModuleStatisticsSnapshot`.
  *
  * An edge violates a constraint when its source file's owner chain meets `scope.nodes`, its target
- * file's owner chain meets `rule.targets`, and the source is not itself inside a target. A found
- * violation is always reported as `violated`, even over incomplete evidence. Without one, any gap
- * in the evidence (no attested index, a truncated dump, an unresolved repository-local import in a
- * constrained file) is `undetermined`, never `pass`.
+ * file's owner chain meets `rule.targets`, and the source is outside those targets. An
+ * `allowedTargets` exemption requires every resolved target owner to be in an allowed subtree.
+ * A found violation is reported even over incomplete evidence. Without one, an evidence gap,
+ * including a missing target owner for an exemption rule, gives `undetermined`.
  */
 export function evaluateDependencyConstraints(input: DependencyConstraintInputV1): DependencyConstraintEvaluationV1 {
   const constraints = [...input.constraints].sort((left, right) => compare(left.id, right.id));
@@ -230,8 +230,19 @@ export function evaluateDependencyConstraints(input: DependencyConstraintInputV1
       }
       if (violations.has(key)) continue;
       const from = fromOwners.find((owner) => meets(owner.chain, constraint.scope.nodes) && !meets(owner.chain, rule.targets));
-      const to = toOwners.find((owner) => meets(owner.chain, rule.targets));
-      if (!from || !to) continue;
+      if (!from) continue;
+      const { allowedTargets } = rule;
+      const targetOwner = (owner: (typeof toOwners)[number]) => meets(owner.chain, rule.targets);
+      let to = toOwners.find(targetOwner);
+      if (allowedTargets !== undefined) {
+        if (toOwners.length === 0) {
+          reasonCodes.add("forbid-target-unowned");
+          continue;
+        }
+        if (toOwners.every((owner) => meets(owner.chain, allowedTargets))) continue;
+        to = toOwners.find((owner) => targetOwner(owner) && !meets(owner.chain, allowedTargets)) ?? to;
+      }
+      if (!to) continue;
       violations.set(key, {
         constraintId: constraint.id,
         fromPath: edge.from,

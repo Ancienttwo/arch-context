@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { readDependencyConstraints } from "@archcontext/core/architecture-domain";
 import {
   architectureCandidateDeltaPolicyDecisionDigest,
   architectureCandidateDeltaPolicyEvaluationDigest,
@@ -18,6 +19,49 @@ import {
   validateCompatibilityContract,
   type ArchContextPathScope
 } from "../src/index";
+
+describe("forbid-dependency exemption declarations", () => {
+  const nodes = [
+    ["module.consumer"], ["capability.runtime"], ["module.runtime", "capability.runtime"],
+    ["component.runtime.contract", "module.runtime"], ["component.runtime.contract-lookalike", "module.consumer"]
+  ].map(([id, parent]) => ({
+    path: `.archcontext/model/nodes/${id}.yaml`,
+    body: JSON.stringify({ schemaVersion: "archcontext.node/v2", id, parent })
+  }));
+
+  function read(allowedTargets: Json) {
+    return readDependencyConstraints([...nodes, {
+      path: ".archcontext/model/constraints/constraint.public-contract.yaml",
+      body: JSON.stringify({
+        schemaVersion: "archcontext.constraint/v1", id: "constraint.public-contract", severity: "error",
+        scope: { nodes: ["module.consumer"] },
+        rule: { type: "forbid-dependency", targets: ["capability.runtime"], allowedTargets }
+      })
+    }]);
+  }
+
+  test("accepts a contract connected to a forbidden target by a transitive parent chain", () => {
+    const allowedTargets = ["component.runtime.contract", "module.runtime"];
+    expect(read(allowedTargets)).toMatchObject({
+      errors: [],
+      constraints: [{ rule: { type: "forbid-dependency", targets: ["capability.runtime"], allowedTargets } }]
+    });
+  });
+
+  test.each([
+    ["empty list", [], "non-empty list of unique node ids"],
+    ["duplicate", ["component.runtime.contract", "component.runtime.contract"], "unique node ids"],
+    ["wildcard", ["component.runtime.*"], "unique node ids"],
+    ["missing node", ["component.runtime.missing"], "references unknown node"],
+    ["target itself", ["capability.runtime"], "strict descendant"],
+    ["unrelated node with a similar ID", ["component.runtime.contract-lookalike"], "strict descendant"]
+  ] satisfies [string, Json, string][])("rejects a %s in allowedTargets", (_label, allowedTargets, error) => {
+    const result = read(allowedTargets);
+    expect(result.constraints).toEqual([]);
+    expect(result.errors).toEqual(result.allowedTargetErrors);
+    expect(result.errors).toEqual([expect.stringContaining(error)]);
+  });
+});
 
 describe("@archcontext/core/policy-engine", () => {
   test("requires durable compatibility contract fields", () => {

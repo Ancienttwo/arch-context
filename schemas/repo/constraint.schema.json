@@ -37,8 +37,17 @@
             "require-cleanup-by",
             "require-review"
           ]
+        },
+        "allowedTargets": {
+          "description": "Public contract nodes that are strict descendants of a forbid-dependency target. Every owner of an exempt import target must be in one of these subtrees.",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^([a-z][a-z0-9]*(\\.[a-z0-9][a-z0-9-]*)*::)?[a-z][a-z0-9]*(\\.[a-z0-9][a-z0-9-]*)+$" }
         }
-      }
+      },
+      "if": { "required": ["allowedTargets"] },
+      "then": { "properties": { "type": { "const": "forbid-dependency" } } }
     },
     "allowedVia": { "type": "array", "items": { "type": "string" } },
     "rationale": { "type": "string" },

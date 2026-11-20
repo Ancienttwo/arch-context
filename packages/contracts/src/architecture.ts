@@ -74,14 +74,14 @@ export interface ArchitectureNotApplicableFlowV1 extends ArchitectureFlowBaseV1 
 
 /**
  * A `forbid-dependency` constraint (`archcontext.constraint/v1`), narrowed to the fields the
- * dependency gate evaluates. A file owned by a `scope.nodes` node (or a descendant) must not
- * import a file owned by a `rule.targets` node (or a descendant). v1 has no `allowedVia` escape.
+ * dependency gate evaluates. A scoped file cannot import into a forbidden target subtree
+ * unless every target file owner belongs to an explicitly allowed descendant subtree.
  */
 export interface DependencyConstraintV1 {
   id: string;
   severity: "error" | "warning";
   scope: { nodes: string[] };
-  rule: { type: "forbid-dependency"; targets: string[] } | { type: "layer-direction"; layers: string[] };
+  rule: { type: "forbid-dependency"; targets: string[]; allowedTargets?: string[] } | { type: "layer-direction"; layers: string[] };
   rationale: string;
 }
 
@@ -94,7 +94,8 @@ export type DependencyConstraintStatus = (typeof DEPENDENCY_CONSTRAINT_STATUSES)
  * (`code-facts-import-limit`), the read came back shorter than the population the index reported
  * (`code-facts-truncated`), a constrained file carries a repository-local import that resolved to
  * no file, or the workspace package map could not be read, so no bare workspace specifier could
- * be resolved.
+ * be resolved. `forbid-target-unowned` means an import subject to a `forbid-dependency` rule
+ * with `allowedTargets` resolved to a file without an owner.
  */
 export const DEPENDENCY_CONSTRAINT_REASON_CODES = [
   "code-facts-import-limit",
@@ -103,6 +104,7 @@ export const DEPENDENCY_CONSTRAINT_REASON_CODES = [
   "code-facts-unavailable",
   "unresolved-import",
   "layer-endpoint-unclassified",
+  "forbid-target-unowned",
   "workspace-resolution-failed"
 ] as const;
 export type DependencyConstraintReasonCode = (typeof DEPENDENCY_CONSTRAINT_REASON_CODES)[number];

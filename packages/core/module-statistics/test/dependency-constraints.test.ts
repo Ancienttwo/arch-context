@@ -193,6 +193,59 @@ describe("evaluateDependencyConstraints", () => {
   });
 });
 
+describe("forbid-dependency allowedTargets", () => {
+  const contract = "component.runtime.contract";
+  const internal = "component.runtime.internal";
+  const publicChild = "component.runtime.public-types";
+  const contractPath = "packages/runtime/contract/index.ts";
+  const childPath = "packages/runtime/contract/types/index.ts";
+  const internalPath = "packages/runtime/internal/index.ts";
+  const unownedPath = "shared/index.ts";
+  const from = CORE_TO_RUNTIME.from;
+  const constraint: DependencyConstraintV1 = {
+    ...CORE_NOT_RUNTIME,
+    rule: { type: "forbid-dependency", targets: ["module.runtime"], allowedTargets: [contract] }
+  };
+
+  function evaluate(to: string, internalIncludes = [internalPath], constraints = [constraint]) {
+    const nodes: NativeNode[] = [...NODES,
+      { id: contract, kind: "component", name: "Contract", parent: "module.runtime", source: { include: ["packages/runtime/contract/**"] } },
+      { id: publicChild, kind: "component", name: "Public types", parent: contract, source: { include: [childPath] } },
+      { id: internal, kind: "component", name: "Internal", parent: "module.runtime", source: { include: internalIncludes } }
+    ];
+    return evaluateDependencyConstraints(input({ nodes, constraints, importEdges: [{ from, specifier: "./target", to }] }));
+  }
+
+  test.each([contractPath, childPath])("allows the contract subtree at %s", (to) => {
+    expect(evaluate(to)).toMatchObject({ status: "pass", coverage: "complete", reasonCodes: [], violations: [] });
+  });
+
+  test.each([
+    ["sibling internal", internalPath, [internalPath], internal],
+    ["contract and internal co-owners", contractPath, [internalPath, contractPath], internal],
+    ["forbidden parent", "packages/runtime/src/index.ts", [internalPath], "module.runtime"]
+  ] as const)("reports a violation for %s ownership", (_label, to, includes, owner) => {
+    expect(evaluate(to, [...includes])).toMatchObject({
+      status: "violated",
+      reasonCodes: [],
+      violations: [{ fromPath: from, toPath: to, toNode: owner }]
+    });
+  });
+
+  test("a resolved unowned target is incomplete only for the rule with an exemption", () => {
+    expect(evaluate(unownedPath)).toMatchObject({
+      status: "undetermined", coverage: "complete", reasonCodes: ["forbid-target-unowned"],
+      importEdgeCount: 1, unresolvedImports: [], violations: []
+    });
+    expect(evaluate(unownedPath, undefined, [CORE_NOT_RUNTIME])).toMatchObject({
+      status: "pass", coverage: "complete", reasonCodes: [], unresolvedImports: [], violations: []
+    });
+    expect(evaluate(contractPath, undefined, [CORE_NOT_RUNTIME])).toMatchObject({
+      status: "violated", violations: [{ toNode: contract }]
+    });
+  });
+});
+
 describe("snapshot direction counts", () => {
   const RUNTIME_NOT_CORE: DependencyConstraintV1 = {
     id: "constraint.core-not-runtime",
