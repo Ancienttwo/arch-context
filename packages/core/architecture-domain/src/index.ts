@@ -405,6 +405,27 @@ export function assertAdapterDoesNotOverwriteNativeCore(before: Record<string, J
  * locally is absent from the listing, so the deletion still changes the digest.
  */
 export function computeWorktreeDigest(root: string, files: readonly string[], options: WorktreeDigestOptions = {}): string {
+  return digestJson(worktreeDigestPaths(files, options).map((path) => readWorktreeDigestEntry(root, path)));
+}
+
+/** Hashes two views of one worktree, reusing the content hash for files shared by both. */
+export function computeWorktreeDigests(
+  root: string,
+  gitVisibleFiles: readonly string[],
+  secondView: { files: readonly string[]; options: WorktreeDigestOptions }
+): [string, string] {
+  const entries = new Map<string, ReturnType<typeof readWorktreeDigestEntry>>();
+  const digest = (paths: string[]) => digestJson(paths.map((path) => {
+    const existing = entries.get(path);
+    if (existing) return existing;
+    const entry = readWorktreeDigestEntry(root, path);
+    entries.set(path, entry);
+    return entry;
+  }));
+  return [digest(worktreeDigestPaths(gitVisibleFiles, {})), digest(worktreeDigestPaths(secondView.files, secondView.options))];
+}
+
+function worktreeDigestPaths(files: readonly string[], options: WorktreeDigestOptions): string[] {
   // An untyped caller that omits the listing must fail, never digest an empty universe.
   if (!Array.isArray(files)) throw new TypeError("computeWorktreeDigest requires the Git-visible file list");
   // Hook output changes between preview and apply; harness policy remains part of the binding.
@@ -415,18 +436,18 @@ export function computeWorktreeDigest(root: string, files: readonly string[], op
     ".ai/harness/runs",
     ...(options.ignore ?? [])
   ];
-  const payload: Json = [...new Set(files)]
+  return [...new Set(files)]
     .filter((path) => !ignore.some((pattern) => path === pattern || path.startsWith(`${pattern}/`)))
-    .sort()
-    .map((path) => {
-      const absolute = resolve(root, path);
-      return {
-        path,
-        size: statSync(absolute).size,
-        digest: createHash("sha256").update(readFileSync(absolute)).digest("hex")
-      };
-    });
-  return digestJson(payload);
+    .sort();
+}
+
+function readWorktreeDigestEntry(root: string, path: string) {
+  const absolute = resolve(root, path);
+  return {
+    path,
+    size: statSync(absolute).size,
+    digest: createHash("sha256").update(readFileSync(absolute)).digest("hex")
+  };
 }
 
 export function computeReviewWorktreeDigest(input: ReviewWorktreeDigestInput): string {

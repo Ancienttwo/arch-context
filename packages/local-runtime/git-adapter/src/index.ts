@@ -264,9 +264,9 @@ export interface WorkspacePackageV1 {
  * A blob Git cannot hand back makes the footprint unmeasurable, so this fails closed naming the
  * paths rather than reporting a smaller footprint than the commit actually has.
  */
-export function readTrackedSourceFiles(root: string, options: { include?: string[] } = {}): TrackedSourceFileV1[] {
+export function readTrackedSourceFiles(root: string, options: { include?: string[]; paths?: ReadonlySet<string> } = {}): TrackedSourceFileV1[] {
   const entries = readTrackedTreeEntries(root)
-    .filter((entry) => entry.type === "blob")
+    .filter((entry) => entry.type === "blob" && (options.paths === undefined || options.paths.has(entry.path)))
     .filter((entry) => options.include === undefined || options.include.some((pattern) => matchesGlob(entry.path, pattern)))
     .sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
   if (entries.length === 0) return [];

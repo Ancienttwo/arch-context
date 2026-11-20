@@ -1,22 +1,29 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, spyOn, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   REFACTOR_PROPOSAL_SCHEMA_VERSION,
   REFACTOR_REQUEST_SCHEMA_VERSION,
+  REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION,
   moduleStatisticsSnapshotInvariantIssues,
+  parseRefactorDecisionFile,
+  refactorDecisionPath,
   refactorProposalDigest,
   refactorScanInvariantIssues,
+  refactorSnapshotScopeDigest,
   type JsonEnvelope,
   type ModuleStatisticsSnapshotV1,
+  type RecommendationV3,
   type RefactorAssessmentV1,
   type RefactorProposalV1,
   type RefactorRequestV1
 } from "@archcontext/contracts";
 import { computeWorktreeDigest } from "@archcontext/core/architecture-domain";
-import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
+import * as moduleStatistics from "@archcontext/core/module-statistics";
+import { CodeGraph } from "@colbymchenry/codegraph";
+import { CodeGraphAdapter, codeGraphCliInvocation } from "@archcontext/local-runtime/codegraph-adapter";
 import { readTrackedSourceFiles, listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
@@ -128,6 +135,23 @@ function createFixtureRepo(options: { withModel?: boolean } = {}): string {
   return root;
 }
 
+function writeFixtureNode(root: string, nodeId: string, include?: string[]): void {
+  writeFileSync(join(root, ".archcontext/model/nodes", `${nodeId}.yaml`), JSON.stringify({
+    schemaVersion: "archcontext.node/v2",
+    id: nodeId,
+    kind: "module",
+    name: nodeId,
+    status: "active",
+    summary: `Fixture module ${nodeId}.`,
+    ...(include === undefined ? {} : { source: { include } })
+  }));
+}
+
+function indexFixture(root: string): void {
+  const invocation = codeGraphCliInvocation("codegraph", root);
+  execFileSync(invocation.command, [...invocation.argsPrefix, "init", root], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+}
+
 /** The daemon clock is deliberately far from the commit date, so a clock read is visible. */
 function startDaemon(store: TestLocalStore) {
   return createStartedDaemon({
@@ -153,12 +177,14 @@ function proposalFor(scopePaths: string[]): RefactorProposalV1 {
 
 function scanData(envelope: JsonEnvelope): {
   requestId: string;
+  snapshotDigest: string;
   trackedFileCount: number;
   worktree: { headSha: string; worktreeDigest: string };
   snapshot: ModuleStatisticsSnapshotV1;
   assessment: RefactorAssessmentV1;
   proposal?: RefactorProposalV1;
-  proposedRecommendations: { recommendationId: string }[];
+  proposedRecommendations: RecommendationV3[];
+  openRecommendations: RecommendationV3[];
 } {
   expect(envelope.ok, JSON.stringify(envelope)).toBe(true);
   return envelope.data as never;
@@ -328,6 +354,72 @@ describe("daemon refactorScan", () => {
       expect(untracked.assessment.affectedNodeIds).toEqual([]);
       expect(untracked.assessment.scaleReasonCodes).toContain("unowned-paths");
     } finally {
+      await daemon.stop();
+    }
+  });
+
+  test("scopes CodeGraph imports and committed files to the selected seeds and their direct neighbors", async () => {
+    const root = createFixtureRepo();
+    const files = {
+      [OWNED_FILE]: 'import { out } from "../neighbors/out"; export const owned = out;',
+      [EXTRA_FILE]: 'import "../neighbors/transitive"; export const extra = 1;',
+      "neighbors/out.ts": 'import "./transitive"; import { owned } from "../src/owned"; export const out = owned;',
+      "neighbors/in.ts": 'import { owned } from "../src/owned"; export const incoming = owned;',
+      "neighbors/transitive.ts": "export const transitive = 1;"
+    };
+    mkdirSync(join(root, "neighbors"));
+    for (const [path, body] of Object.entries(files)) writeFileSync(join(root, path), `${body}\n`);
+    writeFixtureNode(root, "module.out", ["neighbors/out.ts"]);
+    writeFixtureNode(root, "module.in", ["neighbors/in.ts"]);
+    writeFixtureNode(root, "module.transitive", ["neighbors/transitive.ts"]);
+    writeFixtureNode(root, "module.unrelated");
+    commitFixture(root, "scoped graph", SECOND_COMMITTER_DATE);
+    indexFixture(root);
+    const daemon = await startDaemon(new TestLocalStore());
+    const allImports = spyOn(CodeGraph.prototype, "getNodesByKind");
+    try {
+      const nodeScope = { kind: "node", nodeId: OWNER_NODE_ID } as const;
+      const nodeScan = scanData(await daemon.refactorScan(root, { request: { ...REPOSITORY_REFACTOR_REQUEST, scope: nodeScope } }));
+      expect(nodeScan.snapshot.scope).toEqual(nodeScope);
+      expect(nodeScan.trackedFileCount).toBe(5);
+      expect(nodeScan.snapshot.codeFacts).toMatchObject({ coverage: "complete", importNodeCount: 4 });
+      expect(nodeScan.snapshot.moduleDependencies.map(({ fromNodeId, toNodeId }) => [fromNodeId, toNodeId])).toEqual([
+        ["module.in", OWNER_NODE_ID],
+        ["module.out", OWNER_NODE_ID],
+        [OWNER_NODE_ID, "module.out"],
+        [OWNER_NODE_ID, "module.transitive"]
+      ]);
+      expect(nodeScan.assessment.observations.map((observation) => observation.kind)).toEqual(["cycle"]);
+      expect(nodeScan.openRecommendations).toEqual([]);
+
+      const pathScope = { kind: "paths", paths: [OWNED_FILE] } as const satisfies RefactorRequestV1["scope"];
+      const pathScanEnvelope = await daemon.refactorScan(root, {
+        request: { ...REPOSITORY_REFACTOR_REQUEST, scope: pathScope, importNodeLimit: 3 }
+      });
+      const pathScan = scanData(pathScanEnvelope);
+      expect(publishedRuntimeSchemaIssues("runtime/runtime-refactor-scan.schema.json", pathScanEnvelope.data)).toEqual([]);
+      expect(pathScan.snapshot.scope).toEqual(pathScope);
+      expect(pathScan.trackedFileCount).toBe(3);
+      expect(pathScan.snapshot.codeFacts).toMatchObject({ coverage: "complete", importNodeCount: 3 });
+      expect(pathScan.snapshot.modules.map((module) => module.nodeId)).toEqual(["module.in", "module.out", OWNER_NODE_ID]);
+      expect(pathScan.snapshot.moduleDependencies).toHaveLength(3);
+      expect(pathScan.proposedRecommendations.map((record) => record.recommendationId)).toEqual(
+        nodeScan.proposedRecommendations.map((record) => record.recommendationId)
+      );
+      expect(allImports.mock.calls.filter(([kind]) => kind === "import")).toHaveLength(0);
+
+      const decision = await daemon.recommendations(root, {
+        command: "defer", approved: true, reason: "Revisit the scoped cycle later.",
+        recommendationId: pathScan.proposedRecommendations[0]!.recommendationId, snapshotDigest: pathScan.snapshotDigest
+      });
+      expect(decision.ok, JSON.stringify(decision)).toBe(true);
+      expect(decision.data).toMatchObject({ nextStatus: "deferred", implicitRecord: { assessmentDigest: pathScan.assessment.assessmentDigest } });
+      expect(allImports.mock.calls.filter(([kind]) => kind === "import")).toHaveLength(0);
+
+      const invalid = await daemon.refactorScan(root, { request: { ...REPOSITORY_REFACTOR_REQUEST, scope: { kind: "node", nodeId: "module.missing" } } });
+      expect(errorOf(invalid)).toMatchObject({ code: "AC_SCHEMA_INVALID", reasonCode: "refactor-input-invalid" });
+    } finally {
+      allImports.mockRestore();
       await daemon.stop();
     }
   });
@@ -539,6 +631,142 @@ describe("deciding a scan candidate", () => {
     expect(envelope.ok, JSON.stringify(envelope)).toBe(true);
     return envelope.data as never;
   }
+
+  test("reuses one measured snapshot for five Git decisions and rejects source or model drift", async () => {
+    const root = createFixtureRepo();
+    const modelPath = `.archcontext/model/nodes/${OWNER_NODE_ID}.yaml`;
+    writeFileSync(join(root, OWNED_FILE), 'import "./extra"; export const owned = 1;\n');
+    writeFileSync(join(root, EXTRA_FILE), "export const extra = 2;\n");
+    for (let index = 0; index < 7; index += 1) writeFixtureNode(root, `module.unmapped-${index}`);
+    commitFixture(root, "snapshot batch", SECOND_COMMITTER_DATE);
+    indexFixture(root);
+    const store = new MutatingReplayLocalStore();
+    const daemon = await startDaemon(store);
+    const rpc = new ArchctxRuntimeRpcServer(daemon, { root, port: 0, token: "refactor-snapshot-batch-token" });
+    const measurement = spyOn(moduleStatistics, "measureModuleStatistics");
+    const importRead = spyOn(CodeGraph.prototype, "getNodesByKind");
+    try {
+      const client = new RuntimeRpcClient(await rpc.start());
+      const scan = scanData(await client.refactorScan(root, { request: { ...REPOSITORY_REFACTOR_REQUEST, importNodeLimit: 11 } }));
+      const ids = scan.proposedRecommendations.map((candidate) => candidate.recommendationId);
+      expect(ids.length).toBeGreaterThanOrEqual(6);
+      expect(scan.snapshot.codeFacts).toMatchObject({ coverage: "complete", importNodeCount: 1, edgeLimit: 11 });
+      expect(scan.openRecommendations).toEqual([]);
+      const commands = [["accept", "accepted"], ["defer", "deferred"], ["reject", "rejected"], ["accept", "accepted"], ["defer", "deferred"]] as const;
+      for (const [index, [command, status]] of commands.entries()) {
+        const recommendationId = ids[index]!;
+        const decided = lifecycleData(await client.recommendations(root, {
+          command, approved: true, recommendationId, reason: "Reviewed this observation.", snapshotDigest: scan.snapshotDigest
+        }));
+        expect(decided).toMatchObject({ recommendationId, previousStatus: "open", nextStatus: status });
+        if (index === 0) {
+          expect(decided.implicitRecord?.recommendationIds).toEqual(ids);
+          expect(decided.implicitRecord).toMatchObject({ assessmentDigest: scan.assessment.assessmentDigest });
+        } else {
+          expect(decided.implicitRecord).toBeNull();
+        }
+        expect(JSON.parse(readFileSync(join(root, refactorDecisionPath(recommendationId)), "utf8"))).toMatchObject({ recommendationId, status });
+        expect(gitOut(root, "rev-parse", "HEAD")).toBe(scan.worktree.headSha);
+      }
+      expect(computeWorktreeDigest(root, listGitVisibleFiles(root))).not.toBe(scan.worktree.worktreeDigest);
+      const pendingId = ids[5]!;
+      const decidePending = (snapshotDigest: string) => client.recommendations(root, {
+        command: "reject", approved: true, recommendationId: pendingId, reason: "Superseded by new work.", snapshotDigest
+      });
+      expect(errorOf(await decidePending(`sha256:${"0".repeat(64)}`))).toMatchObject({ code: "AC_REFACTOR_STALE", reasonCode: "recommendation-snapshot-changed" });
+      for (const path of [OWNED_FILE, modelPath]) {
+        const original = readFileSync(join(root, path), "utf8");
+        writeFileSync(join(root, path), `${original}\n`);
+        expect(errorOf(await decidePending(scan.snapshotDigest))).toMatchObject({ code: "AC_REFACTOR_STALE", reasonCode: "recommendation-snapshot-changed" });
+        writeFileSync(join(root, path), original);
+      }
+      const originalSource = readFileSync(join(root, OWNED_FILE), "utf8");
+      store.mutateOnNextReplay = () => writeFileSync(join(root, OWNED_FILE), `${originalSource}
+`);
+      expect(errorOf(await decidePending(scan.snapshotDigest))).toMatchObject({ code: "AC_REFACTOR_STALE", reasonCode: "recommendation-snapshot-changed" });
+      writeFileSync(join(root, OWNED_FILE), originalSource);
+      expect(existsSync(join(root, refactorDecisionPath(pendingId)))).toBe(false);
+      expect(store.architectureEventAppends).toHaveLength(5);
+      expect(measurement).toHaveBeenCalledTimes(1);
+      expect(importRead.mock.calls.filter(([kind]) => kind === "import")).toHaveLength(1);
+
+      const pending = scan.proposedRecommendations[5]!;
+      const nodeId = (pending.payload as { affectedNodeIds: string[] }).affectedNodeIds[0]!;
+      const scoped = scanData(await daemon.refactorScan(root, { request: { ...REPOSITORY_REFACTOR_REQUEST, scope: { kind: "node", nodeId } } }));
+      expect(scoped.openRecommendations.map((record) => record.recommendationId)).toEqual([pendingId]);
+      expect(scoped.proposedRecommendations).toEqual([]);
+      const after = scanData(await daemon.refactorScan(root));
+      expect(after.openRecommendations.map((record) => record.recommendationId).sort()).toEqual(ids.slice(5).sort());
+    } finally {
+      measurement.mockRestore();
+      importRead.mockRestore();
+      await rpc.stop();
+      await daemon.stop();
+    }
+  });
+
+  test("a path-scoped rejection stays decided on a full scan with higher counts and verifies as stale", async () => {
+    const root = createFixtureRepo();
+    const target = "module.target";
+    const constraintId = "constraint.fixture-boundary";
+    mkdirSync(join(root, "target"));
+    writeFileSync(join(root, "target/index.ts"), "export const target = 1;\n");
+    for (const path of [OWNED_FILE, EXTRA_FILE]) {
+      writeFileSync(join(root, path), 'import { target } from "../target/index"; export const value = target;\n');
+    }
+    writeFixtureNode(root, target, ["target/**"]);
+    mkdirSync(join(root, ".archcontext/model/constraints"), { recursive: true });
+    writeFileSync(join(root, ".archcontext/model/constraints", `${constraintId}.yaml`), JSON.stringify({
+      schemaVersion: "archcontext.constraint/v1",
+      id: constraintId,
+      name: "Fixture boundary",
+      severity: "error",
+      scope: { nodes: [OWNER_NODE_ID] },
+      rule: { type: "forbid-dependency", targets: [target] },
+      rationale: "The source module cannot depend on the target."
+    }));
+    commitFixture(root, "two imports violate the same boundary", SECOND_COMMITTER_DATE);
+    indexFixture(root);
+    const daemon = await startDaemon(new TestLocalStore());
+    try {
+      const scope = { kind: "paths", paths: [OWNED_FILE] } as const satisfies RefactorRequestV1["scope"];
+      const scoped = scanData(await daemon.refactorScan(root, { request: { ...REPOSITORY_REFACTOR_REQUEST, scope } }));
+      expect(scoped.assessment.observations).toContainEqual(expect.objectContaining({
+        kind: "direction-violation", metrics: { directionViolationCount: 1 }
+      }));
+      const candidate = scoped.proposedRecommendations.find((record) => record.subject === OWNER_NODE_ID)!;
+      const { recommendationId } = candidate;
+      expect(lifecycleData(await daemon.recommendations(root, {
+        command: "reject", approved: true, recommendationId, reason: "Keep this dependency for now.", snapshotDigest: scoped.snapshotDigest
+      }))).toMatchObject({ recommendationId, nextStatus: "rejected" });
+      const path = refactorDecisionPath(recommendationId);
+      expect(parseRefactorDecisionFile(path, readFileSync(join(root, path), "utf8"))).toMatchObject({
+        observationMetrics: { directionViolationCount: 1 }, observationScopeDigest: refactorSnapshotScopeDigest(scope)
+      });
+
+      const repoScan = await daemon.refactorScan(root);
+      const full = scanData(repoScan);
+      expect(full.worktree.headSha).toBe(scoped.worktree.headSha);
+      expect(full.assessment.observations).toContainEqual(expect.objectContaining({
+        kind: "direction-violation", metrics: { directionViolationCount: 2 }
+      }));
+      expect(full.proposedRecommendations.filter((record) => record.fingerprint === candidate.fingerprint)).toEqual([]);
+      expect(suppressionReasons(repoScan)).toContain("decided-fingerprint");
+
+      const verified = await daemon.refactorVerify(root, { schemaVersion: REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION, recommendationId });
+      expect(verified.ok, JSON.stringify(verified)).toBe(true);
+      expect(verified.data).toMatchObject({
+        disposition: "stale",
+        resolveCommand: null,
+        evidence: {
+          residuals: expect.arrayContaining([expect.objectContaining({ code: "baseline-snapshot-scope-mismatch" })]),
+          observedOutcomes: [expect.objectContaining({ observedValue: 2, direction: "unknown" })]
+        }
+      });
+    } finally {
+      await daemon.stop();
+    }
+  });
 
   test("records and decides a current candidate in one append, under the scan-time id", async () => {
     const root = createFixtureRepo();

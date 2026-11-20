@@ -188,6 +188,7 @@ export function buildRefactorDecision(input: BuildRefactorDecisionInput): Refact
       "refactor-identity-mismatch"
     );
   }
+  const observationScopeDigest = record.category === "structural_observation" ? record.extensions?.baselineScopeDigest : undefined;
   const regressesFrom = record.relations.regressesFrom ?? null;
   if (refactorRecommendationId(record.fingerprint, regressesFrom) !== record.recommendationId) {
     throw decisionWriteError(
@@ -209,6 +210,7 @@ export function buildRefactorDecision(input: BuildRefactorDecisionInput): Refact
     regressesFrom,
     status: input.status,
     observationMetrics: record.category === "structural_observation" && payload.metrics ? { ...payload.metrics } : null,
+    ...(typeof observationScopeDigest === "string" ? { observationScopeDigest } : {}),
     reason: input.reason.trim(),
     actor: { kind: input.actor.kind, id: input.actor.id },
     decidedAt: input.decidedAt,

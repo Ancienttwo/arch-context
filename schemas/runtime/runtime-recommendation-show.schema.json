@@ -1811,6 +1811,11 @@
         "schemaVersion": {
           "const": "archcontext.module-statistics/v1"
         },
+        "scope": {
+          "$ref": "#/$defs/refactorScope",
+          "not": { "properties": { "kind": { "const": "repository" } } },
+          "description": "Present for statistics measured over the requested files and their direct import neighbors."
+        },
         "repository": {
           "$ref": "#/$defs/repositoryIdentity"
         },

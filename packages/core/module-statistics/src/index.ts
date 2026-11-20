@@ -23,7 +23,7 @@ import {
   type ModuleStatisticsV1,
   type RefactorScaleReasonCode
 } from "@archcontext/contracts";
-import { nativeNodeSource, type NativeModel, type NativeNode, type NativeRelation } from "@archcontext/core/projection-engine";
+import { nativeNodeSource, nodeSubtreeIds, type NativeModel, type NativeNode, type NativeRelation } from "@archcontext/core/projection-engine";
 import { buildModuleGraph, type ModuleGraphEdgeCounts } from "./graph";
 import { ancestorChain, resolveOwnership, type OwnershipIndex } from "./ownership";
 
@@ -94,6 +94,7 @@ export interface ModuleStatisticsCodeFactsInputV1 {
  */
 export interface ModuleStatisticsInputV1 {
   model: NativeModel;
+  scope?: ModuleStatisticsSnapshotV1["scope"];
   repository: ArchitectureRepositoryIdentityV1;
   worktree: ArchitectureWorktreeIdentityV1;
   trackedFiles: ModuleStatisticsTrackedFileV1[];
@@ -511,13 +512,17 @@ export function measureModuleStatistics(input: ModuleStatisticsInputV1): ModuleS
   const directionViolations = directionEvaluation === undefined ? undefined : countViolationsByNode(directionEvaluation);
 
   const ownersByPath = new Map([...ownership.byPath].map(([path, resolution]) => [path, resolution.owners]));
+  const subtree = input.scope?.kind === "node" ? nodeSubtreeIds(nodes, input.scope.nodeId) : undefined;
+  const measuredNodes = input.scope === undefined ? nodes : nodes.filter((node) =>
+    ownership.filesByNode.has(node.id) || subtree?.has(node.id)
+  );
   const graph = buildModuleGraph(
-    nodes.map((node) => node.id),
+    measuredNodes.map((node) => node.id),
     edges.flatMap((edge) => (edge.to === null ? [] : [{ from: edge.from, to: edge.to }])),
     ownersByPath
   );
 
-  const modules = nodes.map((node) => buildModule({
+  const modules = measuredNodes.map((node) => buildModule({
     node,
     ownership,
     linesByPath,
@@ -544,6 +549,7 @@ export function measureModuleStatistics(input: ModuleStatisticsInputV1): ModuleS
 
   const draft: ModuleStatisticsSnapshotV1 = {
     schemaVersion: MODULE_STATISTICS_SCHEMA_VERSION,
+    ...(input.scope === undefined ? {} : { scope: input.scope }),
     repository: input.repository,
     worktree: input.worktree,
     modelDigest: modelDigest(input.model, constraints),
@@ -618,7 +624,7 @@ function resolveEdges(
 }
 
 /** `@scope/pkg/sub` -> that package's `exports["./sub"]`, as a repo-relative tracked path. */
-function resolveWorkspaceSpecifier(
+export function resolveWorkspaceSpecifier(
   specifier: string,
   workspacePackages: ModuleStatisticsWorkspacePackageV1[],
   tracked: Set<string>

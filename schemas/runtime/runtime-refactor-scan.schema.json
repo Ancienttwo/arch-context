@@ -13,8 +13,10 @@
     "request",
     "trackedFileCount",
     "snapshot",
+    "snapshotDigest",
     "assessment",
     "proposedRecommendations",
+    "openRecommendations",
     "evidenceItems",
     "evidenceBindings",
     "suppressed",
@@ -56,6 +58,10 @@
     "snapshot": {
       "$ref": "#/$defs/moduleStatisticsSnapshot"
     },
+    "snapshotDigest": {
+      "$ref": "#/$defs/sha256",
+      "description": "Daemon-memory snapshot handle for recommendations accept, defer and reject. Pass this top-level digest to --snapshot-digest."
+    },
     "assessment": {
       "$ref": "#/$defs/refactorAssessment"
     },
@@ -67,6 +73,13 @@
       "items": {
         "$ref": "#/$defs/recommendationV3"
       }
+    },
+    "openRecommendations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/recommendationV3"
+      },
+      "description": "Current open refactor recommendations in the scan namespace and requested scope."
     },
     "evidenceItems": {
       "type": "array",
@@ -1839,6 +1852,11 @@
       "properties": {
         "schemaVersion": {
           "const": "archcontext.module-statistics/v1"
+        },
+        "scope": {
+          "$ref": "#/$defs/refactorScope",
+          "not": { "properties": { "kind": { "const": "repository" } } },
+          "description": "Present for statistics measured over the requested files and their direct import neighbors."
         },
         "repository": {
           "$ref": "#/$defs/repositoryIdentity"

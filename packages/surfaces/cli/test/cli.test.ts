@@ -3954,6 +3954,22 @@ describe("archctx CLI", () => {
       expect(missingValue.ok).toBe(false);
       expect(scans).toHaveLength(4);
 
+      const scanFlags = (...flags: string[]) => runCli("refactor", ["scan", ...flags], root, { runtimeClient: runtimeClient as any });
+      expect((await scanFlags("--node", "module.a", "--json")).ok).toBe(true);
+      expect(scans[4]).toEqual({ request: { schemaVersion: request.schemaVersion, scope: request.scope } });
+      expect((await scanFlags("--path", "src/z.ts", "--path", "./src/a.ts", "--path", "src/a.ts", "--import-node-limit", "7")).ok).toBe(true);
+      expect(scans[5]).toEqual({ request: { schemaVersion: request.schemaVersion, scope: { kind: "paths", paths: ["src/a.ts", "src/z.ts"] }, importNodeLimit: 7 } });
+      for (const flags of [
+        ["--node"], ["--node", ""], ["--node", "module.a", "--node", "module.b"], ["--path"],
+        ...["", "../src/a.ts", "/src/a.ts", "C:/src/a.ts"].map((path) => ["--path", path]),
+        ["--node", "module.a", "--path", "src/a.ts"],
+        ["--node", "module.a", "--request-json", JSON.stringify(request)],
+        ["--path", "src/a.ts", "--request-json", JSON.stringify(request)]
+      ]) {
+        expect(await scanFlags(...flags)).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID" } });
+      }
+      expect(scans).toHaveLength(6);
+
       const recorded = await runCli("refactor", [
         "record",
         "--assessment-digest", `sha256:${"b".repeat(64)}`,
@@ -3976,6 +3992,78 @@ describe("archctx CLI", () => {
       expect((unknownSubcommand as any).error.code).toBe("AC_SCHEMA_INVALID");
       expect(String((unknownSubcommand as any).error.message)).toContain("scan|record|verify");
     } finally {
+      removeTempRoot(root);
+    }
+  });
+
+  test("CLI refactor node scope includes child-owned files, imports and open recommendations", async () => {
+    const root = createInitializedGitRepo();
+    const parent = "capability.fixture-parent";
+    const api = "component.fixture-api";
+    const internal = "component.fixture-internal";
+    const ownerNodes = [api, internal];
+    mkdirSync(join(root, "feature"));
+    writeFileSync(join(root, "feature/api.ts"), 'import { internal } from "./internal"; export const api = () => internal();\n');
+    writeFileSync(join(root, "feature/internal.ts"), 'import { api } from "./api"; export const internal = () => api();\n');
+    for (const [id, include, parentId] of [[parent, "feature/**", undefined], [api, "feature/api.ts", parent], [internal, "feature/internal.ts", parent]] as const) {
+      writeFileSync(join(root, ".archcontext/model/nodes", `${id}.yaml`), JSON.stringify({
+        schemaVersion: "archcontext.node/v2",
+        id, kind: parentId ? "component" : "capability", name: id, status: "active", summary: "Scoped refactor fixture",
+        source: { include: [include] },
+        ...(parentId ? { parent: parentId } : {})
+      }));
+    }
+    commitProjectionFixture(root, "child-owned feature cycle");
+    const invocation = codeGraphCliInvocation("codegraph", root);
+    execFileSync(invocation.command, [...invocation.argsPrefix, "init", root], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+    const previousStateDir = process.env.ARCHCONTEXT_STATE_DIR;
+    process.env.ARCHCONTEXT_STATE_DIR = testStateRoot(root);
+    const daemon = await createStartedDaemon({
+      codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
+      codeGraphProviderFactory: () => new MockCodeGraphProvider(),
+      localStore: new TestLocalStore()
+    });
+    try {
+      const run = (...args: string[]) => runCli("refactor", [...args, "--json"], root, { runtimeClient: daemon });
+      const seed = await run("scan");
+      expect(seed.ok, JSON.stringify(seed)).toBe(true);
+      const data = seed.data as { recordCommand: string; proposedRecommendations: { recommendationId: string; subject: string }[] };
+      const cycleId = data.proposedRecommendations.find((record) => record.subject === `pair:${api}|${internal}`)!.recommendationId;
+      const recorded = await run(...data.recordCommand.split(" ").slice(2));
+      expect(recorded.ok, JSON.stringify(recorded)).toBe(true);
+
+      const scoped = await run("scan", "--node", parent);
+      expect(scoped.ok, JSON.stringify(scoped)).toBe(true);
+      expect(scoped.data).toMatchObject({
+        trackedFileCount: 2,
+        snapshot: {
+          scope: { kind: "node", nodeId: parent },
+          modules: expect.arrayContaining([
+            expect.objectContaining({ nodeId: parent, footprint: expect.objectContaining({ fileCount: 0 }) }),
+            ...ownerNodes.map((nodeId) => expect.objectContaining({ nodeId, footprint: expect.objectContaining({ fileCount: 1 }) }))
+          ]),
+          moduleDependencies: [
+            { fromNodeId: api, toNodeId: internal, distinctFileEdgeCount: 1 },
+            { fromNodeId: internal, toNodeId: api, distinctFileEdgeCount: 1 }
+          ]
+        },
+        assessment: { observations: [expect.objectContaining({ kind: "cycle", affectedNodeIds: ownerNodes })] },
+        proposedRecommendations: [],
+        openRecommendations: [expect.objectContaining({ recommendationId: cycleId, status: "open" })]
+      });
+      const rawScope = await run("scan", "--request-json", JSON.stringify({
+        schemaVersion: "archcontext.refactor-request/v1", scope: { kind: "node", nodeId: parent }
+      }));
+      expect(rawScope).toEqual(scoped);
+      const leaf = await run("scan", "--node", api);
+      expect(leaf.data).toMatchObject({
+        snapshot: { scope: { kind: "node", nodeId: api } },
+        assessment: { observations: [expect.objectContaining({ kind: "cycle", affectedNodeIds: ownerNodes })] }
+      });
+    } finally {
+      await daemon.stop();
+      if (previousStateDir === undefined) delete process.env.ARCHCONTEXT_STATE_DIR;
+      else process.env.ARCHCONTEXT_STATE_DIR = previousStateDir;
       removeTempRoot(root);
     }
   });
@@ -4112,6 +4200,19 @@ describe("archctx CLI", () => {
       expect(missingValue.ok).toBe(false);
       expect(recommendations).toHaveLength(3);
       expect(verifications).toHaveLength(2);
+
+      const snapshotDigest = `sha256:${"a".repeat(64)}`;
+      const decide = (command: string, ...flags: string[]) => run("recommendations", [command, "--id", "recommendation.x", "--reason", "reviewed", ...flags]);
+      for (const command of ["accept", "defer", "reject"]) {
+        expect((await decide(command, "--snapshot-digest", snapshotDigest)).ok).toBe(true);
+        expect(recommendations.at(-1)).toMatchObject({ command, snapshotDigest });
+        expect(recommendations.at(-1)).not.toHaveProperty("importNodeLimit");
+      }
+      for (const flags of [["--snapshot-digest"], ["--snapshot-digest", ""], ["--snapshot-digest", "bad"], ["--snapshot-digest", snapshotDigest, "--snapshot-digest", snapshotDigest]]) {
+        expect(await decide("accept", ...flags)).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID" } });
+      }
+      expect(await decide("waive", "--snapshot-digest", snapshotDigest)).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID" } });
+      expect(recommendations).toHaveLength(6);
     } finally {
       removeTempRoot(root);
     }

@@ -3356,6 +3356,12 @@ export function ancestorChain(id: string, parents: ReadonlyMap<string, string | 
   return chain;
 }
 
+/** The selected node and its descendants under the declared parent relation. */
+export function nodeSubtreeIds(nodes: readonly NativeNode[], nodeId: string): Set<string> {
+  const parents = new Map(nodes.map((node) => [node.id, node.parent]));
+  return new Set(nodes.filter((node) => ancestorChain(node.id, parents).has(nodeId)).map((node) => node.id));
+}
+
 export function matchesGlob(path: string, pattern: string): boolean {
   return globToRegExp(pattern).test(path);
 }
