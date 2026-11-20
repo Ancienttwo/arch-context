@@ -499,7 +499,7 @@ export interface AdrAppliesToValidation {
  * never fails this check. No ADR files, or ADRs without `appliesTo`, produce no errors.
  */
 export function validateAdrAppliesTo(files: readonly { path: string; body: string }[]): AdrAppliesToValidation {
-  const nodeIds = modelNodeIds(files);
+  const nodeIds = modelNodeIds(readModelNodeRecords(files));
   const errors: string[] = [];
   const referenceErrors: string[] = [];
   for (const file of files) {
@@ -568,19 +568,68 @@ export function manifestDecisionDiagnostics(files: readonly { path: string; body
   return ["manifest-decisions-unsupported: .archcontext/manifest.yaml content.decisions supports only docs/adr; run archctx manifest plan --id <changeset.id> --decisions docs/adr"];
 }
 
-/** Ids of `.archcontext/model/nodes/*`. Malformed node files are schema validation's to report. */
-function modelNodeIds(files: readonly { path: string; body: string }[]): Set<string> {
-  const nodeIds = new Set<string>();
-  for (const file of files) {
-    if (!file.path.startsWith(MODEL_NODE_PATH_PREFIX)) continue;
+/** Malformed node files are reported by schema validation. */
+function readModelNodeRecords(files: readonly { path: string; body: string }[]): { path: string; node: Record<string, Json> }[] {
+  return files.flatMap(({ path, body }) => {
+    if (!path.startsWith(MODEL_NODE_PATH_PREFIX)) return [];
     try {
-      const value = parseJsonOrStableYaml(file.body, file.path);
-      if (value && typeof value === "object" && !Array.isArray(value) && typeof value.id === "string") nodeIds.add(value.id);
+      const node = parseJsonOrStableYaml(body, path);
+      return isJsonRecord(node) ? [{ path, node }] : [];
     } catch {
-      // Malformed node files are reported by schema validation, not by this reference check.
+      return [];
+    }
+  });
+}
+
+function modelNodeIds(records: ReturnType<typeof readModelNodeRecords>): Set<string> {
+  return new Set(records.flatMap(({ node }) => typeof node.id === "string" ? [node.id] : []));
+}
+
+const NODE_ID_PATTERN = /^([a-z][a-z0-9]*(\.[a-z0-9][a-z0-9-]*)*::)?[a-z][a-z0-9]*(\.[a-z0-9][a-z0-9-]*)+$/;
+
+function dependencyNodeParents(records: ReturnType<typeof readModelNodeRecords>): Map<string, string | undefined> {
+  const parents = new Map<string, string | undefined>();
+  for (const { path, node } of records) {
+    // Only direct YAML children are loaded as nodes by the runtime evaluator.
+    if (!/^[^/]*\.ya?ml$/.test(path.slice(MODEL_NODE_PATH_PREFIX.length)) || node.schemaVersion !== "archcontext.node/v2") continue;
+    if (typeof node.id !== "string" || !NODE_ID_PATTERN.test(node.id)) continue;
+    parents.set(node.id, typeof node.parent === "string" ? node.parent : undefined);
+  }
+  return parents;
+}
+
+function readAllowedTargets(
+  value: Json, targets: string[], parents: ReadonlyMap<string, string | undefined>, path: string
+): { ids?: string[]; errors: string[]; referenceErrors: string[] } {
+  const ids = nonEmptyStrings(value);
+  if (!ids || new Set(ids).size !== ids.length || !ids.every(id => NODE_ID_PATTERN.test(id))) {
+    return { errors: [`${path}: rule.allowedTargets must be a non-empty list of unique node ids`], referenceErrors: [] };
+  }
+  const errors: string[] = [];
+  const referenceErrors: string[] = [];
+  for (const id of ids) {
+    if (!parents.has(id)) {
+      const error = `${path}: constraint rule.allowedTargets references unknown node ${id}`;
+      errors.push(error);
+      referenceErrors.push(error);
+    } else if (!isStrictDescendantOf(id, targets, parents)) {
+      errors.push(`${path}: rule.allowedTargets node ${id} must be a strict descendant of a rule.targets node`);
     }
   }
-  return nodeIds;
+  return { ids, errors, referenceErrors };
+}
+
+function isStrictDescendantOf(id: string, targets: string[], parents: ReadonlyMap<string, string | undefined>): boolean {
+  const visited = new Set([id]);
+  let matchesTarget = false;
+  let parent = parents.get(id);
+  while (parent !== undefined && parents.has(parent)) {
+    if (visited.has(parent)) return false;
+    visited.add(parent);
+    if (targets.includes(parent)) matchesTarget = true;
+    parent = parents.get(parent);
+  }
+  return matchesTarget;
 }
 
 const MODEL_CONSTRAINT_PATH_PREFIX = ".archcontext/model/constraints/";
@@ -615,6 +664,7 @@ export const CONSTRAINT_RULE_TYPES = [
 
 export interface DependencyConstraintRead {
   layerOrderErrors: string[];
+  allowedTargetErrors: string[];
   /** Well-formed dependency constraints; unsupported rule types emit warnings. */
   constraints: DependencyConstraintV1[];
   errors: string[];
@@ -631,16 +681,19 @@ export interface DependencyConstraintRead {
  * of the schema's four levels. The gate has two levels: `critical` blocks like `error` and `notice`
  * reports like `warning`. `allowedVia` is not enforced yet: the constraint is evaluated as if it
  * were absent, which can only report more violations, and a warning says so. A constraint with a
- * structural error is not returned; one whose ids merely dangle still is, and simply never matches
- * those ids.
+ * structural error or an invalid `allowedTargets` exemption is omitted. A dangling scope or target
+ * reference still produces an error and cannot match.
  */
 export function readDependencyConstraints(files: readonly { path: string; body: string }[]): DependencyConstraintRead {
-  const nodeIds = modelNodeIds(files);
+  const nodeRecords = readModelNodeRecords(files);
+  const nodeIds = modelNodeIds(nodeRecords);
+  const nodeParents = dependencyNodeParents(nodeRecords);
   const constraints: DependencyConstraintV1[] = [];
   const errors: string[] = [];
   const referenceErrors: string[] = [];
   const warnings: string[] = [];
   const layerOrderErrors: string[] = [];
+  const allowedTargetErrors: string[] = [];
   let layers: unknown;
   const manifest = files.find(file => file.path === ".archcontext/manifest.yaml");
   if (manifest) {
@@ -651,9 +704,7 @@ export function readDependencyConstraints(files: readonly { path: string; body: 
       if (isJsonRecord(value) && isJsonRecord(value.model)) layers = value.model.layers;
     } catch (error) { errors.push(`${manifest.path}: ${String(error)}`); }
   }
-  const layerNodes = files.filter(file => file.path.startsWith(".archcontext/model/nodes/")).flatMap(file => {
-    try { const value = parseJsonOrStableYaml(file.body, file.path); return isJsonRecord(value) ? [value] : []; } catch { return []; }
-  });
+  const layerNodes = nodeRecords.map(({ node }) => node);
   layerOrderErrors.push(...orderedLayerIssues(layers, layerNodes).map(issue => `.archcontext/manifest.yaml: ${issue}`));
   errors.push(...layerOrderErrors);
   const declaredIn = new Map<string, string>();
@@ -680,6 +731,12 @@ export function readDependencyConstraints(files: readonly { path: string; body: 
     const rule = isJsonRecord(value.rule) ? value.rule : undefined;
     if (typeof rule?.type !== "string" || !(CONSTRAINT_RULE_TYPES as readonly string[]).includes(rule.type)) {
       errors.push(`${file.path}: rule.type must be one of ${CONSTRAINT_RULE_TYPES.join(", ")}${rule?.type === undefined ? "" : ` (got ${JSON.stringify(rule.type)})`}`);
+      continue;
+    }
+    if (rule.type !== "forbid-dependency" && rule.allowedTargets !== undefined) {
+      const error = `${file.path}: rule.allowedTargets is only valid for forbid-dependency`;
+      errors.push(error);
+      allowedTargetErrors.push(error);
       continue;
     }
     if (rule.type !== "forbid-dependency" && rule.type !== "layer-direction") {
@@ -716,16 +773,27 @@ export function readDependencyConstraints(files: readonly { path: string; body: 
         referenceErrors.push(error);
       }
     }
+    let allowedTargets: string[] | undefined;
+    if (rule.allowedTargets !== undefined) {
+      const exemption = readAllowedTargets(rule.allowedTargets, targets ?? [], nodeParents, file.path);
+      errors.push(...exemption.errors);
+      allowedTargetErrors.push(...exemption.errors);
+      referenceErrors.push(...exemption.referenceErrors);
+      if (exemption.errors.length > 0) continue;
+      allowedTargets = exemption.ids;
+    }
     if (fileErrors.length > 0) continue;
     constraints.push({
       id: value.id as string,
       severity: severity!,
       scope: { nodes: scopeNodes ?? [] },
-      rule: rule.type === "layer-direction" ? { type: "layer-direction", layers: [...layers as string[]] } : { type: "forbid-dependency", targets: targets! },
+      rule: rule.type === "layer-direction"
+        ? { type: "layer-direction", layers: [...layers as string[]] }
+        : { type: "forbid-dependency", targets: targets!, ...(allowedTargets === undefined ? {} : { allowedTargets }) },
       rationale: typeof value.rationale === "string" ? value.rationale : ""
     });
   }
-  return { constraints: constraints.sort((left, right) => left.id.localeCompare(right.id)), errors, referenceErrors, warnings, layerOrderErrors };
+  return { constraints: constraints.sort((left, right) => left.id.localeCompare(right.id)), errors, referenceErrors, warnings, layerOrderErrors, allowedTargetErrors };
 }
 
 export interface ReviewPolicyRead {

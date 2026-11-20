@@ -378,6 +378,7 @@ export function validateModelFiles(input: ModelFile[]): ModelValidationResult {
     ...(referenceErrors.length > 0 ? { referenceErrors } : {}),
     ...(nodeSchemaErrors.length > 0 ? { nodeSchemaErrors } : {}),
     ...(constraints.layerOrderErrors.length > 0 ? { layerOrderErrors: constraints.layerOrderErrors } : {}),
+    ...(constraints.allowedTargetErrors.length > 0 ? { allowedTargetErrors: constraints.allowedTargetErrors } : {}),
     ...(warnings.length > 0 ? { warnings } : {}),
     modelDigest
   };
