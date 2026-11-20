@@ -1,7 +1,7 @@
 import { expect, spyOn, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -138,8 +138,13 @@ test("default flow check in a fresh linked worktree seeds its index from the bas
     expect(refreshCodeGraphBase(root)).toBe("published");
     git("worktree", "add", "-q", linked);
     const result = runFlowSelectorCheckCommand(linked);
-    expect(result).toMatchObject({ ok: true, data: { selectors: [{ status: "proven" }] } });
-    expect(lstatSync(join(linked, ".codegraph")).isDirectory()).toBe(true);
+    if (process.platform === "win32") {
+      expect(result).toMatchObject({ ok: false, error: { code: "AC_CODE_FACTS_UNAVAILABLE", reasonCode: "index-missing" } });
+      expect(existsSync(join(linked, ".codegraph"))).toBe(false);
+    } else {
+      expect(result).toMatchObject({ ok: true, data: { selectors: [{ status: "proven" }] } });
+      expect(lstatSync(join(linked, ".codegraph")).isDirectory()).toBe(true);
+    }
   } finally {
     Bun.gc(true);
     rmSync(linked, { recursive: true, force: true });
