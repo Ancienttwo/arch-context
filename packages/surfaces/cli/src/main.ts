@@ -9,7 +9,7 @@ import { isArchContextGeneratedProjectionPath } from "@archcontext/local-runtime
 import { localEgressStatus } from "@archcontext/local-runtime/egress";
 import { spawn, spawnSync } from "node:child_process";
 import { accessSync, closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, statSync } from "node:fs";
-import { dirname, join, parse, resolve } from "node:path";
+import { dirname, join, parse, posix, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { FailureError, NativeContextError, toEnvelope, ARCHCONTEXT_NODE_RANGE, ARCHCONTEXT_PRODUCT_VERSION, ARCHITECTURE_MAJOR_CHANGE_REASON_CODES, CALLER_PROVIDED_ATTESTATION_FIELDS, EXPLORER_VIEW_IDS, REFACTOR_REQUEST_SCHEMA_VERSION, archctxCapabilities, digestJson, errorEnvelope, failureEnvelope, knownFailure, normalizeFailureResult, unclassifiedFailure, isRepoRelativePosixPath, nodeVersionSatisfiesRange, okEnvelope, productVersionManifest, refactorRequestInvariantIssues, refactorVerificationRequestInvariantIssues, validateJsonSchema } from "@archcontext/contracts";
 import type { AcceptedArchitectureChangeReferenceV1, AgentJobV1, ArchctxCapabilitiesV1, ArchitectureMajorChangeReasonCode, ExplorerProjectionQueryV2, FailureEnvelope, Json, JsonEnvelope, RefactorRequestV1, RefactorVerificationRequestV1 } from "@archcontext/contracts";
@@ -225,14 +225,18 @@ export const CLI_COMMAND_FLAGS: Readonly<Record<string, CliFlagSpec & { subcomma
       show: { value: ["--id", "--import-node-limit", "--recommendation-id"], boolean: [] },
       list: { value: ["--status"], boolean: [] },
       acknowledge: { value: ["--actor", "--actor-kind", "--agent-job-id", "--evidence-digest", "--expected-worktree-digest", "--id", "--import-node-limit", "--now", "--reason", "--recommendation-id", "--source"], boolean: [] },
-      accept: { value: ["--actor", "--actor-kind", "--agent-job-id", "--evidence-digest", "--expected-worktree-digest", "--id", "--import-node-limit", "--now", "--reason", "--recommendation-id", "--source"], boolean: [] },
-      reject: { value: ["--actor", "--actor-kind", "--agent-job-id", "--evidence-digest", "--expected-worktree-digest", "--id", "--import-node-limit", "--now", "--reason", "--recommendation-id", "--source"], boolean: [] },
-      defer: { value: ["--actor", "--actor-kind", "--agent-job-id", "--evidence-digest", "--expected-worktree-digest", "--id", "--import-node-limit", "--now", "--reason", "--recommendation-id", "--source"], boolean: [] },
+      accept: { value: ["--actor", "--actor-kind", "--agent-job-id", "--evidence-digest", "--expected-worktree-digest", "--id", "--import-node-limit", "--now", "--reason", "--recommendation-id", "--snapshot-digest", "--source"], boolean: [] },
+      reject: { value: ["--actor", "--actor-kind", "--agent-job-id", "--evidence-digest", "--expected-worktree-digest", "--id", "--import-node-limit", "--now", "--reason", "--recommendation-id", "--snapshot-digest", "--source"], boolean: [] },
+      defer: { value: ["--actor", "--actor-kind", "--agent-job-id", "--evidence-digest", "--expected-worktree-digest", "--id", "--import-node-limit", "--now", "--reason", "--recommendation-id", "--snapshot-digest", "--source"], boolean: [] },
       waive: { value: ["--actor", "--actor-kind", "--agent-job-id", "--evidence-digest", "--expected-worktree-digest", "--id", "--import-node-limit", "--now", "--reason", "--recommendation-id", "--source"], boolean: [] },
       resolve: { value: ["--actor", "--actor-kind", "--agent-job-id", "--evidence-digest", "--expected-worktree-digest", "--id", "--import-node-limit", "--now", "--reason", "--recommendation-id", "--source"], boolean: [] }
     }
   },
-  "refactor": { value: ["--assessment-digest", "--expected-worktree-digest", "--import-node-limit", "--request-json"], boolean: ["--selection"] },
+  "refactor": {
+    value: ["--assessment-digest", "--expected-worktree-digest", "--import-node-limit", "--request-json"],
+    boolean: ["--selection"],
+    subcommands: { scan: { value: ["--import-node-limit", "--node", "--path", "--request-json"], boolean: [] } }
+  },
   "repo": { value: ["--name", "--repository-id", "--root"], boolean: [] },
   "resolve": { value: ["--path", "--paths-from"], boolean: [] },
   "impact": { value: ["--base", "--head", "--depth", "--paths-from"], boolean: [] },
@@ -433,6 +437,22 @@ function refactorFlagValueAt(args: string[], index: number, flag: string): strin
   const value = args[index + 1];
   if (value === undefined || value.startsWith("--")) throw new RefactorFlagError(`refactor ${flag} requires a value`);
   return value;
+}
+
+function refactorScanScopeFlags(args: string[], raw: string | undefined): RefactorRequestV1["scope"] {
+  const nodeId = refactorFlagValue(args, "--node");
+  const paths = args.flatMap((arg, index) => arg === "--path" ? [refactorFlagValueAt(args, index, arg)] : []);
+  if (args.lastIndexOf("--node") !== args.indexOf("--node")
+    || (nodeId !== undefined && paths.length > 0)
+    || (raw !== undefined && (nodeId !== undefined || paths.length > 0))) {
+    throw new RefactorFlagError("refactor scan accepts one --node, repeatable --path, or --request-json");
+  }
+  if (nodeId !== undefined) return { kind: "node", nodeId };
+  if (paths.length === 0) return { kind: "repository" };
+  if (paths.some((path) => !isRepoRelativePosixPath(path) || !path.trim() || /^[A-Za-z]:/.test(path) || posix.normalize(path) === ".")) {
+    throw new RefactorFlagError("refactor scan --path requires a repo-relative file path");
+  }
+  return { kind: "paths", paths: [...new Set(paths.map((path) => posix.normalize(path).replace(/\/$/, "")))].sort() };
 }
 
 async function* stdinLines(): AsyncIterable<string> {
@@ -933,6 +953,19 @@ function cliHelpEnvelope(command: string, args: string[]): JsonEnvelope {
       description: "Edit-time ownership and human citation debt for changed paths. Dependency, flow and practice checks are explicit coverage gaps reserved for complete; no source byte stamp is debt.",
       writes: "none; no daemon, runtime state, rendering or CodeGraph sync"
     });
+  case "refactor":
+    if (subcommand === "scan") return okEnvelope("help", {
+      usage: "archctx refactor scan [--node <nodeId> | --path <repo-relative-file> ... | --request-json <request>] [--import-node-limit <n>] [--json]",
+      description: "Measure structure and return fresh candidates alongside open refactor recommendations. Node scans include descendants. Node and path scans read selected files and their direct import neighbors.",
+      snapshotDigest: "Pass data.snapshotDigest to recommendations accept, defer or reject while the snapshot is available in the daemon."
+    });
+    break;
+  case "recommendations":
+    if (subcommand === "accept" || subcommand === "defer" || subcommand === "reject") return okEnvelope("help", {
+      usage: `archctx recommendations ${subcommand} --id <recommendationId> --reason <text> [--snapshot-digest <sha256:digest>]`,
+      snapshotDigest: "The top-level digest from refactor scan. For a fresh candidate, reuse the scan scope and import limit without re-measuring."
+    });
+    break;
   case "deps":
     return okEnvelope("deps", CLI_DEPS_HELP as unknown as Json);
   case "constraints":
@@ -1487,7 +1520,12 @@ async function runRecommendationsCommand(args: string[], cwd: string, daemon: Ru
   if (!reason) return errorEnvelope(`recommendations.${subcommand}`, "AC_SCHEMA_INVALID", `recommendations ${subcommand} requires --reason`);
   const importNodeLimit = recommendationsImportNodeLimit(args);
   if (importNodeLimit === null) return recommendationsImportNodeLimitError(subcommand);
+  const snapshotDigest = readFlag(args, "--snapshot-digest");
+  if (snapshotDigest !== undefined && (args.lastIndexOf("--snapshot-digest") !== args.indexOf("--snapshot-digest") || !/^sha256:[a-f0-9]{64}$/.test(snapshotDigest))) {
+    return errorEnvelope(`recommendations.${subcommand}`, "AC_SCHEMA_INVALID", "--snapshot-digest requires one sha256:<64-hex> value");
+  }
   const input: RuntimeRecommendationInput = {
+    ...(snapshotDigest === undefined ? {} : { snapshotDigest }),
     command: subcommand as RuntimeRecommendationInput["command"],
     recommendationId,
     reason,
@@ -1549,9 +1587,10 @@ async function runRefactorCommand(args: string[], cwd: string, runtime: () => Pr
     if (subcommand === "scan") {
       const raw = refactorFlagValue(args, "--request-json");
       const limitRaw = refactorFlagValue(args, "--import-node-limit");
+      const scope = refactorScanScopeFlags(args, raw);
       // No request is the repository-scope default, which is what the daemon already applies.
-      if (raw === undefined && limitRaw === undefined) return (await runtime()).refactorScan(cwd, {});
-      let request: unknown = { schemaVersion: REFACTOR_REQUEST_SCHEMA_VERSION, scope: { kind: "repository" } };
+      if (scope.kind === "repository" && raw === undefined && limitRaw === undefined) return (await runtime()).refactorScan(cwd, {});
+      let request: unknown = { schemaVersion: REFACTOR_REQUEST_SCHEMA_VERSION, scope };
       if (raw !== undefined) {
         try {
           request = JSON.parse(raw);

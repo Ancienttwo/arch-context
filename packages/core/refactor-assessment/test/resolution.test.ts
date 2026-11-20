@@ -5,6 +5,7 @@ import {
   REFACTOR_OUTCOME_OPERATORS,
   REFACTOR_RESOLUTION_EVIDENCE_SCHEMA_VERSION,
   refactorResolutionEvidenceInvariantIssues,
+  refactorSnapshotScopeDigest,
   type ModuleStatisticsSnapshotV1,
   type RecommendationV3,
   type RefactorKillListEntryV1,
@@ -501,6 +502,23 @@ describe("evaluateResolution binds the kill-list inputs to the after-snapshot", 
 
     expect(evidence.disposition).toBe("stale");
     expect(residualCodes(evidence)).toContain("after-tracked-files-mismatch");
+  });
+
+  test("a scoped baseline cannot resolve against a repository measurement, even with a satisfied outcome", () => {
+    const scope = { kind: "node", nodeId: "component.a" } as const;
+    const before = makeSnapshot({ scope, importEdges: CYCLE_EDGES });
+    const recommendation = proposalRecommendation({
+      targetOutcomes: [outcome({ metric: "repositorySummary.crossModuleCycleCount" })],
+      baselineSnapshotDigest: before.snapshotDigest
+    });
+    recommendation.extensions = { baselineScopeDigest: refactorSnapshotScopeDigest(scope)! };
+    for (const beforeSnapshot of [before, undefined]) {
+      const evidence = evaluate({ recommendation, beforeSnapshot, beforeSnapshotDigest: before.snapshotDigest });
+      expect(evidence.disposition).toBe("stale");
+      expect(residualCodes(evidence)).toEqual(["baseline-snapshot-scope-mismatch"]);
+      expect(evidence.observedOutcomes).toEqual([expect.objectContaining({ satisfied: true, direction: "unknown" })]);
+      expect(refactorResolutionEvidenceInvariantIssues(evidence)).toEqual([]);
+    }
   });
 
   test("a baseline body that failed its own invariants is a warning residual and an unknown direction", () => {

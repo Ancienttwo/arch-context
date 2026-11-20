@@ -65,7 +65,7 @@ import {
   type ArchitectureLedgerGraphState
 } from "@archcontext/core/architecture-ledger";
 import { type RegisteredRefactorAssessmentV1 } from "./refactor-recording";
-import { evaluateReviewDependencyConstraints } from "./refactor-scan";
+import { evaluateReviewDependencyConstraints, refactorWorktreeDigests } from "./refactor-scan";
 import { type RuntimeRefactorVerifyInput } from "./refactor-verify";
 import { type CommandInvestigationRunnerTransport } from "@archcontext/core/agent-orchestrator";
 import { loadPracticeCatalog, type PracticeCatalogCommandInput } from "@archcontext/core/practice-catalog";
@@ -383,7 +383,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
       clock: this.clock,
       architectureLedgerScope: (root) => this.architectureLedgerScope(root),
       architectureLedgerGitScope: (root) => this.architectureLedgerGitScope(root),
-      refactorScanGitScope: (root) => this.architectureLedgerGitScopeWithFiles(root),
+      refactorScanGitScope: (root, includeStructuralDigest) => this.architectureLedgerGitScopeWithFiles(root, includeStructuralDigest),
       assertFreshWorktree: (root, digest, command) => this.assertFreshWorktree(root, digest, command),
       shortDigest,
       appendArchitectureEventsWithFeed: (root, input) => this.appendArchitectureEventsWithFeed(root, input),
@@ -1095,10 +1095,15 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   }
 
   /** The live scope plus the Git-visible files its `worktreeDigest` was computed over. */
-  private async architectureLedgerGitScopeWithFiles(root: string): Promise<{ scope: ArchitectureLedgerScope; sourceFiles: string[] }> {
+  private async architectureLedgerGitScopeWithFiles(root: string, includeStructuralDigest = false): Promise<{
+    scope: ArchitectureLedgerScope; sourceFiles: string[]; structuralWorktreeDigest?: string;
+  }> {
     const session = await this.openSession(root);
     const paths = runtimeStatePaths(root);
     const sourceFiles = listGitVisibleFiles(root);
+    const [worktreeDigest, structuralWorktreeDigest] = includeStructuralDigest
+      ? refactorWorktreeDigests(root, sourceFiles)
+      : [computeWorktreeDigest(root, sourceFiles)];
     const scope: ArchitectureLedgerScope = {
       repository: {
         repositoryId: session.workspace.repositoryId,
@@ -1109,10 +1114,10 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
         storageWorkspaceId: paths.storageWorkspaceId,
         branch: readCurrentBranch(root),
         headSha: session.workspace.headSha,
-        worktreeDigest: computeWorktreeDigest(root, sourceFiles)
+        worktreeDigest
       }
     };
-    return { scope, sourceFiles };
+    return { scope, sourceFiles, structuralWorktreeDigest };
   }
 
   private assertFreshWorktree(root: string, expectedWorktreeDigest: string | undefined, command: string, domain: "ledger" | "refactor" = "refactor"): void {

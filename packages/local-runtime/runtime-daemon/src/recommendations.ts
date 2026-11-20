@@ -25,6 +25,7 @@ import {
   RefactorAssessmentRegistry,
   RefactorRunTooLargeError,
   buildRefactorRecordEvent,
+  latestRecommendationsById,
   refactorClassifierRulesetDigest,
   refactorRunTooLargeMessage,
   refactorProposalAuthorPairIssues,
@@ -57,11 +58,11 @@ import {
 } from "./refactor-verify";
 import {
   digestJson,
-  errorEnvelope,
   okEnvelope,
   type ArchContextErrorCode,
   type ArchitectureActorKind,
   type ArchitectureEventV1,
+  type ArchitectureWorktreeIdentityV1,
   type EvidenceBindingV1,
   type EvidenceItemV2,
   type EvidenceStateAtCursorV1,
@@ -103,7 +104,11 @@ interface RecommendationsContext {
   architectureLedgerScope(root: string): Promise<ArchitectureLedgerScope>;
   architectureLedgerGitScope(root: string): Promise<ArchitectureLedgerScope>;
   /** `architectureLedgerGitScope` plus the Git-visible files its `worktreeDigest` was computed over. */
-  refactorScanGitScope(root: string): Promise<{ scope: ArchitectureLedgerScope; sourceFiles: readonly string[] }>;
+  refactorScanGitScope(root: string, includeStructuralDigest?: boolean): Promise<{
+    scope: ArchitectureLedgerScope;
+    sourceFiles: readonly string[];
+    structuralWorktreeDigest?: string;
+  }>;
   assertFreshWorktree(root: string, expectedWorktreeDigest: string | undefined, command: string): void;
   shortDigest(digest: string): string;
   appendArchitectureEventsWithFeed(root: string, input: ArchitectureLedgerAppendInput): Promise<ArchitectureLedgerAppendResult>;
@@ -116,6 +121,13 @@ interface RecommendationsContext {
     input: { writes: { path: string; expectedHash: string; body: string }[]; events: ArchitectureEventV1[] }
   ): Promise<{ changeSetId: string; journalId: string; append: ArchitectureLedgerAppendResult }>;
   localStore: Pick<RuntimeLocalStore, "replayArchitectureLedger" | "resolveArchitectureLedgerScope">;
+}
+
+interface RefactorLedgerState {
+  gitScope: ArchitectureLedgerScope;
+  storageScope: ArchitectureLedgerScope;
+  replay: Awaited<ReturnType<RecommendationsContext["localStore"]["replayArchitectureLedger"]>>;
+  artifacts: ReturnType<typeof recommendationArtifactsFromEvents>;
 }
 
 export class RecommendationsService {
@@ -160,6 +172,12 @@ export class RecommendationsService {
     if (input.importNodeLimit !== undefined && !(Number.isInteger(input.importNodeLimit) && input.importNodeLimit >= 1)) {
       return publicFailureEnvelope(`recommendations.${command}`, "AC_SCHEMA_INVALID", "recommendations-input-invalid", {});
     }
+    if (input.snapshotDigest !== undefined && (
+      typeof input.snapshotDigest !== "string" || !/^sha256:[a-f0-9]{64}$/.test(input.snapshotDigest)
+      || !["accept", "defer", "reject"].includes(command)
+    )) {
+      return publicFailureEnvelope(`recommendations.${command}`, "AC_SCHEMA_INVALID", "recommendations-input-invalid", {});
+    }
     if (command === "metrics") return readMetrics();
     if (command === "list") return this.listRecommendations(repositoryRoot, input.status);
     if (command === "show") {
@@ -187,9 +205,11 @@ export class RecommendationsService {
         }
       }
       const now = input.now ?? this.context.clock();
-      const scope = await this.context.architectureLedgerScope(repositoryRoot);
-      const replay = await this.context.localStore.replayArchitectureLedger({ ...scope, mode: "genesis" });
-      const artifacts = recommendationArtifactsFromEvents(replay.events);
+      const cached = input.snapshotDigest === undefined ? undefined : await this.cachedDecisionSnapshot(repositoryRoot, input, command);
+      if (cached && "error" in cached) return cached.error;
+      const scope = cached?.storageScope ?? await this.context.architectureLedgerScope(repositoryRoot);
+      const replay = cached?.replay ?? await this.context.localStore.replayArchitectureLedger({ ...scope, mode: "genesis" });
+      const artifacts = cached?.artifacts ?? recommendationArtifactsFromEvents(replay.events);
       const ledgerCurrent = latestRecommendationById(artifacts.recommendations, input.recommendationId!);
       if (!ledgerCurrent) {
         // `resolve` closes a record against `refactor verify` evidence bound to that record, so an
@@ -202,7 +222,7 @@ export class RecommendationsService {
         }
         const unapproved = refactorDecisionApprovalError(command, input);
         if (unapproved) return unapproved;
-        return this.decideScanCandidate(root, repositoryRoot, input, command, now);
+        return this.decideScanCandidate(repositoryRoot, input, command, now, cached);
       }
       // A refactor decision is a Git write: it needs the explicit approval, and it transitions from
       // the status the checkout states, not from whatever the ledger last recorded (ADR-0046).
@@ -243,6 +263,10 @@ export class RecommendationsService {
           return publicFailureEnvelope(`recommendations.${command}`, "AC_REFACTOR_STALE", "evidence-head-drift", {recommendationId: current.recommendationId, evidenceDigest: input.evidenceDigest!, expectedHeadSha: gatedWorktree.headSha, actualHeadSha: preAppendScope.worktree.headSha, expectedWorktreeDigest: gatedWorktree.worktreeDigest, actualWorktreeDigest: preAppendScope.worktree.worktreeDigest, changedFields: moved, observation: "before-resolve-append"});
         }
       }
+      if (cached) {
+        const moved = await this.movedScanWorktree(repositoryRoot, cached.gitScope.worktree, cached.registered.decisionSnapshot?.structuralWorktreeDigest);
+        if (moved.length > 0) return recommendationSnapshotChanged(command, current.recommendationId, moved);
+      }
       let append: ArchitectureLedgerAppendResult;
       let decisionFile: string | null = null;
       if (decisions) {
@@ -252,7 +276,7 @@ export class RecommendationsService {
           command,
           input,
           now,
-          headSha: (gatedWorktree ?? (await this.context.architectureLedgerGitScope(repositoryRoot)).worktree).headSha,
+          headSha: (cached?.gitScope.worktree ?? gatedWorktree ?? (await this.context.architectureLedgerGitScope(repositoryRoot)).worktree).headSha,
           events: [event]
         });
         if ("error" in written) return written.error;
@@ -274,60 +298,90 @@ export class RecommendationsService {
     });
   }
 
+  private async cachedDecisionSnapshot(
+    repositoryRoot: string,
+    input: RuntimeRecommendationInput,
+    command: RecommendationFeedbackAction
+  ): Promise<(RefactorLedgerState & { registered: RegisteredRefactorAssessmentV1 }) | { error: JsonEnvelope }> {
+    const recommendationId = input.recommendationId!;
+    const registered = this.refactorAssessments.getBySnapshotDigest(input.snapshotDigest!);
+    if (!registered?.decisionSnapshot) return { error: recommendationSnapshotChanged(command, recommendationId, []) };
+    const { scope: gitScope, structuralWorktreeDigest } = await this.context.refactorScanGitScope(repositoryRoot, true);
+    if (registered.snapshot.repository.repositoryId !== gitScope.repository.repositoryId
+      || registered.snapshot.worktree.workspaceId !== gitScope.worktree.workspaceId) {
+      return { error: recommendationSnapshotChanged(command, recommendationId, []) };
+    }
+    const moved = movedWorktreeIdentityFields(
+      { headSha: registered.headSha, worktreeDigest: registered.decisionSnapshot.structuralWorktreeDigest },
+      { headSha: gitScope.worktree.headSha, worktreeDigest: structuralWorktreeDigest! }
+    );
+    if (moved.length > 0) return { error: recommendationSnapshotChanged(command, recommendationId, moved) };
+    if (input.importNodeLimit !== undefined && input.importNodeLimit !== registered.snapshot.codeFacts.edgeLimit) {
+      return { error: publicFailureEnvelope(`recommendations.${command}`, "AC_SCHEMA_INVALID", "recommendations-input-invalid", {}) };
+    }
+    if (!registered.decisionSnapshot.recommendationIds.has(recommendationId)) {
+      return { error: recommendationNotFound(command, recommendationId, "recorded-or-scanned") };
+    }
+    return { registered, ...await this.readRefactorLedger(gitScope) };
+  }
+
+  private async movedScanWorktree(
+    root: string,
+    captured: ArchitectureWorktreeIdentityV1,
+    structuralWorktreeDigest?: string
+  ): Promise<string[]> {
+    const captureStructuralDigest = structuralWorktreeDigest !== undefined;
+    const { scope: live, structuralWorktreeDigest: liveStructuralDigest } = await this.context.refactorScanGitScope(root, captureStructuralDigest);
+    const moved = movedWorktreeIdentityFields(captured, live.worktree);
+    if (!moved.includes("worktreeDigest") && captureStructuralDigest && liveStructuralDigest !== structuralWorktreeDigest) {
+      moved.push("worktreeDigest");
+    }
+    return moved;
+  }
+
   /**
-   * Decides an id the ledger does not hold yet: a candidate of the repository scan at the tree
-   * that is here now.
-   *
-   * A decision is an opinion about one observation identity, and `recommendationId` is derived
-   * from that identity alone (`fingerprint` plus `regressesFrom`), never from a worktree digest.
-   * So the scan is re-run here under the writer instead of trusting an earlier caller's snapshot,
-   * and the candidate is recorded through the same `buildRefactorRecordEvent` path `refactor
-   * record` uses, then decided — both events in one append, one transaction. A later `refactor
-   * record` of the same observation re-derives the same id and is suppressed as an active
-   * duplicate, so nothing is recorded twice.
-   *
-   * Recording is the whole scan run, exactly as `refactor record` would write it: a run is the
-   * unit the ledger's run identity, output digest and evidence bindings are computed over, and
-   * recording a subset of it would persist a run whose digests describe records it never wrote.
-   *
-   * The scan reads at `input.importNodeLimit`, so a candidate from `refactor scan
-   * --import-node-limit <n>` is found, and recorded under the same `requestId`, with the same limit.
+   * Materializes the full recommendation run and decides one candidate in a single ChangeSet.
+   * An explicit snapshot supplies the measured assessment. Without one, the repository is
+   * measured at its current state with the caller's import-node limit.
    */
   private async decideScanCandidate(
-    root: string,
     repositoryRoot: string,
     input: RuntimeRecommendationInput,
     command: Exclude<RecommendationFeedbackAction, "resolve">,
-    now: string
+    now: string,
+    cached?: RefactorLedgerState & { registered: RegisteredRefactorAssessmentV1 }
   ): Promise<JsonEnvelope> {
     const surface = `recommendations.${command}`;
     const recommendationId = input.recommendationId!;
-    const measured = await this.measureRepository(
-      repositoryRoot,
-      repositoryRefactorRequest(input.importNodeLimit),
-      `recommendations ${command}`,
-      recommendationId
-    );
-    if (!measured.ok) {
-      return publicFailureEnvelope(surface, measured.code, measured.reasonCode!, measured.details ?? {}, measured);
-    }
-    const { gitScope, storageScope, replay, artifacts, decisions, planningDecisions, result } = measured;
-    const gitDecision = decisions.byId.get(recommendationId);
-    if (!result.proposedRecommendations.some((candidate) => candidate.recommendationId === recommendationId)) {
-      if (gitDecision) {
-        return publicFailureEnvelope(surface, "AC_REFACTOR_STALE", "git-decision-subject-not-observed", {recommendationId});
+    let state: RefactorLedgerState & { registered: RegisteredRefactorAssessmentV1; decisions: RefactorDecisionSetV1 };
+    if (cached) {
+      try {
+        state = { ...cached, decisions: readRefactorDecisionSet(repositoryRoot) };
+      } catch (error) {
+        return refactorScanErrorEnvelope(surface, error);
       }
-      return recommendationNotFound(command, recommendationId, "recorded-or-scanned");
+    } else {
+      const measured = await this.measureRepository(repositoryRoot, repositoryRefactorRequest(input.importNodeLimit), { materializeRecommendationId: recommendationId });
+      if (!measured.ok) {
+        return publicFailureEnvelope(surface, measured.code, measured.reasonCode!, measured.details ?? {}, measured);
+      }
+      if (!measured.result.proposedRecommendations.some((candidate) => candidate.recommendationId === recommendationId)) {
+        if (measured.decisions.byId.has(recommendationId)) {
+          return publicFailureEnvelope(surface, "AC_REFACTOR_STALE", "git-decision-subject-not-observed", {recommendationId});
+        }
+        return recommendationNotFound(command, recommendationId, "recorded-or-scanned");
+      }
+      state = { ...measured, registered: registeredAssessment(measured.result, measured.gitScope.worktree) };
     }
-    const registered: RegisteredRefactorAssessmentV1 = {
-      snapshot: result.snapshot,
-      assessment: result.assessment,
-      namespace: result.namespace,
-      headSha: gitScope.worktree.headSha,
-      worktreeDigest: gitScope.worktree.worktreeDigest
-    };
-    const scanIssues = refactorScanInvariantIssues({ snapshot: registered.snapshot, assessment: registered.assessment });
+    const { gitScope, storageScope, replay, artifacts, decisions, registered } = state;
+    const gitDecision = decisions.byId.get(recommendationId);
+    const planningDecisions = gitDecision ? refactorDecisionSetWithout(decisions, recommendationId) : decisions;
+    const scanIssues = refactorScanInvariantIssues(registered);
     if (scanIssues.length > 0) return publicFailureEnvelope(surface, "AC_SCHEMA_INVALID", "recommendations-input-invalid", {});
+    if (registered.proposal) {
+      const authorIssues = refactorProposalAuthorPairIssues(registered.proposal.authoredBy);
+      if (authorIssues.length > 0) return publicFailureEnvelope(surface, "AC_REFACTOR_PROPOSAL_UNAUTHORED", "refactor-proposal-unauthored", {issueCount: authorIssues.length});
+    }
     let built: ReturnType<typeof buildRefactorRecordEvent>;
     try {
       built = buildRefactorRecordEvent({
@@ -367,11 +421,8 @@ export class RecommendationsService {
     if ("error" in decision) return decision.error;
     const { next, feedback, event } = decision;
     // Same last look `refactor record` takes: the record binds the measurement to this tree.
-    const preAppendScope = await this.context.architectureLedgerGitScope(repositoryRoot);
-    const moved = movedWorktreeIdentityFields(gitScope.worktree, preAppendScope.worktree);
-    if (moved.length > 0) {
-      return publicFailureEnvelope(surface, "AC_REFACTOR_STALE", "recommendation-snapshot-changed", {recommendationId, changedFields: moved});
-    }
+    const moved = await this.movedScanWorktree(repositoryRoot, gitScope.worktree, registered.decisionSnapshot?.structuralWorktreeDigest);
+    if (moved.length > 0) return recommendationSnapshotChanged(command, recommendationId, moved);
     const written = await this.writeRefactorDecision(repositoryRoot, {
       namespace: decisions.namespace,
       next: next as RecommendationV3,
@@ -398,7 +449,7 @@ export class RecommendationsService {
       append,
       implicitRecord: {
         schemaVersion: "archcontext.runtime-recommendation-implicit-record/v1",
-        assessmentDigest: result.assessment.assessmentDigest,
+        assessmentDigest: registered.assessment.assessmentDigest,
         runId: built.plan.run.runId,
         headSha: gitScope.worktree.headSha,
         worktreeDigest: gitScope.worktree.worktreeDigest,
@@ -519,7 +570,7 @@ export class RecommendationsService {
         worktree: null
       });
     }
-    const measured = await this.measureRepository(repositoryRoot, repositoryRefactorRequest(importNodeLimit), "recommendations show");
+    const measured = await this.measureRepository(repositoryRoot, repositoryRefactorRequest(importNodeLimit));
     if (!measured.ok) {
       return publicFailureEnvelope("recommendations.show", measured.code, measured.reasonCode!, measured.details ?? {}, measured);
     }
@@ -718,50 +769,38 @@ export class RecommendationsService {
     return { next, feedback, event };
   }
 
-  /**
-   * One repository measurement at the tree that is here now, shared by `refactor scan` and the
-   * scan-candidate decision. Read-only: nothing is appended and nothing is registered here.
-   *
-   * Two different scopes, deliberately. `gitScope` is the tree as it is right now and is the only
-   * identity `refactor record` will accept, because that is the authority its freshness check
-   * reads. `storageScope` is where the ledger keeps this workspace's events, anchored to the last
-   * event's identity, and is the only key a replay can find them under.
-   */
+  /** Resolve the live Git scope to the ledger's existing storage partition before replay. */
+  private async readRefactorLedger(gitScope: ArchitectureLedgerScope): Promise<RefactorLedgerState> {
+    const storageScope = await this.context.localStore.resolveArchitectureLedgerScope(gitScope);
+    const replay = await this.context.localStore.replayArchitectureLedger({ ...storageScope, mode: "genesis" });
+    return { gitScope, storageScope, replay, artifacts: recommendationArtifactsFromEvents(replay.events) };
+  }
+
+  /** Measures the current tree and checks it again before the result can enter the registry. */
   private async measureRepository(
     repositoryRoot: string,
     request: RefactorRequestV1,
-    label: string,
-    materializeRecommendationId?: string
+    options: { materializeRecommendationId?: string; captureStructuralSnapshot?: boolean } = {}
   ): Promise<
-    | {
+    | (RefactorLedgerState & {
       ok: true;
-      gitScope: ArchitectureLedgerScope;
-      storageScope: ArchitectureLedgerScope;
-      replay: Awaited<ReturnType<RecommendationsContext["localStore"]["replayArchitectureLedger"]>>;
-      artifacts: ReturnType<typeof recommendationArtifactsFromEvents>;
       decisions: RefactorDecisionSetV1;
-      /**
-       * The set the scan was planned with: `decisions`, or `decisions` without the one Git
-       * decision being materialized, so that decided generation is planned as a record again.
-       */
-      planningDecisions: RefactorDecisionSetV1;
+      structuralWorktreeDigest?: string;
       result: RefactorScanResultV1;
-    }
+    })
     | { ok: false; code: ArchContextErrorCode; message: string; reasonCode?: string; details?: Record<string, Json>; action?: string; severity?: "notice" | "warning" | "error" | "critical"; retryable?: boolean }
   > {
-    const { scope: gitScope, sourceFiles } = await this.context.refactorScanGitScope(repositoryRoot);
-    const storageScope = await this.context.localStore.resolveArchitectureLedgerScope(gitScope);
-    const replay = await this.context.localStore.replayArchitectureLedger({ ...storageScope, mode: "genesis" });
-    const artifacts = recommendationArtifactsFromEvents(replay.events);
+    const { materializeRecommendationId, captureStructuralSnapshot } = options;
+    const { scope: gitScope, sourceFiles, structuralWorktreeDigest } = await this.context.refactorScanGitScope(repositoryRoot, captureStructuralSnapshot);
+    const ledger = await this.readRefactorLedger(gitScope);
     let result: RefactorScanResultV1;
     let decisions: RefactorDecisionSetV1;
-    let planningDecisions: RefactorDecisionSetV1;
     try {
       decisions = readRefactorDecisionSet(repositoryRoot);
       // A decided generation this ledger never recorded is suppressed by its own Git decision.
       // Planning without that one decision materializes exactly that generation again: its id is
       // derived from fingerprint and `regressesFrom`, so the planned record is the same generation.
-      planningDecisions = materializeRecommendationId !== undefined && decisions.byId.has(materializeRecommendationId)
+      const planningDecisions = materializeRecommendationId !== undefined && decisions.byId.has(materializeRecommendationId)
         ? refactorDecisionSetWithout(decisions, materializeRecommendationId)
         : decisions;
       result = runRefactorScan({
@@ -770,7 +809,7 @@ export class RecommendationsService {
         repository: gitScope.repository,
         worktree: gitScope.worktree,
         sourceFiles,
-        previousRecommendations: artifacts.recommendations,
+        previousRecommendations: ledger.artifacts.recommendations,
         decisions: planningDecisions,
         catalogDigest: refactorClassifierRulesetDigest(RECOMMENDATION_SCHEDULER_ENGINE_VERSION)
       });
@@ -781,8 +820,7 @@ export class RecommendationsService {
     // Every input above was read after `gitScope` was captured. If the tree moved while it was
     // being read, the measurement belongs to no single state, so nothing is published and
     // nothing is registered: `refactor record` must never be handed a mixed-state assessment.
-    const liveScope = await this.context.architectureLedgerGitScope(repositoryRoot);
-    const movedDuringScan = movedWorktreeIdentityFields(gitScope.worktree, liveScope.worktree);
+    const movedDuringScan = await this.movedScanWorktree(repositoryRoot, gitScope.worktree, structuralWorktreeDigest);
     if (movedDuringScan.length > 0) {
       return {
         ok: false,
@@ -792,7 +830,7 @@ export class RecommendationsService {
         details: {changedFields: movedDuringScan}
       };
     }
-    return { ok: true, gitScope, storageScope, replay, artifacts, decisions, planningDecisions, result };
+    return { ok: true, ...ledger, decisions, structuralWorktreeDigest, result };
   }
 
   /**
@@ -801,10 +839,8 @@ export class RecommendationsService {
    *
    * Read-only and clock-free: no event is appended, and both `createdAt` fields come from the
    * HEAD committer date, so two scans at the same HEAD return byte-identical envelopes. The
-   * proposed recommendations are a preview of what `refactor record` would write; `record`
-   * re-plans under the daemon clock and persists them. A proposed `recommendationId` is the id
-   * the record will carry, so `recommendations accept|defer|reject|acknowledge|waive --id` can
-   * decide a candidate directly: the daemon re-scans, records and decides in one append.
+   * proposed recommendations preview the next record. A decision with the returned snapshot
+   * digest can record that measurement and decide its candidate in one append.
    */
   async refactorScan(root: string, rawInput: RuntimeRefactorScanInput = {}): Promise<JsonEnvelope> {
     try { return publicOperationResult("refactorScan", await this.refactorScanUnchecked(root, rawInput)) as JsonEnvelope; }
@@ -822,17 +858,27 @@ export class RecommendationsService {
     }
     const repositoryRoot = findRepositoryRoot(root);
     const request = input.request ?? REPOSITORY_REFACTOR_REQUEST;
-    const measured = await this.measureRepository(repositoryRoot, request, "refactor scan");
+    const measured = await this.measureRepository(repositoryRoot, request, { captureStructuralSnapshot: true });
     if (!measured.ok) return publicFailureEnvelope("refactor.scan", measured.code, measured.reasonCode!, measured.details ?? {}, measured);
     const { gitScope, result } = measured;
-    this.registerRefactorAssessment({
-      snapshot: result.snapshot,
-      assessment: result.assessment,
-      ...(result.proposal ? { proposal: result.proposal } : {}),
-      namespace: result.namespace,
+    const structuralWorktreeDigest = measured.structuralWorktreeDigest!;
+    const snapshotDigest = digestJson({
+      repositoryId: gitScope.repository.repositoryId,
+      workspaceId: gitScope.worktree.workspaceId,
       headSha: gitScope.worktree.headSha,
-      worktreeDigest: gitScope.worktree.worktreeDigest
+      structuralWorktreeDigest,
+      requestId: result.requestId,
+      assessmentDigest: result.assessment.assessmentDigest
     });
+    this.registerRefactorAssessment({
+      ...registeredAssessment(result, gitScope.worktree),
+      decisionSnapshot: {
+        digest: snapshotDigest,
+        structuralWorktreeDigest,
+        recommendationIds: new Set([...result.proposedRecommendations, ...result.openRecommendations].map((record) => record.recommendationId))
+      }
+    });
+    // SAFETY: the scan result and request are JSON contract values.
     return okEnvelope("refactor.scan", {
       schemaVersion: "archcontext.runtime-refactor-scan/v1",
       repository: gitScope.repository,
@@ -843,9 +889,11 @@ export class RecommendationsService {
       trackedFileCount: result.trackedFileCount,
       untrackedExcludedCount: result.untrackedExcludedCount,
       snapshot: result.snapshot,
+      snapshotDigest,
       assessment: result.assessment,
       ...(result.proposal ? { proposal: result.proposal } : {}),
       proposedRecommendations: result.proposedRecommendations,
+      openRecommendations: result.openRecommendations,
       // Every `evidenceBindingIds` entry a candidate carries resolves here, before any record.
       evidenceItems: result.evidenceItems,
       evidenceBindings: result.evidenceBindings,
@@ -1394,16 +1442,19 @@ function latestRecommendationById(
   return latestRecommendationsById(recommendations.filter((recommendation) => recommendation.recommendationId === recommendationId))[0];
 }
 
-/** `latestRecommendationById` for every id: newest `updatedAt` first, then by id. */
-function latestRecommendationsById(recommendations: readonly RecommendationLedgerRecordV1[]): RecommendationLedgerRecordV1[] {
-  const latest = new Map<string, RecommendationLedgerRecordV1>();
-  for (const recommendation of recommendations) {
-    const current = latest.get(recommendation.recommendationId);
-    if (!current || recommendation.updatedAt.localeCompare(current.updatedAt) >= 0) latest.set(recommendation.recommendationId, recommendation);
-  }
-  return [...latest.values()].sort((left, right) =>
-    right.updatedAt.localeCompare(left.updatedAt) || left.recommendationId.localeCompare(right.recommendationId)
-  );
+function registeredAssessment(result: RefactorScanResultV1, worktree: ArchitectureWorktreeIdentityV1): RegisteredRefactorAssessmentV1 {
+  return {
+    snapshot: result.snapshot,
+    assessment: result.assessment,
+    ...(result.proposal ? { proposal: result.proposal } : {}),
+    namespace: result.namespace,
+    headSha: worktree.headSha,
+    worktreeDigest: worktree.worktreeDigest
+  };
+}
+
+function recommendationSnapshotChanged(command: RecommendationFeedbackAction, recommendationId: string, changedFields: string[]): JsonEnvelope {
+  return publicFailureEnvelope(`recommendations.${command}`, "AC_REFACTOR_STALE", "recommendation-snapshot-changed", {recommendationId, changedFields});
 }
 
 /**

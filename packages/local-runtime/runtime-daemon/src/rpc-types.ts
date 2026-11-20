@@ -283,6 +283,8 @@ export interface RuntimeRecommendationInput {
    * recorded recommendation is read from the ledger and needs none.
    */
   importNodeLimit?: number;
+  /** The scan response's top-level digest for accept, defer or reject. */
+  snapshotDigest?: string;
   /**
    * The explicit approval of one refactor decision write (ADR-0046). A decision on a
    * `refactor_proposal` or `structural_observation` writes its Git decision file through a

@@ -412,18 +412,21 @@ export function architectureModelIgnoreProbePaths(root: string): string[] {
   return [...new Set([...ARCHITECTURE_MODEL_COMMITTED_PATHS, ...collectArchContextFiles(root, directories)])];
 }
 
+/** On-disk model inputs shared by the native refactor scan and its structural digest. */
+export function listNativeModelPaths(root: string): string[] {
+  return collectArchContextFiles(root, [".archcontext/manifest.yaml", ".archcontext/model"]);
+}
+
 export function listModelFiles(root: string): ModelFile[] {
-  const paths = collectArchContextFiles(root, [
-    ".archcontext/manifest.yaml",
+  const paths = [...listNativeModelPaths(root), ...collectArchContextFiles(root, [
     ".archcontext/product.yaml",
-    ".archcontext/model",
     ".archcontext/decisions",
     ".archcontext/policies",
     ".archcontext/practices",
     ".archcontext/projections",
     ".archcontext/generated",
     "docs/adr"
-  ]);
+  ])].sort(compareModelPaths);
   return paths.map((path) => {
     const body = readFileSync(resolve(root, path), "utf8");
     return {

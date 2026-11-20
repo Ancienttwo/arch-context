@@ -155,8 +155,8 @@ boundary. The one-shot `archctx recommendations <verb> --id --reason` command is
 that one write. Human status comes only from those files in the current checkout; SQLite lifecycle
 events are audit. Decisions become visible to other worktrees and branches only after the decision
 file is committed and the other checkout contains that commit; an uncommitted decision stays in its
-own worktree. A decision changes the worktree digest, so rescan after deciding. The decision files
-are the Git-visible ones in that directory (tracked or untracked, not ignored), so an ignored
+own worktree. A decision changes the global worktree digest. The decision files are the
+Git-visible ones in that directory (tracked or untracked, not ignored), so an ignored
 `.DS_Store` or editor file is never read; a malformed, conflicted or non-canonical decision file, a
 symlink, or any other Git-visible file there fails every refactor read closed. A decision file is
 compared to the canonical serialization after rewriting CRLF pairs to LF, so a Windows
@@ -195,8 +195,8 @@ one, and `details.currentRecommendationId` names the generation to decide instea
 `recommendations metrics` stays report-only: its status and feedback counts are ledger counts, so
 they include audit-only records and do not read the Git decisions. Active and decided suppression run before the `maxRecommendationsPerRun` cap, so a
 suppressed fingerprint never takes a slot from a new candidate and `omittedCandidateCount` counts
-only what the cap cut. A decided structural observation reopens only when a severity metric of its
-kind is higher than in the decided record's `payload.metrics`
+only what the cap cut. A rejected or waived structural observation reopens when a severity metric
+of its kind is higher than in the decided record's `payload.metrics` measured in the same scope
 (`REFACTOR_OBSERVATION_SEVERITY_METRICS` in refactor-assessment): `cycle`
 `thinDirectionEdgeCount`, `residual-cycle` `cycleEdgeCount`, `direction-violation` `directionViolationCount`, `unowned-paths`
 `unownedFileCount`. An equal or lower value does not reopen, and neither does a decided record that
@@ -215,8 +215,14 @@ pair. Cycles that remain after removing the thin direction of every pair are rep
 `residual-cycle` observations (subject `cycle:<component id>`, affected nodes the members,
 `memberCount` and `cycleEdgeCount`), one per remaining strongly connected component.
 Pairs are ordered by thin count, total, then ids. `refactor verify` resolves a pair when at least
-one direction is zero and a residual cycle when its members no longer form a cycle. A `node` or
-`paths` scan scope keeps only observations whose `affectedNodeIds` intersect the scope.
+one direction is zero and a residual cycle when its members no longer form a cycle.
+
+`refactor scan --node <nodeId>` measures the files owned by that node and its descendants.
+Repeat `--path <repo-relative-path>` to select individual files. Both scopes include incident
+imports and their direct neighbors, and the result identifies the scope in `snapshot.scope`.
+Observations and `openRecommendations` match the node subtree or the owners of the selected paths.
+Repository scans include open refactor recommendations for the whole product namespace. The
+`--request-json` form accepts the same scopes and is exclusive with `--node` and `--path`.
 
 `refactor scan` is read-only and never fails on the ledger event size limit. It returns
 `recording.recordable`, `recording.measuredBytes` and `recording.limitBytes`, plus `limits` with the
@@ -224,8 +230,8 @@ shared `evidenceSampleLimit` and the candidates cut by `maxRecommendationsPerRun
 a scan-candidate decision and a scan-candidate `recommendations show` refuse an unrecordable run with
 `AC_REFACTOR_RUN_TOO_LARGE` (not retryable; `error.details` carries the measured size and the
 limit), and the scan omits `recordCommand` for such a run. A stale `--expected-worktree-digest` on a decision returns `AC_REFACTOR_STALE`.
-The scan reads all CodeGraph import nodes through the in-process read-only index handle (ADR-0058).
-The request field `importNodeLimit` (CLI `--import-node-limit`, default 64000) caps the nodes kept;
+The scan reads CodeGraph through the in-process read-only index handle (ADR-0058).
+The request field `importNodeLimit` (CLI `--import-node-limit`, default 64000) caps the import nodes kept;
 above the cap the kept nodes are the first ones in (file path, specifier, line) order. When the index
 holds more import nodes than the cap, `codeFacts` reports `coverage: partial`, `truncated: false`,
 `importNodeCount`, `edgeLimit` and reason code `code-facts-import-limit`. `code-facts-truncated`
@@ -235,12 +241,18 @@ The scan measures the `HEAD` tree only. `untrackedExcludedCount` counts the work
 does not ignore and that `HEAD` does not carry (untracked and newly staged files). A commit that
 adds them changes the numbers for the same model (capability `refactor-scan-untracked-count-v1`).
 
-A scan-candidate decision and a scan-candidate `recommendations show` measure again with the
-`importNodeLimit` the caller gives (CLI `--import-node-limit`). Give the limit of the scan that
-found the candidate; the request and its `requestId` are then the same as that scan's.
-`refactor verify` measures again with the request field `importNodeLimit` (CLI
-`--import-node-limit`). Without it, verify uses the limit of the recorded baseline snapshot. A
-baseline recorded before `importNodeCount` existed uses the default.
+Pass the scan's top-level `snapshotDigest` to `recommendations accept`, `defer`, or `reject`
+with `--snapshot-digest`. The daemon reuses the measured assessment and import limit from its
+bounded cache and rereads the ledger and Git decisions. The structural digest excludes the
+refactor decision directory, so several decisions can use one scan while HEAD, source, and model
+files stay fixed. A missing or stale snapshot returns `AC_REFACTOR_STALE` and requires a fresh scan.
+A repository scan candidate can also be shown or decided by measuring again with its original
+`--import-node-limit`.
+
+`refactor verify` measures the repository with `--import-node-limit` or the recorded baseline
+limit. A baseline recorded before `importNodeCount` existed uses the default. If the baseline
+was scoped, verification reports `stale` with `baseline-snapshot-scope-mismatch` and leaves
+metric directions `unknown`.
 `recommendations list --status <status>` returns the latest record of every recorded
 recommendation in that status with no item or byte budget; `book recommendations` keeps its budget.
 

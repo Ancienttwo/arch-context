@@ -27,7 +27,7 @@ import {
   resolveOwnership,
   type ModuleStructureV1
 } from "@archcontext/core/module-statistics";
-import type { NativeModel } from "@archcontext/core/projection-engine";
+import { nodeSubtreeIds, type NativeModel } from "@archcontext/core/projection-engine";
 import { ObservationEvidenceBuilder } from "./evidence";
 import { deriveTargetDelta, withUnresolvedTargets, type TargetDeltaDerivationV1 } from "./target-delta";
 
@@ -166,8 +166,8 @@ export function assessRefactor(input: RefactorAssessmentInputV1): RefactorAssess
     throw new Error(`AC_SCHEMA_INVALID: request.scope.nodeId is not declared: ${input.request.scope.nodeId}`);
   }
 
-  // The whole graph is measured and observed first; the scope only selects among the observations.
-  // Cutting the graph to the scope first would hide a cycle that merely passes through it.
+  // The snapshot may include import neighbors for context. Report the observations that
+  // involve the requested subjects.
   const observations = scopeObservations(
     buildObservations(input.snapshot, input.structure, input.model),
     input.request.scope,
@@ -348,7 +348,7 @@ export function buildObservations(
 
 /**
  * Keeps the observations a scoped request is about: those whose `affectedNodeIds` intersect the
- * scope's nodes. A `node` scope is that one node; a `paths` scope is every owner of the given
+ * scope's nodes. A `node` scope includes its descendants; a `paths` scope is every owner of the given
  * tracked files under the snapshot's ownership rule (contested files count for each claimant).
  * Repository-wide observations name no node and drop out of a scoped request; the coverage they
  * describe stays visible in `codeFacts` and `confidence`.
@@ -361,7 +361,7 @@ function scopeObservations(
 ): RefactorObservationV1[] {
   if (scope.kind === "repository") return observations;
   const scopeNodes = scope.kind === "node"
-    ? new Set([scope.nodeId])
+    ? nodeSubtreeIds(model.nodes, scope.nodeId)
     : new Set(resolveScopePaths(model, trackedFiles, scope.paths).owners);
   return observations.filter((observation) => observation.affectedNodeIds.some((nodeId) => scopeNodes.has(nodeId)));
 }

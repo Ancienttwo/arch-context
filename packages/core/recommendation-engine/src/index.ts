@@ -10,6 +10,7 @@ import {
   digestJson,
   isRefactorDecisionStatus,
   refactorNamespaceIssues,
+  refactorSnapshotScopeDigest,
   sampleRefactorPairEvidence,
   recommendationV3FingerprintInput,
   recommendationV3InvariantIssues,
@@ -963,6 +964,7 @@ export interface PreviousRecommendationV3 {
    * otherwise `null`: the measurement a `rejected` or `waived` decision was taken against.
    */
   observationMetrics: Record<string, number | null> | null;
+  observationScopeDigest?: string;
 }
 
 export interface PlanRefactorRecommendationRunInput {
@@ -1071,6 +1073,7 @@ export function planRefactorRecommendationRun(input: PlanRefactorRecommendationR
   const baselineEvidence = baselineSnapshotEvidenceItem(input);
   const evidenceItems = [baselineEvidence, ...modelAdoptionEvidenceItems(input)];
   const candidateDrafts = [...observationDrafts(input, evidenceSampleLimit), ...proposalDrafts(input)];
+  const observationScopeDigest = refactorSnapshotScopeDigest(input.snapshot.scope);
 
   // Active and decided suppression run before the cap, so a fingerprint the ledger already holds
   // never takes a slot from a new candidate; the cap then counts only what could be emitted.
@@ -1093,7 +1096,7 @@ export function planRefactorRecommendationRun(input: PlanRefactorRecommendationR
         });
         continue;
       }
-      if (previous && REFACTOR_DECIDED_RECOMMENDATION_STATUSES.has(previous.status) && !refactorObservationWorsened(previous, draft)) {
+      if (previous && REFACTOR_DECIDED_RECOMMENDATION_STATUSES.has(previous.status) && !refactorObservationWorsened(previous, draft, observationScopeDigest)) {
         suppressed.push({
           reasonCode: "decided-fingerprint",
           fingerprint: draft.fingerprint,
@@ -1135,7 +1138,8 @@ export function planRefactorRecommendationRun(input: PlanRefactorRecommendationR
       updatedAt: recommendation.updatedAt,
       regressesFrom: recommendation.regressesFrom,
       decisionAuthority: recommendation.decisionAuthority,
-      observationMetrics: recommendation.observationMetrics
+      observationMetrics: recommendation.observationMetrics,
+      ...(recommendation.observationScopeDigest === undefined ? {} : { observationScopeDigest: recommendation.observationScopeDigest })
     })),
     cooldowns: input.cooldowns ?? [],
     // The invocation clock is part of the run's identity. Without it two scans at the same HEAD
@@ -1198,6 +1202,7 @@ export function planRefactorRecommendationRun(input: PlanRefactorRecommendationR
       extensions: {
         assessmentDigest: input.assessment.assessmentDigest,
         baselineSnapshotDigest: input.snapshot.snapshotDigest,
+        ...(observationScopeDigest === undefined ? {} : { baselineScopeDigest: observationScopeDigest }),
         riskSignals: [...draft.riskSignals].sort(),
         uncertaintySignals: [...draft.uncertaintySignals].sort(),
         // The scheduler's ordering key, recorded so a truncated run is auditable.
@@ -1280,13 +1285,18 @@ export function planRefactorRecommendationRun(input: PlanRefactorRecommendationR
 /**
  * Whether a `rejected` or `waived` observation got worse since the decision: a severity metric of
  * its kind (`REFACTOR_OBSERVATION_SEVERITY_METRICS`) is now higher than in the decided record's
- * `payload.metrics`. Module size, scan configuration, the evidence sample, the baseline and HEAD
- * never reopen a decision. A `refactor_proposal` fingerprints every material field already
+ * `payload.metrics` measured in the same scope. Module size, the evidence sample, the baseline
+ * digest and HEAD never reopen a decision. A `refactor_proposal` fingerprints every material field already
  * (`proposalDigest`, scale, affected nodes, major-change reasons), so its decided fingerprint never
  * reopens; nor does a prior that carries no metrics.
  */
-function refactorObservationWorsened(previous: PreviousRecommendationV3, draft: RefactorRecommendationDraft): boolean {
-  if (draft.category !== "structural_observation" || previous.observationMetrics === null) return false;
+function refactorObservationWorsened(
+  previous: PreviousRecommendationV3,
+  draft: RefactorRecommendationDraft,
+  observationScopeDigest: string | undefined
+): boolean {
+  if (draft.category !== "structural_observation" || previous.observationMetrics === null
+    || previous.observationScopeDigest !== observationScopeDigest) return false;
   const payload = draft.payload as StructuralObservationPayloadV1;
   return observationSeverityWorsened(payload.kind, previous.observationMetrics, payload.metrics);
 }

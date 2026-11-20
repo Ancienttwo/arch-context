@@ -5,6 +5,7 @@ import {
   REFACTOR_OBSERVATION_EVIDENCE_LIMIT,
   recommendationV3InvariantIssues,
   refactorAssessmentDigest,
+  refactorSnapshotScopeDigest,
   type ModuleStatisticsSnapshotV1,
   type RecommendationV3,
   type RefactorAssessmentV1,
@@ -591,6 +592,28 @@ describe("dedup, cooldown and regression", () => {
       }
     });
   }
+
+  test("a scoped severity increase reopens a rejection only within the same scope", () => {
+    const snapshot = makeAssessmentInput().snapshot;
+    const scope = { kind: "paths", paths: ["src/a.ts"] } as const satisfies ModuleStatisticsSnapshotV1["scope"];
+    const before = assessmentWith([observationOf(snapshot, "direction-violation", { directionViolationCount: 1 })]);
+    const record = planWith({ ...before.snapshot, scope }, before.assessment, undefined).recommendations[0]!;
+    const observationScopeDigest = refactorSnapshotScopeDigest(scope);
+    expect(record.extensions?.baselineScopeDigest).toBe(observationScopeDigest);
+    const previousRecommendations = [{ ...priorOf(record, "rejected"), observationScopeDigest }];
+    const after = assessmentWith([observationOf(snapshot, "direction-violation", { directionViolationCount: 2 })]);
+
+    const same = planWith({ ...after.snapshot, scope }, after.assessment, undefined, { previousRecommendations });
+    expect(same.recommendations).toEqual([expect.objectContaining({ relations: { regressesFrom: record.recommendationId } })]);
+    const differentScopes: ModuleStatisticsSnapshotV1["scope"][] = [
+      undefined, { kind: "node", nodeId: "module.a" }, { kind: "paths", paths: ["src/b.ts"] }
+    ];
+    for (const different of differentScopes) {
+      const plan = planWith({ ...after.snapshot, scope: different }, after.assessment, undefined, { previousRecommendations });
+      expect(plan.recommendations).toEqual([]);
+      expect(plan.suppressed).toEqual([expect.objectContaining({ reasonCode: "decided-fingerprint" })]);
+    }
+  });
 
   test("a decided record that does not carry a severity metric never reopens", () => {
     const before = assessmentWith([observationOf(makeAssessmentInput().snapshot, "direction-violation", { directionViolationCount: 2 })]);

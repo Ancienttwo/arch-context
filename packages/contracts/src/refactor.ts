@@ -323,6 +323,8 @@ export interface ModuleDependencyV1 {
 
 export interface ModuleStatisticsSnapshotV1 {
   schemaVersion: typeof MODULE_STATISTICS_SCHEMA_VERSION;
+  /** When present, counts describe the requested files and their direct import neighbors. */
+  scope?: Exclude<RefactorScopeV1, { kind: "repository" }>;
   repository: ArchitectureRepositoryIdentityV1;
   worktree: ArchitectureWorktreeIdentityV1;
   modelDigest: string;
@@ -592,6 +594,11 @@ export function moduleStatisticsDigest(module: ModuleStatisticsV1): string {
 export function moduleStatisticsSnapshotDigest(snapshot: ModuleStatisticsSnapshotV1): string {
   const { snapshotDigest: _snapshotDigest, createdAt: _createdAt, extensions: _extensions, ...hashable } = snapshot;
   return digestJson(hashable as unknown as Json);
+}
+
+/** Repository measurements have no scope digest. Scoped measurements can compare only to the same scope. */
+export function refactorSnapshotScopeDigest(scope: ModuleStatisticsSnapshotV1["scope"]): string | undefined {
+  return scope === undefined ? undefined : digestJson(scope);
 }
 
 export function refactorAssessmentDigest(assessment: RefactorAssessmentV1): string {
@@ -1317,6 +1324,9 @@ export function refactorScanInvariantIssues(input: {
   if (input.assessment.statisticsSnapshotDigest !== input.snapshot.snapshotDigest) {
     issues.push("assessment.statisticsSnapshotDigest must reference the measured snapshot");
   }
+  if (input.snapshot.scope !== undefined && digestJson(input.snapshot.scope) !== digestJson(input.assessment.requestedScope)) {
+    issues.push("assessment.requestedScope must match the measured snapshot scope");
+  }
   if (input.assessment.modelDigest !== input.snapshot.modelDigest) {
     issues.push("assessment.modelDigest must match the snapshot modelDigest");
   }
@@ -1587,6 +1597,8 @@ export interface RefactorDecisionV1 {
   status: RefactorDecisionStatus;
   /** The measurement the decision was taken against; `null` when the record carries none. */
   observationMetrics: Record<string, number | null> | null;
+  /** Scope of the measured observation metrics. Absent for repository baselines. */
+  observationScopeDigest?: string;
   reason: string;
   actor: { kind: ArchitectureActorKind; id: string };
   decidedAt: string;
@@ -1616,6 +1628,7 @@ const REFACTOR_DECISION_KEYS = [
   "status",
   "subject"
 ] as const;
+const REFACTOR_DECISION_OPTIONAL_KEYS = ["observationScopeDigest"] as const;
 
 export function isRefactorDecisionStatus(status: RecommendationStatus | string): status is RefactorDecisionStatus {
   return (REFACTOR_DECISION_STATUSES as readonly string[]).includes(status);
@@ -1671,6 +1684,7 @@ export function serializeRefactorDecision(decision: RefactorDecisionV1): string 
     observationMetrics: decision.observationMetrics === null
       ? null
       : Object.fromEntries(Object.entries(decision.observationMetrics).sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))),
+    ...(decision.observationScopeDigest === undefined ? {} : { observationScopeDigest: decision.observationScopeDigest }),
     reason: decision.reason,
     actor: { kind: decision.actor.kind, id: decision.actor.id },
     decidedAt: decision.decidedAt,
@@ -1692,7 +1706,8 @@ export function serializeRefactorDecision(decision: RefactorDecisionV1): string 
 export function refactorDecisionInvariantIssues(value: unknown, prefix = "refactorDecision"): string[] {
   if (!isPlainObject(value)) return [`${prefix} must be an object`];
   const issues: string[] = [];
-  const unknownKeys = Object.keys(value).filter((key) => !(REFACTOR_DECISION_KEYS as readonly string[]).includes(key)).sort();
+  const allowedKeys: readonly string[] = [...REFACTOR_DECISION_KEYS, ...REFACTOR_DECISION_OPTIONAL_KEYS];
+  const unknownKeys = Object.keys(value).filter((key) => !allowedKeys.includes(key)).sort();
   if (unknownKeys.length > 0) issues.push(`${prefix} has unsupported key(s): ${unknownKeys.join(", ")}`);
   const missing = REFACTOR_DECISION_KEYS.filter((key) => !(key in value));
   if (missing.length > 0) issues.push(`${prefix} is missing key(s): ${missing.join(", ")}`);
@@ -1738,6 +1753,13 @@ export function refactorDecisionInvariantIssues(value: unknown, prefix = "refact
       || Object.entries(decision.observationMetrics).some(([key, metric]) =>
         key.trim() === "" || !(metric === null || (typeof metric === "number" && Number.isFinite(metric))))) {
       issues.push(`${prefix}.observationMetrics must be null or a map of finite numbers and nulls`);
+    }
+  }
+  if (decision.observationScopeDigest !== undefined) {
+    if (typeof decision.observationScopeDigest === "string") issues.push(...digestIssues(`${prefix}.observationScopeDigest`, decision.observationScopeDigest));
+    else issues.push(`${prefix}.observationScopeDigest must be a digest`);
+    if (decision.category !== "structural_observation" || decision.observationMetrics === null) {
+      issues.push(`${prefix}.observationScopeDigest requires measured observation metrics`);
     }
   }
   issues.push(...boundedLineIssues(`${prefix}.reason`, decision.reason, REFACTOR_DECISION_REASON_MAX_LENGTH));

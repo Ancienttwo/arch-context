@@ -142,7 +142,15 @@ export function repositoryImportPairs(
   worktreeDigest: string,
   /** The Git-visible files (`listGitVisibleFiles`) that `worktreeDigest` was computed over. */
   sourceFiles: readonly string[],
-  options: { provider?: CodeGraphReadProvider } = {}
+  options: {
+    provider?: CodeGraphReadProvider;
+    scope?: {
+      paths: ReadonlySet<string>;
+      /** Workspace specifiers resolving to a seed path, even when CodeGraph has no resolved edge. */
+      incomingWorkspaceSpecifiers: readonly string[];
+      resolveWorkspaceTarget(specifier: string): string | null;
+    };
+  } = {}
 ): RepositoryImportPairsV1 {
   assertImportNodeLimit(limit);
   return withCodeGraphReadSession(root, (opened): RepositoryImportPairsV1 => {
@@ -158,13 +166,18 @@ export function repositoryImportPairs(
       };
     }
     const { session } = opened;
-    const nodes = codeGraphImportPopulation(session, limit);
+    const files = new Set(sourceFiles);
+    const targetOf = (node: ImportNode) => resolveImportTarget(files, node.filePath, node.name)
+      ?? options.scope?.resolveWorkspaceTarget(node.name) ?? null;
+    const nodes = options.scope === undefined
+      ? codeGraphImportPopulation(session, limit)
+      : scopedImportPopulation(session, limit, files, options.scope, targetOf);
     const pending = session.freshness();
     // Facts read across a sync are not one index state (design G4).
     const unchanged = session.unchangedSinceOpen();
     const clean = unchanged && pending.added === 0 && pending.modified === 0 && pending.removed === 0;
     return {
-      pairs: importPairsOf(new Set(sourceFiles), nodes.imports),
+      pairs: importPairsOf(files, nodes.imports, targetOf),
       truncated: nodes.truncated || !unchanged,
       availability: clean ? "ready" : "unavailable",
       indexedWorktreeDigest: clean ? worktreeDigest : null,
@@ -188,11 +201,15 @@ interface ImportNode {
 }
 
 /** Import nodes as repo-relative pairs, unresolved specifiers kept as `to: null`, sorted by file then specifier. */
-function importPairsOf(gitVisibleFiles: ReadonlySet<string>, imports: readonly ImportNode[]): RepositoryImportPairV1[] {
+function importPairsOf(
+  gitVisibleFiles: ReadonlySet<string>,
+  imports: readonly ImportNode[],
+  targetOf = (node: ImportNode) => resolveImportTarget(gitVisibleFiles, node.filePath, node.name) ?? null
+): RepositoryImportPairV1[] {
   const pairs = new Map<string, RepositoryImportPairV1>();
   for (const node of imports) {
     if (node.kind !== "import") continue;
-    const to = resolveImportTarget(gitVisibleFiles, node.filePath, node.name) ?? null;
+    const to = targetOf(node);
     // Keyed on (file, specifier) so three distinct unresolved specifiers stay three records. A
     // specifier imported twice from one file is one edge, located at its first import line.
     const key = JSON.stringify([node.filePath, node.name]);
@@ -225,6 +242,32 @@ function codeGraphImportPopulation(
     truncated: imports.length !== count,
     limitExceeded: Math.max(count, imports.length) > limit
   };
+}
+
+/** Reads outgoing import nodes and uses the index's reverse edges to find direct importers. */
+function scopedImportPopulation(
+  session: CodeGraphReadSession,
+  limit: number,
+  tracked: ReadonlySet<string>,
+  scope: { paths: ReadonlySet<string>; incomingWorkspaceSpecifiers: readonly string[] },
+  targetOf: (node: ImportNode) => string | null
+): ReturnType<typeof codeGraphImportPopulation> {
+  const graph = session.graph;
+  const seeds = graph.getNodesInFiles([...scope.paths]);
+  const incoming = graph.getIncomingEdgesTo(seeds.map((node) => node.id), ["imports"]);
+  const importers = graph.getNodesByIds([...new Set(incoming.map((edge) => edge.source))]);
+  const importerPaths = new Set([...importers.values()]
+    .map((node) => node.filePath)
+    .filter((path) => tracked.has(path) && !scope.paths.has(path)));
+  const candidates = new Map([
+    ...seeds,
+    ...graph.getNodesInFiles([...importerPaths]),
+    ...scope.incomingWorkspaceSpecifiers.flatMap((specifier) => graph.getNodesByName(specifier))
+  ].filter((node) => node.kind === "import" && tracked.has(node.filePath)).map((node) => [node.id, node]));
+  const imports = [...candidates.values()]
+    .filter((node) => scope.paths.has(node.filePath) || scope.paths.has(targetOf(node) ?? ""))
+    .sort(compareImportNodes);
+  return { imports: imports.slice(0, limit), count: imports.length, truncated: false, limitExceeded: imports.length > limit };
 }
 
 function compareImportNodes(left: ImportNode, right: ImportNode): number {

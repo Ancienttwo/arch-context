@@ -62,9 +62,14 @@ export interface RegisteredRefactorAssessmentV1 {
   namespace: string;
   headSha: string;
   worktreeDigest: string;
+  decisionSnapshot?: {
+    digest: string;
+    structuralWorktreeDigest: string;
+    recommendationIds: ReadonlySet<string>;
+  };
 }
 
-/** Bounded LRU keyed by `assessmentDigest`. In-process only; never dispatched over RPC. */
+/** Bounded LRU shared by explicit records and snapshot-backed decisions. In-process only. */
 export class RefactorAssessmentRegistry {
   private readonly entries = new Map<string, RegisteredRefactorAssessmentV1>();
 
@@ -88,6 +93,13 @@ export class RefactorAssessmentRegistry {
     this.entries.delete(assessmentDigest);
     this.entries.set(assessmentDigest, entry);
     return entry;
+  }
+
+  getBySnapshotDigest(snapshotDigest: string): RegisteredRefactorAssessmentV1 | undefined {
+    for (const [key, entry] of this.entries) {
+      if (entry.decisionSnapshot?.digest === snapshotDigest) return this.get(key);
+    }
+    return undefined;
   }
 
   get size(): number {
@@ -349,9 +361,22 @@ export function previousRecommendationsFromAuthority(
     updatedAt: decision.decidedAt,
     regressesFrom: decision.regressesFrom,
     decisionAuthority: "git",
-    observationMetrics: decision.observationMetrics === null ? null : { ...decision.observationMetrics }
+    observationMetrics: decision.observationMetrics === null ? null : { ...decision.observationMetrics },
+    observationScopeDigest: decision.observationScopeDigest
   }));
   return [...fromLedger, ...fromGit];
+}
+
+/** Latest record per id in ledger order. An equal timestamp resolves to the later event. */
+export function latestRecommendationsById(recommendations: readonly RecommendationLedgerRecordV1[]): RecommendationLedgerRecordV1[] {
+  const latest = new Map<string, RecommendationLedgerRecordV1>();
+  for (const recommendation of recommendations) {
+    const current = latest.get(recommendation.recommendationId);
+    if (!current || recommendation.updatedAt.localeCompare(current.updatedAt) >= 0) latest.set(recommendation.recommendationId, recommendation);
+  }
+  return [...latest.values()].sort((left, right) =>
+    right.updatedAt.localeCompare(left.updatedAt) || left.recommendationId.localeCompare(right.recommendationId)
+  );
 }
 
 /**

@@ -2,6 +2,7 @@ import {
   REFACTOR_RESOLUTION_EVIDENCE_SCHEMA_VERSION,
   digestJson,
   refactorResolutionEvidenceDigest,
+  refactorSnapshotScopeDigest,
   refactorVerifyInvariantIssues,
   type Json,
   type ModuleStatisticsSnapshotV1,
@@ -88,6 +89,7 @@ export const REFACTOR_RESOLUTION_RESIDUAL_CODES = [
   "after-model-mismatch",
   "after-tracked-files-mismatch",
   "baseline-digest-mismatch",
+  "baseline-snapshot-scope-mismatch",
   "baseline-snapshot-unverifiable",
   "kill-list-symbol-unverifiable",
   "no-required-outcome",
@@ -397,13 +399,21 @@ export function evaluateResolution(input: RefactorResolutionInputV1): RefactorRe
   const before = input.beforeSnapshot && input.beforeSnapshot.snapshotDigest === input.beforeSnapshotDigest
     ? input.beforeSnapshot
     : undefined;
+  const afterScopeDigest = refactorSnapshotScopeDigest(input.afterSnapshot.scope);
+  const beforeScopeDigest = before === undefined
+    ? recommendation.extensions?.baselineScopeDigest
+    : refactorSnapshotScopeDigest(before.scope);
+  const scopeMismatch = beforeScopeDigest !== afterScopeDigest;
+  if (scopeMismatch) {
+    residuals.push({ code: "baseline-snapshot-scope-mismatch", subject: input.beforeSnapshotDigest, severity: "error" });
+  }
   const observedOutcomes = expectedOutcomes.map((outcome) =>
-    observeOutcome(outcome, input, before, residuals)
+    observeOutcome(outcome, input, scopeMismatch ? undefined : before, residuals)
   );
 
   const requiredSymbolKill = killList.some((entry) => entry.kind === "symbol" && entry.required);
   const disposition = decideDisposition({
-    stale: baselineDigestMismatch || coverageIncomplete || !indexCoversWorktree || requiredSymbolKill
+    stale: baselineDigestMismatch || scopeMismatch || coverageIncomplete || !indexCoversWorktree || requiredSymbolKill
       || !modelBound || !trackedFilesBound,
     expectedOutcomes,
     observedOutcomes,

@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  REFACTOR_DECISION_DIRECTORY,
   REFACTOR_OBSERVATION_EVIDENCE_LIMIT,
   REFACTOR_REQUEST_SCHEMA_VERSION,
   digestJson,
@@ -22,15 +23,18 @@ import {
   type RefactorProposalV1,
   type RefactorRequestV1
 } from "@archcontext/contracts";
-import { parseJsonOrStableYaml, readDependencyConstraints } from "@archcontext/core/architecture-domain";
+import { refactorSubjectSelectorId } from "@archcontext/core/architecture-delta";
+import { computeWorktreeDigests, parseJsonOrStableYaml, readDependencyConstraints } from "@archcontext/core/architecture-domain";
 import type { RecommendationLedgerRecordV1 } from "@archcontext/core/architecture-ledger";
 import {
   evaluateDependencyConstraints,
   measureModuleStatistics,
+  resolveOwnership,
+  resolveWorkspaceSpecifier,
   type ModuleStatisticsIndexAvailability
 } from "@archcontext/core/module-statistics";
-import { loadNativeModelFromArchContext, type NativeNode } from "@archcontext/core/projection-engine";
-import type { RecommendationSuppression, RefactorCandidateBudget } from "@archcontext/core/recommendation-engine";
+import { loadNativeModelFromArchContext, nodeSubtreeIds, type NativeNode } from "@archcontext/core/projection-engine";
+import { refactorRecommendationSubjectKey, type RecommendationSuppression, type RefactorCandidateBudget } from "@archcontext/core/recommendation-engine";
 import { assessRefactor } from "@archcontext/core/refactor-assessment";
 import {
   CODEGRAPH_IMPORT_NODE_READ_LIMIT,
@@ -40,9 +44,9 @@ import {
   repositoryImportPairs
 } from "@archcontext/local-runtime/codegraph-adapter";
 import { normalizePackageExports, readHeadCommitterDate, readTrackedSourceFiles, readTrackedTreeEntries, readWorkspacePackages } from "@archcontext/local-runtime/git-adapter";
-import { listModelFiles } from "@archcontext/local-runtime/model-store-yaml";
-import type { RefactorDecisionSetV1 } from "./refactor-decisions";
-import { planRefactorRunWithRecording, previousRecommendationsFromAuthority, type RefactorRunRecordingV1 } from "./refactor-recording";
+import { listModelFiles, listNativeModelPaths } from "@archcontext/local-runtime/model-store-yaml";
+import { isRefactorRecommendation, refactorStatusView, type RefactorDecisionSetV1 } from "./refactor-decisions";
+import { latestRecommendationsById, planRefactorRunWithRecording, previousRecommendationsFromAuthority, type RefactorRunRecordingV1 } from "./refactor-recording";
 
 /** The default request: measure the whole repository and classify nothing beyond it. */
 export const REPOSITORY_REFACTOR_REQUEST: RefactorRequestV1 = {
@@ -103,6 +107,8 @@ export interface RefactorScanResultV1 {
   proposal?: RefactorProposalV1;
   /** What `refactor record` would append at this HEAD. Not persisted by the scan. */
   proposedRecommendations: RecommendationV3[];
+  /** Current open refactor recommendations in this namespace and requested scope. */
+  openRecommendations: RecommendationV3[];
   /**
    * The evidence items and bindings `refactor record` would append beside them, so every
    * `evidenceBindingIds` entry a candidate carries resolves inside the scan response itself.
@@ -128,6 +134,15 @@ export interface RefactorScanLimitsV1 extends RefactorCandidateBudget {
   evidenceSampleLimit: number;
   /** The contract ceiling `evidenceSampleLimit` starts from before any cut. */
   maxEvidenceSampleLimit: number;
+}
+
+/** ADR-0046 decisions can change independently of the source and model used by an assessment. */
+export function refactorWorktreeDigests(root: string, gitVisibleFiles: readonly string[]): [string, string] {
+  // The scan reads model YAML even if a worktree has ignored those files.
+  return computeWorktreeDigests(root, gitVisibleFiles, {
+    files: [...gitVisibleFiles, ...listNativeModelPaths(root)],
+    options: { ignore: [REFACTOR_DECISION_DIRECTORY] }
+  });
 }
 
 /**
@@ -161,19 +176,26 @@ export function runRefactorScan(input: RefactorScanInputV1): RefactorScanResultV
   // The request carries the limit, so it is part of the request identity and visible in `request`.
   const edgeLimit = input.request.importNodeLimit ?? CODEGRAPH_IMPORT_NODE_READ_LIMIT;
 
-  // Read once, hand the same array to both consumers: the classifier's ownership resolution has
-  // to run over exactly the file set the snapshot measured, or a `scopePath` it calls unowned may
-  // simply be a file the snapshot never saw.
-  const trackedFiles = readTrackedSourceFiles(input.root);
-  const codeFacts = readCodeFacts(input.root, input.worktree.worktreeDigest, input.sourceFiles, edgeLimit);
+  const scope = input.request.scope.kind === "repository" ? undefined : input.request.scope;
+  const workspacePackages = declaredWorkspacePackages(input.root);
+  const scoped = scope === undefined ? undefined : scanScope(input.root, model.nodes, scope, workspacePackages);
+  const codeFacts = readCodeFacts(input.root, input.worktree.worktreeDigest, scoped?.trackedPaths ?? input.sourceFiles, edgeLimit, scoped?.imports);
+  const directImports = codeFacts.availability === "ready" ? codeFacts.pairs : [];
+  const trackedFiles = readTrackedSourceFiles(input.root, scoped === undefined ? {} : {
+    paths: new Set([
+      ...scoped.imports.paths,
+      ...directImports.flatMap((pair) => pair.to === null ? [pair.from] : [pair.from, pair.to])
+    ])
+  });
 
   const { snapshot, structure } = measureModuleStatistics({
     model,
+    scope,
     repository: input.repository,
     worktree: input.worktree,
     trackedFiles,
     importEdges: codeFacts.pairs,
-    workspacePackages: declaredWorkspacePackages(input.root),
+    workspacePackages,
     truncated: codeFacts.truncated,
     edgeLimit,
     importNodeCount: codeFacts.importNodeCount,
@@ -232,6 +254,7 @@ export function runRefactorScan(input: RefactorScanInputV1): RefactorScanResultV
     assessment: assessed.assessment,
     ...(assessed.proposal ? { proposal: assessed.proposal } : {}),
     proposedRecommendations: plan.recommendations,
+    openRecommendations: openRefactorRecommendations(input.previousRecommendations, input.decisions, scoped?.targetNodeIds),
     evidenceItems: plan.evidenceItems,
     evidenceBindings: plan.evidenceBindings,
     suppressed: plan.suppressed,
@@ -244,6 +267,51 @@ export function runRefactorScan(input: RefactorScanInputV1): RefactorScanResultV
     trackedFileCount: trackedFiles.length,
     untrackedExcludedCount: countFilesOutsideHead(input.root)
   };
+}
+
+function scanScope(
+  root: string,
+  nodes: NativeNode[],
+  scope: NonNullable<ModuleStatisticsSnapshotV1["scope"]>,
+  workspacePackages: WorkspacePackage[]
+) {
+  const trackedPaths = readTrackedTreeEntries(root).filter((entry) => entry.type === "blob").map((entry) => entry.path);
+  const tracked = new Set(trackedPaths);
+  if (scope.kind === "node" && !nodes.some((node) => node.id === scope.nodeId)) {
+    throw new RefactorScanError("AC_SCHEMA_INVALID", `refactor scope node is not declared: ${scope.nodeId}`, "refactor-input-invalid");
+  }
+  const ownership = resolveOwnership(nodes, scope.kind === "node" ? trackedPaths : scope.paths.filter((path) => tracked.has(path)));
+  const targetNodeIds = scope.kind === "node" ? nodeSubtreeIds(nodes, scope.nodeId) : new Set(ownership.filesByNode.keys());
+  const paths = new Set(scope.kind === "node"
+    ? [...targetNodeIds].flatMap((nodeId) => ownership.filesByNode.get(nodeId) ?? [])
+    : ownership.byPath.keys());
+  const incomingWorkspaceSpecifiers = workspacePackages.flatMap((pkg) => Object.keys(pkg.exports)
+    .map((subpath) => subpath === "." ? pkg.name : `${pkg.name}/${subpath.slice(2)}`)
+    .filter((specifier) => resolveWorkspaceSpecifier(specifier, workspacePackages, paths) !== null));
+  return {
+    trackedPaths,
+    targetNodeIds,
+    imports: {
+      paths,
+      incomingWorkspaceSpecifiers,
+      resolveWorkspaceTarget: (specifier: string) => resolveWorkspaceSpecifier(specifier, workspacePackages, tracked)
+    }
+  };
+}
+
+function openRefactorRecommendations(
+  recommendations: readonly RecommendationLedgerRecordV1[],
+  decisions: RefactorDecisionSetV1,
+  targetNodeIds: ReadonlySet<string> | undefined
+): RecommendationV3[] {
+  return latestRecommendationsById(recommendations).filter(isRefactorRecommendation).filter((record) => {
+    const view = refactorStatusView(record, decisions);
+    if (view.authority === "ledger-audit" || view.record.status !== "open") return false;
+    const { affectedNodeIds } = record.payload as { affectedNodeIds: string[] };
+    if (targetNodeIds && !affectedNodeIds.some((nodeId) => targetNodeIds.has(nodeId))) return false;
+    const key = refactorRecommendationSubjectKey(record.category, record.subject, affectedNodeIds);
+    return record.subjectSelectorId === refactorSubjectSelectorId(key.selectorKind, decisions.namespace, key.stableKey);
+  });
 }
 
 export interface ReviewDependencyConstraintInputV1 {
@@ -502,9 +570,15 @@ interface RefactorScanCodeFactsV1 {
  * observed this tree, so no version and no binary are reported: the empty strings say "no
  * attestation", and the snapshot builder independently degrades that to `coverage: unknown`.
  */
-function readCodeFacts(root: string, worktreeDigest: string, sourceFiles: readonly string[], edgeLimit: number): RefactorScanCodeFactsV1 {
+function readCodeFacts(
+  root: string,
+  worktreeDigest: string,
+  sourceFiles: readonly string[],
+  edgeLimit: number,
+  scope?: NonNullable<Parameters<typeof repositoryImportPairs>[4]>["scope"]
+): RefactorScanCodeFactsV1 {
   const indexed = codeGraphIndexAvailable(root);
-  const imports = repositoryImportPairs(root, edgeLimit, worktreeDigest, sourceFiles);
+  const imports = repositoryImportPairs(root, edgeLimit, worktreeDigest, sourceFiles, { scope });
   const attestation = indexed ? attestCodeGraphRuntime() : { version: "", binaryDigest: "" };
   return {
     pairs: imports.pairs,
