@@ -1,0 +1,169 @@
+{
+  "schemaVersion": "archcontext.runtime-verify/v1",
+  "base": "origin/main",
+  "baseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "headSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "checks": {
+    "validate": {
+      "ok": true,
+      "data": {
+        "valid": true,
+        "errors": [],
+        "modelDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    "flows": {
+      "ok": false,
+      "error": {
+        "code": "AC_CODE_FACTS_UNAVAILABLE",
+        "message": "Required code facts have no available index. Run codegraph init, or in a linked worktree run archctx sync after archctx sync in the primary checkout has published a base index.",
+        "severity": "error",
+        "retryable": true,
+        "action": "codegraph-init",
+        "reasonCode": "index-missing",
+        "details": {}
+      }
+    },
+    "state-machines": {
+      "ok": true,
+      "data": {
+        "schemaVersion": "archcontext.state-machine-check/v1",
+        "machines": []
+      }
+    },
+    "constraints": {
+      "ok": true,
+      "data": {
+        "schemaVersion": "archcontext.dependency-constraint-evaluation/v1",
+        "status": "not-applicable",
+        "coverage": "complete",
+        "reasonCodes": [],
+        "constraintIds": [],
+        "importEdgeCount": 0,
+        "unresolvedImports": [],
+        "violations": [],
+        "warnings": []
+      }
+    },
+    "docs": {
+      "ok": true,
+      "data": {
+        "schemaVersion": "archcontext.docs-anchors/v1",
+        "profile": "default",
+        "codeGraph": {
+          "availability": "unavailable",
+          "reasonCode": "index-missing"
+        },
+        "summary": {
+          "nodes": 0,
+          "documents": 0,
+          "citations": 0,
+          "findings": 0,
+          "unchecked": 0,
+          "byKind": {
+            "line-moved": 0,
+            "line-out-of-range": 0,
+            "missing-path": 0,
+            "missing-symbol": 0,
+            "unknown-selector": 0
+          }
+        },
+        "nodes": []
+      }
+    },
+    "projection": {
+      "ok": false,
+      "error": {
+        "code": "AC_CODE_FACTS_UNAVAILABLE",
+        "message": "Required code facts have no available index. Run codegraph init, or in a linked worktree run archctx sync after archctx sync in the primary checkout has published a base index.",
+        "severity": "error",
+        "retryable": true,
+        "action": "codegraph-init",
+        "reasonCode": "index-missing",
+        "details": {}
+      }
+    },
+    "debt": {
+      "ok": true,
+      "data": {
+        "schemaVersion": "archcontext.architecture-debt/v1",
+        "scope": {
+          "kind": "repository",
+          "changedPaths": [],
+          "capabilityIds": []
+        },
+        "coverage": "partial",
+        "coverageReasonCodes": [
+          "dependencies:deferred-to-complete",
+          "dependencies:not-evaluated",
+          "flows:deferred-to-complete",
+          "flows:not-evaluated",
+          "practices:deferred-to-complete",
+          "practices:not-evaluated"
+        ],
+        "checks": [
+          {
+            "check": "ownership",
+            "coverage": "complete",
+            "reasonCodes": []
+          },
+          {
+            "check": "anchors",
+            "coverage": "complete",
+            "reasonCodes": []
+          },
+          {
+            "check": "dependencies",
+            "coverage": "unknown",
+            "reasonCodes": [
+              "deferred-to-complete",
+              "not-evaluated"
+            ]
+          },
+          {
+            "check": "flows",
+            "coverage": "unknown",
+            "reasonCodes": [
+              "deferred-to-complete",
+              "not-evaluated"
+            ]
+          },
+          {
+            "check": "state-machines",
+            "coverage": "complete",
+            "reasonCodes": []
+          },
+          {
+            "check": "practices",
+            "coverage": "unknown",
+            "reasonCodes": [
+              "deferred-to-complete",
+              "not-evaluated"
+            ]
+          }
+        ],
+        "items": [
+          {
+            "id": "debt.f37e5304bec66f53c154a70b3abf8d61be20afc14040f61f3371eab270488426",
+            "kind": "unowned-path",
+            "nodeIds": [],
+            "capabilityIds": [],
+            "paths": [
+              "src/new.ts"
+            ],
+            "reasonCode": "source-owner-missing",
+            "action": "archctx plan --id changeset.<id> --operations-file <ownership-operations.json>",
+            "details": {
+              "modelField": "source.include/source.exclude/parent",
+              "ownershipRule": "parent-chain"
+            }
+          }
+        ],
+        "actionsRequired": [
+          "archctx plan --id changeset.<id> --operations-file <ownership-operations.json>"
+        ],
+        "digest": "sha256:878b42fa0587301d41fe55ce73bcb15d8d23ab7a817c9fee0db4528ab6c86a7c"
+      }
+    }
+  }
+}

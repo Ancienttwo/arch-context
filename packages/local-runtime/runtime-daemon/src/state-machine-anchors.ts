@@ -8,6 +8,7 @@ import { openCodeGraphSymbolReader, type CodeGraphCallee, type CodeGraphIndexedD
 export interface StateMachineAnchorScope {
   /** The Git-visible files of this invocation. */
   readonly files: ReadonlySet<string>;
+  readonly symbols?: CodeGraphSymbolReaderResult;
   /**
    * When present, only the anchors on these paths, or with a callee on them, are evaluated. A
    * symbol anchor whose callees cannot be read from the index is evaluated as `unchecked`. A path
@@ -46,7 +47,7 @@ export function stateMachineAnchors(root: string, machines: readonly StateMachin
   const symbolAnchors = anchors.flat().filter((anchor) => anchor.source.symbol !== undefined && scope.files.has(anchor.source.path));
   let opened: CodeGraphSymbolReaderResult | undefined;
   try {
-    if (symbolAnchors.length > 0) opened = openCodeGraphSymbolReader(root);
+    if (symbolAnchors.length > 0) opened = scope.symbols ?? openCodeGraphSymbolReader(root);
     const reader = opened?.availability === "ready" ? opened.reader : undefined;
     const files = new Map<string, AnchorFile>();
     const fileAt = (path: string): AnchorFile => {

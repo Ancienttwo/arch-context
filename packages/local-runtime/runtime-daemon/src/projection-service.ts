@@ -319,9 +319,10 @@ export function buildArchitectureDocsProjection(
   profile: ArchitectureProjectionProfile = "default",
   existingFilesOverride?: ProjectionOwnedFile[],
   acceptedChange?: AcceptedArchitectureChangeReferenceV1,
-  options: ArchitectureDocsRenderOptions & { historyTargetNamed?: boolean } = {}
+  options: ArchitectureDocsRenderOptions & { historyTargetNamed?: boolean } = {},
+  readInputs?: ProjectionCheckReadInputs
 ) {
-  const inputs = measureArchitectureDocsProjectionInputs(root, profile, existingFilesOverride, options.historyTargetNamed === true, options.rebaselineSupersededManifest === true);
+  const inputs = measureArchitectureDocsProjectionInputs(root, profile, existingFilesOverride, options.historyTargetNamed === true, options.rebaselineSupersededManifest === true, readInputs);
   return renderArchitectureDocsProjectionFromInputs(root, inputs, existingFilesOverride ?? inputs.loaded.existingFiles, acceptedChange, options);
 }
 
@@ -339,15 +340,21 @@ function docsProjectionChangeSetId(projection: ReturnType<typeof buildArchitectu
  * footprints. The render is a function of these, the existing documents it is
  * given and the accepted change.
  */
-function measureArchitectureDocsProjectionInputs(root: string, profile: ArchitectureProjectionProfile, existingFilesOverride: ProjectionOwnedFile[] | undefined, historyTargetNamed: boolean, rebaselineSupersededManifest: boolean) {
-  const loaded = loadArchitectureDocumentationInputs(root, profile, { rebaselineSupersededManifest });
+interface ProjectionCheckReadInputs {
+  model(): ReturnType<typeof loadNativeModelFromArchContext>;
+  machines(): ReturnType<typeof loadStateMachinesFromArchContext>;
+  prepareCodeGraph(): ReturnType<typeof prepareArchitectureDocumentationProjectionSnapshot>;
+}
+
+function measureArchitectureDocsProjectionInputs(root: string, profile: ArchitectureProjectionProfile, existingFilesOverride: ProjectionOwnedFile[] | undefined, historyTargetNamed: boolean, rebaselineSupersededManifest: boolean, readInputs?: ProjectionCheckReadInputs) {
+  const loaded = loadArchitectureDocumentationInputs(root, profile, { rebaselineSupersededManifest, model: readInputs?.model() });
   const sourceDigest = architectureDocumentationSourceDigest({ model: loaded.model, profile, decisions: loaded.decisions });
-  const codeGraphInputs = prepareArchitectureDocumentationProjectionSnapshot(root, loaded.model);
+  const codeGraphInputs = readInputs ? readInputs.prepareCodeGraph() : prepareArchitectureDocumentationProjectionSnapshot(root, loaded.model);
   assertProjectionCodeFactsAvailable(root, codeGraphInputs);
   return {
     profile,
     loaded,
-    stateMachines: loadStateMachinesFromArchContext(root, loaded.model.nodes),
+    stateMachines: readInputs?.machines() ?? loadStateMachinesFromArchContext(root, loaded.model.nodes),
     sourceDigest,
     codeGraphInputs,
     sourceScaleSignals: measureCapabilitySourceScaleSignals(root, loaded.model, codeGraphInputs.footprints),
@@ -820,12 +827,12 @@ function projectionPlannedStatus(projection: ReturnType<typeof buildArchitecture
  * job or a hook can ask "is the projection current?" without a daemon. A check never commits, so
  * it has no prior committed applies to report; `apply` and `readback` own that journal.
  */
-export function runProjectionCheckCommand(request: ProjectionRequestV1, root: string): JsonEnvelope {
-  try { return publicOperationResult("projection.run", runProjectionCheckCommandUnchecked(request, root)) as JsonEnvelope; }
+export function runProjectionCheckCommand(request: ProjectionRequestV1, root: string, readInputs?: ProjectionCheckReadInputs): JsonEnvelope {
+  try { return publicOperationResult("projection.run", runProjectionCheckCommandUnchecked(request, root, readInputs)) as JsonEnvelope; }
   catch (error) { throw publicOperationFailure(error); }
 }
 
-function runProjectionCheckCommandUnchecked(request: ProjectionRequestV1, root: string): JsonEnvelope {
+function runProjectionCheckCommandUnchecked(request: ProjectionRequestV1, root: string, readInputs?: ProjectionCheckReadInputs): JsonEnvelope {
   if (request.mode !== "check") {
     return publicFailureEnvelope("projection.run", "AC_SCHEMA_INVALID", "projection-check-mode-invalid");
   }
@@ -839,7 +846,7 @@ function runProjectionCheckCommandUnchecked(request: ProjectionRequestV1, root: 
     projection = buildArchitectureDocsProjection(undefined, root, REPO_HARNESS_PROJECTION_PROFILE, undefined, request.acceptedChange, {
       ...(request.acceptedChange === undefined ? { isolateBlockedCapabilities: true } : {}),
       historyTargetNamed: request.targets.includes("architecture-history")
-    });
+    }, readInputs);
     assertProjectionExpectedSnapshot(request, root, projection);
   } catch (error) {
     if (error instanceof ProjectionExpectedSnapshotMismatchError) return publicFailureEnvelope("projection.run", "AC_PRECONDITION_FAILED", "projection-snapshot-mismatch", {field: error.field});
@@ -1319,13 +1326,14 @@ function validateProjectionAcceptedChange(value: unknown): void {
  */
 export function currentProjectionExpectedSnapshot(
   root: string,
-  model: ReturnType<typeof loadNativeModelFromArchContext>
+  model: ReturnType<typeof loadNativeModelFromArchContext>,
+  files = listGitVisibleFiles(root)
 ): ProjectionExpectedSnapshotV1 {
   return {
     repositoryId: repositoryFingerprint(root),
     workspaceId: projectionWorkspaceId(root),
     headSha: readHeadSha(root),
-    worktreeDigest: architectureDocumentationProjectionWorktreeDigest(root, model, listGitVisibleFiles(root)) as Sha256Digest
+    worktreeDigest: architectureDocumentationProjectionWorktreeDigest(root, model, files) as Sha256Digest
   };
 }
 
@@ -1335,12 +1343,12 @@ export function currentProjectionExpectedSnapshot(
  * `check`: no daemon, no local store, no task session, no CodeGraph sync and no render. A root
  * that is not a Git worktree fails with `AC_REPO_NOT_FOUND` (`git-worktree-required`).
  */
-export function runProjectionSnapshotCommand(cwd: string): JsonEnvelope {
-  try { return publicOperationResult("projection.snapshot", runProjectionSnapshotCommandUnchecked(cwd)) as JsonEnvelope; }
+export function runProjectionSnapshotCommand(cwd: string, inputs?: { model: ProjectionCheckReadInputs["model"]; files(): string[] }): JsonEnvelope {
+  try { return publicOperationResult("projection.snapshot", runProjectionSnapshotCommandUnchecked(cwd, inputs)) as JsonEnvelope; }
   catch (error) { return publicOperationErrorEnvelope("projection.snapshot", error); }
 }
 
-function runProjectionSnapshotCommandUnchecked(cwd: string): JsonEnvelope {
+function runProjectionSnapshotCommandUnchecked(cwd: string, inputs?: { model: ProjectionCheckReadInputs["model"]; files(): string[] }): JsonEnvelope {
   let root: string;
   try {
     root = findRepositoryRoot(cwd);
@@ -1349,7 +1357,7 @@ function runProjectionSnapshotCommandUnchecked(cwd: string): JsonEnvelope {
   }
   try {
     return okEnvelope("projection.snapshot", {
-      expected: currentProjectionExpectedSnapshot(root, loadNativeModelFromArchContext(root))
+      expected: currentProjectionExpectedSnapshot(root, inputs?.model() ?? loadNativeModelFromArchContext(root), inputs?.files())
     } as unknown as Json);
   } catch (error) {
     return publicOperationErrorEnvelope("projection.snapshot", error);

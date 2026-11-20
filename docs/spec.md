@@ -256,6 +256,27 @@ metric directions `unknown`.
 `recommendations list --status <status>` returns the latest record of every recorded
 recommendation in that status with no item or byte budget; `book recommendations` keeps its budget.
 
+### Read-Only PR Verification and Batch Impact
+
+- `archctx verify --base <ref> --json` returns `archcontext.runtime-verify/v1` with the resolved
+  base and HEAD and seven check results under `checks`. Each entry carries the corresponding
+  report type or its typed producer error. The command loads the native worktree model once and
+  shares one CodeGraph read session over a private copy outside the checkout. `checks.validate`
+  always validates worktree YAML, including when standalone `archctx validate` reads the
+  authoritative ledger. Parity for CodeGraph-backed checks requires the same certified fresh
+  snapshot. A generated-only PR with unavailable or stale code facts returns a typed projection
+  failure alongside the other check results. Verify performs no CodeGraph sync, and its Git
+  cleanliness check honors configured clean and process filters with index refresh disabled.
+- `archctx impact --batch-file <json-path> --json` reads an `archcontext.ref-impact-batch-request/v1`
+  with `items: [{ id, paths }]` and returns `archcontext.ref-impact-batch/v1`. Each result pairs the
+  input ID with the same paths-only impact as `--paths-from`, in request order, over one model
+  snapshot. Paths-only input leaves line and selector coverage unknown. The complete UTF-8 response,
+  including the envelope and trailing newline, is limited to 8 MiB. A report that exceeds the
+  remaining budget has `status: unavailable` and `reasonCode: batch-response-bytes`. Later reports
+  can still fit. If even the per-ID statuses exceed the cap, the batch fails with a typed limit
+  error. Invalid requests and unresolved verification bases return an `archcontext.envelope/v1` with
+  `ok: false`.
+
 ### Read-Only Ownership and Dependency Queries
 
 These queries use the parent-chain owner rule of `refactor scan` (module-statistics

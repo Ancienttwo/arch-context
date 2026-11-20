@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "archcontext.ref-impact-batch-request/v1",
+  "items": [
+    {
+      "id": "pr-42",
+      "paths": [
+        "src/new.ts"
+      ]
+    }
+  ]
+}

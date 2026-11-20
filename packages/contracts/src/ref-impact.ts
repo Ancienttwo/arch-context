@@ -1,4 +1,37 @@
 import type { NativeContextSnapshot } from "./native-context";
+import { isRepoRelativePosixPath } from "./schema";
+
+export const REF_IMPACT_BATCH_REQUEST_SCHEMA_VERSION = "archcontext.ref-impact-batch-request/v1" as const;
+export const REF_IMPACT_BATCH_SCHEMA_VERSION = "archcontext.ref-impact-batch/v1" as const;
+
+export interface RefImpactBatchRequestV1 {
+  schemaVersion: typeof REF_IMPACT_BATCH_REQUEST_SCHEMA_VERSION;
+  items: Array<{ id: string; paths: string[] }>;
+}
+
+export type RefImpactBatchItemV1 =
+  | { id: string; impact: RefImpactV1 }
+  | { id: string; status: "unavailable"; reasonCode: "batch-response-bytes" };
+
+export interface RefImpactBatchV1 {
+  schemaVersion: typeof REF_IMPACT_BATCH_SCHEMA_VERSION;
+  items: RefImpactBatchItemV1[];
+}
+
+export function isRefImpactBatchRequest(value: unknown): value is RefImpactBatchRequestV1 {
+  if (!isRecord(value) || Object.keys(value).length !== 2 || value.schemaVersion !== REF_IMPACT_BATCH_REQUEST_SCHEMA_VERSION || !Array.isArray(value.items)) return false;
+  for (const item of value.items) {
+    if (!isRecord(item) || Object.keys(item).length !== 2 || typeof item.id !== "string" || !Array.isArray(item.paths)) return false;
+    for (const path of item.paths) {
+      if (typeof path !== "string" || !isRepoRelativePosixPath(path) || path.includes("\0")) return false;
+    }
+  }
+  return true;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
 export const REF_IMPACT_SCHEMA_VERSION = "archcontext.ref-impact/v1" as const;
 export const REF_IMPACT_LIMITS = Object.freeze({ changedPaths: 1000, nodes: 1000, relations: 5000, flowSteps: 2000, dependents: 5000, modelChanges: 5000, depth: 10, diffLines: 100_000, diffWork: 2_000_000, diffBytes: 8 * 1024 * 1024, responseBytes: 8 * 1024 * 1024, codeFactFiles: 10_000, codeFactBytes: 8 * 1024 * 1024 });
 export interface RefImpactModelChange { kind: string; id: string; change: "added" | "removed" | "changed"; fields: string[] }

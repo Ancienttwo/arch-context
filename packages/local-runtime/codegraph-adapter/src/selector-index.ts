@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { Edge as CodeGraphEdge, Node as CodeGraphNode } from "@colbymchenry/codegraph";
-import { codeGraphBundle, withCodeGraphReadSession, type CodeGraphReadProvider, type CodeGraphReadSession, type CodeGraphSdk } from "./read-session";
+import { codeGraphBundle, withCodeGraphReadSession, type CodeGraphIndexHandle, type CodeGraphReadProvider, type CodeGraphReadSession, type CodeGraphSdk } from "./read-session";
 import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import {
   loadCapabilitySourceFootprints,
@@ -112,6 +112,11 @@ export function openCodeGraphSymbolReader(
   } catch {
     return { availability: "unavailable", reasonCode: "index-open-failed" };
   }
+  return codeGraphSymbolReader(graph, () => graph.close());
+}
+
+/** Use an existing graph without taking ownership of the workspace session. */
+export function codeGraphSymbolReader(graph: CodeGraphIndexHandle, close: () => void = () => undefined): CodeGraphSymbolReaderResult {
   const declarations = (nodes: CodeGraphNode[]): CodeGraphSymbolDeclaration[] => nodes
     .filter((node) => !NON_DECLARATION_KINDS.has(node.kind))
     .map((node) => ({ name: node.name, qualifiedName: node.qualifiedName, startLine: node.startLine, endLine: node.endLine }))
@@ -169,7 +174,7 @@ export function openCodeGraphSymbolReader(
         }
         return result;
       },
-      close: () => graph.close()
+      close
     }
   };
 }
@@ -209,6 +214,8 @@ export function loadCapabilityCodeGraphProjectionInputs(
     sourceFiles?: readonly string[];
     /** Footprints resolved over the Git-visible files; resolved from `root` when omitted. */
     footprints?: readonly CapabilitySourceFootprint[];
+    /** A caller-owned read session, already opened by the enclosing operation. */
+    session?: CodeGraphReadSession;
     /** The provider the session opens the index with; the pinned one unless a test injects one. */
     provider?: CodeGraphReadProvider;
     /** Safety cap on the import nodes kept; `CODEGRAPH_IMPORT_NODE_READ_LIMIT` when omitted. */
@@ -231,7 +238,7 @@ export function loadCapabilityCodeGraphProjectionInputs(
     .filter((entry) => entry.entrypoints.length > 0)
     .sort((left, right) => left.nodeId.localeCompare(right.nodeId));
   if (footprints.length === 0 && entrypointNodes.length === 0) return { importGraphs: [], selectorEvidence: [] };
-  if (!codeGraphIndexAvailable(root)) return { importGraphs: [], selectorEvidence: [] };
+  if (!options.session && !codeGraphIndexAvailable(root)) return { importGraphs: [], selectorEvidence: [] };
 
   disableCodeGraphTelemetryByDefault();
   const importTargets = new Set(sourceFiles());
@@ -258,6 +265,7 @@ export function loadCapabilityCodeGraphProjectionInputs(
       owned?.close();
     }
   };
+  if (options.session) return read(options.session);
   if (footprints.length === 0 && options.selectorIndexFactory) return read(undefined);
   return withCodeGraphReadSession(root, (opened) => {
     if (opened.state !== "open") throw new Error(`CodeGraph index could not be read: ${opened.state}`);

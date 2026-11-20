@@ -56,12 +56,14 @@ describe("@archcontext/contracts source package", () => {
       expect(files).toContain("fixtures/valid/projection-slice.json");
       expect(files).toContain("fixtures/valid/architecture-refresh-signal.json");
       expect(files).toContain("fixtures/valid/archctx-capabilities.json");
-      for (const name of ["architecture-debt-delta", "docs-anchors", "native-context-export", "recommendation-v3", "runtime-refactor-scan", "runtime-recommendation-show"]) {
+      for (const name of ["architecture-debt-delta", "docs-anchors", "native-context-export", "recommendation-v3", "ref-impact-batch", "ref-impact-batch-request", "runtime-refactor-scan", "runtime-recommendation-show", "runtime-verify"]) {
         expect(files).toContain(`schemas/runtime/${name}.schema.json`);
         expect(files).toContain(`fixtures/valid/${name}.json`);
       }
       expect(files).toContain("schemas/runtime/structural-observation-payload.schema.json");
       expect(files).toContain("src/native-context.ts");
+      expect(files).toContain("src/ref-impact.ts");
+      expect(files).toContain("src/runtime-verify.ts");
       for (const name of ["architecture-node", "architecture-relation", "architecture-flow"]) expect(files).toContain(`schemas/repo/${name}.schema.json`);
       expect(files.some((file) => file.startsWith("src/"))).toBe(true);
       expect(files.some((file) => file.startsWith("fixtures/valid/"))).toBe(true);

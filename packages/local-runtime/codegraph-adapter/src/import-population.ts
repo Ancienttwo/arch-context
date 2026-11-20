@@ -1,7 +1,7 @@
 import { posix } from "node:path";
 import type { CapabilitySourceFootprint, CapabilityImportEdge, CapabilityImportGraph } from "@archcontext/core/projection-engine";
 import type { NormalizedEdge } from "@archcontext/contracts";
-import { withCodeGraphReadSession, type CodeGraphReadProvider, type CodeGraphReadSession } from "./read-session";
+import { withCodeGraphReadSession, type CodeGraphReadProvider, type CodeGraphReadSession, type CodeGraphReadSessionOpenV1 } from "./read-session";
 
 const SOURCE_EXTENSIONS = [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".json"];
 
@@ -144,6 +144,7 @@ export function repositoryImportPairs(
   sourceFiles: readonly string[],
   options: {
     provider?: CodeGraphReadProvider;
+    session?: CodeGraphReadSession;
     scope?: {
       paths: ReadonlySet<string>;
       /** Workspace specifiers resolving to a seed path, even when CodeGraph has no resolved edge. */
@@ -153,7 +154,7 @@ export function repositoryImportPairs(
   } = {}
 ): RepositoryImportPairsV1 {
   assertImportNodeLimit(limit);
-  return withCodeGraphReadSession(root, (opened): RepositoryImportPairsV1 => {
+  const read = (opened: CodeGraphReadSessionOpenV1): RepositoryImportPairsV1 => {
     if (opened.state !== "open") {
       return {
         pairs: [],
@@ -185,7 +186,9 @@ export function repositoryImportPairs(
       importNodeLimit: limit,
       importNodeLimitExceeded: nodes.limitExceeded
     };
-  }, options);
+  };
+  if (options.session) return read({ state: "open", session: options.session });
+  return withCodeGraphReadSession(root, read, options);
 }
 
 function assertImportNodeLimit(limit: number): void {

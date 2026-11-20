@@ -616,7 +616,13 @@ export type ProjectionVerifyPrCheckPort = (request: ProjectionRequestV1, root: s
  * glob covers all of `docs/architecture/**`, where hand-written documents the renderer never
  * touches also live, and whose edits a `check` would never see.
  */
-export function runProjectionVerifyPrCommand(options: { cwd: string; base: string; check?: ProjectionVerifyPrCheckPort }): JsonEnvelope {
+export function runProjectionVerifyPrCommand(options: {
+  cwd: string;
+  base: string;
+  check?: ProjectionVerifyPrCheckPort;
+  snapshot?: typeof runProjectionSnapshotCommand;
+  revisions?: { baseSha: string; headSha: string };
+}): JsonEnvelope {
   const requestId = PROJECTION_VERIFY_PR_REQUEST_ID;
   let root: string;
   try {
@@ -626,14 +632,14 @@ export function runProjectionVerifyPrCommand(options: { cwd: string; base: strin
   }
   if (!isGitRevisionArgument(options.base)) return errorEnvelope(requestId, "AC_SCHEMA_INVALID", `projection verify-pr --base is not a usable revision: ${JSON.stringify(options.base)}`, "projection-verify-pr-input-invalid");
   try {
-    if (!isTrackedWorktreeClean(root)) {
+    if (!isTrackedWorktreeClean(root, options.revisions !== undefined)) {
       return errorEnvelope(requestId, "AC_PRECONDITION_FAILED", "projection verify-pr requires a clean tracked worktree; HEAD is the pull request head", "projection-verify-pr-worktree-dirty");
     }
     let baseSha: string;
     let mergeBase: string;
-    const headSha = git(root, ["rev-parse", "--verify", "HEAD^{commit}"]).trim();
+    const headSha = options.revisions?.headSha ?? git(root, ["rev-parse", "--verify", "HEAD^{commit}"]).trim();
     try {
-      baseSha = git(root, ["rev-parse", "--verify", `${options.base}^{commit}`]).trim();
+      baseSha = options.revisions?.baseSha ?? git(root, ["rev-parse", "--verify", `${options.base}^{commit}`]).trim();
       mergeBase = git(root, ["merge-base", baseSha, headSha]).trim();
     } catch (error) {
       return errorEnvelope(requestId, "AC_PRECONDITION_FAILED", `projection verify-pr cannot resolve ${options.base} against HEAD: ${errorMessage(error)}`, "projection-verify-pr-base-unresolved");
@@ -661,7 +667,7 @@ export function runProjectionVerifyPrCommand(options: { cwd: string; base: strin
       return verification({ verdict: "touches-non-generated", nonGeneratedPaths: classified.nonGeneratedPaths, humanEditedPaths: classified.humanEditedPaths });
     }
 
-    const snapshot = runProjectionSnapshotCommand(root);
+    const snapshot = (options.snapshot ?? runProjectionSnapshotCommand)(root);
     if (!snapshot.ok) return { ...snapshot, requestId };
     const request: ProjectionRequestV1 = {
       schemaVersion: PROJECTION_REQUEST_SCHEMA_VERSION,

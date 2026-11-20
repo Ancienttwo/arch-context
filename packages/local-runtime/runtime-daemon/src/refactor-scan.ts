@@ -346,6 +346,7 @@ export function evaluateWorktreeDependencyConstraints(input: {
   nodes: NativeNode[];
   constraints: DependencyConstraintV1[];
   edgeLimit?: number;
+  readImports?: typeof repositoryImportPairs;
 }): DependencyConstraintEvaluationV1 {
   const { constraints } = input;
   const base = { nodes: input.nodes, constraints, worktreeDigest: input.worktreeDigest };
@@ -362,7 +363,7 @@ export function evaluateWorktreeDependencyConstraints(input: {
   const edgeLimit = input.edgeLimit ?? CODEGRAPH_IMPORT_NODE_READ_LIMIT;
   let imports: ReturnType<typeof repositoryImportPairs>;
   try {
-    imports = repositoryImportPairs(input.root, edgeLimit, input.worktreeDigest, input.sourceFiles);
+    imports = (input.readImports ?? repositoryImportPairs)(input.root, edgeLimit, input.worktreeDigest, input.sourceFiles);
   } catch {
     imports = {
       pairs: [],

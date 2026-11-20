@@ -7,7 +7,7 @@ import { assertPathHasNoSymlinkSegments, writeFileWithoutFollowingSymlinks } fro
 import { isStateMachineModelPath, STATE_MACHINES_MODEL_DIRECTORY, stateMachinesFromModelFiles } from "@archcontext/core/state-machine-engine";
 import nodeSchema from "../../../../schemas/repo/architecture-node.schema.json";
 export * from "./native-context";
-export { IMPACT_LIMITS, readRefImpact, type RefImpactOptions } from "./ref-impact";
+export { IMPACT_LIMITS, readRefImpact, readRefImpactBatch, type RefImpactOptions } from "./ref-impact";
 
 export interface ModelFile {
   path: string;

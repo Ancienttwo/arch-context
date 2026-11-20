@@ -81,16 +81,23 @@ export function prepareArchitectureDocumentationProjectionSnapshot(
     readProvider?: CodeGraphReadProvider;
     /** See `prepareProjectionCodeFacts`: this command already ran `codegraph sync` on `root` (#584). */
     indexSynced?: boolean;
-  } = {}
+  } | { existingSession: CodeGraphReadSession; sourceFiles: string[] } = {}
 ): PreparedArchitectureDocumentationProjectionSnapshot {
-  if (!options.indexSynced) seedProjectionCodeGraphIndex(root, { ...(options.binary ? { binary: options.binary } : {}), timeoutMs: options.timeouts?.syncMs ?? 120_000 });
+  const existing = "existingSession" in options;
+  if (!existing && !options.indexSynced) seedProjectionCodeGraphIndex(root, { ...(options.binary ? { binary: options.binary } : {}), timeoutMs: options.timeouts?.syncMs ?? 120_000 });
   const baseHeadSha = readProjectionHeadSha(root);
-  const sourceFiles = listGitVisibleFiles(root);
+  const sourceFiles = existing ? options.sourceFiles : listGitVisibleFiles(root);
   const worktreeDigest = architectureDocumentationProjectionWorktreeDigest(root, model, sourceFiles);
   const footprints = loadCapabilitySourceFootprints(root, model, sourceFiles);
   const sourceTreeDigest = digestArchitectureDocumentationSourceTree(root, model, footprints);
   const modelDigest = digestJson(model as unknown as Json);
-  const prepared = prepareProjectionCodeFacts(root, model, { ...options, sourceTreeDigest, sourceFiles, footprints });
+  const prepared = existing
+    ? preparedProjectionRead(
+      options.existingSession.version(), packagedCodeGraphRuntimeDigest(), sourceTreeDigest,
+      projectionIndexStateDigest(options.existingSession),
+      loadCapabilityCodeGraphProjectionInputs(root, model, { sourceFiles, footprints, session: options.existingSession })
+    )
+    : prepareProjectionCodeFacts(root, model, { ...options, sourceTreeDigest, sourceFiles, footprints });
   if (architectureDocumentationProjectionWorktreeDigest(root, model, listGitVisibleFiles(root)) !== worktreeDigest) {
     throw new Error("architecture-docs-projection-worktree-changed-during-codegraph-sync");
   }
@@ -254,8 +261,12 @@ export function prepareProjectionCodeFacts(
     if (after) throw projectionIndexNotReady(after.facts);
     return { indexDigest: digest, inputs: read };
   });
+  return preparedProjectionRead(actualVersion, binaryDigest(), options.sourceTreeDigest, indexDigest, inputs);
+}
+
+function preparedProjectionRead(actualVersion: string, binaryDigest: string, sourceTreeDigest: string, indexDigest: string, inputs: CapabilityCodeGraphProjectionInputs): PreparedProjectionCodeFacts {
   const indexedWorktreeDigest = digestJson({
-    sourceTreeDigest: options.sourceTreeDigest,
+    sourceTreeDigest,
     statusDigest: indexDigest
   } as unknown as Json);
   const graphDigest = digestJson({
@@ -270,7 +281,7 @@ export function prepareProjectionCodeFacts(
       packageName: REQUIRED_CODEGRAPH_PACKAGE,
       requiredVersion: REQUIRED_CODEGRAPH_VERSION,
       actualVersion,
-      binaryDigest: binaryDigest(),
+      binaryDigest,
       availability: "ready",
       indexedWorktreeDigest,
       graphDigest

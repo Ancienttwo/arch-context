@@ -7,6 +7,7 @@ export * from "./review-guards";
 export * from "./ledger";
 export * from "./native-context";
 export * from "./ref-impact";
+export * from "./runtime-verify";
 export * from "./changeset-receipt";
 export * from "./ownership-dependencies";
 export * from "./ports";
