@@ -11,6 +11,7 @@ import { loadPracticeCatalog } from "@archcontext/core/practice-catalog";
 import { matchPracticesForTask } from "@archcontext/core/practice-engine";
 import { detectArchitecturePressure, type PressureSignal } from "@archcontext/core/pressure-engine";
 import { computeRefactorConfidence, decidePosture, type RefactorConfidence } from "@archcontext/core/refactor-decision";
+import type { SearchTokenizer } from "@archcontext/core/retrieval";
 
 export interface ContextBudget {
   maxBytes: number;
@@ -156,6 +157,7 @@ export async function compileTaskContext(input: {
     rollbackAvailable?: boolean;
   };
   changedPaths?: string[];
+  tokenizer?: SearchTokenizer;
 }): Promise<CompiledTaskContext> {
   const model = await input.modelStore.validateModel(input.workspace);
   const ledgerReadback = await input.architectureLedger?.queryForTask({
@@ -203,7 +205,8 @@ export async function compileTaskContext(input: {
     catalog,
     codeContext,
     pressure,
-    maxMatches: Math.min(5, Math.max(3, input.budget.maxItems))
+    maxMatches: Math.min(5, Math.max(3, input.budget.maxItems)),
+    ...(input.tokenizer === undefined ? {} : { tokenizer: input.tokenizer })
   });
   let context: Omit<CompiledTaskContext, "extensions"> = {
     schemaVersion: "archcontext.task-context/v1" as const,
@@ -286,6 +289,7 @@ export async function compileLandscapeTaskContext(input: {
     testsAvailable?: boolean;
     rollbackAvailable?: boolean;
   };
+  tokenizer?: SearchTokenizer;
 }): Promise<CompiledTaskContext> {
   const active = activeRepositoriesForTask(input.landscape, input.task);
   const activeRepositoryIds = active.map((repo) => repo.repositoryId);
@@ -326,7 +330,8 @@ export async function compileLandscapeTaskContext(input: {
     catalog,
     codeContext,
     pressure,
-    maxMatches: Math.min(5, Math.max(3, input.budget.maxItems))
+    maxMatches: Math.min(5, Math.max(3, input.budget.maxItems)),
+    ...(input.tokenizer === undefined ? {} : { tokenizer: input.tokenizer })
   });
   let context: Omit<CompiledTaskContext, "extensions"> = {
     schemaVersion: "archcontext.task-context/v1",

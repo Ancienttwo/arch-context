@@ -404,7 +404,8 @@ test("each platform family is selected by a path it owns; shared-core and packag
   const families = (...paths: string[]) => selectImpact(SCOPE, WORKSPACES, paths).families;
   expect(families(PLATFORM_PATH)).toEqual(["platform"]);
   expect(families("scripts/packaged-cli-smoke.mjs")).toEqual(["node-compat"]);
-  expect(families("packages/core/changeset-engine/src/index.ts")).toEqual(["platform", "linux-arm64"]);
+  expect(families("packages/core/changeset-engine/src/index.ts")).toEqual(["platform"]);
+  expect(families("packages/local-runtime/descriptor-write/src/index.ts")).toEqual(["platform", "linux-arm64"]);
   // A shared-core path that no family owns selects no family; the Linux job covers it and every dependent.
   expect(selectImpact(SCOPE, WORKSPACES, ["packages/contracts/src/failure.ts"])).toEqual({ families: [], workspaces: ALL_WORKSPACES });
   // Workspace membership alone selects no family.
@@ -581,7 +582,7 @@ interface ReviewedScript { run: string; inputs?: string[]; scripts?: string[]; b
 
 const PLATFORM_SUITES = [
   "packages/core/changeset-engine", "packages/local-runtime/codegraph-adapter",
-  "packages/local-runtime/control-file-security", "packages/local-runtime/git-adapter", "packages/local-runtime/local-store-sqlite",
+  "packages/local-runtime/control-file-security", "packages/local-runtime/descriptor-write", "packages/local-runtime/git-adapter", "packages/local-runtime/local-store-sqlite",
   "packages/local-runtime/runtime-state-paths", "packages/local-runtime/model-store-yaml/test/native-context.test.ts",
   ...["daemon-control-acl", "egress-admission", "investigation-transport", "projection-writer", "rpc-argument-codec", "rpc-client",
     "rpc-contract-boundary", "rpc-methods", "rpc-prepare-session", "rpc-server", "rpc-v2-failure-compat", "rpc-version"]
@@ -609,7 +610,7 @@ const ipcUpload = (suffix: string): ReviewedStep => ({ step: { uses: "actions/up
 const ifFamily = (id: string) => `contains(fromJSON(needs.verify-plan.outputs.families), '${id}')`;
 const OS_TIMEOUT = "${{ matrix.os == 'windows-latest' && 60 || 20 }}";
 const RUNNER_GUARD = `node -e "if (process.platform !== 'linux' || process.arch !== 'arm64') process.exit(1)"`;
-const ARM64_TEST = "packages/core/changeset-engine/test/changeset-engine.test.ts";
+const ARM64_TEST = "packages/local-runtime/descriptor-write/test/descriptor-write.test.ts";
 const REVIEWED_JOBS: Record<string, { header: Record<string, any>; steps: ReviewedStep[] }> = {
   "verify-platform": {
     header: { if: ifFamily("platform"), needs: "verify-plan", "runs-on": "${{ matrix.os }}", "timeout-minutes": OS_TIMEOUT,

@@ -9,6 +9,7 @@
       "owners": [
         "scripts/platform-ipc-permission-readback.mjs",
         "packages/core/changeset-engine/**",
+        "packages/local-runtime/descriptor-write/**",
         "packages/local-runtime/codegraph-adapter/**",
         "packages/local-runtime/control-file-security/**",
         "packages/local-runtime/egress-admission/**",
@@ -53,7 +54,7 @@
     {
       "id": "linux-arm64",
       "jobs": ["linux-arm64-descriptor-write"],
-      "owners": ["packages/core/changeset-engine/**"]
+      "owners": ["packages/local-runtime/descriptor-write/**"]
     },
     {
       "id": "full-matrix",

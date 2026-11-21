@@ -13,7 +13,7 @@ export async function frozenV2(root:string):Promise<{client:any;server:any}> {
   if(createHash("sha256").update(bytes).digest("hex")!==fixtures[name].sha256) throw new Error("Frozen v2 fixture integrity failed");
   const path=join(root,`frozen-v2-${name}.mjs`);
   // Native modules cannot be inlined into an immutable JS fixture; resolve the unchanged installed dependency.
-  writeFileSync(path,bytes.toString("utf8").replaceAll('"koffi"',JSON.stringify(createRequire(import.meta.resolve("@archcontext/core")).resolve("koffi"))));
+  writeFileSync(path,bytes.toString("utf8").replaceAll('"koffi"',JSON.stringify(createRequire(import.meta.resolve("@archcontext/local-runtime")).resolve("koffi"))));
   modules[name]=await import(path);
  }
  return modules;

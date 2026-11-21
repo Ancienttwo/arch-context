@@ -1,6 +1,7 @@
 import { chmodSync, closeSync, constants as fsConstants, fstatSync, fsyncSync, linkSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { digestJson, FailureError } from "@archcontext/contracts";
+import { assertPathHasNoSymlinkSegments } from "@archcontext/core/changeset-engine";
 import koffi from "koffi";
 
 export interface DescriptorRelativeWriteRequest {
@@ -12,11 +13,48 @@ export interface DescriptorRelativeWriteRequest {
   tempName: string;
 }
 
+export interface NoFollowFileWrite {
+  /** Containment boundary. The root itself is trusted and may legitimately be reached through a symlink. */
+  root: string;
+  /** Repository-relative destination. */
+  path: string;
+  /** File body to write atomically. */
+  body: string;
+  /** POSIX mode forced on the file. Omit to inherit the process default. */
+  mode?: number;
+  /** `digestJson({ body })` of the current contents, or `"missing"` when the file must not exist yet. */
+  expectedHash: string;
+}
+
 let beforeCommitTestHook: (() => void) | undefined;
+let noFollowWriteSequence = 0;
+
+function nextNoFollowWriteSequence(): number {
+  noFollowWriteSequence += 1;
+  return noFollowWriteSequence;
+}
 
 /** @internal Deterministic synchronization seam for the no-follow adversarial regression test. */
 export function setDescriptorRelativeWriteTestHook(hook: (() => void) | undefined): void {
   beforeCommitTestHook = hook;
+}
+
+/**
+ * The write boundary for structured files that live outside the ChangeSet operation set but still
+ * must not be redirected by a repository-controlled path — the Context7 pin lockfile is the first.
+ *
+ * It reuses descriptor-relative atomic writes and expected-hash preconditions, and fails closed:
+ * a symlink anywhere in the path, or contents that changed since the caller read them, aborts
+ * before anything is created, truncated, renamed, or chmod'd.
+ */
+export function writeFileWithoutFollowingSymlinks(request: NoFollowFileWrite): void {
+  const absoluteRoot = resolve(request.root);
+  const absolute = assertPathHasNoSymlinkSegments(request.root, request.path);
+  const segments = relative(absoluteRoot, absolute).split(sep);
+  descriptorRelativeWrite({
+    ...request,
+    tempName: `${segments.at(-1)}.archctx-tmp-${process.pid}-${nextNoFollowWriteSequence()}`
+  });
 }
 
 interface PosixFlags {

@@ -8,6 +8,7 @@ import {
   type RepositoryRegistration
 } from "@archcontext/core/architecture-domain";
 import { compileLandscapeTaskContext } from "@archcontext/core/context-compiler";
+import { defaultJiebaSearchTokenizer } from "@archcontext/local-runtime/search-tokenizer";
 import { errorEnvelope, okEnvelope, type Json, type JsonEnvelope, type ModelStorePort, type WorkspaceRef } from "@archcontext/contracts";
 import { MultiRepoCodeGraphAdapter, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import type { RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
@@ -184,6 +185,7 @@ export class LandscapeService {
       task,
       codeFacts: new MultiRepoCodeGraphAdapter(this.createLandscapeCodeGraphProviders()),
       modelStore: this.context.readModelStore,
+      tokenizer: defaultJiebaSearchTokenizer(),
       budget: { maxBytes: 12_288, maxItems: maxSymbols }
     });
     return okEnvelope("context", context as unknown as Json);

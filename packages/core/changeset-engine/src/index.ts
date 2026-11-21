@@ -24,7 +24,6 @@ import {
   type validateJsonSchema
 } from "@archcontext/contracts";
 import { assertAllowedArchContextPath, evaluateChangeSetPaths, type ArchContextPathScope } from "@archcontext/core/policy-engine";
-import { descriptorRelativeWrite } from "./descriptor-relative-write";
 import { MANIFEST_UPDATE_OPERATION_SCHEMA, MANIFEST_UPDATE_PATH, assertManifestUpdateOperation, renderManifestFieldsUpdate, type ManifestUpdateFields } from "./manifest-update";
 export { MANIFEST_UPDATE_PATH, MANIFEST_UPDATE_OPERATION_SCHEMA, type ManifestUpdateFields } from "./manifest-update";
 
@@ -1057,36 +1056,6 @@ function assertSafeTarget(root: string, path: string, scope?: ArchContextPathSco
   }
 }
 
-export interface NoFollowFileWrite {
-  /** Containment boundary. The root itself is trusted and may legitimately be reached through a symlink. */
-  root: string;
-  /** Repository-relative destination. */
-  path: string;
-  body: string;
-  /** POSIX mode forced on the file. Omit to inherit the process default. */
-  mode?: number;
-  /** `digestJson({ body })` of the current contents, or `"missing"` when the file must not exist yet. */
-  expectedHash: string;
-}
-
-/**
- * The write boundary for structured files that live outside the ChangeSet operation set but still
- * must not be redirected by a repository-controlled path — the Context7 pin lockfile is the first.
- *
- * It reuses this module's atomic writer and expected-hash precondition rather than introducing a
- * second one, and it is fail-closed: a symlink anywhere in the path, or contents that changed since
- * the caller read them, aborts before anything is created, truncated, renamed, or chmod'd.
- */
-export function writeFileWithoutFollowingSymlinks(request: NoFollowFileWrite): void {
-  const absoluteRoot = resolve(request.root);
-  const absolute = assertPathHasNoSymlinkSegments(request.root, request.path);
-  const segments = relative(absoluteRoot, absolute).split(sep);
-  descriptorRelativeWrite({
-    ...request,
-    tempName: `${segments.at(-1)}.archctx-tmp-${process.pid}-${nextNoFollowWriteSequence()}`
-  });
-}
-
 /**
  * Containment plus no-follow validation for a repository-relative path, returning its absolute form.
  *
@@ -1103,13 +1072,6 @@ export function assertPathHasNoSymlinkSegments(root: string, path: string): stri
   }
   assertNoSymlinkSegments(absoluteRoot, contained.split(sep), path);
   return absolute;
-}
-
-let noFollowWriteSequence = 0;
-
-function nextNoFollowWriteSequence(): number {
-  noFollowWriteSequence += 1;
-  return noFollowWriteSequence;
 }
 
 /**

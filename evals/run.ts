@@ -35,7 +35,7 @@ import { detectArchitecturePressure } from "../packages/core/pressure-engine/src
 import { computeRefactorConfidence, decidePosture } from "../packages/core/refactor-decision/src/index";
 import { buildModuleStatisticsSnapshot, measureModuleStatistics, resolveOwnership, type ModuleStatisticsImportEdgeV1, type ModuleStatisticsTrackedFileV1 } from "../packages/core/module-statistics/src/index";
 import { assessRefactor, deriveTargetDelta } from "../packages/core/refactor-assessment/src/index";
-import type { NativeModel } from "../packages/core/projection-engine/src/index";
+import type { NativeModel } from "../packages/core/architecture-domain/src/index";
 import {
   InMemoryLexicalRetriever,
   REPRESENTATIVE_CHINESE_RETRIEVAL_DOCUMENTS,
@@ -43,6 +43,7 @@ import {
   runRetrievalEval,
   type RetrievalDocument
 } from "../packages/core/retrieval/src/index";
+import { JiebaSearchTokenizer } from "../packages/local-runtime/search-tokenizer/src/index";
 import { isArchitectureDirectionViolationSubject, type ArchitecturePosture } from "../packages/core/architecture-domain/src/index";
 import {
   architectureTargetDeltaInterventionId,
@@ -716,7 +717,7 @@ function scoreRetrieval(queries: RetrievalQueryCase[], documents: RetrievalDocum
   };
 
   const tiers: RetrievalTier[] = RETRIEVAL_LIMITS.map((limit) => {
-    const report = runRetrievalEval({ evalSet, documents, retriever: new InMemoryLexicalRetriever(), limit });
+    const report = runRetrievalEval({ evalSet, documents, retriever: new InMemoryLexicalRetriever(new JiebaSearchTokenizer()), limit });
     return {
       limit,
       contextRecall: report.score.contextRecall,
@@ -728,7 +729,7 @@ function scoreRetrieval(queries: RetrievalQueryCase[], documents: RetrievalDocum
   const gate = tiers.find((tier) => tier.limit === RETRIEVAL_GATE_LIMIT) ?? tiers[0];
 
   // Re-run at the gate limit to attribute per-query constraint misses.
-  const gateReport = runRetrievalEval({ evalSet, documents, retriever: new InMemoryLexicalRetriever(), limit: gate.limit });
+  const gateReport = runRetrievalEval({ evalSet, documents, retriever: new InMemoryLexicalRetriever(new JiebaSearchTokenizer()), limit: gate.limit });
   const documentById = new Map(documents.map((document) => [document.id, document]));
   const missedConstraintQueries: { id: string; expected: string[] }[] = [];
   for (const result of gateReport.queryResults) {
@@ -754,7 +755,7 @@ function scoreChineseRetrieval(): ChineseRetrievalResult {
   const report = runRetrievalEval({
     evalSet,
     documents: REPRESENTATIVE_CHINESE_RETRIEVAL_DOCUMENTS,
-    retriever: new InMemoryLexicalRetriever(),
+    retriever: new InMemoryLexicalRetriever(new JiebaSearchTokenizer()),
     limit: 1
   });
   const pass =
@@ -937,7 +938,7 @@ function matchPracticeCase(item: PracticeCase, catalog: ReturnType<typeof loadPr
     edges: item.edges,
     observedEvidence: codeContext.evidence
   });
-  return matchPracticesForTask({ task: item.task, catalog, codeContext, pressure, maxMatches: 3 });
+  return matchPracticesForTask({ task: item.task, catalog, codeContext, pressure, maxMatches: 3, tokenizer: new JiebaSearchTokenizer() });
 }
 
 function practiceCodeContext(item: PracticeCase) {

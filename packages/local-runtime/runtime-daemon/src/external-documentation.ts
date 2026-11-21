@@ -3,7 +3,8 @@ import { assertLocalEgressAllowed, LocalEgressPolicyError } from "@archcontext/l
 import { ChangeSetRecoveryUnresolvedError } from "./changeset-recovery-error";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { assertPathHasNoSymlinkSegments, writeFileWithoutFollowingSymlinks } from "@archcontext/core/changeset-engine";
+import { assertPathHasNoSymlinkSegments } from "@archcontext/core/changeset-engine";
+import { writeFileWithoutFollowingSymlinks } from "@archcontext/local-runtime/descriptor-write";
 import type { prepareTask } from "@archcontext/core/application";
 import { Context7ExternalDocumentationAdapter, assertContext7LibraryId, assertContext7Version, buildContext7Query } from "@archcontext/local-runtime/context7-adapter";
 import { finalizeContextBudgetMetadata } from "@archcontext/core/context-compiler";

@@ -169,7 +169,7 @@ function publicWriterFiles(root: string): Record<string, string> {
 
 test("approved public docs pin preserves a racing descriptor preimage and returns its registered refusal", async () => {
   const { createInitializedGitRepo, removeTempRepo } = await import("./runtime-test-fixtures");
-  const { setDescriptorRelativeWriteTestHook } = await import("../../../core/changeset-engine/src/descriptor-relative-write");
+  const { setDescriptorRelativeWriteTestHook } = await import("@archcontext/local-runtime/descriptor-write");
   const { writeFileSync } = await import("node:fs");
   const { join } = await import("node:path");
   const root = createInitializedGitRepo();
@@ -202,7 +202,7 @@ test("approved public docs pin preserves a racing descriptor preimage and return
 
 test("public init rolls back its created model and preserves a racing generated preimage with typed refusal", async () => {
   const { createGitRepo, removeTempRepo } = await import("./runtime-test-fixtures");
-  const { setDescriptorRelativeWriteTestHook } = await import("../../../core/changeset-engine/src/descriptor-relative-write");
+  const { setDescriptorRelativeWriteTestHook } = await import("@archcontext/local-runtime/descriptor-write");
   const { existsSync, writeFileSync } = await import("node:fs");
   const { join } = await import("node:path");
   const root = createGitRepo();
@@ -236,7 +236,7 @@ test("public init rolls back its created model and preserves a racing generated 
 
 test("unknown descriptor I/O with a lookalike diagnostic remains safe unclassified at public pin", async () => {
   const { createInitializedGitRepo, removeTempRepo } = await import("./runtime-test-fixtures");
-  const { setDescriptorRelativeWriteTestHook } = await import("../../../core/changeset-engine/src/descriptor-relative-write");
+  const { setDescriptorRelativeWriteTestHook } = await import("@archcontext/local-runtime/descriptor-write");
   const root = createInitializedGitRepo();
   const { daemon, store } = fixture();
   await daemon.start();

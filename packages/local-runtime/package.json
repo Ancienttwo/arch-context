@@ -16,14 +16,18 @@
     "./runtime-daemon": "./runtime-daemon/src/index.ts",
     "./architecture-debt": "./runtime-daemon/src/architecture-debt.ts",
     "./control-file-security": "./control-file-security/src/index.ts",
+    "./descriptor-write": "./descriptor-write/src/index.ts",
     "./process-liveness": "./process-liveness/src/index.ts",
     "./runtime-state-paths": "./runtime-state-paths/src/index.ts",
     "./runtime-rpc-client": "./runtime-daemon/src/rpc-client-entry.ts",
-    "./projection-paths": "./projection-paths/src/index.ts"
+    "./projection-paths": "./projection-paths/src/index.ts",
+    "./search-tokenizer": "./search-tokenizer/src/index.ts"
   },
   "dependencies": {
     "@archcontext/contracts": "workspace:*",
     "@archcontext/core": "workspace:*",
-    "@colbymchenry/codegraph": "1.6.4"
+    "@colbymchenry/codegraph": "1.6.4",
+    "@node-rs/jieba": "^2.0.1",
+    "koffi": "3.1.6"
   }
 }

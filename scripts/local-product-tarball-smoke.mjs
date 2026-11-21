@@ -19,7 +19,7 @@ import { fileURLToPath } from "node:url";
 
 const root = resolve(fileURLToPath(new URL("../", import.meta.url)));
 const rootManifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
-const coreManifest = JSON.parse(readFileSync(join(root, "packages/core/package.json"), "utf8"));
+const localRuntimeManifest = JSON.parse(readFileSync(join(root, "packages/local-runtime/package.json"), "utf8"));
 const releasePackageName = "archctx";
 const releaseHomeUrl = "https://github.com/Ancienttwo/arch-context";
 const releaseAssetFiles = [
@@ -295,8 +295,8 @@ async function buildLocalProductTarball(artifactDir) {
     ],
     dependencies: {
       "@colbymchenry/codegraph": rootManifest.dependencies?.["@colbymchenry/codegraph"],
-      "@node-rs/jieba": coreManifest.dependencies?.["@node-rs/jieba"],
-      koffi: coreManifest.dependencies?.koffi
+      "@node-rs/jieba": localRuntimeManifest.dependencies?.["@node-rs/jieba"],
+      koffi: localRuntimeManifest.dependencies?.koffi
     }
   }, null, 2), "utf8");
   assertNodeOnlyReleaseRuntime(stageDir, binPath);
@@ -474,8 +474,8 @@ function assertNodeOnlyReleaseRuntime(stageDir, binPath) {
     manifest.dependencies?.["@colbymchenry/codegraph"] === rootManifest.dependencies?.["@colbymchenry/codegraph"],
     "release package must preserve the exact CodeGraph dependency"
   );
-  assert(manifest.dependencies?.["@node-rs/jieba"] === coreManifest.dependencies?.["@node-rs/jieba"], "release package must declare native tokenizer dependency");
-  assert(manifest.dependencies?.koffi === coreManifest.dependencies?.koffi, "release package must declare descriptor-relative filesystem dependency");
+  assert(manifest.dependencies?.["@node-rs/jieba"] === localRuntimeManifest.dependencies?.["@node-rs/jieba"], "release package must declare native tokenizer dependency");
+  assert(manifest.dependencies?.koffi === localRuntimeManifest.dependencies?.koffi, "release package must declare descriptor-relative filesystem dependency");
 }
 
 function nodeOnlyRuntimeEnv(stateRoot, home) {

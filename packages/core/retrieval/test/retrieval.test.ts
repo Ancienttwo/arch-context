@@ -59,19 +59,9 @@ describe("@archcontext/core/retrieval", () => {
     })).toThrow("disabled");
   });
 
-  test("Chinese retrieval uses jieba search tokenization", () => {
-    const tokens = tokenizeForSearch("中文搜索要用结巴分词");
-    expect(tokens).toContain("中文搜索");
+  test("pure-core lexical search tokenizes Chinese without native dependencies", () => {
+    const tokens = tokenizeForSearch("中文搜索分词");
+    expect(tokens).toContain("中文");
     expect(tokens).toContain("分词");
-
-    const report = runRetrievalEval({
-      evalSet: createChineseRetrievalEvalSet(),
-      documents: REPRESENTATIVE_CHINESE_RETRIEVAL_DOCUMENTS,
-      retriever: new InMemoryLexicalRetriever(),
-      limit: 1
-    });
-    expect(report.score.contextRecall).toBe(1);
-    expect(report.score.constraintRecall).toBe(1);
-    expect(report.score.irrelevantRatio).toBe(0);
   });
 });

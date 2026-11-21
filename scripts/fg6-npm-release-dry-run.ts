@@ -78,14 +78,14 @@ export function buildNpmReleaseDryRunConfig(env: NodeJS.ProcessEnv = process.env
 
 export async function runNpmReleaseDryRun(config: ReturnType<typeof buildNpmReleaseDryRunConfig>) {
   const rootManifest = JSON.parse(readFileSync(resolve(config.root, "package.json"), "utf8")) as Record<string, unknown>;
-  const coreManifest = JSON.parse(readFileSync(resolve(config.root, "packages/core/package.json"), "utf8")) as Record<string, unknown>;
+  const runtimeManifest = JSON.parse(readFileSync(resolve(config.root, "packages/local-runtime/package.json"), "utf8")) as Record<string, unknown>;
   const contractsManifest = JSON.parse(readFileSync(resolve(config.root, "packages/contracts/package.json"), "utf8")) as Record<string, unknown>;
   const artifactDir = resolve(config.root, config.artifactDir);
   mkdirSync(artifactDir, { recursive: true });
   const stageDir = mkdtempSync(join(tmpdir(), "archctx-npm-release-stage-"));
   const contractsStage = preparePublicContractsReleaseStage({ root: config.root, sourceManifest: contractsManifest });
   try {
-    const packageJson = buildReleaseManifest(rootManifest, coreManifest);
+    const packageJson = buildReleaseManifest(rootManifest, runtimeManifest);
     buildReleaseStage(config.root, stageDir, packageJson);
     const pack = runJsonCommand("npm", ["pack", "--json", "--pack-destination", artifactDir], stageDir);
     const publishDryRun = runJsonCommand("npm", ["pack", "--dry-run", "--json"], stageDir);
@@ -389,7 +389,7 @@ export function inspectNpmReleaseDryRun(recording: unknown): { ok: boolean; fail
   return { ok: failures.length === 0, failures };
 }
 
-export function buildReleaseManifest(rootManifest: Record<string, unknown>, coreManifest: Record<string, unknown> = {}) {
+export function buildReleaseManifest(rootManifest: Record<string, unknown>, runtimeManifest: Record<string, unknown> = {}) {
   return {
     name: RELEASE_PACKAGE_NAME,
     version: String(rootManifest.version ?? ""),
@@ -414,8 +414,8 @@ export function buildReleaseManifest(rootManifest: Record<string, unknown>, core
     engines: readRecord(rootManifest.engines),
     dependencies: {
       "@colbymchenry/codegraph": readRecord(rootManifest.dependencies)["@colbymchenry/codegraph"],
-      "@node-rs/jieba": readRecord(coreManifest.dependencies)["@node-rs/jieba"],
-      koffi: readRecord(coreManifest.dependencies)["koffi"]
+      "@node-rs/jieba": readRecord(runtimeManifest.dependencies)["@node-rs/jieba"],
+      koffi: readRecord(runtimeManifest.dependencies)["koffi"]
     }
   };
 }

@@ -1,5 +1,6 @@
 import { publicFailureEnvelope, publicOperationErrorEnvelope, publicOperationFailure, publicOperationResult } from "./public-operation-failure";
 import { checkpointTask, prepareTask } from "@archcontext/core/application";
+import { defaultJiebaSearchTokenizer } from "@archcontext/local-runtime/search-tokenizer";
 import type { ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
 import { practiceCatalogEnvelope, type PracticeCatalogCommandInput } from "@archcontext/core/practice-catalog";
 import { loadPracticeWaiverOwnerRegistry, loadPracticeWaivers } from "@archcontext/core/practice-engine";
@@ -88,6 +89,7 @@ export class PracticeCheckpointService {
       codeFacts: this.codeFacts,
       modelStore: this.readModelStore,
       architectureLedger: this.runtimeArchitectureLedgerContextPort(root),
+      tokenizer: defaultJiebaSearchTokenizer(),
       budget: { maxBytes, maxItems }
     });
     const context = await this.externalDocumentationService.augmentPrepareContextWithExternalDocs(session, task, result.context, maxBytes);
@@ -154,6 +156,7 @@ export class PracticeCheckpointService {
       codeFacts: this.codeFacts,
       modelStore: this.readModelStore,
       architectureLedger: this.runtimeArchitectureLedgerContextPort(root),
+      tokenizer: defaultJiebaSearchTokenizer(),
       budget: { maxBytes: input.maxBytes ?? 12_288, maxItems: input.maxItems ?? 12 }
     });
     await this.savePracticeCheckpointBaseline(session.workspace.repositoryId, taskSessionId, result.nextSnapshot);

@@ -1,7 +1,7 @@
 import { digestJson, type EffectivePracticeAssetV1, type NormalizedCodeContext, type PracticeEvidenceBinding, type PracticeEvidenceStrength, type PracticeEvidenceV1, type PracticeGuidanceResultV1, type PracticeMatchReason, type PracticeMatchV1, type PracticeProfileV1 } from "@archcontext/contracts";
 import { isArchitectureDirectionViolationSubject, isArchitectureDirectionalEdgeViolationSubject, matchesGlob, parseArchitectureDirectionViolationSubject, type ArchitectureDirectionViolationKind } from "@archcontext/core/architecture-domain";
 import type { ArchitecturePressure } from "@archcontext/core/pressure-engine";
-import { InMemoryLexicalRetriever, type RetrievalDocument } from "@archcontext/core/retrieval";
+import { InMemoryLexicalRetriever, type RetrievalDocument, type SearchTokenizer } from "@archcontext/core/retrieval";
 export * from "./check-registry";
 export * from "./enforcement";
 
@@ -18,6 +18,7 @@ export interface PracticeMatchInput {
   codeContext: NormalizedCodeContext;
   pressure: ArchitecturePressure;
   maxMatches?: number;
+  tokenizer?: SearchTokenizer;
 }
 
 type PredicateMatcher = (input: PracticeMatchInput) => PracticeEvidenceV1[];
@@ -85,7 +86,7 @@ export function matchPracticesForTask(input: PracticeMatchInput): PracticeGuidan
     .map(toRetrievalDocument);
   const assetById = new Map(scopedAssets.map((asset) => [asset.asset.id, asset]));
   const query = buildQuery(input);
-  const retrievalHits = new InMemoryLexicalRetriever().search(query, documents, Math.max(12, input.maxMatches ?? 5));
+  const retrievalHits = new InMemoryLexicalRetriever(input.tokenizer).search(query, documents, Math.max(12, input.maxMatches ?? 5));
   const hitScore = new Map(retrievalHits.map((hit) => [hit.id, hit.score]));
   const retrievalIds = new Set(retrievalHits.map((hit) => hit.id));
   const exactAssets = scopedAssets.filter((asset) => boundPracticeEvidence(asset.asset.id, input).length > 0);

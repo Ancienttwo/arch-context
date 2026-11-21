@@ -85,7 +85,7 @@ jobs:
       - name: Verify descriptor writes on Linux arm64
         run: |
           node -e "if (process.platform !== 'linux' || process.arch !== 'arm64') process.exit(1)"
-          bun test packages/core/changeset-engine/test/changeset-engine.test.ts
+          bun test packages/local-runtime/descriptor-write/test/descriptor-write.test.ts
 
   verify:
     # Full verify runs once per OS at Node 22.22.x; Node 24.x and 25.x run only Node-runtime checks because Bun 1.4.4 executes the test suite.

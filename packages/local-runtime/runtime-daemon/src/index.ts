@@ -77,6 +77,7 @@ import { ProjectionPreconditionError, REPO_HARNESS_PROJECTION_PROFILE, renderAge
 import { completeTaskGate, type CompleteTaskInput, type CompleteTaskProjectionDriftInput, type CompleteTaskProjectionFreshnessInput } from "@archcontext/core/review-engine";
 import { CodeGraphAdapter, CodeGraphSdkProvider, ProjectionCodeFactsUnavailableError, assertProjectionCodeFactsAvailable, prepareArchitectureDocumentationProjectionSnapshot, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { CONTEXT7_ENABLED_ENV, CONTEXT7_MODE_ENV, Context7ExternalDocumentationAdapter } from "@archcontext/local-runtime/context7-adapter";
+import { defaultJiebaSearchTokenizer } from "@archcontext/local-runtime/search-tokenizer";
 import { compileTaskContext, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
 import { assertNoCallerProvidedAttestationFields, digestJson, errorEnvelope, failureEnvelope, knownFailure, okEnvelope, type AgentJobV1, type CodeFactsPort, type CodeFactsSnapshot, type ExplorerDeltaQueryV2, type ExplorerProjectionQueryV2, type ExplorerServiceContract, type ExternalDocumentationPort, type Json, type JsonEnvelope, type ModelStorePort, type ModelValidationResult, type PracticeCheckpointSnapshotV1, type RepositorySnapshot, type WorkspaceRef } from "@archcontext/contracts";
 import { type ProjectionRequestV1, type ProjectionApplyRecoveryIntentV1 } from "@archcontext/contracts";
@@ -677,6 +678,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
       codeFacts: this.codeFacts,
       modelStore: this.readModelStore,
       architectureLedger: this.runtimeArchitectureLedgerContextPort(root),
+      tokenizer: defaultJiebaSearchTokenizer(),
       budget: { maxBytes: 12_288, maxItems: maxSymbols }
     });
     return okEnvelope("context", context as unknown as Json);
@@ -797,6 +799,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
           codeFacts: this.codeFacts,
           modelStore: this.readModelStore,
           architectureLedger: this.runtimeArchitectureLedgerContextPort(root),
+          tokenizer: defaultJiebaSearchTokenizer(),
           budget: { maxBytes: 12_288, maxItems: 12 }
         })).practiceGuidance.matches,
         previousMatches: baseline?.matches,

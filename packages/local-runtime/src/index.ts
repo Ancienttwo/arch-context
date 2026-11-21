@@ -9,5 +9,6 @@ export * from "../runtime-daemon/src/egress";
 export * from "../process-liveness/src/index";
 export * from "../projection-paths/src/index";
 export * from "../control-file-security/src/index";
-
+export * from "../descriptor-write/src/index";
 export * from "../egress-admission/src/index";
+export * from "../search-tokenizer/src/index";
