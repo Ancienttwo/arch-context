@@ -230,13 +230,13 @@ test("archctx hash fails closed for paths a ChangeSet could not write or files t
     }
   }));
 
-test("archctx plan and hash help state the hash formula, the single body source and that drafts live in daemon memory", async () => {
+test("archctx plan and hash help state the hash formula, the single body source and that drafts use the local SQLite cache", async () => {
   const { calls, runtimeClient } = recordingClient();
   const planHelp = await runCli("plan", ["--help"], "/absent", { runtimeClient });
   const hashHelp = await runCli("hash", ["--help"], "/absent", { runtimeClient });
   expect(calls).toEqual([]);
   const text = JSON.stringify([planHelp.data, hashHelp.data]);
-  for (const phrase of ["digestJson({ body })", "archctx hash --path", "--operations-file", "--body-file", "--body -", "daemon restart", "Unknown ChangeSet", "not sha256sum"]) {
+  for (const phrase of ["digestJson({ body })", "archctx hash --path", "--operations-file", "--body-file", "--body -", "local SQLite cache", "Planning the same --id again replaces it", "not sha256sum"]) {
     expect(text).toContain(phrase);
   }
   const help = await runCli("help", [], "/absent", { runtimeClient });

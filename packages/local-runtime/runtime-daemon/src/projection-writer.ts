@@ -1,11 +1,9 @@
 import { execFile, spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { extname, join, resolve } from "node:path";
+import { dirname, extname, join, resolve } from "node:path";
 import { assertLocalEgressAllowed, LocalEgressPolicyError, withLocalEgress } from "@archcontext/local-runtime/egress-admission";
-import { createPrivateControlFile, readPrivateControlFile } from "@archcontext/local-runtime/control-file-security";
-import { isProcessAlive } from "@archcontext/local-runtime/process-liveness";
 import { acquireLocalStoreWriterOwnership } from "@archcontext/local-runtime/local-store-sqlite";
 import { runtimeStatePaths } from "@archcontext/local-runtime/runtime-state-paths";
 import { findRepositoryRoot, isGitRevisionArgument, isTrackedWorktreeClean } from "@archcontext/local-runtime/git-adapter";
@@ -1119,6 +1117,31 @@ function acquireProjectionWriterLock(lockPath: string, startedAt: string): { kin
 function assertProjectionWriterOwner(lockPath: string, record: string): void {
   if (readPrivateControlFile(lockPath) !== record) {
     throw new ProjectionWriterFailure("AC_PRECONDITION_FAILED", "projection-writer-lock-lost", "the writer owner record changed; publication stopped");
+  }
+}
+
+function isProcessAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+function createPrivateControlFile(path: string, content: string): void {
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  if (process.platform !== "win32") try { chmodSync(dirname(path), 0o700); } catch {}
+  writeFileSync(path, content, { encoding: "utf8", mode: 0o600 });
+  if (process.platform !== "win32") try { chmodSync(path, 0o600); } catch {}
+}
+
+function readPrivateControlFile(path: string): string | undefined {
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return undefined;
   }
 }
 

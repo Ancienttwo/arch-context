@@ -13,6 +13,7 @@ import {
   refactorProposalDigest,
   refactorScanInvariantIssues,
   refactorSnapshotScopeDigest,
+  type ArchitectureEventV1,
   type JsonEnvelope,
   type ModuleStatisticsSnapshotV1,
   type RecommendationV3,
@@ -29,7 +30,7 @@ import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { REPOSITORY_REFACTOR_REQUEST, refactorRequestId } from "../src/refactor-scan";
-import { ArchctxRuntimeRpcServer, RuntimeRpcClient, createStartedDaemon } from "../src/index";
+import { createStartedDaemon } from "../src/index";
 import { publishedSchemaIssues as publishedRuntimeSchemaIssues } from "../../../contracts/test/published-schemas";
 
 const PREVIOUS_STATE_DIR = process.env.ARCHCONTEXT_STATE_DIR;
@@ -54,20 +55,36 @@ const SECOND_COMMITTER_DATE = "2026-04-06T06:07:08+00:00";
 const THIRD_COMMITTER_DATE = "2026-04-07T06:07:08+00:00";
 
 /**
- * Moves the tree from inside the daemon's own call graph. The ledger replay runs after a scan has
- * captured the worktree identity and before it materializes any input, and after a record has
+ * Moves the tree from inside the daemon's own call graph. The cache replay read runs after a scan
+ * has captured the worktree identity and before it materializes any input, and after a record has
  * validated the registered identity and before it appends: exactly the two windows a
  * time-of-check/time-of-use check has to close, and the only ones a test can enter honestly.
  */
 class MutatingReplayLocalStore extends TestLocalStore {
   mutateOnNextReplay: (() => void) | undefined;
+  readonly refactorEventAppends: ArchitectureEventV1[][] = [];
 
-  override async replayArchitectureLedger(input: Parameters<TestLocalStore["replayArchitectureLedger"]>[0]) {
-    const mutate = this.mutateOnNextReplay;
-    this.mutateOnNextReplay = undefined;
-    mutate?.();
-    return super.replayArchitectureLedger(input);
+  override async readCacheEntry<T = unknown>(namespace: string, cacheKey: string): Promise<T | undefined> {
+    if (namespace === "refactor_events") {
+      const mutate = this.mutateOnNextReplay;
+      this.mutateOnNextReplay = undefined;
+      mutate?.();
+    }
+    return super.readCacheEntry<T>(namespace, cacheKey);
   }
+
+  override async writeCacheEntry(namespace: string, cacheKey: string, value: unknown): Promise<void> {
+    await super.writeCacheEntry(namespace, cacheKey, value);
+    if (namespace === "refactor_events" && Array.isArray(value)) {
+      this.refactorEventAppends.push(structuredClone(value) as ArchitectureEventV1[]);
+    }
+  }
+}
+
+function storedRefactorEvents(store: TestLocalStore): ArchitectureEventV1[] {
+  return [...store.cache.entries()]
+    .filter(([key]) => key.startsWith("refactor_events\0"))
+    .flatMap(([, entry]) => entry.value as ArchitectureEventV1[]);
 }
 
 /** Reads the in-process registry a scan writes; nothing else can prove a scan registered nothing. */
@@ -203,7 +220,7 @@ function storedRecommendationBindings(store: TestLocalStore, recommendationId: s
     }
     Object.values(node).forEach(walk);
   };
-  walk(store.architectureEvents);
+  walk(storedRefactorEvents(store));
   return found;
 }
 
@@ -269,7 +286,7 @@ describe("daemon refactorScan", () => {
 
   test("registers the measurement so refactor record consumes exactly what was scanned", async () => {
     const root = createFixtureRepo();
-    const store = new TestLocalStore();
+    const store = new MutatingReplayLocalStore();
     const daemon = await startDaemon(store);
     try {
       const data = scanData(await daemon.refactorScan(root));
@@ -280,7 +297,7 @@ describe("daemon refactorScan", () => {
       expect(recorded.ok).toBe(true);
       expect((recorded.data as { assessmentDigest: string }).assessmentDigest).toBe(data.assessment.assessmentDigest);
       // The scan itself appended nothing; only the record did.
-      expect(store.architectureEvents).toHaveLength(1);
+      expect(storedRefactorEvents(store)).toHaveLength(1);
     } finally {
       await daemon.stop();
     }
@@ -288,8 +305,14 @@ describe("daemon refactorScan", () => {
 
   test("publishes the live worktree identity, so scan then record works over an existing ledger", async () => {
     const root = createFixtureRepo();
-    const store = new TestLocalStore();
-    const daemon = await startDaemon(store);
+    const store = new MutatingReplayLocalStore();
+    let tick = 0;
+    const daemon = await createStartedDaemon({
+      codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
+      codeGraphProviderFactory: () => new MockCodeGraphProvider(),
+      localStore: store,
+      clock: () => new Date(Date.parse("2026-12-31T23:59:00.000Z") + tick++ * 60_000).toISOString()
+    });
     try {
       // Event #1: after this the ledger scope carries the identity of the tree as it is now.
       const seed = scanData(await daemon.refactorScan(root));
@@ -517,7 +540,7 @@ describe("daemon refactorScan", () => {
       expect(gitOut(root, "rev-parse", "HEAD")).not.toBe(capturedHead);
       // Nothing measured under a mixed state may reach the registry `refactor record` reads.
       expect(registeredAssessmentCount(daemon)).toBe(0);
-      expect(store.architectureEvents).toHaveLength(0);
+      expect(storedRefactorEvents(store)).toHaveLength(0);
 
       // Single-variable control: the same daemon and store, with the tree left alone.
       const settled = await daemon.refactorScan(root);
@@ -539,7 +562,7 @@ describe("daemon refactorScan", () => {
         expectedWorktreeDigest: seed.worktree.worktreeDigest
       });
       expect(seeded.ok, JSON.stringify(seeded)).toBe(true);
-      expect(store.architectureEvents).toHaveLength(1);
+      expect(storedRefactorEvents(store)).toHaveLength(1);
 
       writeFileSync(join(root, EXTRA_FILE), "export const extra = 1;\n", "utf8");
       commitFixture(root, "extra tracked file", SECOND_COMMITTER_DATE);
@@ -558,36 +581,32 @@ describe("daemon refactorScan", () => {
       expect(recorded.ok, JSON.stringify(recorded)).toBe(false);
       expect(errorOf(recorded).code).toBe("AC_REFACTOR_STALE");
       expect(errorOf(recorded).reasonCode).toBe("refactor-record-snapshot-changed");
-      expect(store.architectureEvents).toHaveLength(1);
-      expect(store.architectureEventAppends).toHaveLength(1);
+      expect(storedRefactorEvents(store)).toHaveLength(1);
+      expect(store.refactorEventAppends).toHaveLength(1);
     } finally {
       await daemon.stop();
     }
   });
 
-  test("rejects a malformed RPC param at the dispatch boundary instead of throwing", async () => {
+  test("rejects a malformed input param at the dispatch boundary instead of throwing", async () => {
     const root = createFixtureRepo();
-    const store = new TestLocalStore();
+    const store = new MutatingReplayLocalStore();
     const daemon = await startDaemon(store);
-    const rpc = new ArchctxRuntimeRpcServer(daemon, { root, port: 0, token: "refactor-scan-rpc-token" });
     try {
-      const client = new RuntimeRpcClient(await rpc.start());
-
       // `null` is not an absent request: only an absent one selects the default repository scan.
-      const nullRequest = await client.refactorScan(root, { request: null } as never);
+      const nullRequest = await daemon.refactorScan(root, { request: null } as never);
       expect(nullRequest.ok, JSON.stringify(nullRequest)).toBe(false);
       expect(errorOf(nullRequest).code).toBe("AC_SCHEMA_INVALID");
 
-      const scalarRequest = await client.refactorScan(root, { request: "repository" } as never);
+      const scalarRequest = await daemon.refactorScan(root, { request: "repository" } as never);
       expect(scalarRequest.ok).toBe(false);
       expect(errorOf(scalarRequest).code).toBe("AC_SCHEMA_INVALID");
 
-      // Previously a TypeError inside the daemon, which the transport reported as HTTP 500.
-      const nullRecord = await client.refactorRecord(root, null as never);
+      const nullRecord = await daemon.refactorRecord(root, null as never);
       expect(nullRecord.ok, JSON.stringify(nullRecord)).toBe(false);
       expect(errorOf(nullRecord).code).toBe("AC_SCHEMA_INVALID");
 
-      const badSelection = await client.refactorRecord(root, {
+      const badSelection = await daemon.refactorRecord(root, {
         assessmentDigest: `sha256:${"a".repeat(64)}`,
         expectedWorktreeDigest: `sha256:${"b".repeat(64)}`,
         selection: ["ok", 7]
@@ -598,7 +617,7 @@ describe("daemon refactorScan", () => {
 
       // A well-formed selection is still rejected: nothing consumes it, so honouring it would
       // record every planned recommendation under a narrower request.
-      const wellFormedSelection = await client.refactorRecord(root, {
+      const wellFormedSelection = await daemon.refactorRecord(root, {
         assessmentDigest: `sha256:${"a".repeat(64)}`,
         expectedWorktreeDigest: `sha256:${"b".repeat(64)}`,
         selection: ["x"]
@@ -606,9 +625,8 @@ describe("daemon refactorScan", () => {
       expect(wellFormedSelection.ok, JSON.stringify(wellFormedSelection)).toBe(false);
       expect(errorOf(wellFormedSelection).code).toBe("AC_SCHEMA_INVALID");
       expect(errorOf(wellFormedSelection).reasonCode).toBe("refactor-input-invalid");
-      expect(store.architectureEventAppends).toHaveLength(0);
+      expect(store.refactorEventAppends).toHaveLength(0);
     } finally {
-      await rpc.stop();
       await daemon.stop();
     }
   });
@@ -642,12 +660,10 @@ describe("deciding a scan candidate", () => {
     indexFixture(root);
     const store = new MutatingReplayLocalStore();
     const daemon = await startDaemon(store);
-    const rpc = new ArchctxRuntimeRpcServer(daemon, { root, port: 0, token: "refactor-snapshot-batch-token" });
     const measurement = spyOn(moduleStatistics, "measureModuleStatistics");
     const importRead = spyOn(CodeGraph.prototype, "getNodesByKind");
     try {
-      const client = new RuntimeRpcClient(await rpc.start());
-      const scan = scanData(await client.refactorScan(root, { request: { ...REPOSITORY_REFACTOR_REQUEST, importNodeLimit: 11 } }));
+      const scan = scanData(await daemon.refactorScan(root, { request: { ...REPOSITORY_REFACTOR_REQUEST, importNodeLimit: 11 } }));
       const ids = scan.proposedRecommendations.map((candidate) => candidate.recommendationId);
       expect(ids.length).toBeGreaterThanOrEqual(6);
       expect(scan.snapshot.codeFacts).toMatchObject({ coverage: "complete", importNodeCount: 1, edgeLimit: 11 });
@@ -655,7 +671,7 @@ describe("deciding a scan candidate", () => {
       const commands = [["accept", "accepted"], ["defer", "deferred"], ["reject", "rejected"], ["accept", "accepted"], ["defer", "deferred"]] as const;
       for (const [index, [command, status]] of commands.entries()) {
         const recommendationId = ids[index]!;
-        const decided = lifecycleData(await client.recommendations(root, {
+        const decided = lifecycleData(await daemon.recommendations(root, {
           command, approved: true, recommendationId, reason: "Reviewed this observation.", snapshotDigest: scan.snapshotDigest
         }));
         expect(decided).toMatchObject({ recommendationId, previousStatus: "open", nextStatus: status });
@@ -670,7 +686,7 @@ describe("deciding a scan candidate", () => {
       }
       expect(computeWorktreeDigest(root, listGitVisibleFiles(root))).not.toBe(scan.worktree.worktreeDigest);
       const pendingId = ids[5]!;
-      const decidePending = (snapshotDigest: string) => client.recommendations(root, {
+      const decidePending = (snapshotDigest: string) => daemon.recommendations(root, {
         command: "reject", approved: true, recommendationId: pendingId, reason: "Superseded by new work.", snapshotDigest
       });
       expect(errorOf(await decidePending(`sha256:${"0".repeat(64)}`))).toMatchObject({ code: "AC_REFACTOR_STALE", reasonCode: "recommendation-snapshot-changed" });
@@ -686,7 +702,7 @@ describe("deciding a scan candidate", () => {
       expect(errorOf(await decidePending(scan.snapshotDigest))).toMatchObject({ code: "AC_REFACTOR_STALE", reasonCode: "recommendation-snapshot-changed" });
       writeFileSync(join(root, OWNED_FILE), originalSource);
       expect(existsSync(join(root, refactorDecisionPath(pendingId)))).toBe(false);
-      expect(store.architectureEventAppends).toHaveLength(5);
+      expect(store.refactorEventAppends).toHaveLength(5);
       expect(measurement).toHaveBeenCalledTimes(1);
       expect(importRead.mock.calls.filter(([kind]) => kind === "import")).toHaveLength(1);
 
@@ -700,7 +716,6 @@ describe("deciding a scan candidate", () => {
     } finally {
       measurement.mockRestore();
       importRead.mockRestore();
-      await rpc.stop();
       await daemon.stop();
     }
   });
@@ -770,7 +785,7 @@ describe("deciding a scan candidate", () => {
 
   test("records and decides a current candidate in one append, under the scan-time id", async () => {
     const root = createFixtureRepo();
-    const store = new TestLocalStore();
+    const store = new MutatingReplayLocalStore();
     const daemon = await startDaemon(store);
     try {
       const scan = scanData(await daemon.refactorScan(root));
@@ -788,12 +803,12 @@ describe("deciding a scan candidate", () => {
       expect(deferred.implicitRecord!.recommendationIds).toEqual(scan.proposedRecommendations.map((candidate) => candidate.recommendationId));
       expect(deferred.implicitRecord!.worktreeDigest).toBe(scan.worktree.worktreeDigest);
       // Record and decision are one transaction: one append carrying both events, record first.
-      expect(store.architectureEventAppends).toHaveLength(1);
-      expect(store.architectureEvents.map((event) => event.eventType)).toEqual([
+      expect(store.refactorEventAppends).toHaveLength(1);
+      expect(storedRefactorEvents(store).map((event) => event.eventType)).toEqual([
         "architecture.refactor.scan",
         "architecture.recommendation.lifecycle"
       ]);
-      expect(store.architectureEvents[0]!.eventId).toBe(deferred.implicitRecord!.eventId);
+      expect(storedRefactorEvents(store)[0]!.eventId).toBe(deferred.implicitRecord!.eventId);
 
       // The rest of the run is now recorded, so the next decision takes the ordinary path.
       const accepted = lifecycleData(await daemon.recommendations(root, {
@@ -802,7 +817,7 @@ describe("deciding a scan candidate", () => {
         reason: "Worth doing."
       }));
       expect(accepted).toMatchObject({ recommendationId: second, previousStatus: "open", nextStatus: "accepted", implicitRecord: null });
-      expect(store.architectureEventAppends).toHaveLength(2);
+      expect(store.refactorEventAppends).toHaveLength(2);
 
       // The daemon clock is fixed, so the implicit record and its decision share one `updatedAt`;
       // the decision is the later event and must be what the next transition starts from.
@@ -835,7 +850,7 @@ describe("deciding a scan candidate", () => {
 
   test("decides against the tree that is here now, not the one an earlier scan saw", async () => {
     const root = createFixtureRepo();
-    const store = new TestLocalStore();
+    const store = new MutatingReplayLocalStore();
     const daemon = await startDaemon(store);
     try {
       const scan = scanData(await daemon.refactorScan(root));
@@ -860,7 +875,7 @@ describe("deciding a scan candidate", () => {
 
   test("an id that is neither recorded nor a current candidate is a typed not-found", async () => {
     const root = createFixtureRepo();
-    const store = new TestLocalStore();
+    const store = new MutatingReplayLocalStore();
     const daemon = await startDaemon(store);
     try {
       const missing = await daemon.recommendations(root, {
@@ -883,7 +898,7 @@ describe("deciding a scan candidate", () => {
       expect(unrecordedResolve.ok).toBe(false);
       expect(errorOf(unrecordedResolve).code).toBe("AC_REFACTOR_STALE");
       expect(errorOf(unrecordedResolve).reasonCode).toBe("recommendation-not-found");
-      expect(store.architectureEventAppends).toHaveLength(0);
+      expect(store.refactorEventAppends).toHaveLength(0);
     } finally {
       await daemon.stop();
     }
@@ -907,7 +922,7 @@ describe("deciding a scan candidate", () => {
       const decided = await daemon.recommendations(root, { command: "defer", approved: true, recommendationId: candidate, reason: "Later." });
       expect(decided.ok, JSON.stringify(decided)).toBe(false);
       expect(errorOf(decided).code).toBe("AC_REFACTOR_STALE");
-      expect(store.architectureEventAppends).toHaveLength(0);
+      expect(store.refactorEventAppends).toHaveLength(0);
     } finally {
       await daemon.stop();
     }
@@ -990,7 +1005,7 @@ describe("scan-time evidence and recommendations show", () => {
 
   test("show answers a scan candidate and, after a decision, the recorded record by the same id", async () => {
     const root = createFixtureRepo();
-    const store = new TestLocalStore();
+    const store = new MutatingReplayLocalStore();
     const daemon = await startDaemon(store);
     try {
       const scan = scanWithEvidence(await daemon.refactorScan(root));
@@ -1011,7 +1026,7 @@ describe("scan-time evidence and recommendations show", () => {
       expect(before.baseline.status).toBe("measured");
       expect(publishedSchemaIssues("runtime-recommendation-show.schema.json", before)).toEqual([]);
       expect(before.affectedModules.map((module) => module.nodeId)).toEqual(candidate.payload.affectedNodeIds);
-      expect(store.architectureEventAppends).toHaveLength(0);
+      expect(store.refactorEventAppends).toHaveLength(0);
 
       const decided = await daemon.recommendations(root, { command: "defer", approved: true, recommendationId: candidate.recommendationId, reason: "Next quarter." });
       expect(decided.ok, JSON.stringify(decided)).toBe(true);
@@ -1032,7 +1047,7 @@ describe("scan-time evidence and recommendations show", () => {
 
   test("show returns a binding stored by 0.6.x as stored; the published show schema rejects its evidence-id inputDigest", async () => {
     const root = createFixtureRepo();
-    const store = new TestLocalStore();
+    const store = new MutatingReplayLocalStore();
     const daemon = await startDaemon(store);
     try {
       const candidate = scanWithEvidence(await daemon.refactorScan(root)).proposedRecommendations[0]!;
@@ -1059,7 +1074,7 @@ describe("scan-time evidence and recommendations show", () => {
 
   test("show on an id that is neither recorded nor scanned is a typed not-found and writes nothing", async () => {
     const root = createFixtureRepo();
-    const store = new TestLocalStore();
+    const store = new MutatingReplayLocalStore();
     const daemon = await startDaemon(store);
     try {
       const missing = await daemon.recommendations(root, { command: "show", recommendationId: "recommendation.ffffffffffffffff" });
@@ -1068,7 +1083,7 @@ describe("scan-time evidence and recommendations show", () => {
       const noId = await daemon.recommendations(root, { command: "show" });
       expect(noId.ok).toBe(false);
       expect(errorOf(noId).code).toBe("AC_SCHEMA_INVALID");
-      expect(store.architectureEventAppends).toHaveLength(0);
+      expect(store.refactorEventAppends).toHaveLength(0);
     } finally {
       await daemon.stop();
     }
@@ -1099,7 +1114,7 @@ describe("a rejected or waived suggestion stays decided", () => {
   for (const [command, status] of [["reject", "rejected"], ["waive", "waived"]] as const) {
     test(`${command} A, decide B through the scan-candidate path, scan again: A stays hidden`, async () => {
       const root = createFixtureRepo();
-      const store = new TestLocalStore();
+      const store = new MutatingReplayLocalStore();
       const daemon = await startDaemon(store);
       try {
         const first = scanData(await daemon.refactorScan(root));
@@ -1173,7 +1188,7 @@ describe("refactor scan limits", () => {
     // Each declared module rides in the baseline snapshot the recording event embeds whole.
     declareUnfootprintedModules(root, 320, `module.${"x".repeat(100)}`);
     commitFixture(root, "a model too large for one ledger event", SECOND_COMMITTER_DATE);
-    const store = new TestLocalStore();
+    const store = new MutatingReplayLocalStore();
     const daemon = await startDaemon(store);
     try {
       const envelope = await daemon.refactorScan(root);
@@ -1210,7 +1225,7 @@ describe("refactor scan limits", () => {
       const candidate = data.proposedRecommendations[0]!.recommendationId;
       expectTooLarge(await daemon.recommendations(root, { command: "defer", approved: true, recommendationId: candidate, reason: "Later." }));
       expectTooLarge(await daemon.recommendations(root, { command: "show", recommendationId: candidate }));
-      expect(store.architectureEventAppends).toHaveLength(0);
+      expect(store.refactorEventAppends).toHaveLength(0);
     } finally {
       await daemon.stop();
     }
@@ -1220,7 +1235,7 @@ describe("refactor scan limits", () => {
 describe("recommendation decisions and listing", () => {
   test("a stale --expected-worktree-digest on a decision is AC_REFACTOR_STALE, like refactor record", async () => {
     const root = createFixtureRepo();
-    const store = new TestLocalStore();
+    const store = new MutatingReplayLocalStore();
     const daemon = await startDaemon(store);
     try {
       const scan = scanData(await daemon.refactorScan(root));
@@ -1233,7 +1248,7 @@ describe("recommendation decisions and listing", () => {
       expect(stale.ok, JSON.stringify(stale)).toBe(false);
       expect(errorOf(stale)).toMatchObject({ code: "AC_REFACTOR_STALE", reasonCode: "worktree-claim-changed", action: "rerun-refactor-scan", details: { expectedWorktreeDigest: `sha256:${"1".repeat(64)}`, actualWorktreeDigest: scan.worktree.worktreeDigest } });
       expect(stale.requestId).toBe("recommendations.accept");
-      expect(store.architectureEventAppends).toHaveLength(0);
+      expect(store.refactorEventAppends).toHaveLength(0);
 
       const current = await daemon.recommendations(root, {
         command: "accept", approved: true,
@@ -1251,7 +1266,7 @@ describe("recommendation decisions and listing", () => {
     const root = createFixtureRepo();
     declareUnfootprintedModules(root, 30, "module.listed");
     commitFixture(root, "more records than the book shows", SECOND_COMMITTER_DATE);
-    const store = new TestLocalStore();
+    const store = new MutatingReplayLocalStore();
     const daemon = await startDaemon(store);
     try {
       const scan = scanData(await daemon.refactorScan(root));
@@ -1264,9 +1279,6 @@ describe("recommendation decisions and listing", () => {
       expect(ids).toHaveLength(25);
       const rejected = ids[0]!;
       expect((await daemon.recommendations(root, { command: "reject", approved: true, recommendationId: rejected, reason: "Intentional." })).ok).toBe(true);
-
-      const book = await daemon.book(root, { command: "recommendations" });
-      expect((book.data as { budget: { truncated: boolean } }).budget.truncated).toBe(true);
 
       const open = await daemon.recommendations(root, { command: "list", status: "open" });
       expect(open.ok, JSON.stringify(open)).toBe(true);

@@ -1,7 +1,12 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { ERROR_CATALOG, failureIssues, knownFailure, normalizeFailureResult, projectionApplyReadbackRequestFromReceipt, projectionApplyRecoveryDetailsBytes, projectionApplyRecoveryDetailsFit, type ProjectionApplyReceiptV1 } from "../src";
-import { projectionApplyCommittedEnvelope } from "../../local-runtime/runtime-daemon/src/projection-service";
+import { ERROR_CATALOG, PROJECTION_COMMITTED_MANUAL_ONLY, failureEnvelope, failureIssues, knownFailure, normalizeFailureResult, projectionApplyCommittedDetails, projectionApplyManualOnlyDetails, projectionApplyReadbackRequestFromReceipt, projectionApplyRecoveryDetailsBytes, projectionApplyRecoveryDetailsFit, type ProjectionApplyReceiptV1, type ProjectionCommittedReason } from "../src";
+
+function projectionApplyCommittedEnvelope(requestId: string, value: ProjectionApplyReceiptV1, reasonCode: ProjectionCommittedReason, written?: boolean) {
+  return projectionApplyRecoveryDetailsFit(value)
+    ? failureEnvelope(requestId, knownFailure("AC_PROJECTION_APPLY_COMMITTED", reasonCode, projectionApplyCommittedDetails(value, written)))
+    : failureEnvelope(requestId, knownFailure("AC_PROJECTION_APPLY_COMMITTED", PROJECTION_COMMITTED_MANUAL_ONLY, projectionApplyManualOnlyDetails(value, written)));
+}
 
 const LIMIT = 256 * 1024;
 const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).length;

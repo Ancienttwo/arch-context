@@ -197,38 +197,6 @@ describe("Darwin SQLite library selection (#574)", () => {
   });
 });
 
-describe("daemon runtime arguments (#574)", () => {
-  test.each(["bun", "node"] as const)("%s forwards execArgv only under Bun", async (runtime) => {
-    const root = mkdtempSync(join(tmpdir(), "archctx-daemon-argv-"));
-    const env = { ...process.env, ARCHCONTEXT_STATE_DIR: join(root, "state") };
-    const cwd = join(root, "repo");
-    mkdirSync(cwd);
-    execFileSync("git", ["init", "-q"], { cwd });
-    const record = join(root, "preloads.jsonl");
-    const preload = join(root, "record.mjs");
-    writeFileSync(preload, `import { appendFileSync } from "node:fs";
-appendFileSync(${JSON.stringify(record)}, JSON.stringify({ pid: process.pid, argv: process.argv, execArgv: process.execArgv }) + "\\n");\n`);
-    const runtimeArgs = runtime === "bun"
-      ? ["--preload", join(REPO_ROOT, "packages/surfaces/cli/bin/bun-darwin-sqlite.ts"), "--preload", preload]
-      : ["--import", pathToFileURL(preload).href];
-    try {
-      const started = await runBundle(cwd, ["daemon", "start", "--idle-timeout-ms", "60000"], { env, runtime, nodeArgs: runtimeArgs });
-      expect(started.ok, JSON.stringify(started)).toBe(true);
-      expect(started.data.background).toBe(true);
-      const rows = readFileSync(record, "utf8").trim().split("\n").map(line => JSON.parse(line));
-      expect(rows).toHaveLength(runtime === "bun" ? 2 : 1);
-      expect(rows[0].execArgv).toEqual(runtimeArgs);
-      if (runtime === "bun") {
-        expect(rows[1]).toMatchObject({ pid: started.data.childPid, execArgv: runtimeArgs });
-        expect(rows[1].argv.slice(2)).toEqual(["daemon", "start", "--foreground", "--port", "0", "--idle-timeout-ms", "60000"]);
-      }
-    } finally {
-      await runBundle(cwd, ["daemon", "stop"], { env, runtime, allowFailure: true });
-      rmSync(root, { recursive: true, force: true });
-    }
-  }, TEST_TIMEOUT_MS);
-});
-
 function bundleNode(): Json {
   return {
     schemaVersion: "archcontext.node/v2",

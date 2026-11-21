@@ -9,7 +9,7 @@ import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { SqliteLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
-import { ArchctxRuntimeRpcServer, RuntimeRpcClient, createStartedDaemon, type RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-daemon";
+import { createStartedDaemon, type RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-daemon";
 import { runCli } from "../src/main";
 
 async function fixture() {
@@ -22,10 +22,8 @@ async function fixture() {
   writeFileSync(path, before);
   for (const args of [["init"], ["add", "."], ["-c", "user.name=Test", "-c", "user.email=test@example.test", "commit", "-m", "fixture"]]) execFileSync("git", args, { cwd: root, stdio: "pipe" });
   const store = new SqliteLocalStore(join(parent, "state.sqlite"));
-  const daemon = await createStartedDaemon({ localStore: store, codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()), architectureLedger: { rolloutMode: "dual" } });
-  const rpc = new ArchctxRuntimeRpcServer(daemon, { root, port: 0, token: "manifest-contract-test" });
-  const client = new RuntimeRpcClient(await rpc.start());
-  return { root, path, before, store, daemon, client, async close() { await rpc.stop(); await daemon.stop(); rmSync(parent, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); } };
+  const daemon = await createStartedDaemon({ localStore: store, codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()) });
+  return { root, path, before, store, daemon, async close() { await daemon.stop(); rmSync(parent, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); } };
 }
 
 test("manifest CLI help and invalid inputs never start the daemon", async () => {
@@ -38,9 +36,9 @@ test("manifest CLI help and invalid inputs never start the daemon", async () => 
   expect(calls).toBe(0);
 });
 
-test("manifest CLI plans over RPC without writes and applies once through daemon journal and ledger", async () => {
+test("manifest CLI plans without writes and applies once through runtime cache", async () => {
   const f = await fixture();
-  const cli = (command: string, args: string[]) => runCli(command, args, f.root, { runtimeClient: f.client });
+  const cli = (command: string, args: string[]) => runCli(command, args, f.root, { runtimeClient: f.daemon });
   try {
     const planned = await cli("manifest", ["plan", "--id", "changeset.manifest-cli", "--decisions", "docs/adr"]);
     expect(planned.ok, JSON.stringify(planned)).toBe(true);
@@ -55,12 +53,8 @@ test("manifest CLI plans over RPC without writes and applies once through daemon
     rmSync(join(f.root, "concurrent.txt"));
     const result = await cli("apply", [...flags, "--approved"]);
     expect(result.ok, JSON.stringify(result)).toBe(true);
-    expect((result.data as any).architectureLedger.append.status).toBe("appended");
     const after = f.before.replace('decisions: ".archcontext/decisions"', 'decisions: "docs/adr"');
     expect(readFileSync(f.path, "utf8")).toBe(after);
-    const committed = await f.store.listCommittedChangeSetsForTaskSession(f.root, "task_runtime");
-    expect(committed).toHaveLength(1);
-    expect(committed[0].files).toEqual([{ path: ".archcontext/manifest.yaml", operation: "write", hash: digestJson({ body: after }) }]);
     expect((await cli("apply", [...flags, "--approved"])).ok).toBe(false);
   } finally { await f.close(); }
 }, 30_000);

@@ -4,9 +4,9 @@ import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { renderExplorerHtml, renderExplorerConnectHtml } from "@archcontext/local-runtime/explorer-html";
-import { EXPLORER_VIEW_IDS, digestJson, errorEnvelope, okEnvelope, type ArchitectureChangeFeedRecordV1, type ExplorerDeltaQueryV2, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type Json, type JsonEnvelope } from "@archcontext/contracts";
-import type { ExplorerServerOptions } from "./rpc-types";
-export type { ExplorerServerOptions } from "./rpc-types";
+import { EXPLORER_VIEW_IDS, digestJson, errorEnvelope, okEnvelope, type ExplorerDeltaQueryV2, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type Json, type JsonEnvelope } from "@archcontext/contracts";
+import type { ExplorerServerOptions } from "./runtime-types";
+export type { ExplorerServerOptions } from "./runtime-types";
 
 export interface ExplorerServerStatus {
   running: boolean;
@@ -121,26 +121,6 @@ export class ExplorerServerService {
   explorerStatus(): JsonEnvelope {
     this.context.assertRunning();
     return okEnvelope("explorer.status", this.explorerStatusData() as unknown as Json);
-  }
-
-  notifyExplorerAuthorityInvalidation(root: string, record: ArchitectureChangeFeedRecordV1, occurrenceIds: string[]): void {
-    const explorer = this.explorer;
-    if (!explorer || explorer.root !== root) return;
-    if (explorer.revoked || Date.parse(this.context.clock()) >= explorer.expiresAt) {
-      for (const client of explorer.sseClients) client.end();
-      explorer.sseClients.clear();
-      return;
-    }
-    const payload = JSON.stringify({
-      schemaVersion: "archcontext.explorer-authority-invalidation/v1",
-      feedSequence: record.feedSequence,
-      eventId: record.eventId,
-      eventHash: record.eventHash,
-      subjectsDigest: record.subjectsDigest,
-      changedInputDigestsDigest: digestJson(record.changedInputDigests as unknown as Json),
-      affectedOccurrencesDigest: digestJson(occurrenceIds as unknown as Json)
-    });
-    for (const client of explorer.sseClients) client.write(`event: authority-changed\ndata: ${payload}\n\n`);
   }
 
   private async handleExplorerRequest(request: IncomingMessage, response: ServerResponse, session: ExplorerServerSession): Promise<void> {

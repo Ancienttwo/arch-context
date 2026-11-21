@@ -45,6 +45,11 @@ export {
   type CodeGraphSeedOutcomeV1
 } from "./index-base";
 export {
+  readGitWorktreeRole,
+  runCodeGraphIndexSeed,
+  type CodeGraphIndexSeedOptions
+} from "./index-seed";
+export {
   assertRepositoryCodeFactsReady,
   codeGraphIndexAvailable,
   inspectRepositoryCodeFacts,

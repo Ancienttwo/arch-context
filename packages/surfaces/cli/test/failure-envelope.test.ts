@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { GitVisibleFilesUnavailableError } from "@archcontext/local-runtime/git-adapter";
-import { RuntimeRpcTransportError, type RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-rpc-client";
+import type { RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-daemon";
 import { runCli } from "../src/main";
 
 const sentinel = "/private/customer/root provider body Authorization=secret-sentinel";
@@ -33,16 +33,6 @@ test("selected CLI input refusals have four fields without echoing untrusted fla
   const result = await runCli("checkpoint", ["--" + sentinel], "/unused");
   expect(result).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID", reasonCode: "cli-input-invalid", action: "correct-command-arguments", details: {} } });
   expect(JSON.stringify(result)).not.toContain(sentinel);
-});
-
-test("selected RPC timeout and abort codes survive adaptation and never trigger replay", async () => {
-  for (const code of ["RPC_TIMEOUT", "RPC_ABORTED"] as const) {
-    let calls = 0;
-    const runtime = { completeTask: async () => { calls++; throw new RuntimeRpcTransportError(code, "completeTask", 50, 51); } } as unknown as RuntimeDaemonClient;
-    const result = await runCli("complete", [], "/unused", { runtimeClient: runtime });
-    expect(result).toMatchObject({ ok: false, error: { code, retryable: false, details: { method: "completeTask", mutationOutcome: "unknown" } } });
-    expect(calls).toBe(1);
-  }
 });
 
 test("all registered producer reasons survive selected CLI adapters", async () => {
@@ -120,7 +110,7 @@ test("real CLI process rejects unsafe input without starting runtime or writing 
 });
 
 test("invalid typed transport metadata cannot escape selected CLI safety boundaries", async () => {
-  const error = new RuntimeRpcTransportError("RPC_TIMEOUT", "completeTask", 5, 6);
+  const error = new GitVisibleFilesUnavailableError(sentinel, sentinel);
   Object.defineProperty(error, "code", { get() { throw new Error(sentinel); } });
   const runtime = runtimeThrowing(error);
   const result = await runCli("complete", [], "/unused", { runtimeClient: runtime });
@@ -135,75 +125,6 @@ test("malformed producer details are refused across selected CLI instead of losi
     expect(result).toMatchObject({ ok: false, error: { code: "AC_UNCLASSIFIED_FAILURE", reasonCode: "failure-unclassified", details: { stage: "failure-metadata" } } });
   }
 });
-
-async function busyHealthFixture() {
-  const { createServer } = await import("node:http");
-  const { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } = await import("node:fs");
-  const { join } = await import("node:path");
-  const { tmpdir } = await import("node:os");
-  const { SqliteLocalStore, runtimeStatePaths } = await import("@archcontext/local-runtime/local-store-sqlite");
-  const { createPrivateControlFile } = await import("@archcontext/local-runtime/control-file-security");
-  const { RUNTIME_RPC_VERSION } = await import("@archcontext/local-runtime/runtime-daemon");
-  const root = mkdtempSync(join(tmpdir(), "d6-health-root-"));
-  const state = mkdtempSync(join(tmpdir(), "d6-health-state-"));
-  const env = { ...process.env, ARCHCONTEXT_STATE_DIR: state, ARCHCONTEXT_CHECK_UPDATES: "0", DO_NOT_TRACK: "1", CODEGRAPH_NO_DOWNLOAD: "1" };
-  const paths = runtimeStatePaths(root, env);
-  writeFileSync(join(root, "README.md"), "preserve repository\n");
-  mkdirSync(paths.workspaceStateDir, { recursive: true, mode: 0o700 });
-  const store = new SqliteLocalStore(paths.localStorePath);
-  await store.migrate();
-  await store.saveTaskState("practice-checkpoint:repo_health:task_d6", {
-    schemaVersion: "archcontext.practice-checkpoint-baseline/v1", repositoryId: "repo_health", taskSessionId: "task_d6",
-    snapshot: { schemaVersion: "archcontext.practice-checkpoint-snapshot/v1", task: "preserve baseline", headSha: "health-head", worktreeDigest: "health-worktree", contextDigest: "health-context", practiceGuidanceDigest: "health-guidance", catalogDigest: "health-catalog", matches: [] },
-    updatedAt: "2026-10-14T00:00:00.000Z"
-  });
-  store.close();
-  const requests: string[] = [];
-  const server = createServer((request) => { requests.push(`${request.method} ${request.url}`); });
-  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
-  const startedAt = new Date(Date.now() + 60_000).toISOString();
-  createPrivateControlFile(paths.daemonLockPath, JSON.stringify({ pid: process.pid, root, startedAt }));
-  createPrivateControlFile(paths.daemonConnectionPath, JSON.stringify({
-    schemaVersion: RUNTIME_RPC_VERSION, protocol: "http-loopback", version: 1, root,
-    url: `http://127.0.0.1:${(server.address() as import("node:net").AddressInfo).port}/`, token: "test-health-token",
-    pid: process.pid, lockPath: paths.daemonLockPath, connectionPath: paths.daemonConnectionPath, startedAt
-  }));
-  const tree = (directory: string): unknown => readdirSync(directory, { withFileTypes: true }).sort((a,b) => a.name.localeCompare(b.name))
-    .map(entry => [entry.name, entry.isDirectory() ? tree(join(directory, entry.name)) : readFileSync(join(directory, entry.name)).toString("hex")]);
-  const before = JSON.stringify([tree(root), tree(state)]);
-  return { root, env, requests,
-    assertUnchanged() { expect(JSON.stringify([tree(root), tree(state)])).toBe(before); },
-    async close() { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); rmSync(root, { recursive: true, force: true }); rmSync(state, { recursive: true, force: true }); }
-  };
-}
-function assertHealthTimeout(value: any) {
-  expect(value).toMatchObject({ ok: false, error: { code: "RPC_TIMEOUT", reasonCode: "rpc-timeout", action: "reconcile-before-retry", retryable: false,
-    details: { method: "health", timeoutMs: 5000, mutationOutcome: "unknown" } } });
-  expect(Number.isFinite(value.error.details.elapsedMs)).toBe(true);
-  expect(value.error.details.elapsedMs).toBeGreaterThanOrEqual(0);
-  expect(JSON.stringify(value)).not.toContain("test-health-token");
-  expect(JSON.stringify(value)).not.toContain("d6-health-root-");
-}
-
-test("health timeout retains metadata through real selected CLI processes without state writes or competing daemon", async () => {
-  const fixture = await busyHealthFixture();
-  const { join } = await import("node:path");
-  try {
-    for (const args of [["complete"], ["review"], ["practices", "checkpoint"], ["status"]]) {
-      const beforeCalls = fixture.requests.length;
-      const child = Bun.spawn([process.execPath, join(import.meta.dir, "../src/main.ts"), ...args], { cwd: fixture.root, env: fixture.env, stdout: "pipe", stderr: "pipe" });
-      const [out, err, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
-      expect(exit).toBe(1); expect(err).toBe("");
-      const result = JSON.parse(out);
-      if (args[0] === "status") {
-        expect(result.error.code).toBe("AC_RUNTIME_UNAVAILABLE");
-        expect(result.error.message).toContain("alive but did not answer");
-      } else assertHealthTimeout(result);
-      expect(fixture.requests.slice(beforeCalls)).toEqual(["GET /health"]);
-      fixture.assertUnchanged();
-    }
-  } finally { await fixture.close(); }
-}, 45_000);
 
 test("P2 mutated typed failures and changing returned metadata stay private across selected surfaces", async () => {
   const { FailureError, knownFailure, failureIssues } = await import("@archcontext/contracts");
@@ -248,9 +169,7 @@ test("P2 registered producer and transport metadata reject accessors and inherit
   const cases: Array<[() => Error, string[]]> = [
     [() => new GitVisibleFilesUnavailableError(sentinel, sentinel), ["code", "reasonCode"]],
     [() => new ProjectionManifestInvalidError([sentinel]), ["reasonCode"]],
-    [() => new ProjectionCodeFactsUnavailableError("index-missing"), ["code", "reasonCode"]],
-    [() => new RuntimeRpcTransportError("RPC_TIMEOUT", "completeTask", 5, 6), ["code", "method", "timeoutMs", "elapsedMs"]],
-    [() => new RuntimeRpcTransportError("RPC_ABORTED", "practiceCheckpoint", 5, 6), ["code", "method", "timeoutMs", "elapsedMs"]]
+    [() => new ProjectionCodeFactsUnavailableError("index-missing"), ["code", "reasonCode"]]
   ];
   for (const [makeError, keys] of cases) for (const key of keys) for (const inherited of [false, true]) {
     for (const [command, args] of [["complete", []], ["review", []], ["practices", ["checkpoint"]]] as const) {
@@ -349,19 +268,4 @@ test("CLI docs keeps typed failures across its inner command catch", async () =>
   expect(calls).toBe(1);
   expect((result as any).error).toEqual(failure.failure);
   expect(failureIssues((result as any).error)).toEqual([]);
-});
-
-test("CLI apply preserves complete typed unresolved recovery authority", async () => {
-  const { failureIssues } = await import("@archcontext/contracts");
-  const { ChangeSetRecoveryUnresolvedError } = await import("../../../local-runtime/runtime-daemon/src/changeset-recovery-error");
-  const journals = [{ journalId: "journal." + "a".repeat(300), changeSetId: "changeset." + "b".repeat(300), root: "/" + "r".repeat(9000), reason: "incomplete rollback" }];
-  const failure = new ChangeSetRecoveryUnresolvedError(journals);
-  let calls = 0;
-  const runtime = { applyUpdate: async () => { calls++; throw failure; } } as unknown as RuntimeDaemonClient;
-  const result = await runCli("apply", ["--id", "changeset.next", "--approved", "--expected-worktree-digest", "sha256:" + "c".repeat(64)], "/unused", { runtimeClient: runtime });
-  expect(calls).toBe(1);
-  expect((result as any).error).toEqual(failure.failure);
-  expect(failureIssues((result as any).error)).toEqual([]);
-  expect((result as any).error.details.unresolvedJournals).toEqual(journals);
-  expect(failure.unresolvedJournals).toBe(journals);
 });

@@ -53,19 +53,6 @@ test("C1 preserves raw throw shape and typed attributes when a public operation 
   expect(failureIssues(failure)).toEqual([]);
 });
 
-test("C2 recovery sentinel is typed and keeps complete original journal bindings", async () => {
-  const { ChangeSetRecoveryUnresolvedError } = await import("../src/changeset-recovery-error");
-  const { publicOperationFailure } = await import("../src/public-operation-failure");
-  const journals = [{journalId:"journal."+"a".repeat(240), changeSetId:"changeset."+"b".repeat(240), root:"/fixture", reason:"fixture-recovery"}];
-  const sentinel = new ChangeSetRecoveryUnresolvedError(journals as any);
-  let caught: unknown;
-  caught=publicOperationFailure(sentinel);
-  expect(caught).toBe(sentinel);
-  expect((caught as InstanceType<typeof ChangeSetRecoveryUnresolvedError>).unresolvedJournals).toBe(journals as any);
-  expect((caught as InstanceType<typeof ChangeSetRecoveryUnresolvedError>).unresolvedJournals[0]!.journalId).toBe(journals[0]!.journalId);
-});
-
-
 test("C1 hostile throws retain safe typed raw failures at the existing public boundaries", async () => {
   const {FailureError} = await import("@archcontext/contracts");
   const {runProjectionCheckCommand} = await import("../src/projection-service");

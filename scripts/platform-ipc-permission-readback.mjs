@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 
@@ -10,36 +10,16 @@ const stateRoot = mkdtempSync(join(tmpdir(), "archctx-platform-ipc-state-"));
 const archctxCommand = resolveInstalledArchctxCommand();
 
 try {
+  gitInit();
   writeFileSync(join(root, "README.md"), "# platform ipc readback\n", "utf8");
   const help = runArchctx();
   const paths = runArchctx("paths");
-  const connectionPath = paths.data.daemonConnectionPath;
-  const lockPath = paths.data.daemonLockPath;
-  const started = runArchctx("daemon", "start");
-  const connection = JSON.parse(readFileSync(connectionPath, "utf8"));
-  const status = runArchctx("daemon", "status");
-  const connectionMode = posixMode(connection.connectionPath);
-  const lockMode = posixMode(connection.lockPath);
-  const windowsAcl = process.platform === "win32" ? {
-    connection: windowsAclEvidence(connection.connectionPath),
-    lock: windowsAclEvidence(connection.lockPath),
-    broadReadRejected: false
-  } : null;
-  const tokenRedactedFromStatus = !JSON.stringify(status).includes(connection.token);
-  const stopped = runArchctx("daemon", "stop");
-  await waitFor(() => !existsSync(connectionPath) && !existsSync(lockPath), 5_000);
+  const doctor = runArchctx("doctor");
+  const initialized = runArchctx("init", "--name", "Platform Readback");
+  const cacheLockPath = `${paths.data.localStorePath}.cache.lock`;
 
-  if (windowsAcl) {
-    // No active credential is widened: the daemon is stopped before this fake-file negative case.
-    assert(privateWindowsAcl(windowsAcl.connection) && privateWindowsAcl(windowsAcl.lock), "native private ACL readback failed");
-    writeFileSync(connectionPath, JSON.stringify({ ...connection, token: "acl-negative-fixture", pid: process.pid }));
-    windowsAclEvidence(connectionPath, true);
-    const rejected = runArchctx("daemon", "status");
-    windowsAcl.broadReadRejected = rejected.data?.running === false
-      && rejected.data?.recoveredStaleControlFiles?.includes("insecure-connection-file") === true;
-    assert(windowsAcl.broadReadRejected, "Windows broad-read connection must be rejected as insecure");
-  }
-
+  const stateDirMode = posixMode(paths.data.workspaceStateDir);
+  const storeMode = posixMode(paths.data.localStorePath);
   const readback = {
     schemaVersion: "archcontext.platform-ipc-permission-readback/v2",
     platform: process.platform,
@@ -49,53 +29,56 @@ try {
       binPath: redactPath(archctxCommand.path),
       binKind: archctxCommand.kind,
       helpOk: help.ok === true,
-      hasDaemonCommand: Array.isArray(help.data?.commands) && help.data.commands.includes("daemon"),
-      hasMcpCommand: Array.isArray(help.data?.commands) && help.data.commands.includes("mcp"),
-      hasDoctorCommand: Array.isArray(help.data?.commands) && help.data.commands.includes("doctor")
+      hasIndexCommand: Array.isArray(help.data?.commands) && help.data.commands.includes("index"),
+      hasDoctorCommand: Array.isArray(help.data?.commands) && help.data.commands.includes("doctor"),
+      daemonRemoved: Array.isArray(help.data?.commands) && !help.data.commands.includes("daemon"),
+      mcpRemoved: Array.isArray(help.data?.commands) && !help.data.commands.includes("mcp")
     },
-    transport: {
-      protocol: started.data.protocol,
-      bindHost: new URL(connection.url).hostname,
-      loopbackOnly: new URL(connection.url).hostname === "127.0.0.1"
-    },
-    controlFiles: {
-      connectionPath: redactRoot(connectionPath),
-      lockPath: redactRoot(lockPath),
+    runtimeState: {
+      mode: doctor.data?.runtime?.mode,
       runtimeStateRoot: redactPath(paths.data.stateRoot),
+      workspaceStateDir: redactPath(paths.data.workspaceStateDir),
+      localStorePath: redactPath(paths.data.localStorePath),
       storageRepositoryId: paths.data.storageRepositoryId,
       storageWorkspaceId: paths.data.storageWorkspaceId,
       npmGlobalInstallState: paths.data.npmGlobalInstallState,
-      connectionMode,
-      lockMode,
-      windowsAcl,
-      tokenRedactedFromStatus
+      stateDirExists: existsSync(paths.data.workspaceStateDir),
+      localStoreExists: existsSync(paths.data.localStorePath),
+      daemonConnectionCreated: existsSync(paths.data.daemonConnectionPath),
+      daemonLockCreated: existsSync(paths.data.daemonLockPath),
+      cacheLockRemaining: existsSync(cacheLockPath),
+      stateDirMode,
+      storeMode
     },
     lifecycle: {
-      started: started.ok === true,
-      statusRunning: status.data?.running === true,
-      stopped: stopped.ok === true
+      doctorOk: doctor.ok === true,
+      initOk: initialized.ok === true
     }
   };
 
   assert(readback.install.helpOk, "installed archctx bin must render help");
-  assert(readback.install.hasDaemonCommand, "installed archctx bin must expose daemon command");
-  assert(readback.install.hasMcpCommand, "installed archctx bin must expose mcp command");
+  assert(readback.install.hasIndexCommand, "installed archctx bin must expose index command");
   assert(readback.install.hasDoctorCommand, "installed archctx bin must expose doctor command");
-  assert(readback.controlFiles.npmGlobalInstallState === "forbidden", "mutable runtime state must not use npm global installation directories");
-  assert(readback.transport.protocol === "http-loopback", "daemon transport must be loopback HTTP for MVP");
-  assert(readback.transport.loopbackOnly, "daemon must bind loopback");
-  assert(readback.controlFiles.tokenRedactedFromStatus, "daemon status must redact bearer token");
+  assert(readback.install.daemonRemoved && readback.install.mcpRemoved, "installed archctx bin must omit daemon and mcp commands");
+  assert(readback.runtimeState.mode === "in-process", "doctor must report in-process runtime mode");
+  assert(readback.runtimeState.npmGlobalInstallState === "forbidden", "mutable runtime state must not use npm global installation directories");
+  assert(readback.runtimeState.stateDirExists && readback.runtimeState.localStoreExists, "runtime cache directory and SQLite store must exist");
+  assert(!readback.runtimeState.daemonConnectionCreated && !readback.runtimeState.daemonLockCreated, "daemonless commands must never create daemon control files");
+  assert(!readback.runtimeState.cacheLockRemaining, "SQLite cache writer lock must be released after command exit");
+  assert(readback.lifecycle.doctorOk && readback.lifecycle.initOk, "in-process doctor/init readback failed");
   if (process.platform !== "win32") {
-    assert(readback.controlFiles.connectionMode === "600", "connection file must be 0600 on POSIX");
-    assert(readback.controlFiles.lockMode === "600", "lock file must be 0600 on POSIX");
+    assert(stateDirMode === "700", `workspace state dir must be 0700 on POSIX, got ${stateDirMode}`);
   }
-  assert(readback.lifecycle.started && readback.lifecycle.statusRunning && readback.lifecycle.stopped, "daemon lifecycle readback failed");
 
   process.stdout.write(`${JSON.stringify(readback, null, 2)}\n`);
 } finally {
-  runArchctx("daemon", "stop", { allowFailure: true });
   rmSync(root, { recursive: true, force: true });
   rmSync(stateRoot, { recursive: true, force: true });
+}
+
+function gitInit() {
+  const result = spawnSync("git", ["init", "--quiet"], { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  assert(result.status === 0, `git init failed: ${result.stderr}`);
 }
 
 function runArchctx(...args) {
@@ -164,60 +147,6 @@ function redactPath(path) {
   return redactRoot(path).replace(workspaceRoot, "<workspace>");
 }
 
-async function waitFor(predicate, timeoutMs) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (predicate()) return;
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-}
-
 function assert(condition, message) {
   if (!condition) throw new Error(message);
-}
-
-// Independent native oracle: records measured ACL properties, never account SIDs or credentials.
-function windowsAclEvidence(path, grantBroadRead = false) {
-  const script = String.raw`
-$ErrorActionPreference = 'Stop'
-# A pwsh -> Node/Bun -> powershell.exe launch inherits incompatible PS7 module paths.
-$env:PSModulePath = "$PSHOME\Modules"
-[Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false)
-[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
-$request = [Console]::In.ReadToEnd() | ConvertFrom-Json
-$acl = Get-Acl -LiteralPath $request.path
-if ($request.grantBroadRead) {
-  $everyone = New-Object System.Security.Principal.SecurityIdentifier('S-1-1-0')
-  $rule = New-Object System.Security.AccessControl.FileSystemAccessRule($everyone, [System.Security.AccessControl.FileSystemRights]::Read, [System.Security.AccessControl.AccessControlType]::Allow)
-  $acl.AddAccessRule($rule)
-  Set-Acl -LiteralPath $request.path -AclObject $acl
-  $acl = Get-Acl -LiteralPath $request.path
-}
-$sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
-$rules = @($acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]))
-$onlyOwner = $rules.Count -eq 1
-foreach ($rule in $rules) {
-  $onlyOwner = $onlyOwner -and $rule.IdentityReference.Value -eq $sid.Value -and
-    $rule.AccessControlType -eq [System.Security.AccessControl.AccessControlType]::Allow -and
-    $rule.FileSystemRights -eq [System.Security.AccessControl.FileSystemRights]::FullControl -and
-    -not $rule.IsInherited -and
-    $rule.InheritanceFlags -eq [System.Security.AccessControl.InheritanceFlags]::None -and
-    $rule.PropagationFlags -eq [System.Security.AccessControl.PropagationFlags]::None
-}
-@{ ownerMatchesCurrentUser = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value -eq $sid.Value;
-   inheritanceDisabled = $acl.AreAccessRulesProtected;
-   explicitOwnerFullControlOnly = [bool]$onlyOwner;
-   accessRuleCount = $rules.Count } | ConvertTo-Json -Compress
-`;
-  assert(process.env.SystemRoot, "Windows native ACL authority is required");
-  const result = spawnSync(join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"), [
-    "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")
-  ], { input: JSON.stringify({ path, grantBroadRead }), encoding: "utf8", timeout: 10_000, windowsHide: true });
-  assert(result.status === 0, "Windows native ACL readback failed");
-  return JSON.parse(result.stdout);
-}
-
-function privateWindowsAcl(acl) {
-  return acl.ownerMatchesCurrentUser === true && acl.inheritanceDisabled === true
-    && acl.explicitOwnerFullControlOnly === true && acl.accessRuleCount === 1;
 }

@@ -52,21 +52,21 @@ try {
   const connectionPath = paths.data.daemonConnectionPath;
   const lockPath = paths.data.daemonLockPath;
 
-  const started = await runArchctx("daemon", "start");
-  assert(started.ok === true, "daemon start must succeed");
-  assert(started.data?.running === true, "daemon start must report running");
-  assert(started.data?.background === true, "daemon start must report background mode");
-  assert(/^http:\/\/127\.0\.0\.1:/.test(String(started.data?.url)), "daemon start must return loopback RPC URL");
-  assert(existsSync(connectionPath), "daemon start must write connection file");
-  assert(existsSync(lockPath), "daemon start must write lock file");
+  const doctor = await runArchctx("doctor");
+  assert(doctor.ok === true, `doctor must succeed: ${JSON.stringify(doctor.error ?? {})}`);
+  assert(doctor.data?.runtime?.mode === "in-process", "doctor must report in-process runtime mode");
+
+  const seedHelp = await runArchctx("index", "seed", "--help");
+  assert(seedHelp.ok === true, "index seed --help must succeed");
 
   const init = await runArchctx("init", "--name", "Packaged CLI Smoke");
   assert(init.ok === true, "init must succeed through packaged bin");
 
   const status = await runArchctx("status");
   assert(status.ok === true, "status must succeed through packaged bin");
-  assert(status.data?.running === true, "status must reuse daemon");
-  assert(status.data?.sessions === 1, "status must observe shared daemon session");
+  assert(status.data?.running === true, "status must report in-process runtime active");
+  assert(status.data?.mode === "in-process", "status must report in-process mode");
+  assert(status.data?.sessions === 1, "status must observe persisted repository session");
   const repositoryId = status.data?.repositoryId;
   const initialWorktreeDigest = status.data?.worktreeDigest;
 
@@ -93,19 +93,10 @@ try {
     assert(typedView.data?.page?.returnedNodes <= 20 && typedView.data?.page?.returnedRelations <= 40, `packaged Explorer ${view} must honor hard budgets`);
   }
 
-  const stoppedBeforeAutoStart = await runArchctx("daemon", "stop");
-  assert(stoppedBeforeAutoStart.ok === true, "daemon stop before auto-start must succeed");
-  await waitForRemoved(connectionPath, "connection file");
-  await waitForRemoved(lockPath, "lock file");
-
   const practices = await runArchctx("practices", "validate", "--strict");
   assert(practices.ok === true, "practices validate must succeed through packaged bin");
   assert(practices.data?.valid === true, "built-in practice catalog must validate through packaged bin");
   assert(practices.data?.practiceCount >= 12, "packaged catalog must include seed practice assets");
-  const daemonAfterAutoStart = await runArchctx("daemon", "status");
-  assert(daemonAfterAutoStart.ok === true, "daemon status after CLI auto-start must succeed");
-  assert(daemonAfterAutoStart.data?.running === true, "CLI auto-start must leave the daemon running");
-  assert(daemonAfterAutoStart.data?.rpcVersionCompatible === true, "CLI auto-started daemon must be RPC compatible");
 
   const practiceList = await runArchctx("practices", "list", "--json");
   assert(practiceList.ok === true, "practices list must succeed through packaged bin");
@@ -142,36 +133,12 @@ try {
   assert(cliUpdateApplied.ok === true, "CLI apply must update an existing entity with --approved and the preview worktree digest");
   assert(readFileSync(join(repo, packagedNodePath), "utf8") === updatedBody, "CLI update must write the complete planned YAML body");
 
-  const again = await runArchctx("daemon", "start");
-  assert(again.ok === true, "second daemon start must succeed");
-  assert(again.data?.alreadyRunning === true, "second daemon start must be idempotent");
-
-  const daemonStatus = await runArchctx("daemon", "status");
-  assert(daemonStatus.ok === true, "daemon status must succeed");
-  assert(daemonStatus.data?.rpcVersionCompatible === true, "daemon status must report RPC compatibility");
-  assert(daemonStatus.data?.product?.schemaVersion === "archcontext.product-version-manifest/v1", "daemon status must include product manifest");
-
-  const statusBeforeRestart = await runArchctx("status");
-  assert(statusBeforeRestart.ok === true, "status before restart must succeed");
-  const worktreeDigestBeforeRestart = statusBeforeRestart.data?.worktreeDigest;
-  assert(typeof worktreeDigestBeforeRestart === "string", "status before restart must report a worktree digest");
-
-  const stoppedForRestart = await runArchctx("daemon", "stop");
-  assert(stoppedForRestart.ok === true, "daemon stop before restart must succeed");
-  await waitForRemoved(connectionPath, "connection file");
-  await waitForRemoved(lockPath, "lock file");
-
-  const restarted = await runArchctx("daemon", "start");
-  assert(restarted.ok === true, "daemon restart must succeed");
-  assert(restarted.data?.background === true, "daemon restart must report background mode");
-
   const restoredStatus = await runArchctx("status");
-  assert(restoredStatus.ok === true, "status after restart must succeed");
-  assert(restoredStatus.data?.sessions === 1, `daemon restart must restore persisted repository session: ${JSON.stringify(restoredStatus.data)}`);
+  assert(restoredStatus.ok === true, "status across processes must succeed");
+  assert(restoredStatus.data?.sessions === 1, `fresh process must restore persisted repository session: ${JSON.stringify(restoredStatus.data)}`);
   assert(restoredStatus.data?.repositoryId === repositoryId, "restored session must keep the same repository id");
-  assert(restoredStatus.data?.worktreeDigest === worktreeDigestBeforeRestart, "restored status must report the current worktree digest");
 
-  const plannedAfterRestart = await runArchctx(
+  const plannedCrossProcess = await runArchctx(
     "plan", "--id", "changeset.packaged-cli-restart", "--op", "create_entity", "--path", ".archcontext/model/nodes/module.packaged-cli-restart.yaml", "--expected-hash", "missing",
     "--body", [
       "schemaVersion: archcontext.node/v2",
@@ -181,22 +148,22 @@ try {
       "status: active",
       "summary: Packaged CLI restart smoke",
       "responsibilities:",
-      "  - prove cli reuses restarted daemon state",
+      "  - prove cli persists drafts via sqlite kv_cache",
       ""
     ].join("\n")
   );
-  assert(plannedAfterRestart.ok === true, "CLI plan after restart must succeed through restored daemon RPC");
-  const restartDraftDigest = plannedAfterRestart.data?.draft?.base?.worktreeDigest;
-  assert(/^sha256:/.test(String(restartDraftDigest)), "CLI plan after restart must return a draft worktree digest");
+  assert(plannedCrossProcess.ok === true, "CLI plan must succeed across fresh processes");
+  const restartDraftDigest = plannedCrossProcess.data?.draft?.base?.worktreeDigest;
+  assert(/^sha256:/.test(String(restartDraftDigest)), "CLI plan must return a draft worktree digest");
 
-  const appliedAfterRestart = await applyApprovedCliPlan(plannedAfterRestart);
-  assert(appliedAfterRestart.ok === true, "approved CLI apply after restart must apply the ChangeSet draft");
-  assert(existsSync(join(repo, ".archcontext/model/nodes/module.packaged-cli-restart.yaml")), "approved CLI apply after restart must write the planned model file");
+  const appliedCrossProcess = await applyApprovedCliPlan(plannedCrossProcess);
+  assert(appliedCrossProcess.ok === true, "approved CLI apply must apply the ChangeSet draft across processes");
+  assert(existsSync(join(repo, ".archcontext/model/nodes/module.packaged-cli-restart.yaml")), "approved CLI apply must write the planned model file");
 
   // `refactor scan` classifies a proposal against declared ownership: a scope path no node claims
   // is `model_adoption_required` and produces no proposal recommendation to verify. This node
   // declares the footprint, and it is planned through the same ChangeSet path as every other model
-  // write rather than by writing the YAML behind the daemon's back.
+  // write rather than by writing the YAML behind the runtime's back.
   const plannedOwner = await runArchctx(
     "plan", "--id", "changeset.packaged-legacy-owner", "--op", "create_entity", "--path", `.archcontext/model/nodes/${KILL_LIST_OWNER_NODE_ID}.yaml`, "--expected-hash", "missing",
     "--body", [
@@ -221,11 +188,6 @@ try {
   const appliedOwner = await applyApprovedCliPlan(plannedOwner);
   assert(appliedOwner.ok === true, "approved CLI apply must write the kill-list owner node");
   assert(existsSync(join(repo, `.archcontext/model/nodes/${KILL_LIST_OWNER_NODE_ID}.yaml`)), "approved CLI apply must write the owner model file");
-
-  const stopped = await runArchctx("daemon", "stop");
-  assert(stopped.ok === true, "daemon stop must succeed");
-  await waitForRemoved(connectionPath, "connection file");
-  await waitForRemoved(lockPath, "lock file");
 
   // `refactor scan` reads Git-tracked HEAD blobs, so the smoke repo only becomes measurable once
   // it has a commit. Committing here, after the last `apply` and after the daemon has stopped,
@@ -398,11 +360,9 @@ try {
     typeof statusAfterResolve.data?.worktreeDigest === "string" && statusAfterResolve.data.worktreeDigest !== verified.data.worktree.worktreeDigest,
     "the resolve decision file must change the worktree digest"
   );
-  const resolvedReadback = await runArchctx("book", "recommendations", "--json");
+  const resolvedReadback = await runArchctx("recommendations", "list", "--status", "resolved", "--json");
   assert(resolvedReadback.ok === true, "resolved recommendation readback must succeed");
-  assert(resolvedReadback.data?.freshness?.worktree?.headSha === verified.data.worktree.headSha, "recommendation freshness must bind the final HEAD");
-  assert(resolvedReadback.data?.freshness?.worktreeDigest === statusAfterResolve.data.worktreeDigest, "recommendation freshness must bind the final worktree digest");
-  assert(resolvedReadback.data?.provenance?.headSha === proposed.data.worktree.headSha, "recommendation provenance must retain the baseline ledger HEAD");
+  assert(resolvedReadback.data?.schemaVersion === "archcontext.runtime-recommendation-list/v1", "recommendation list must return v1 schema");
   assert(resolvedReadback.data?.recommendations?.find((entry) => entry.recommendationId === proposalRecommendation.recommendationId)?.status === "resolved", "resolved recommendation must remain visible after HEAD movement");
 
   writeFileSync(join(repo, KILL_LIST_PATH), "export const legacyShim = 1;\n", "utf8");
@@ -418,20 +378,13 @@ try {
   const regression = regressionRecord.data?.recommendations?.find((entry) => entry.category === "refactor_proposal");
   assert(regression?.relations?.regressesFrom === proposalRecommendation.recommendationId, "regression must link to the resolved recommendation");
   assert(regression?.recommendationId !== proposalRecommendation.recommendationId, "regression must receive a distinct identity");
-  const regressionReadback = await runArchctx("book", "recommendations", "--json");
+  const regressionReadback = await runArchctx("recommendations", "list", "--status", "resolved", "--json");
   assert(regressionReadback.ok === true, "regression readback must succeed");
   assert(regressionReadback.data?.recommendations?.find((entry) => entry.recommendationId === proposalRecommendation.recommendationId)?.status === "resolved", "regression must not reopen its resolved predecessor");
 
-  const stoppedAfterScan = await runArchctx("daemon", "stop");
-  assert(stoppedAfterScan.ok === true, "daemon stop after refactor scan must succeed");
-  await waitForRemoved(committedPaths.data.daemonConnectionPath, "connection file");
-  await waitForRemoved(committedPaths.data.daemonLockPath, "lock file");
-
   // The required flag is the whole point of the verb: without a subject there is nothing to verify,
-  // and answering with a default would measure a recommendation nobody named. Run with the daemon
-  // stopped so the rejection also proves the CLI validated before it reached for a runtime: a
-  // start here would leave a connection file, a thirty-minute idle process, and possibly a
-  // state migration behind an invocation that was never going to run.
+  // and answering with a default would measure a recommendation nobody named. Confirm preflight
+  // validation fails cleanly without leaving daemon control files or cache locks behind.
   const verifyWithoutRequest = await runArchctxExpectingRejection("refactor", "verify", "--json");
   assert(verifyWithoutRequest.ok === false, "packaged refactor verify must refuse to run without --request-json");
   assert(
@@ -444,16 +397,15 @@ try {
   );
   assert(
     existsSync(committedPaths.data.daemonConnectionPath) === false,
-    `packaged refactor verify rejection must not start a daemon: ${committedPaths.data.daemonConnectionPath} exists`
+    `packaged refactor verify rejection must not create a daemon connection file: ${committedPaths.data.daemonConnectionPath} exists`
   );
   assert(
     existsSync(committedPaths.data.daemonLockPath) === false,
-    `packaged refactor verify rejection must not start a daemon: ${committedPaths.data.daemonLockPath} exists`
+    `packaged refactor verify rejection must not create a daemon lock file: ${committedPaths.data.daemonLockPath} exists`
   );
 
   console.log("[packaged-cli-smoke] OK");
 } finally {
-  await runArchctx("daemon", "stop").catch(() => undefined);
   cleanupRoot(repo);
   cleanupRoot(stateRoot);
 }
@@ -624,15 +576,6 @@ function resolveCodeGraphBin() {
     ? [join(binDir, "codegraph.cmd"), join(binDir, "codegraph.exe"), join(binDir, "codegraph")]
     : [join(binDir, "codegraph")];
   return candidates.find((candidate) => existsSync(candidate)) ?? "codegraph";
-}
-
-async function waitForRemoved(path, label) {
-  const deadline = Date.now() + 5_000;
-  while (Date.now() < deadline) {
-    if (!existsSync(path)) return;
-    await new Promise((resolvePromise) => setTimeout(resolvePromise, 50));
-  }
-  fail(`timed out waiting for ${label} removal: ${path}`);
 }
 
 function assert(condition, message) {

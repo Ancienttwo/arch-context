@@ -30,7 +30,7 @@ export const REFACTOR_RESOLUTION_EVENT_TYPE = "architecture.refactor.resolution"
 export const REFACTOR_RESOLUTION_EVIDENCE_KIND = "refactor-resolution-evidence" as const;
 export const MODULE_STATISTICS_SNAPSHOT_EVIDENCE_KIND = "module-statistics-snapshot" as const;
 
-export type { RuntimeRefactorVerifyInput } from "./rpc-types";
+export type { RuntimeRefactorVerifyInput } from "./runtime-types";
 
 export interface RefactorVerifyInputV1 {
   recommendation: RecommendationV3;

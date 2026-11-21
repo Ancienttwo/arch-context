@@ -7,39 +7,23 @@ import { runRefImpactCommand } from "./ref-impact";
 import { runArchitectureHistoryCommand } from "./architecture-history";
 import { runConstraintCheckCommand, runRuntimeVerifyCommand } from "@archcontext/local-runtime/runtime-daemon";
 import { localEgressStatus } from "@archcontext/local-runtime/egress";
-import { spawn, spawnSync } from "node:child_process";
-import { accessSync, closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, statSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { accessSync, constants, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, parse, posix, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { FailureError, NativeContextError, toEnvelope, ARCHCONTEXT_NODE_RANGE, ARCHCONTEXT_PRODUCT_VERSION, ARCHITECTURE_MAJOR_CHANGE_REASON_CODES, CALLER_PROVIDED_ATTESTATION_FIELDS, EXPLORER_VIEW_IDS, REFACTOR_REQUEST_SCHEMA_VERSION, archctxCapabilities, digestJson, errorEnvelope, failureEnvelope, knownFailure, normalizeFailureResult, unclassifiedFailure, isRepoRelativePosixPath, nodeVersionSatisfiesRange, okEnvelope, productVersionManifest, refactorRequestInvariantIssues, refactorVerificationRequestInvariantIssues, validateJsonSchema } from "@archcontext/contracts";
 import type { AcceptedArchitectureChangeReferenceV1, ArchctxCapabilitiesV1, ArchitectureMajorChangeReasonCode, ExplorerProjectionQueryV2, FailureEnvelope, Json, JsonEnvelope, RefactorRequestV1, RefactorVerificationRequestV1 } from "@archcontext/contracts";
 import { assertPathHasNoSymlinkSegments, planManifestFieldsOperation, PLAN_OPERATIONS_SCHEMA, type ChangeOperation } from "@archcontext/core/changeset-engine";
 import { assertAllowedArchContextPath } from "@archcontext/core/policy-engine";
 import { computeWorktreeDigest, manifestDecisionDiagnostics, repositoryFingerprint, resolveArchitectureOwnerForPath, resolveArchitectureOwnersForPaths, type ResolveArchitectureOwnerResult } from "@archcontext/core/architecture-domain";
 import { diagnostics, installMarker, uninstallMarker } from "./local-hardening";
-import { completeRuntimeStateRecovery, defaultArchContextStateRoot, defaultLocalStorePath, inspectLegacyLocalStoreMigration, LOCAL_STORE_WRITER_OWNED_ERROR, inspectRuntimeStateRecovery, migrateLegacyLocalStoreIfNeeded, recoverRuntimeStateTarget, runtimeStatePaths, runtimeStateRecoveryWorktreeDigest } from "@archcontext/local-runtime/local-store-sqlite";
+import { defaultArchContextStateRoot, defaultLocalStorePath, localStoreWriterOwnershipPath, runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
 import { GitVisibleFilesUnavailableError, findRepositoryRoot, readHeadSha, listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
-import { listWorkspaceStateDirs } from "@archcontext/local-runtime/runtime-state-paths";
-import { ArchctxRuntimeRpcServer, runDocsAnchorsCommand, runProjectionCheckInvocation, runProjectionFreshnessCommand, runProjectionSliceCommand, runProjectionSnapshotCommand, RUNTIME_RPC_VERSION, runtimeRpcDaemonIdentity, type RuntimeRpcConnection, createRuntimeRpcClientFromConnectionFile, createRuntimeRpcClientFromWorkspaceStateDir, createStartedDaemon, createStartedProductionDaemon, defaultDaemonConnectionPath, defaultDaemonLockPath, listDaemonControlStates, liveDaemonLockOwnerPid, readRuntimeRpcConnectionFile, recoverStaleDaemonControlFiles, runtimeRpcCompatibilityIssue, type RuntimeRpcCompatibilityIssue, type RuntimeDaemonClient, type RuntimeDocsProjectionInput, type RuntimeProjectionInvocation, type RuntimeAgentContextProjectionInput, type RuntimeRecommendationInput, type RuntimeDeps, runFlowSelectorCheckCommand, runStateMachineCheckCommand, CapabilityDependenciesError, readCapabilityDependencies, createCommandProjectionPublisher, createGhProjectionPublisher, createNoneProjectionPublisher, runProjectionPublishCommand, runProjectionPublishFollow, runProjectionPublishStatusCommand, runProjectionVerifyPrCommand, type ProjectionPublisherPort } from "@archcontext/local-runtime/runtime-daemon";
+import { runDocsAnchorsCommand, runProjectionCheckInvocation, runProjectionFreshnessCommand, runProjectionSliceCommand, runProjectionSnapshotCommand, createStartedDaemon, runCodeGraphIndexSeed, type RuntimeDaemonClient, type RuntimeDocsProjectionInput, type RuntimeProjectionInvocation, type RuntimeAgentContextProjectionInput, type RuntimeRecommendationInput, type RuntimeDeps, runFlowSelectorCheckCommand, runStateMachineCheckCommand, CapabilityDependenciesError, readCapabilityDependencies, createCommandProjectionPublisher, createGhProjectionPublisher, createNoneProjectionPublisher, runProjectionPublishCommand, runProjectionPublishFollow, runProjectionPublishStatusCommand, runProjectionVerifyPrCommand, type ProjectionPublisherPort } from "@archcontext/local-runtime/runtime-daemon";
 import { inspectRepositoryCodeFacts } from "@archcontext/local-runtime/codegraph-adapter";
-import { RuntimeRpcTransportError, RuntimeRpcClient } from "@archcontext/local-runtime/runtime-rpc-client";
 import { REPO_HARNESS_PROJECTION_PROFILE, exportMermaidModel, loadNativeModelFromArchContext, type ArchitectureProjectionProfile } from "@archcontext/core/projection-engine";
 import nodeSchema from "../../../../schemas/repo/architecture-node.schema.json";
 
 const [, , command, ...args] = process.argv;
-const CLI_ENTRY = fileURLToPath(import.meta.url);
-const DAEMON_START_TIMEOUT_ENV = "ARCHCONTEXT_DAEMON_START_TIMEOUT_MS";
-const DAEMON_START_TIMEOUT_MS = process.platform === "win32" ? 150_000 : 15_000;
-/**
- * Exit code of a foreground `archctxd` that lost a concurrent cold start: another live process
- * already owns the local store (#160) or the daemon lock. Its starter keeps waiting for the winner's
- * connection file instead of reporting a failed start.
- */
-const DAEMON_OWNED_ELSEWHERE_EXIT_CODE = 75;
-
-function isDaemonOwnedElsewhereError(message: string): boolean {
-  return message.startsWith(`${LOCAL_STORE_WRITER_OWNED_ERROR}:`) || message.startsWith("archctxd already running for ");
-}
 const RELEASE_PACKAGE_NAME = "archctx";
 const UPDATE_CHECK_ENV = "ARCHCONTEXT_CHECK_UPDATES";
 const LATEST_VERSION_ENV = "ARCHCONTEXT_LATEST_VERSION";
@@ -48,12 +32,6 @@ const HOOK_ADAPTER_SCHEMA_VERSION = "archcontext.hook-adapter/v1";
 const HOOK_LOG_SCHEMA_VERSION = "archcontext.hook-log/v1";
 const HOOK_ADAPTER_NAME = "repo-harness-hook";
 const HOOK_CHECKPOINT_TIMEOUT_MS = 5_000;
-
-class RuntimeVersionUnsupportedError extends Error {
-  constructor(readonly issue: RuntimeRpcCompatibilityIssue) {
-    super(runtimeVersionUnsupportedMessage(issue));
-  }
-}
 
 class RefactorFlagError extends Error {}
 
@@ -87,7 +65,6 @@ export const CLI_COMMAND_FLAGS: Readonly<Record<string, CliFlagSpec & { subcomma
   "debt": { value: ["--changed-path", "--base"], boolean: ["--complete"] },
   "agent-context": { value: ["--expected-worktree-digest", "--id", "--task-session-id"], boolean: ["--approved"] },
   "apply": { value: ["--expected-worktree-digest", "--id"], boolean: ["--approved"] },
-  "book": { value: ["--depth", "--from", "--id", "--max-bytes", "--max-items", "--query", "--since", "--task", "--to"], boolean: ["--explain", "--open"] },
   "checkpoint": { value: ["--changed-path"], boolean: [] },
   "complete": { value: ["--head-sha", "--posture", "--task", "--task-session-id"], boolean: [] },
   "constraints": { value: [], boolean: [] },
@@ -121,22 +98,6 @@ export const CLI_COMMAND_FLAGS: Readonly<Record<string, CliFlagSpec & { subcomma
   "init": { value: ["--name"], boolean: [] },
   "install": { value: ["--host"], boolean: [] },
   "landscape": { value: [], boolean: [] },
-  "ledger": {
-    value: [],
-    boolean: [],
-    subcommands: {
-      status: { value: [], boolean: [] },
-      state: { value: [], boolean: [] },
-      drift: { value: [], boolean: [] },
-      "accept-committed": { value: ["--acceptance-plan-id", "--changeset-id", "--expected-worktree-digest", "--journal", "--journal-id"], boolean: ["--approved"] },
-      receipt: { value: ["--journal-id"], boolean: [] },
-      promote: { value: ["--mode"], boolean: ["--apply", "--enable", "--preflight", "--rollback-plan", "--write"] },
-      project: { value: ["--expected-worktree-digest"], boolean: ["--dry-run", "--to-git", "--write"] },
-      rebuild: { value: ["--expected-worktree-digest"], boolean: ["--accept-external-projection", "--from-git"] },
-      rollback: { value: ["--expected-worktree-digest"], boolean: ["--dry-run", "--to-yaml", "--write"] },
-      migrate: { value: ["--expected-worktree-digest"], boolean: ["--dry-run", "--from-yaml", "--recommendation-v3", "--write"] }
-    }
-  },
   "manifest": { value: ["--decisions", "--id", "--layers"], boolean: [] },
   "paths": { value: [], boolean: [] },
   "plan": { value: ["--body", "--body-file", "--expected-hash", "--id", "--op", "--operations-file", "--path"], boolean: [] },
@@ -159,8 +120,6 @@ export const CLI_COMMAND_FLAGS: Readonly<Record<string, CliFlagSpec & { subcomma
     boolean: [],
     subcommands: {
       run: { value: ["--request-json"], boolean: [] },
-      recover: { value: ["--request-json"], boolean: [] },
-      readback: { value: ["--request-json"], boolean: [] },
       snapshot: { value: [], boolean: [] },
       freshness: { value: [], boolean: [] },
       slice: { value: ["--base", "--changed-path"], boolean: [] },
@@ -194,7 +153,7 @@ export const CLI_COMMAND_FLAGS: Readonly<Record<string, CliFlagSpec & { subcomma
   "impact": { value: ["--base", "--head", "--depth", "--paths-from"], boolean: [] },
   "history": { value: ["--ref", "--format", "--offset", "--limit"], boolean: [] },
   "review": { value: ["--head-sha", "--posture", "--task", "--task-session-id"], boolean: [] },
-  "state": { value: ["--expected-target-fingerprint", "--expected-worktree-digest"], boolean: ["--accept-external-projection", "--dry-run", "--from-git", "--write"] },
+  "index": { value: [], boolean: [], subcommands: { seed: { value: ["--timeout-ms"], boolean: [] } } },
   "state-machines": { value: [], boolean: [] },
   "status": { value: [], boolean: [] },
   "sync": { value: ["--changed"], boolean: [] },
@@ -203,18 +162,6 @@ export const CLI_COMMAND_FLAGS: Readonly<Record<string, CliFlagSpec & { subcomma
   "validate": { value: [], boolean: [] },
   // `runCli` runs its own stricter check after this one: at most one `--json`, nothing else.
   "capabilities": { value: [], boolean: [] },
-  "daemon": {
-    value: [],
-    boolean: [],
-    subcommands: {
-      status: { value: [], boolean: [] },
-      start: { value: ["--port", "--idle-timeout-ms", "--timeout-ms"], boolean: ["--foreground"] },
-      upgrade: { value: ["--port", "--idle-timeout-ms", "--timeout-ms"], boolean: [] },
-      // The cwd's daemon by default, or one named by `daemon list` (#322).
-      stop: { value: ["--state-dir", "--workspace-id"], boolean: [] },
-      list: { value: [], boolean: [] }
-    }
-  },
   "docs": {
     value: ["--accepted-change-set-id", "--accepted-event-id", "--adoption-plan-id", "--affected-node", "--expected-worktree-digest", "--id", "--intent", "--library", "--library-id", "--major-reason", "--profile", "--query", "--task-session-id", "--version"],
     boolean: ["--all", "--allow-network", "--approved", "--force-refresh"],
@@ -312,10 +259,23 @@ const CLI_PROJECTION_FRESHNESS_HELP = {
   capability: "projection-freshness-v2"
 };
 
+/** `index seed --help` (#641). */
+const CLI_INDEX_SEED_HELP = {
+  usage: "archctx index seed [--timeout-ms <ms>] [--json]",
+  description: "Explicitly seeds or refreshes the workspace CodeGraph index (.codegraph) decoupled from archctx sync. In the primary worktree, initializes or syncs .codegraph; in a linked worktree, reuses an existing .codegraph non-destructively (already-present) or hardlink-copies the primary worktree's .codegraph (worktree-seed).",
+  options: {
+    "--timeout-ms <ms>": "Maximum time in milliseconds to wait if the primary worktree .codegraph build is active.",
+    "--json": "Accepted for symmetry; output is always JSON.",
+    "--help, -h": "Show help without touching .codegraph."
+  },
+  writes: ".codegraph/ only; touches no YAML model, no docs, and no SQLite lock.",
+  capability: "index-seed-v1"
+};
+
 /** `projection publish --help` (#379); above the entry block for the same TDZ reason as the audit constants. */
 const CLI_PROJECTION_PUBLISH_HELP = {
   usage: "archctx projection publish [--base <branch>] [--base-sha <sha>] [--remote <name>] [--branch <archctx/...>] [--publisher gh|command|none] [--publisher-command <executable>] [--accept-observed-major-change] [--follow [--interval <seconds>]] [--json]",
-  description: "Projection writer mode. Fetches the remote base tip, resets a writer-owned worktree to it, applies the projection through that worktree's archctxd, and pushes the result as exactly one commit on top of the base tip to a rolling archctx/* branch, then opens or updates its pull request. Only paths the apply wrote that are projection-owned outputs may change; anything else fails before a commit. One run per remote and base at a time (busy otherwise); the same base SHA is a no-op once published or up to date; a base that moves during the run is re-evaluated and the stale commit is never pushed.",
+  description: "Projection writer mode. Fetches the remote base tip, resets a writer-owned worktree to it, applies the projection in-process in that worktree, and pushes the result as exactly one commit on top of the base tip to a rolling archctx/* branch, then opens or updates its pull request. Only paths the apply wrote that are projection-owned outputs may change; anything else fails before a commit. One run per remote and base at a time (busy otherwise); the same base SHA is a no-op once published or up to date; a base that moves during the run is re-evaluated and the stale commit is never pushed.",
   options: {
     "--base <branch>": "The branch the projection is computed for (default: main).",
     "--base-sha <sha>": "Publish only for this base commit (40 lowercase hex characters), ending with projection-writer-base-moved when the remote base points elsewhere.",
@@ -451,30 +411,11 @@ export async function runCli(command = "help", args: string[] = [], cwd = proces
   } catch (error) {
     if (selected) {
       if (error instanceof CliUsageError) return failureEnvelope(selectedRequestId, knownFailure("AC_SCHEMA_INVALID", "cli-input-invalid"));
-      if (error instanceof RuntimeRpcTransportError) {
-        try {
-          const metadata = Object.fromEntries(["code", "method", "timeoutMs", "elapsedMs"].map(key => {
-            const descriptor = Object.getOwnPropertyDescriptor(error, key);
-            if (!descriptor || !("value" in descriptor)) throw new Error("Invalid selected transport metadata");
-            return [key, descriptor.value];
-          }));
-          return failureEnvelope(selectedRequestId, knownFailure(metadata.code,
-            metadata.code === "RPC_TIMEOUT" ? "rpc-timeout" : "rpc-aborted", {
-              method: metadata.method, timeoutMs: metadata.timeoutMs, elapsedMs: metadata.elapsedMs, mutationOutcome: "unknown"
-            }));
-        }
-        catch { return failureEnvelope(selectedRequestId, unclassifiedFailure("failure-metadata")); }
-      }
       if (error instanceof LocalEgressPolicyError) return failureEnvelope(selectedRequestId, knownFailure("AC_POLICY_VIOLATION", "egress-policy-denied"));
-      if (error instanceof RuntimeVersionUnsupportedError) return failureEnvelope(selectedRequestId, knownFailure("AC_RUNTIME_VERSION_UNSUPPORTED", "runtime-version-unsupported"));
       return selectedProducerFailureEnvelope(selectedRequestId, error, readerStage ?? "cli");
     }
     if (error instanceof LocalEgressPolicyError) return errorEnvelope(command, "AC_POLICY_VIOLATION", error.message);
-    // archctx requires a Git worktree; an embedded runtime throws this before any RPC envelope exists.
     if (error instanceof GitVisibleFilesUnavailableError) return errorEnvelope(command, error.code, error.message, error.reasonCode);
-    if (error instanceof RuntimeVersionUnsupportedError) {
-      return errorEnvelope(command ?? "cli", "AC_RUNTIME_VERSION_UNSUPPORTED", error.message);
-    }
     if (error instanceof FailureError) return toEnvelope(command, error, "cli");
     throw error;
   }
@@ -491,13 +432,11 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
   if (command === "export" && args[0] === "native") return runNativeContextCommand(args.slice(1), cwd);
   const preflight = preflightCliArguments(command, args);
   if (preflight) return preflight;
-  if (command === "daemon") return runDaemonCommand(args, cwd);
-  // One runtime per command: over RPC every call reaches the same archctxd anyway, and an embedded
-  // runtime owns the local store exclusively (#160), so a second one in the same command would be a
-  // second writer on the same store.
+  if (command === "index") return runIndexCommand(args, cwd);
+  // One in-process runtime per command, serialized by the SQLite cache writer lock (#160).
   let runtimeHandle: Promise<CliRuntimeHandle> | undefined;
   const runtime = async () => {
-    runtimeHandle ??= createCliRuntime(cwd, deps, command === "complete" || command === "review" || (command === "practices" && args[0] === "checkpoint"));
+    runtimeHandle ??= createCliRuntime(cwd, deps);
     return (await runtimeHandle).client;
   };
   // Commands may return an unsettled promise; it must settle before the runtime closes below.
@@ -548,12 +487,6 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
     }
     case "landscape":
       return (await runtime()).landscapeStatus();
-    case "state":
-      return runRuntimeStateCommand(args, cwd, runtime);
-    case "ledger":
-      return runLedgerCommand(args, cwd, runtime);
-    case "book":
-      return await runBookCommand(args, cwd, await runtime());
     case "recommendations":
       return runRecommendationsCommand(args, cwd, await runtime());
     case "refactor":
@@ -740,7 +673,7 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         ok: true,
         requestId: "help",
         data: {
-          commands: ["capabilities", "projection", "init", "sync", "validate", "context", "status", "daemon", "state", "repo", "landscape", "ledger", "book", "recommendations", "refactor", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "plan", "apply", "hash", "review", "complete", "manifest", "install", "uninstall", "doctor", "update", "paths", "export", "resolve", "impact", "verify", "history", "flows", "state-machines", "deps", "constraints", "debt"],
+          commands: ["capabilities", "projection", "init", "index", "sync", "validate", "context", "status", "repo", "landscape", "recommendations", "refactor", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "plan", "apply", "hash", "review", "complete", "manifest", "install", "uninstall", "doctor", "update", "paths", "export", "resolve", "impact", "verify", "history", "flows", "state-machines", "deps", "constraints", "debt"],
           examples: CLI_HELP_EXAMPLES
         }
       };
@@ -783,14 +716,8 @@ function cliHelpEnvelope(command: string, args: string[]): JsonEnvelope {
     });
   case "resolve":
     return okEnvelope("resolve", CLI_RESOLVE_HELP as unknown as Json);
-  case "ledger":
-    if (subcommand === "receipt") return okEnvelope("ledger.receipt", {
-      usage: "archctx ledger receipt --journal-id <id> --json",
-      description: "Export recorded ChangeSet identity, model transition digests and file hashes for content comparison on another machine. Unsigned; approval authenticity is unverified.",
-      writes: "No model or journal writes; uses the local daemon, starting it if needed.",
-      limits: { files: 10000, bytes: 2097152 },
-      verification: "docs/runbooks/changeset-receipt.md"
-    });
+  case "index":
+    if (subcommand === "seed") return okEnvelope("help", CLI_INDEX_SEED_HELP as unknown as Json);
     break;
   case "practices":
     if (subcommand === "checkpoint") return okEnvelope("help", {
@@ -877,416 +804,12 @@ function cliHelpEnvelope(command: string, args: string[]): JsonEnvelope {
     if (subcommand === "publish-status") return okEnvelope("help", CLI_PROJECTION_PUBLISH_STATUS_HELP as unknown as Json);
     if (subcommand === "verify-pr") return okEnvelope("help", CLI_PROJECTION_VERIFY_PR_HELP as unknown as Json);
     break;
-  case "daemon":
-    return okEnvelope("daemon", {
-      usage: [
-        "archctx daemon status",
-        "archctx daemon start [--port <port>] [--idle-timeout-ms <ms>]",
-        "archctx daemon stop [--state-dir <dir> | --workspace-id <ws.id>]",
-        "archctx daemon list",
-        "archctx daemon upgrade"
-      ],
-      description: "Manage the local archctxd for this worktree. daemon list reads every daemon's control files under the state root, including daemons whose worktree no longer exists; daemon stop --state-dir or --workspace-id stops one of them without its worktree.",
-      options: {
-        "--state-dir <dir>": "daemon stop: the daemon's state directory, as daemon list prints it.",
-        "--workspace-id <ws.id>": "daemon stop: the daemon's storage workspace id, as daemon list prints it.",
-        "--help, -h": "Show help without starting, stopping or reading a daemon."
-      }
-    } as unknown as Json);
   }
   return okEnvelope("help", {
     command: `archctx ${command}`,
     description: `archctx ${command} has no dedicated help text. --help never runs it or starts the local runtime; run archctx help for every command.`,
     examples: CLI_HELP_EXAMPLES.filter((example) => example === `archctx ${command}` || example.startsWith(`archctx ${command} `))
   });
-}
-
-async function runRuntimeStateCommand(
-  args: string[],
-  cwd: string,
-  runtime: () => Promise<RuntimeDaemonClient>
-) {
-  const subcommand = args[0] ?? "status";
-  if (subcommand !== "recover" || !args.includes("--from-git")) {
-    return errorEnvelope("state", "AC_SCHEMA_INVALID", "state requires recover --from-git");
-  }
-  const write = args.includes("--write");
-  if (write && args.includes("--dry-run")) {
-    return errorEnvelope("state.recover", "AC_SCHEMA_INVALID", "state recover accepts --dry-run or --write, not both");
-  }
-  const worktreeDigest = runtimeStateRecoveryWorktreeDigest(cwd);
-  const inspection = inspectRuntimeStateRecovery(cwd);
-  const writeCommand = inspection.status === "recovery-required" && inspection.targetFingerprint
-    ? `archctx state recover --from-git --write --expected-worktree-digest ${worktreeDigest} --expected-target-fingerprint ${inspection.targetFingerprint}`
-    : undefined;
-  if (!write) {
-    return okEnvelope("state.recover", {
-      ...inspection,
-      worktreeDigest,
-      ...(writeCommand ? { writeCommand } : {})
-    } as unknown as Json);
-  }
-  const expectedWorktreeDigest = readFlag(args, "--expected-worktree-digest");
-  const expectedTargetFingerprint = readFlag(args, "--expected-target-fingerprint");
-  if (!expectedWorktreeDigest || !expectedTargetFingerprint) {
-    return errorEnvelope("state.recover", "AC_SCHEMA_INVALID", "state recover --write requires --expected-worktree-digest and --expected-target-fingerprint from dry-run");
-  }
-  if (expectedWorktreeDigest !== worktreeDigest) {
-    return errorEnvelope("state.recover", "AC_PRECONDITION_FAILED", `state recover worktree digest mismatch: expected ${expectedWorktreeDigest}, current ${worktreeDigest}`);
-  }
-  if (inspection.status !== "recovery-required") {
-    return errorEnvelope("state.recover", "AC_CAPABILITY_UNSUPPORTED", `state recovery is not available: ${inspection.reasonCode}`);
-  }
-  if (inspection.targetFingerprint !== expectedTargetFingerprint) {
-    return errorEnvelope("state.recover", "AC_PRECONDITION_FAILED", `state recover target fingerprint mismatch: expected ${expectedTargetFingerprint}, current ${inspection.targetFingerprint ?? "missing"}`);
-  }
-
-  const recovery = recoverRuntimeStateTarget({
-    root: cwd,
-    expectedTargetFingerprint,
-    expectedWorktreeDigest
-  });
-  const acceptExternalProjection = args.includes("--accept-external-projection");
-  const rebuildWorktreeDigest = computeWorktreeDigest(cwd, listGitVisibleFiles(cwd));
-  const rebuild = await (await runtime()).ledgerRebuild(cwd, {
-    fromGit: true,
-    expectedWorktreeDigest: rebuildWorktreeDigest,
-    acceptExternalProjection
-  });
-  const rebuildSummary = {
-    schemaVersion: "archcontext.runtime-state-recovery-rebuild-summary/v1",
-    ok: rebuild.ok,
-    requestId: rebuild.requestId,
-    resultDigest: digestJson(rebuild as unknown as Json)
-  };
-  const retryCommand = `archctx ledger rebuild --from-git --expected-worktree-digest ${rebuildWorktreeDigest}${acceptExternalProjection ? " --accept-external-projection" : ""}`;
-  if (!rebuild.ok) {
-    return {
-      ...rebuild,
-      requestId: "state.recover",
-      data: { recovery, rebuildSummary, retryCommand } as unknown as Json
-    };
-  }
-  const completion = completeRuntimeStateRecovery({ recovery, rebuildResult: rebuild as unknown as Json });
-  return okEnvelope("state.recover", {
-    schemaVersion: "archcontext.runtime-state-recovery-command/v1",
-    status: "recovered",
-    recovery,
-    rebuildSummary,
-    completion,
-    rebuildWorktreeDigest,
-    retryCommand
-  } as unknown as Json);
-}
-
-async function runLedgerCommand(args: string[], cwd: string, runtime?: () => Promise<RuntimeDaemonClient>) {
-  const subcommand = args[0] ?? "status";
-  if (subcommand === "receipt") {
-    const journalId = readFlag(args, "--journal-id");
-    const valid = journalId && args.filter(arg => arg === "--journal-id").length === 1
-      && args.slice(1).every((arg, index, rest) => arg === "--json" || arg === "--journal-id" || rest[index - 1] === "--journal-id");
-    if (!valid) return cliArgumentFailure("ledger.receipt", "ledger receipt requires exactly one --journal-id <id>");
-    return (await requiredLedgerRuntime(runtime)).changeSetReceipt(cwd, journalId);
-  }
-  if (subcommand === "status" || subcommand === "state") {
-    const daemon = await requiredLedgerRuntime(runtime);
-    return daemon.ledgerState(cwd);
-  }
-  if (subcommand === "drift") {
-    const daemon = await requiredLedgerRuntime(runtime);
-    return daemon.ledgerDrift(cwd);
-  }
-  if (subcommand === "accept-committed") {
-    const usage = "ledger accept-committed requires --journal <journalId>=<changeSetId> (repeatable, in commit order) or --journal-id with --changeset-id; approve with --approved --acceptance-plan-id <id> --expected-worktree-digest <digest> from the preview";
-    const pairs = readRepeatedFlag(args, "--journal");
-    const journalId = readFlag(args, "--journal-id");
-    const changeSetId = readFlag(args, "--changeset-id");
-    if (args.filter((arg) => arg === "--journal").length !== pairs.length) return errorEnvelope("ledger.accept-committed", "AC_SCHEMA_INVALID", usage);
-    if (pairs.length > 0 ? journalId !== undefined || changeSetId !== undefined : !journalId || !changeSetId) {
-      return errorEnvelope("ledger.accept-committed", "AC_SCHEMA_INVALID", usage);
-    }
-    const journals = pairs.length > 0
-      ? pairs.map((pair) => {
-        const separator = pair.indexOf("=");
-        return separator <= 0 ? { journalId: "", changeSetId: "" } : { journalId: pair.slice(0, separator), changeSetId: pair.slice(separator + 1) };
-      })
-      : [{ journalId: journalId!, changeSetId: changeSetId! }];
-    if (journals.some((journal) => !journal.journalId || !journal.changeSetId)) return errorEnvelope("ledger.accept-committed", "AC_SCHEMA_INVALID", usage);
-    const approved = args.includes("--approved");
-    const acceptancePlanId = readFlag(args, "--acceptance-plan-id");
-    const expectedWorktreeDigest = readFlag(args, "--expected-worktree-digest");
-    if (approved ? !acceptancePlanId || !expectedWorktreeDigest : acceptancePlanId !== undefined || expectedWorktreeDigest !== undefined) {
-      return errorEnvelope("ledger.accept-committed", "AC_SCHEMA_INVALID", usage);
-    }
-    const daemon = await requiredLedgerRuntime(runtime);
-    return daemon.acceptCommittedChange(cwd, approved ? { journals, approved, acceptancePlanId, expectedWorktreeDigest } : { journals });
-  }
-  if (subcommand === "promote") {
-    if (args.includes("--write") || args.includes("--enable") || args.includes("--apply")) {
-      return errorEnvelope("ledger.promote", "AC_SCHEMA_INVALID", "ledger promote is preflight-only; it does not write runtime config or enable authority");
-    }
-    const mode = readFlag(args, "--mode") ?? args[1];
-    const targetMode = normalizeLedgerPromotionTargetMode(mode);
-    if (!targetMode) {
-      return errorEnvelope("ledger.promote", "AC_SCHEMA_INVALID", "ledger promote requires --mode authoritative");
-    }
-    if (!args.includes("--preflight")) {
-      return errorEnvelope("ledger.promote", "AC_SCHEMA_INVALID", "ledger promote requires --preflight");
-    }
-    if (!args.includes("--rollback-plan")) {
-      return errorEnvelope("ledger.promote", "AC_SCHEMA_INVALID", "ledger promote requires --rollback-plan");
-    }
-    const daemon = await requiredLedgerRuntime(runtime);
-    return runLedgerPromotionPreflight(cwd, daemon, targetMode);
-  }
-  if (subcommand === "project") {
-    if (!args.includes("--to-git")) {
-      return errorEnvelope("ledger.project", "AC_SCHEMA_INVALID", "ledger project currently requires --to-git");
-    }
-    const write = args.includes("--write");
-    if (write && args.includes("--dry-run")) {
-      return errorEnvelope("ledger.project", "AC_SCHEMA_INVALID", "ledger project accepts --dry-run or --write, not both");
-    }
-    const expectedWorktreeDigest = readFlag(args, "--expected-worktree-digest");
-    if (write && !expectedWorktreeDigest) {
-      return errorEnvelope("ledger.project", "AC_SCHEMA_INVALID", "ledger project --to-git --write requires --expected-worktree-digest");
-    }
-    const daemon = await requiredLedgerRuntime(runtime);
-    return daemon.ledgerProject(cwd, { dryRun: !write, expectedWorktreeDigest });
-  }
-  if (subcommand === "rebuild") {
-    if (!args.includes("--from-git")) {
-      return errorEnvelope("ledger.rebuild", "AC_SCHEMA_INVALID", "ledger rebuild currently requires --from-git");
-    }
-    const expectedWorktreeDigest = readFlag(args, "--expected-worktree-digest");
-    if (!expectedWorktreeDigest) {
-      return errorEnvelope("ledger.rebuild", "AC_SCHEMA_INVALID", "ledger rebuild --from-git requires --expected-worktree-digest");
-    }
-    const daemon = await requiredLedgerRuntime(runtime);
-    return daemon.ledgerRebuild(cwd, {
-      fromGit: true,
-      expectedWorktreeDigest,
-      acceptExternalProjection: args.includes("--accept-external-projection")
-    });
-  }
-  if (subcommand === "rollback") {
-    if (!args.includes("--to-yaml")) {
-      return errorEnvelope("ledger.rollback", "AC_SCHEMA_INVALID", "ledger rollback currently requires --to-yaml");
-    }
-    const write = args.includes("--write");
-    if (write && args.includes("--dry-run")) {
-      return errorEnvelope("ledger.rollback", "AC_SCHEMA_INVALID", "ledger rollback accepts --dry-run or --write, not both");
-    }
-    const expectedWorktreeDigest = readFlag(args, "--expected-worktree-digest");
-    if (write && !expectedWorktreeDigest) {
-      return errorEnvelope("ledger.rollback", "AC_SCHEMA_INVALID", "ledger rollback --to-yaml --write requires --expected-worktree-digest");
-    }
-    const daemon = await requiredLedgerRuntime(runtime);
-    return daemon.ledgerRollback(cwd, {
-      toYaml: true,
-      dryRun: !write,
-      expectedWorktreeDigest
-    });
-  }
-  if (subcommand === "migrate") {
-    const fromYaml = args.includes("--from-yaml");
-    const recommendationV3 = args.includes("--recommendation-v3");
-    if (fromYaml === recommendationV3) {
-      return errorEnvelope("ledger.migrate", "AC_SCHEMA_INVALID", "ledger migrate requires exactly one of --from-yaml or --recommendation-v3");
-    }
-    const mode = fromYaml ? "--from-yaml" : "--recommendation-v3";
-    const write = args.includes("--write");
-    if (write && args.includes("--dry-run")) {
-      return errorEnvelope("ledger.migrate", "AC_SCHEMA_INVALID", "ledger migrate accepts --dry-run or --write, not both");
-    }
-    const expectedWorktreeDigest = readFlag(args, "--expected-worktree-digest");
-    if (write && !expectedWorktreeDigest) {
-      return errorEnvelope("ledger.migrate", "AC_SCHEMA_INVALID", `ledger migrate ${mode} --write requires --expected-worktree-digest`);
-    }
-    const daemon = await requiredLedgerRuntime(runtime);
-    return daemon.ledgerMigrate(cwd, {
-      ...(fromYaml ? { fromYaml: true } : { recommendationV3: true }),
-      dryRun: !write,
-      expectedWorktreeDigest
-    });
-  }
-  return errorEnvelope("ledger", "AC_SCHEMA_INVALID", "ledger requires status, state, drift --json, accept-committed, promote --mode authoritative --preflight --rollback-plan, migrate --from-yaml, migrate --recommendation-v3, rebuild --from-git, rollback --to-yaml, or project --to-git");
-}
-
-async function requiredLedgerRuntime(runtime: (() => Promise<RuntimeDaemonClient>) | undefined): Promise<RuntimeDaemonClient> {
-  if (!runtime) throw new Error("ledger command requires runtime daemon");
-  return runtime();
-}
-
-function normalizeLedgerPromotionTargetMode(value: string | undefined): "ledger-authoritative" | undefined {
-  if (value === "authoritative" || value === "ledger-authoritative" || value === "ledger") return "ledger-authoritative";
-  return undefined;
-}
-
-async function runLedgerPromotionPreflight(cwd: string, daemon: RuntimeDaemonClient, targetMode: "ledger-authoritative") {
-  const stateEnvelope = await daemon.ledgerState(cwd);
-  if (!stateEnvelope.ok) return stateEnvelope;
-  const driftEnvelope = await daemon.ledgerDrift(cwd);
-  if (!driftEnvelope.ok) return driftEnvelope;
-  const state = readObject(stateEnvelope.data);
-  const driftData = readObject(driftEnvelope.data);
-  const architectureLedger = readObject(state.architectureLedger);
-  const phaseFlags = readObject(architectureLedger.phaseFlags);
-  const currentPhase = String(phaseFlags.activePhase ?? architectureLedger.rolloutMode ?? "unknown");
-  const worktree = readObject(state.worktree);
-  const ledger = readObject(state.ledger);
-  const yaml = readObject(state.yaml);
-  const drift = readObject(driftData.drift ?? state.drift);
-  const reconcile = readObject(driftData.reconcile ?? state.reconcile);
-  const worktreeDigest = typeof worktree.worktreeDigest === "string" ? worktree.worktreeDigest : "<current>";
-  const nextRequiredPhase = nextLedgerPromotionPhase(currentPhase);
-  const preconditions = {
-    currentPhase,
-    targetMode,
-    noModeSkip: currentPhase === "ledger-shadow" || currentPhase === targetMode,
-    driftClean: drift.ok === true,
-    reconcileClean: reconcile.ok === true,
-    unsupportedYamlFilesAbsent: Number(yaml.unsupportedFileCount ?? 0) === 0,
-    ledgerStatePresent: Number(ledger.entityCount ?? 0) + Number(ledger.relationCount ?? 0) + Number(ledger.constraintCount ?? 0) > 0,
-    rollbackPlanPresent: true,
-    hardEnforcementUnchanged: true
-  };
-  const alreadyActive = currentPhase === targetMode;
-  const ready = !alreadyActive && Object.values(preconditions).every((value) => value === true || typeof value === "string");
-  const reasonCodes = [
-    ...(alreadyActive ? ["already-ledger-authoritative"] : []),
-    ...(preconditions.noModeSkip ? [] : [`mode-sequence-not-ready:${currentPhase}->${nextRequiredPhase ?? "ledger-shadow"}`]),
-    ...(preconditions.driftClean ? [] : ["ledger-yaml-drift-not-clean"]),
-    ...(preconditions.reconcileClean ? [] : ["ledger-reconcile-not-clean"]),
-    ...(preconditions.unsupportedYamlFilesAbsent ? [] : ["unsupported-yaml-files-present"]),
-    ...(preconditions.ledgerStatePresent ? [] : ["ledger-state-empty"])
-  ];
-  return okEnvelope("ledger.promote", {
-    schemaVersion: "archcontext.runtime-architecture-ledger-promotion-preflight/v1",
-    targetMode,
-    status: alreadyActive ? "already-active" : ready ? "ready" : "blocked",
-    ready,
-    writes: "none",
-    sideEffects: {
-      ledgerModeChanged: false,
-      hardEnforcementChanged: false,
-      sqliteMutated: false,
-      yamlMutated: false
-    },
-    repository: state.repository,
-    worktree: state.worktree,
-    current: {
-      phase: currentPhase,
-      readMode: architectureLedger.readMode,
-      writeMode: architectureLedger.writeMode,
-      readAuthority: architectureLedger.readAuthority,
-      writeAuthority: architectureLedger.writeAuthority,
-      graphDigest: state.graphDigest,
-      ledgerGraphDigest: ledger.graphDigest,
-      yamlGraphDigest: yaml.graphDigest
-    },
-    preconditions,
-    reasonCodes,
-    nextRequiredPhase,
-    recommendedEnvironment: {
-      ARCHCONTEXT_LEDGER_MODE: targetMode,
-      ARCHCONTEXT_LEDGER_READ_MODE: "ledger",
-      ARCHCONTEXT_LEDGER_WRITE_MODE: "ledger-with-projection"
-    },
-    rollbackPlan: {
-      required: true,
-      targetAuthority: "yaml",
-      dryRunCommand: "archctx ledger rollback --to-yaml --dry-run",
-      command: `archctx ledger rollback --to-yaml --write --expected-worktree-digest ${worktreeDigest}`,
-      commandTemplate: "archctx ledger rollback --to-yaml --write --expected-worktree-digest <current>",
-      environment: {
-        ARCHCONTEXT_LEDGER_MODE: "yaml",
-        ARCHCONTEXT_LEDGER_READ_MODE: "yaml",
-        ARCHCONTEXT_LEDGER_WRITE_MODE: "yaml"
-      }
-    },
-    boundary: {
-      advisoryDefaultPreserved: true,
-      productionGaClaimed: false,
-      hardEnforcementEnabled: false,
-      operatorActionRequired: true
-    }
-  } as unknown as Json);
-}
-
-function nextLedgerPromotionPhase(currentPhase: string): string | null {
-  if (currentPhase === "yaml") return "dual";
-  if (currentPhase === "dual") return "ledger-shadow";
-  if (currentPhase === "ledger-shadow") return "ledger-authoritative";
-  if (currentPhase === "ledger-authoritative") return null;
-  return "yaml";
-}
-
-function readObject(value: unknown): Record<string, any> {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, any> : {};
-}
-
-async function runBookCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient) {
-  const subcommand = args[0] ?? "status";
-  const maxItems = readOptionalNonNegativeIntegerFlag(args, "--max-items", "book");
-  if (!maxItems.ok) return maxItems.envelope;
-  const maxBytes = readOptionalPositiveIntegerFlag(args, "--max-bytes", "book");
-  if (!maxBytes.ok) return maxBytes.envelope;
-  const budget = {
-    ...(maxItems.value === undefined ? {} : { maxItems: maxItems.value }),
-    ...(maxBytes.value === undefined ? {} : { maxBytes: maxBytes.value })
-  };
-  if (subcommand === "status") return daemon.book(cwd, { command: "status", ...budget });
-  if (subcommand === "query") {
-    const task = readFlag(args, "--task") ?? readFlag(args, "--query") ?? args.slice(1).filter((arg) => !arg.startsWith("--")).join(" ").trim();
-    if (!task) return errorEnvelope("book.query", "AC_SCHEMA_INVALID", "book query requires --task, --query, or query text");
-    return daemon.book(cwd, { command: "query", task, explain: args.includes("--explain"), ...budget });
-  }
-  if (subcommand === "show") {
-    const id = readFlag(args, "--id") ?? args[1];
-    if (!id) return errorEnvelope("book.show", "AC_SCHEMA_INVALID", "book show requires <entity-id> or --id");
-    return daemon.book(cwd, { command: "show", id, ...budget });
-  }
-  if (subcommand === "neighbors") {
-    const id = readFlag(args, "--id") ?? args[1];
-    if (!id) return errorEnvelope("book.neighbors", "AC_SCHEMA_INVALID", "book neighbors requires <entity-id> or --id");
-    const depth = readOptionalNonNegativeIntegerFlag(args, "--depth", "book.neighbors");
-    if (!depth.ok) return depth.envelope;
-    return daemon.book(cwd, { command: "neighbors", id, ...(depth.value === undefined ? {} : { depth: depth.value }), ...budget });
-  }
-  if (subcommand === "timeline") {
-    const id = readFlag(args, "--id") ?? (args[1]?.startsWith("--") ? undefined : args[1]);
-    return daemon.book(cwd, {
-      command: "timeline",
-      ...(id === undefined ? {} : { id }),
-      ...(readFlag(args, "--since") === undefined ? {} : { sinceRef: readFlag(args, "--since") }),
-      ...budget
-    });
-  }
-  if (subcommand === "diff") {
-    return daemon.book(cwd, {
-      command: "diff",
-      fromRef: readFlag(args, "--from") ?? "empty",
-      toRef: readFlag(args, "--to") ?? "current",
-      ...budget
-    });
-  }
-  if (subcommand === "evidence") {
-    const id = readFlag(args, "--id") ?? args[1];
-    if (!id) return errorEnvelope("book.evidence", "AC_SCHEMA_INVALID", "book evidence requires <finding-or-entity-id> or --id");
-    return daemon.book(cwd, { command: "evidence", id, ...budget });
-  }
-  if (subcommand === "recommendations") {
-    return daemon.book(cwd, { command: "recommendations", openOnly: args.includes("--open"), explain: args.includes("--explain"), ...budget });
-  }
-  if (subcommand === "export") {
-    const format = readFlag(args, "--format") ?? "json";
-    if (format !== "json" && format !== "yaml" && format !== "markdown") {
-      return errorEnvelope("book.export", "AC_SCHEMA_INVALID", "book export --format must be json, yaml, or markdown");
-    }
-    return daemon.book(cwd, { command: "export", format, ...budget });
-  }
-  return errorEnvelope("book", "AC_SCHEMA_INVALID", "book requires status|query|show|neighbors|timeline|diff|evidence|recommendations|export");
 }
 
 async function runRecommendationsCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient) {
@@ -1570,18 +1093,45 @@ async function runProjectionProtocolCommand(args: string[], cwd: string, runtime
   // (ADR-0056 §2).
   if (action === "freshness") return runProjectionFreshnessCliCommand(args.slice(1), cwd);
   if (action === "slice") return runProjectionSliceCliCommand(args.slice(1), cwd);
-  if (!["run", "recover", "readback"].includes(action)) return errorEnvelope("projection", "AC_SCHEMA_INVALID", "projection requires run|recover|readback --request-json <request>, snapshot|freshness [--json], slice --base <ref>, or publish|publish-status|verify-pr");
+  if (action !== "run") return errorEnvelope("projection", "AC_SCHEMA_INVALID", "projection requires run --request-json <request>, snapshot|freshness [--json], slice --base <ref>, or publish|publish-status|verify-pr");
   const raw = readFlag(args, "--request-json");
   if (!raw) return errorEnvelope(`projection.${action}`, "AC_SCHEMA_INVALID", `projection ${action} requires --request-json`);
   let request: RuntimeProjectionInvocation["request"];
   try { request = JSON.parse(raw); }
   catch { return errorEnvelope(`projection.${action}`, "AC_SCHEMA_INVALID", "projection request is not valid JSON"); }
   // `check` is read-only: it is answered in-process, before any runtime client exists, so it can
-  // never start a daemon, open the local store or require a task session.
-  if (action === "run" && (request as { mode?: unknown } | null)?.mode === "check") {
+  // never open the local store or require a task session.
+  if ((request as { mode?: unknown } | null)?.mode === "check") {
     return runProjectionCheckInvocation(request, cwd);
   }
-  return (await runtime()).projection(findRepositoryRoot(cwd), { action, request } as RuntimeProjectionInvocation);
+  return (await runtime()).projection(findRepositoryRoot(cwd), { action: "run", request } as RuntimeProjectionInvocation);
+}
+
+async function runIndexCommand(args: string[], cwd: string): Promise<JsonEnvelope | FailureEnvelope> {
+  const subcommand = args[0];
+  if (subcommand !== "seed") {
+    return errorEnvelope("index", "AC_SCHEMA_INVALID", "index requires seed [--timeout-ms <ms>] [--json]");
+  }
+  for (let index = 1; index < args.length; index += 1) {
+    const token = args[index]!;
+    if (token === "--timeout-ms" || token === "--format") { index += 1; continue; }
+    if (token === "--json") continue;
+    return errorEnvelope("index.seed", "AC_SCHEMA_INVALID", `index seed does not accept ${token}; use --help`);
+  }
+  const timeout = readOptionalPositiveIntegerFlag(args.slice(1), "--timeout-ms", "index.seed");
+  if (!timeout.ok) return timeout.envelope;
+  try {
+    const result = await runCodeGraphIndexSeed(cwd, { timeoutMs: timeout.value });
+    return okEnvelope("index.seed", result as unknown as Json);
+  } catch (error) {
+    if (error instanceof GitVisibleFilesUnavailableError) {
+      return errorEnvelope("index.seed", error.code, error.message, error.reasonCode);
+    }
+    if (error instanceof FailureError) {
+      return toEnvelope("index.seed", error, "cli");
+    }
+    throw error;
+  }
 }
 
 function runProjectionSliceCliCommand(args: string[], cwd: string): JsonEnvelope {
@@ -1699,11 +1249,10 @@ function parseProjectionPublishCliInput(args: string[], cwd: string): { ok: true
 }
 
 /**
- * One publish. The apply goes to the writer-owned worktree's own archctxd (ADR-0005: one writer per
- * worktree), started on demand like any other command's daemon; tests inject `deps.runtimeClient`.
+ * One publish. The apply runs in-process inside the writer-owned worktree (ADR-0005: one writer
+ * per worktree); tests inject `deps.runtimeClient`.
  */
 function runProjectionPublishOnce(input: ProjectionPublishCliInput, cwd: string, deps: CliRuntimeDeps): Promise<JsonEnvelope> {
-  const clients = new Map<string, RuntimeDaemonClient>();
   return runProjectionPublishCommand({
     cwd,
     remote: input.remote,
@@ -1713,12 +1262,13 @@ function runProjectionPublishOnce(input: ProjectionPublishCliInput, cwd: string,
     publisher: input.publisher,
     acceptObservedMajorChange: input.acceptObservedMajorChange,
     apply: async (worktree, request) => {
-      let client = deps.runtimeClient ?? clients.get(worktree);
-      if (!client) {
-        client = await createOrStartRuntimeRpcClient(worktree);
-        clients.set(worktree, client);
+      if (deps.runtimeClient) return deps.runtimeClient.projection(worktree, { action: "run", request });
+      const daemon = await createStartedDaemon({ localStorePath: defaultLocalStorePath(worktree) });
+      try {
+        return await daemon.projection(worktree, { action: "run", request });
+      } finally {
+        await daemon.stop();
       }
-      return client.projection(worktree, { action: "run", request });
     }
   });
 }
@@ -2102,7 +1652,6 @@ function readAgentHost(args: string[]): AgentHost | undefined {
 async function doctorReport(cwd: string, args: string[] = []) {
   const product = productVersionManifest();
   const paths = runtimePathsReport(cwd);
-  const daemon = await doctorDaemon(cwd);
   const git = doctorGit(cwd);
   const sqlite = doctorSqlite(cwd);
   const permissions = doctorPermissions(cwd);
@@ -2111,20 +1660,17 @@ async function doctorReport(cwd: string, args: string[] = []) {
   const hardening = diagnostics(localEgressStatus(process.env, {
     updateCheckRequested: args.includes("--check-updates") || process.env[UPDATE_CHECK_ENV] === "1"
   }));
-  const daemonEgress = "health" in daemon ? daemon.health?.egress : undefined;
-  const egress = daemon.running
-    ? daemonEgress ?? { ok: false, source: "daemon", effectiveOutbound: "unknown", warnings: ["Running daemon did not provide an egress report"] }
-    : { ...hardening.egress, source: "cli-environment" };
+  const egress = { ...hardening.egress, source: "cli-environment" };
   return {
     product,
     version: {
       product: product.product.version,
       cli: product.surfaces.cli.version,
-      daemon: product.surfaces.daemon.version,
-      rpcSchemaVersion: product.runtime.localRpc.schemaVersion,
       schemaSetVersion: product.schemas.schemaSetVersion
     },
-    daemon,
+    runtime: {
+      mode: "in-process"
+    },
     sqlite,
     update: updateCheckReport({
       checkUpdates: args.includes("--check-updates") || process.env[UPDATE_CHECK_ENV] === "1"
@@ -2138,8 +1684,6 @@ async function doctorReport(cwd: string, args: string[] = []) {
     egress,
     hardening: { ...hardening, egress },
     ok: hardening.supportedNode && permissions.workspace.readable && permissions.workspace.writable && egress.ok
-      && (daemon as { writable?: boolean }).writable !== false
-      && (daemon as { usable?: boolean }).usable !== false
   };
 }
 
@@ -2273,44 +1817,6 @@ function compareVersions(a: string, b: string): number | null {
   return 0;
 }
 
-async function doctorDaemon(cwd: string) {
-  const client = createRuntimeRpcClientFromConnectionFile(cwd);
-  if (!client) {
-    return {
-      running: false,
-      connectionPath: defaultDaemonConnectionPath(cwd),
-      lockPath: defaultDaemonLockPath(cwd)
-    };
-  }
-  const health = await client.health({ includeEgress: true }).catch(() => undefined);
-  const healthIssue = runtimeRpcCompatibilityIssueFromHealth(cwd, client, health);
-  if (healthIssue) return incompatibleDaemonStatus(healthIssue);
-  if ((health as any)?.ok === true) {
-    // Mirrors `runDaemonCommand("status")`'s healthy branch: the RPC wire schema alone cannot
-    // rule out a stale already-running daemon (see `cliEntryStalenessIssue`), so `doctor` must not
-    // report a stale daemon as simply running/compatible either.
-    const stalenessIssue = cliEntryStalenessIssue(cwd);
-    if (stalenessIssue?.pidAlive) return incompatibleDaemonStatus(stalenessIssue);
-  }
-  return {
-    running: (health as any)?.ok === true,
-    ...(daemonReadinessFailure(health) ? { usable: false, readiness: (health as any).readiness, error: daemonReadinessFailure(health) } : {}),
-    staleConnection: (health as any)?.ok !== true,
-    rpcVersionCompatible: (health as any)?.schemaVersion === productVersionManifest().runtime.localRpc.schemaVersion,
-    productVersionCompatible: (health as any)?.product?.product?.version === productVersionManifest().product.version,
-    connection: client.connectionInfo(),
-    health: (health as any)?.ok === true ? {
-      composition: (health as any).composition,
-      product: (health as any).product,
-      egress: (health as any).egress
-    } : undefined,
-    // A live daemon whose startup recovery left ChangeSet journals unresolved refuses writes (#172).
-    ...((health as any)?.ok === true && (health as any).changeSetRecovery
-      ? { writable: false, changeSetRecovery: (health as any).changeSetRecovery }
-      : {})
-  };
-}
-
 function doctorGit(cwd: string) {
   try {
     const root = findRepositoryRoot(cwd);
@@ -2330,25 +1836,22 @@ function doctorGit(cwd: string) {
 function doctorSqlite(cwd: string) {
   const paths = runtimeStatePaths(cwd);
   const path = paths.localStorePath;
-  const legacyLocalStore = inspectLegacyLocalStoreMigration(cwd);
+  const writerLockPath = localStoreWriterOwnershipPath(path);
   return {
     path,
     exists: existsSync(path),
-    migrations: productVersionManifest().runtime.sqliteMigrations,
-    legacyPath: paths.legacyLocalStorePath,
-    legacyExists: existsSync(paths.legacyLocalStorePath),
-    legacyLocalStore
+    writerLockPath,
+    writerLocked: existsSync(writerLockPath),
+    migrations: productVersionManifest().runtime.sqliteMigrations
   };
 }
 
 function doctorPermissions(cwd: string) {
   const paths = runtimeStatePaths(cwd);
-  const controlDir = dirname(defaultDaemonConnectionPath(cwd));
   return {
     workspace: pathAccess(cwd),
     stateRoot: pathAccess(paths.stateRoot),
     runtimeStateDir: pathAccess(paths.workspaceStateDir),
-    controlDir: pathAccess(controlDir),
     sqlite: pathAccess(defaultLocalStorePath(cwd))
   };
 }
@@ -2357,7 +1860,6 @@ function runtimePathsReport(cwd: string) {
   const paths = runtimeStatePaths(cwd);
   return {
     ...paths,
-    legacyLocalStore: inspectLegacyLocalStoreMigration(cwd),
     runtimeRepositoryId: repositoryFingerprint(paths.repositoryRoot),
     repositoryTruthDir: join(paths.repositoryRoot, ".archcontext"),
     codeGraphIndexDir: join(paths.repositoryRoot, ".codegraph"),
@@ -2398,691 +1900,18 @@ function isPrivatePath(path: string): boolean {
   }
 }
 
-async function createCliRuntime(cwd: string, deps: CliRuntimeDeps, preserveHealthFailure = false): Promise<CliRuntimeHandle> {
+async function createCliRuntime(cwd: string, deps: CliRuntimeDeps): Promise<CliRuntimeHandle> {
   if (deps.runtimeClient) return { client: deps.runtimeClient, close: async () => undefined };
-  if (!deps.disableRpcDiscovery && !hasEmbeddedRuntimeDeps(deps)) {
-    return { client: await createOrStartRuntimeRpcClient(cwd, preserveHealthFailure), close: async () => undefined };
-  }
   const {
     runtimeClient: _runtimeClient,
     disableRpcDiscovery: _disableRpcDiscovery,
     ...runtimeDeps
   } = deps;
-  if (!runtimeDeps.localStorePath) migrateLegacyLocalStoreIfNeeded(cwd);
   const daemon = await createStartedDaemon({
     localStorePath: defaultLocalStorePath(cwd),
     ...runtimeDeps
   });
   return { client: daemon, close: () => daemon.stop() };
-}
-
-async function createOrStartRuntimeRpcClient(cwd: string, preserveHealthFailure = false): Promise<RuntimeDaemonClient> {
-  const fileIssue = runtimeRpcCompatibilityIssue(cwd) ?? cliEntryStalenessIssue(cwd);
-  if (fileIssue?.pidAlive) throw new RuntimeVersionUnsupportedError(fileIssue);
-  const client = createRuntimeRpcClientFromConnectionFile(cwd);
-  if (client) {
-    const { health, unresponsivePid, transportFailure } = await probeDaemonHealth(client);
-    const healthIssue = runtimeRpcCompatibilityIssueFromHealth(cwd, client, health);
-    if (healthIssue) throw new RuntimeVersionUnsupportedError(healthIssue);
-    assertDaemonReady(health);
-    if ((health as any)?.ok === true) return client;
-    if (unresponsivePid !== undefined) {
-      if (preserveHealthFailure && transportFailure) throw transportFailure;
-      throw new Error(unresponsiveDaemonMessage(unresponsivePid));
-    }
-    recoverStaleDaemonControlFiles(cwd, { removeUnhealthyConnection: true });
-  } else {
-    recoverStaleDaemonControlFiles(cwd);
-  }
-  const started = await startBackgroundDaemon([], cwd);
-  if (!started.ok) throw new Error(mcpDaemonStartRecoveryMessage(started.error?.message ?? "archctxd did not start"));
-  const startedClient = createRuntimeRpcClientFromConnectionFile(cwd);
-  if (startedClient) {
-    const health = await startedClient.health().catch(() => undefined);
-    const healthIssue = runtimeRpcCompatibilityIssueFromHealth(cwd, startedClient, health);
-    if (healthIssue) throw new RuntimeVersionUnsupportedError(healthIssue);
-    assertDaemonReady(health);
-    if ((health as any)?.ok === true) return startedClient;
-  }
-  throw new Error(mcpDaemonStartRecoveryMessage("archctxd started but no healthy runtime RPC connection was available"));
-}
-
-/**
- * `createOrStartRuntimeRpcClient`'s reuse-if-healthy fast path only ever checked the RPC wire
- * schema version (`runtimeRpcCompatibilityIssue`), which stays constant across source edits that
- * change daemon-resident *behavior* without touching the wire schema (e.g. the clock-composition
- * fix this check ships alongside). `archctxd` is spawned `detached`+`unref()`'d with no idle
- * shutdown, so a daemon started from an older on-disk copy of `CLI_ENTRY` keeps running — and gets
- * silently reused via this same fast path — until something notices and restarts it. That silent
- * reuse of a stale process (not a branch-selection bug) is what produced epoch-clock audit runs
- * and a non-exiting `--no-wait` CLI during manual verification: a leftover `archctxd` from before
- * this fix landed was still bound to the target repo's connection file and got reused instead of a
- * fresh, correctly-composed one. This closes that gap using data already on disk: every connection
- * file already records a real wall-clock `startedAt` (`ArchctxRuntimeRpcServer.start`, independent
- * of the daemon's own possibly-frozen `clock`), so comparing it against `CLI_ENTRY`'s current mtime
- * is enough to detect "the code has moved on since this daemon was spawned" without adding any new
- * persisted state, mirroring the existing rpc-version-mismatch check rather than inventing a new
- * mechanism.
- */
-function cliEntryStalenessIssue(cwd: string): RuntimeRpcCompatibilityIssue | undefined {
-  const connection = readRuntimeRpcConnectionFile(cwd);
-  if (!connection) return undefined;
-  let entryMtimeIso: string;
-  try {
-    entryMtimeIso = statSync(CLI_ENTRY).mtime.toISOString();
-  } catch {
-    return undefined;
-  }
-  return daemonEntryStalenessIssue(connection, entryMtimeIso, cwd);
-}
-
-function daemonEntryStalenessIssue(
-  connection: { startedAt?: string; pid?: number; connectionPath?: string; lockPath?: string },
-  entryMtimeIso: string,
-  cwd: string
-): RuntimeRpcCompatibilityIssue | undefined {
-  if (typeof connection.startedAt !== "string") return undefined;
-  const startedAtMs = Date.parse(connection.startedAt);
-  const entryMtimeMs = Date.parse(entryMtimeIso);
-  if (!Number.isFinite(startedAtMs) || !Number.isFinite(entryMtimeMs)) return undefined;
-  if (entryMtimeMs <= startedAtMs) return undefined;
-  const pid = typeof connection.pid === "number" ? connection.pid : undefined;
-  return {
-    reason: "stale-daemon-entry",
-    expected: entryMtimeIso,
-    received: connection.startedAt,
-    connectionPath: connection.connectionPath ?? defaultDaemonConnectionPath(cwd),
-    lockPath: connection.lockPath ?? defaultDaemonLockPath(cwd),
-    pid,
-    pidAlive: pid !== undefined ? isPidAlive(pid) : false,
-    upgradeCommand: "archctx daemon upgrade"
-  };
-}
-
-function mcpDaemonStartRecoveryMessage(message: string): string {
-  return message.includes("archctx daemon") ? message : `${message}; run \`archctx daemon start\` before using the local MCP surface`;
-}
-
-function hasEmbeddedRuntimeDeps(deps: CliRuntimeDeps): boolean {
-  return [
-    "codeFacts",
-    "codeGraphProviderFactory",
-    "modelStore",
-    "localStore",
-    "changeSetEngine",
-    "localStorePath",
-    "clock",
-    "maxRepoSessions",
-    "externalDocumentation"
-  ].some((key) => key in deps);
-}
-
-async function runDaemonCommand(args: string[], cwd: string) {
-  const subcommand = args[0] ?? "status";
-  if (subcommand === "status") {
-    const client = createRuntimeRpcClientFromConnectionFile(cwd);
-    if (!client) {
-      const compatibilityIssue = runtimeRpcCompatibilityIssue(cwd) ?? cliEntryStalenessIssue(cwd);
-      if (compatibilityIssue?.pidAlive) {
-        return okEnvelope("daemon.status", incompatibleDaemonStatus(compatibilityIssue) as any);
-      }
-      const recovery = recoverStaleDaemonControlFiles(cwd);
-      const lockOwnerPid = liveDaemonLockOwnerPid(cwd);
-      return okEnvelope("daemon.status", {
-        running: false,
-        protocol: "http-loopback",
-        connectionPath: defaultDaemonConnectionPath(cwd),
-        ...(lockOwnerPid === undefined ? {} : { lockOwnerPid, action: orphanedDaemonMessage(lockOwnerPid) }),
-        ...recoveryData(recovery)
-      } as any);
-    }
-    const { health, unresponsivePid } = await probeDaemonHealth(client);
-    const healthIssue = runtimeRpcCompatibilityIssueFromHealth(cwd, client, health);
-    if (healthIssue) {
-      return okEnvelope("daemon.status", incompatibleDaemonStatus(healthIssue) as any);
-    }
-    if ((health as any)?.ok === true) {
-      // The RPC wire schema can stay unchanged across a source edit that only touches
-      // daemon-resident behavior, so a healthy version-compatible response alone does not rule
-      // out talking to a stale already-running daemon (see `cliEntryStalenessIssue`).
-      const stalenessIssue = cliEntryStalenessIssue(cwd);
-      if (stalenessIssue?.pidAlive) {
-        return okEnvelope("daemon.status", incompatibleDaemonStatus(stalenessIssue) as any);
-      }
-      return okEnvelope("daemon.status", {
-        running: true,
-        ...(daemonReadinessFailure(health) ? { usable: false, readiness: (health as any).readiness, error: daemonReadinessFailure(health) } : {}),
-        product: (health as any).product,
-        rpcVersionCompatible: (health as any).schemaVersion === RUNTIME_RPC_VERSION,
-        productVersionCompatible: true,
-        ...client.connectionInfo(),
-        token: "stored-in-connection-file"
-      } as any);
-    }
-    if (unresponsivePid !== undefined) {
-      return okEnvelope("daemon.status", {
-        running: true,
-        responding: false,
-        pid: unresponsivePid,
-        protocol: "http-loopback",
-        connectionPath: client.connectionInfo().connectionPath,
-        action: unresponsiveDaemonMessage(unresponsivePid)
-      } as any);
-    }
-    const recovery = recoverStaleDaemonControlFiles(cwd, { removeUnhealthyConnection: true });
-    return okEnvelope("daemon.status", {
-      running: false,
-      staleConnection: true,
-      connectionPath: client.connectionInfo().connectionPath,
-      ...recoveryData(recovery)
-    } as any);
-  }
-  if (subcommand === "start") {
-    if (args.includes("--foreground")) {
-      return okEnvelope("daemon.start", {
-        command: "archctx daemon start --foreground",
-        protocol: "http-loopback",
-        bindHost: "127.0.0.1",
-        connectionPath: defaultDaemonConnectionPath(cwd),
-        note: "foreground process writes the bearer token to the local connection file"
-      } as any);
-    }
-    return startBackgroundDaemon(args, cwd);
-  }
-  if (subcommand === "upgrade") return upgradeDaemon(args, cwd);
-  if (subcommand === "list") {
-    const stateRoot = defaultArchContextStateRoot().path;
-    return okEnvelope("daemon.list", { stateRoot, daemons: listDaemonControlStates(stateRoot) } as unknown as Json);
-  }
-  if (subcommand === "stop") {
-    const target = daemonStopStateDir(args, cwd);
-    if (!target.ok) return target.envelope;
-    if (target.stateDir === undefined) {
-      const client = createRuntimeRpcClientFromConnectionFile(cwd);
-      if (!client) return errorEnvelope("daemon.stop", "AC_RUNTIME_UNAVAILABLE", "No archctxd connection file found");
-      return client.shutdown();
-    }
-    const client = createRuntimeRpcClientFromWorkspaceStateDir(target.stateDir);
-    if (!client) return errorEnvelope("daemon.stop", "AC_RUNTIME_UNAVAILABLE", `No archctxd connection file found in ${target.stateDir}`);
-    return client.shutdown();
-  }
-  return errorEnvelope("daemon", "AC_SCHEMA_INVALID", "daemon requires start|status|stop|list");
-}
-
-/**
- * The workspace state directory `daemon stop` targets: `--state-dir` as `daemon list` prints it, or
- * the one `--workspace-id` names under the current state root. Neither reads the worktree, so a
- * daemon whose worktree was deleted can still be stopped (#322). `undefined` means the cwd's daemon.
- */
-function daemonStopStateDir(args: string[], cwd: string): { ok: true; stateDir?: string } | { ok: false; envelope: JsonEnvelope } {
-  const stateDir = readFlag(args, "--state-dir");
-  const workspaceId = readFlag(args, "--workspace-id");
-  if (stateDir !== undefined && workspaceId !== undefined) {
-    return { ok: false, envelope: errorEnvelope("daemon.stop", "AC_SCHEMA_INVALID", "daemon stop accepts at most one of --state-dir or --workspace-id") };
-  }
-  if (stateDir !== undefined) return { ok: true, stateDir: resolve(cwd, stateDir) };
-  if (workspaceId === undefined) return { ok: true };
-  if (!/^ws\.[0-9a-f]{16}$/.test(workspaceId)) {
-    return { ok: false, envelope: errorEnvelope("daemon.stop", "AC_SCHEMA_INVALID", "daemon stop --workspace-id must be a storage workspace id (ws.<16 hex>) as daemon list prints it") };
-  }
-  const stateRoot = defaultArchContextStateRoot().path;
-  const matches = listWorkspaceStateDirs(stateRoot).filter((entry) => entry.storageWorkspaceId === workspaceId);
-  if (matches.length !== 1) {
-    return { ok: false, envelope: errorEnvelope("daemon.stop", "AC_RUNTIME_UNAVAILABLE", `${matches.length === 0 ? "No" : "More than one"} archctxd state directory for ${workspaceId} under ${stateRoot}`) };
-  }
-  return { ok: true, stateDir: matches[0]!.workspaceStateDir };
-}
-
-async function startBackgroundDaemon(args: string[], cwd: string) {
-  const compatibilityIssue = runtimeRpcCompatibilityIssue(cwd) ?? cliEntryStalenessIssue(cwd);
-  if (compatibilityIssue?.pidAlive) {
-    return errorEnvelope("daemon.start", "AC_RUNTIME_VERSION_UNSUPPORTED", runtimeVersionUnsupportedMessage(compatibilityIssue));
-  }
-  const discovered = await discoverRunningDaemonInfo(cwd, { recoverStale: true });
-  if (discovered.compatibilityIssue?.pidAlive) {
-    return errorEnvelope("daemon.start", "AC_RUNTIME_VERSION_UNSUPPORTED", runtimeVersionUnsupportedMessage(discovered.compatibilityIssue));
-  }
-  if (discovered.unresponsivePid !== undefined) {
-    return errorEnvelope("daemon.start", "AC_RUNTIME_UNAVAILABLE", unresponsiveDaemonMessage(discovered.unresponsivePid));
-  }
-  if (discovered.info) {
-    return okEnvelope("daemon.start", {
-      running: true,
-      alreadyRunning: true,
-      ...discovered.info,
-      token: "stored-in-connection-file"
-    } as any);
-  }
-  const recovery = discovered.recovery;
-
-  const connectionPath = defaultDaemonConnectionPath(cwd);
-  const controlDir = dirname(connectionPath);
-  const logPath = join(controlDir, "archctxd.log");
-  mkdirSync(controlDir, { recursive: true });
-  const logFd = openSync(logPath, "a", 0o600);
-  try {
-    let childExit: { code: number | null; signal: NodeJS.Signals | null } | undefined;
-    let childError: Error | undefined;
-    const idleTimeoutFlag = readFlag(args, "--idle-timeout-ms");
-    // Under Bun the runtime flags (the dev SQLite preload, #574) carry over to the daemon. Under
-    // Node nothing extra is passed.
-    const child = spawn(process.execPath, [
-      ...(process.versions.bun === undefined ? [] : process.execArgv),
-      CLI_ENTRY,
-      "daemon",
-      "start",
-      "--foreground",
-      "--port",
-      readFlag(args, "--port") ?? "0",
-      ...(idleTimeoutFlag === undefined ? [] : ["--idle-timeout-ms", idleTimeoutFlag])
-    ], {
-      cwd,
-      detached: true,
-      env: process.env,
-      stdio: ["ignore", logFd, logFd]
-    });
-    child.once("exit", (code, signal) => {
-      childExit = { code, signal };
-    });
-    child.once("error", (error) => {
-      childError = error;
-    });
-    child.unref();
-    // A child that exits because another live process owns the store is the losing side of a
-    // concurrent cold start, not a failure: keep polling for the winner until the start deadline.
-    const ready = await waitForDaemonReady(
-      cwd,
-      daemonStartTimeoutMs(args),
-      () => childError !== undefined || (childExit !== undefined && childExit.code !== DAEMON_OWNED_ELSEWHERE_EXIT_CODE)
-    );
-    if (!ready) {
-      return errorEnvelope("daemon.start", "AC_RUNTIME_UNAVAILABLE", daemonStartFailureMessage(cwd, logPath, child.pid, childExit, childError));
-    }
-    return okEnvelope("daemon.start", {
-      running: true,
-      background: true,
-      childPid: child.pid,
-      ...ready,
-      logPath,
-      token: "stored-in-connection-file",
-      ...recoveryData(recovery)
-    } as any);
-  } finally {
-    closeSync(logFd);
-  }
-}
-
-async function upgradeDaemon(args: string[], cwd: string) {
-  const connectionPath = defaultDaemonConnectionPath(cwd);
-  const lockPath = defaultDaemonLockPath(cwd);
-  const record = readRuntimeRpcConnectionFile(cwd);
-  const unchanged = () => JSON.stringify(readRuntimeRpcConnectionFile(cwd)) === JSON.stringify(record);
-  const refuse = (reason: string) => errorEnvelope("daemon.upgrade", "AC_RUNTIME_VERSION_UNSUPPORTED",
-    `Daemon ownership is unproven (${reason}); no process was signalled and no replacement was started. Run the previous archctx daemon stop, or verify and stop the original daemon in its owning terminal, then run archctx daemon upgrade.`,
-    "daemon-ownership-unproven");
-  if (existsSync(connectionPath) && (!record || typeof record.pid !== "number" || !Number.isInteger(record.pid) || record.pid <= 0)) {
-    return refuse("connection record cannot prove a daemon identity");
-  }
-  let lockOwner: number | undefined;
-  try { lockOwner = liveDaemonLockOwnerPid(cwd); } catch { return refuse("daemon lock cannot be verified"); }
-  if (lockOwner !== undefined && lockOwner !== record?.pid) return refuse("a different live process owns the daemon lock");
-
-  const persistedIssue = runtimeRpcCompatibilityIssue(cwd) ?? cliEntryStalenessIssue(cwd);
-  let issue = persistedIssue;
-  let selfStopped = false;
-  if (record && typeof record.pid === "number" && isPidAlive(record.pid)) {
-    if (record.protocol !== "http-loopback" || record.version !== 1 || typeof record.token !== "string" || record.token.length === 0
-      || typeof record.root !== "string" || typeof record.url !== "string" || typeof record.startedAt !== "string"
-      || record.connectionPath !== connectionPath || record.lockPath !== lockPath
-      || defaultDaemonConnectionPath(record.root) !== connectionPath) return refuse("live record lacks trustworthy instance credentials");
-    try {
-      const url = new URL(record.url);
-      if (url.protocol !== "http:" || url.hostname !== "127.0.0.1" || !url.port || url.username || url.password || url.pathname !== "/" || url.search || url.hash) {
-        return refuse("connection endpoint is not the daemon loopback authority");
-      }
-    } catch { return refuse("connection endpoint is invalid"); }
-    // Probe the current transport contract, independently of a stale persisted schema label.
-    const client = new RuntimeRpcClient({ ...record, schemaVersion: RUNTIME_RPC_VERSION } as RuntimeRpcConnection);
-    let health: any;
-    try { health = await client.health(); } catch { return refuse("authenticated health proof is unavailable"); }
-    if (health?.ok !== true || health.schemaVersion !== RUNTIME_RPC_VERSION || health.pid !== record.pid) {
-      return refuse("authenticated peer identity or RPC version differs");
-    }
-    issue ??= runtimeRpcCompatibilityIssueFromHealth(cwd, client, health);
-    if (!unchanged()) return refuse("connection identity changed during verification");
-    if (!issue) {
-      return okEnvelope("daemon.upgrade", { running: true, alreadyRunning: true, ...client.connectionInfo(), upgraded: false, reason: "runtime-compatible" } as any);
-    }
-    let stopped: JsonEnvelope;
-    try { stopped = await client.shutdown(runtimeRpcDaemonIdentity({ pid: record.pid, root: record.root, token: record.token })); }
-    catch { return refuse("authenticated self-stop is unavailable"); }
-    if (!stopped.ok) return refuse("live instance refused the expected identity");
-
-    // These are daemon-owned release effects, not a PID-liveness guess. A reused PID is never signalled.
-    const deadline = Date.now() + daemonStartTimeoutMs(args);
-    while (existsSync(connectionPath) || existsSync(lockPath)) {
-      const current = readRuntimeRpcConnectionFile(cwd);
-      if (current ? JSON.stringify(current) !== JSON.stringify(record) : existsSync(connectionPath)) {
-        return refuse("connection changed or cannot be verified during self-stop");
-      }
-      const owner = liveDaemonLockOwnerPid(cwd);
-      if (owner !== undefined && owner !== record.pid) return refuse("another live instance acquired the daemon lock");
-      if (Date.now() >= deadline) return refuse("daemon-owned control files were not released");
-      await sleep(50);
-    }
-    selfStopped = true;
-  } else {
-    // Recheck just before recovery: a dead PID becoming live or a concurrent publication is a refusal.
-    if (!unchanged() || (record?.pid !== undefined && isPidAlive(record.pid)) || liveDaemonLockOwnerPid(cwd) !== undefined) {
-      return refuse("dead-record identity or lock ownership changed");
-    }
-  }
-  if (!issue) {
-    const started = await startBackgroundDaemon(args, cwd);
-    return started.ok ? { ...started, requestId: "daemon.upgrade", data: { ...(started.data as any), upgraded: false, reason: "runtime-compatible" } } : started;
-  }
-  if (selfStopped ? existsSync(connectionPath) || existsSync(lockPath)
-    : !unchanged() || (record?.pid !== undefined && isPidAlive(record.pid)) || liveDaemonLockOwnerPid(cwd) !== undefined) {
-    return refuse("ownership changed before replacement");
-  }
-  const recovery = recoverStaleDaemonControlFiles(cwd, { removeUnhealthyConnection: true });
-  const started = await startBackgroundDaemon(args, cwd);
-  const replacedRuntime = issue.reason === "stale-daemon-entry"
-    ? {
-        previousStartedAt: issue.received,
-        entrypointMtime: issue.expected,
-        previousPid: issue.pid
-      }
-    : issue.reason === "product-version-mismatch"
-      ? {
-          previousProductVersion: issue.received,
-          expectedProductVersion: issue.expected,
-          previousPid: issue.pid
-        }
-      : {
-        previousRpcSchemaVersion: issue.received,
-        expectedRpcSchemaVersion: issue.expected,
-        previousPid: issue.pid
-        };
-  return started.ok
-    ? {
-        ...started,
-        requestId: "daemon.upgrade",
-        data: {
-          ...(started.data as any),
-          upgraded: true,
-          replacedRuntime,
-          ...recoveryData(recovery)
-        }
-      }
-    : started;
-}
-
-async function runningDaemonInfo(cwd: string) {
-  return (await discoverRunningDaemonInfo(cwd)).info;
-}
-
-async function discoverRunningDaemonInfo(cwd: string, options: { recoverStale?: boolean } = {}) {
-  const client = createRuntimeRpcClientFromConnectionFile(cwd);
-  if (!client) {
-    return {
-      info: undefined,
-      compatibilityIssue: undefined,
-      recovery: options.recoverStale ? recoverStaleDaemonControlFiles(cwd) : emptyRecovery(cwd)
-    };
-  }
-  const { health, unresponsivePid } = await probeDaemonHealth(client);
-  const compatibilityIssue = runtimeRpcCompatibilityIssueFromHealth(cwd, client, health)
-    ?? cliEntryStalenessIssue(cwd);
-  if (compatibilityIssue) {
-    return {
-      info: undefined,
-      compatibilityIssue,
-      recovery: emptyRecovery(cwd)
-    };
-  }
-  if ((health as any)?.ok === true) {
-    assertDaemonReady(health);
-    return { info: client.connectionInfo(), compatibilityIssue: undefined, recovery: emptyRecovery(cwd) };
-  }
-  if (unresponsivePid !== undefined) {
-    return { info: undefined, compatibilityIssue: undefined, unresponsivePid, recovery: emptyRecovery(cwd) };
-  }
-  return {
-    info: undefined,
-    compatibilityIssue: undefined,
-    recovery: options.recoverStale ? recoverStaleDaemonControlFiles(cwd, { removeUnhealthyConnection: true }) : emptyRecovery(cwd)
-  };
-}
-
-function daemonReadinessFailure(health: unknown) {
-  if (health && typeof health === "object" && "readiness" in health) {
-    const readiness = health.readiness;
-    if (readiness && typeof readiness === "object" && "ready" in readiness && readiness.ready === false) {
-      return knownFailure("AC_RUNTIME_UNAVAILABLE", "daemon-root-missing");
-    }
-  }
-  return undefined;
-}
-
-function assertDaemonReady(health: unknown): void {
-  const failure = daemonReadinessFailure(health);
-  if (failure) throw new FailureError(failure.code, failure.reasonCode, failure.details, failure);
-}
-
-function runtimeRpcCompatibilityIssueFromHealth(
-  cwd: string,
-  client: { connectionInfo(): { pid?: number; connectionPath?: string; lockPath?: string } },
-  health: unknown
-): RuntimeRpcCompatibilityIssue | undefined {
-  if (!(health && typeof health === "object")) return undefined;
-  const body = health as {
-    ok?: unknown;
-    error?: unknown;
-    expected?: unknown;
-    received?: unknown;
-    product?: { product?: { version?: unknown } };
-  };
-  const connection = client.connectionInfo();
-  const pid = typeof connection.pid === "number" ? connection.pid : undefined;
-  const location = {
-    connectionPath: connection.connectionPath ?? defaultDaemonConnectionPath(cwd),
-    lockPath: connection.lockPath ?? defaultDaemonLockPath(cwd),
-    pid,
-    pidAlive: pid !== undefined ? isPidAlive(pid) : false,
-    upgradeCommand: "archctx daemon upgrade" as const
-  };
-  if (body.ok === true) {
-    const expected = productVersionManifest().product.version;
-    const received = typeof body.product?.product?.version === "string" ? body.product.product.version : "unknown";
-    return received === expected ? undefined : {
-      reason: "product-version-mismatch",
-      expected,
-      received,
-      ...location
-    };
-  }
-  if (body.ok !== false || body.error !== "runtime RPC version mismatch") return undefined;
-  return {
-    reason: "rpc-version-mismatch",
-    expected: RUNTIME_RPC_VERSION,
-    received: typeof body.expected === "string" ? body.expected : "unknown",
-    ...location
-  };
-}
-
-function incompatibleDaemonStatus(issue: RuntimeRpcCompatibilityIssue) {
-  return {
-    running: issue.pidAlive,
-    protocol: "http-loopback",
-    rpcVersionCompatible: issue.reason === "product-version-mismatch",
-    productVersionCompatible: issue.reason !== "product-version-mismatch",
-    connectionPath: issue.connectionPath,
-    lockPath: issue.lockPath,
-    pid: issue.pid,
-    versionUnsupported: {
-      reason: issue.reason,
-      expected: issue.expected,
-      received: issue.received,
-      action: "upgrade-archctx-runtime",
-      command: issue.upgradeCommand
-    }
-  };
-}
-
-function runtimeVersionUnsupportedMessage(issue: RuntimeRpcCompatibilityIssue): string {
-  if (issue.reason === "stale-daemon-entry") {
-    return `archctxd (pid ${issue.pid ?? "unknown"}, started ${issue.received}) was spawned from an older copy of the archctx entrypoint than the one running this command (modified ${issue.expected}); run ${issue.upgradeCommand} to replace the local daemon.`;
-  }
-  if (issue.reason === "product-version-mismatch") {
-    return `archctxd product version ${issue.received} does not exactly match this CLI (${issue.expected}); run ${issue.upgradeCommand} to replace the local daemon.`;
-  }
-  return `archctxd RPC version ${issue.received} is incompatible with this CLI (${issue.expected}); run ${issue.upgradeCommand} to replace the local daemon.`;
-}
-
-/**
- * A health timeout means the daemon accepted the connection but did not answer in time: it is
- * busy, not gone. Its connection file must stay. Without it the live process keeps the store and
- * the lock, no client can reach it, and every new daemon start loses to it (#318).
- */
-async function probeDaemonHealth(client: RuntimeRpcClient): Promise<{ health: unknown; unresponsivePid?: number; transportFailure?: RuntimeRpcTransportError }> {
-  try {
-    return { health: await client.health() };
-  } catch (error) {
-    const pid = client.connectionInfo().pid;
-    const busy = error instanceof RuntimeRpcTransportError && error.code === "RPC_TIMEOUT" && typeof pid === "number" && isPidAlive(pid);
-    return { health: undefined, ...(busy ? { unresponsivePid: pid, transportFailure: error as RuntimeRpcTransportError } : {}) };
-  }
-}
-
-function stopProcessCommand(pid: number): string {
-  return process.platform === "win32" ? `taskkill /PID ${pid}` : `kill -TERM ${pid}`;
-}
-
-function unresponsiveDaemonMessage(pid: number): string {
-  return `archctxd pid ${pid} is alive but did not answer its health check in time; it is likely busy, so its connection file was kept. Retry later, or stop it with \`${stopProcessCommand(pid)}\` and run the command again.`;
-}
-
-function orphanedDaemonMessage(pid: number): string {
-  return `the daemon lock names live pid ${pid}, but no connection file points to it; stop it with \`${stopProcessCommand(pid)}\`, then run the command again.`;
-}
-
-async function waitForPidExit(pid: number, timeoutMs: number): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (!isPidAlive(pid)) return true;
-    await sleep(50);
-  }
-  return !isPidAlive(pid);
-}
-
-function isPidAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code !== "ESRCH";
-  }
-}
-
-function emptyRecovery(cwd: string) {
-  return {
-    connectionPath: defaultDaemonConnectionPath(cwd),
-    lockPath: defaultDaemonLockPath(cwd),
-    removed: []
-  };
-}
-
-function recoveryData(recovery: { removed: string[] }) {
-  return recovery.removed.length > 0 ? { recoveredStaleControlFiles: recovery.removed } : {};
-}
-
-function daemonStartTimeoutMs(args: string[]): number {
-  const configured = readFlag(args, "--timeout-ms") ?? process.env[DAEMON_START_TIMEOUT_ENV];
-  if (configured === undefined) return DAEMON_START_TIMEOUT_MS;
-  const parsed = Number(configured);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : DAEMON_START_TIMEOUT_MS;
-}
-
-function daemonStartFailureMessage(
-  cwd: string,
-  logPath: string,
-  childPid: number | undefined,
-  childExit: { code: number | null; signal: NodeJS.Signals | null } | undefined,
-  childError: Error | undefined
-): string {
-  const childState = childError
-    ? `childError=${childError.message}`
-    : childExit
-      ? `childExit=${childExit.code ?? "null"}/${childExit.signal ?? "none"}`
-      : "childState=still-running";
-  // A slow child can still be starting at the deadline, so the lock owner is named whether or not
-  // the child exited; only the child's own lock is not a foreign owner.
-  const lockOwnerPid = existsSync(defaultDaemonConnectionPath(cwd)) ? undefined : liveDaemonLockOwnerPid(cwd);
-  const owner = lockOwnerPid === undefined || lockOwnerPid === childPid ? "" : `; ${orphanedDaemonMessage(lockOwnerPid)}`;
-  return `archctxd did not become ready; ${childState}${owner}; log=${logPath}; logTail=${readFileTail(logPath)}`;
-}
-
-async function waitForDaemonReady(cwd: string, timeoutMs: number, shouldStop?: () => boolean) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const ready = await runningDaemonInfo(cwd);
-    if (ready) return ready;
-    if (shouldStop?.()) return undefined;
-    await sleep(50);
-  }
-  return undefined;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function readFileTail(path: string, maxBytes = 4_096): string {
-  try {
-    const content = readFileSync(path, "utf8");
-    return content.slice(Math.max(0, content.length - maxBytes)).replace(/\s+/g, " ").trim();
-  } catch {
-    return "<unavailable>";
-  }
-}
-
-export async function runForegroundDaemon(cwd: string, args: string[]): Promise<void> {
-  const daemon = await createStartedProductionDaemon({ root: cwd });
-  // A long-lived process must not keep its working directory inside the worktree: Windows refuses
-  // to delete any process's current directory, so the deleted worktree would stay on disk and the
-  // daemon would never see it gone (#322). Everything below already holds `cwd` as an explicit
-  // root, and readiness is published only after this point, so a started daemon never pins it.
-  process.chdir(parse(cwd).root);
-  let resolveStopped!: () => void;
-  const stopped = new Promise<void>((resolve) => {
-    resolveStopped = resolve;
-  });
-  const idleTimeoutFlag = readFlag(args, "--idle-timeout-ms");
-  const server = new ArchctxRuntimeRpcServer(daemon, {
-    root: cwd,
-    port: Number(readFlag(args, "--port") ?? 0),
-    idleTimeoutMs: idleTimeoutFlag === undefined ? undefined : Number(idleTimeoutFlag),
-    onStop: resolveStopped
-  });
-  const connection = await server.start();
-  const result = okEnvelope("daemon.start", {
-    running: true,
-    protocol: connection.protocol,
-    version: connection.version,
-    url: connection.url,
-    pid: connection.pid,
-    connectionPath: connection.connectionPath,
-    lockPath: connection.lockPath,
-    token: "stored-in-connection-file"
-  } as any);
-  process.stdout.write(`${renderResult(result, readFlag(args, "--format") ?? "json")}\n`);
-  const stop = async () => {
-    await server.stop();
-  };
-  process.once("SIGINT", () => void stop());
-  process.once("SIGTERM", () => void stop());
-  await stopped;
 }
 
 function paginate(value: any, args: string[]) {
@@ -3109,7 +1938,7 @@ function renderResult(result: any, format: string): string {
 function doctorCodeFactsLine(codeFacts: any): string {
   if (!codeFacts) return "code facts: not reported";
   if (codeFacts.state === "unavailable") return `code facts: unavailable (${codeFacts.message})`;
-  if (codeFacts.state === "index-missing") return "code facts: index missing; run `codegraph init`, or `archctx sync` in a linked worktree once the primary checkout has published a base index";
+  if (codeFacts.state === "index-missing") return "code facts: index missing; run `codegraph init`, or `archctx index seed` in a linked worktree once the primary checkout has published a base index";
   const issues = codeFacts.issues.length === 0 ? "" : ` (${codeFacts.issues.map((issue: { code: string }) => issue.code).join(", ")})`;
   return `code facts: ${codeFacts.state}${issues}; CodeGraph ${codeFacts.codeGraphVersion}`;
 }
@@ -3128,7 +1957,7 @@ export function resolveCommandExitCode(result: { ok?: boolean; data?: unknown })
   return 1;
 }
 
-const CLI_HELP_EXAMPLES = ["archctx verify --base origin/main --json", "archctx impact --batch-file paths.json --json", "archctx impact --base HEAD~1 --head HEAD --json", "archctx init --name MyApp", "archctx projection run --request-json '{...}'", "archctx projection snapshot --json", "archctx projection freshness --json", "archctx projection publish --json", "archctx projection publish --publisher none --json", "archctx projection publish --follow --interval 300", "archctx projection publish-status --json", "archctx projection verify-pr --base origin/main --json", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body '<complete YAML>'", "archctx plan --id changeset.<id> --op delete_entity --path .archcontext/model/flows/<flow>.yaml --expected-hash sha256:<64-hex>", "archctx hash --path .archcontext/model/nodes/<node>.yaml", "archctx plan --id changeset.<id> --operations-file <operations.json>", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body-file <entity.yaml>", "archctx apply --id changeset.<id> --approved --expected-worktree-digest <draft.base.worktreeDigest>", "archctx state recover --from-git", "archctx ledger migrate --from-yaml --dry-run", "archctx ledger promote --mode authoritative --preflight --rollback-plan", "archctx book recommendations --open --explain", "archctx recommendations accept --id recommendation.<id> --reason 'Accepted after local readback.'", "archctx recommendations metrics", "archctx recommendations list --status rejected", "archctx refactor scan --json", "archctx refactor verify --request-json '{...}' --json", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --changed-path src/app.ts", "archctx practices checkpoint --task-session-id task_cli", "archctx hook checkpoint --event post-edit --changed-path src/app.ts", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx daemon start", "archctx explore start --foreground", "archctx docs anchors --json", "archctx export native --worktree --json", "archctx export native --ref HEAD --profile repo-harness/v1 --json", "archctx resolve --path packages/core/projection-engine/src/index.ts", "archctx refactor scan --import-node-limit 100000 --json", "archctx resolve --paths-from changed-paths.txt", "archctx flows check --json", "archctx state-machines check --json", "archctx recommendations defer --id recommendation.<id> --import-node-limit 100000 --reason 'Scanned with the same limit.'", "archctx deps --json", "archctx deps --into capability.<id> --json"];
+const CLI_HELP_EXAMPLES = ["archctx verify --base origin/main --json", "archctx impact --batch-file paths.json --json", "archctx impact --base HEAD~1 --head HEAD --json", "archctx init --name MyApp", "archctx index seed --json", "archctx sync --json", "archctx projection run --request-json '{...}'", "archctx projection snapshot --json", "archctx projection freshness --json", "archctx projection publish --json", "archctx projection publish --publisher none --json", "archctx projection publish --follow --interval 300", "archctx projection publish-status --json", "archctx projection verify-pr --base origin/main --json", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body '<complete YAML>'", "archctx plan --id changeset.<id> --op delete_entity --path .archcontext/model/flows/<flow>.yaml --expected-hash sha256:<64-hex>", "archctx hash --path .archcontext/model/nodes/<node>.yaml", "archctx plan --id changeset.<id> --operations-file <operations.json>", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body-file <entity.yaml>", "archctx apply --id changeset.<id> --approved --expected-worktree-digest <draft.base.worktreeDigest>", "archctx recommendations accept --id recommendation.<id> --reason 'Accepted after local review.'", "archctx recommendations metrics", "archctx recommendations list --status rejected", "archctx refactor scan --json", "archctx refactor verify --request-json '{...}' --json", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --changed-path src/app.ts", "archctx practices checkpoint --task-session-id task_cli", "archctx hook checkpoint --event post-edit --changed-path src/app.ts", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx explore start --foreground", "archctx docs anchors --json", "archctx export native --worktree --json", "archctx export native --ref HEAD --profile repo-harness/v1 --json", "archctx resolve --path packages/core/projection-engine/src/index.ts", "archctx refactor scan --import-node-limit 100000 --json", "archctx resolve --paths-from changed-paths.txt", "archctx flows check --json", "archctx state-machines check --json", "archctx recommendations defer --id recommendation.<id> --import-node-limit 100000 --reason 'Scanned with the same limit.'", "archctx deps --json", "archctx deps --into capability.<id> --json"];
 
 const CLI_RESOLVE_HELP = {
   command: "archctx resolve (--path <repo-relative path> | --paths-from <file> | --paths-from -)",
@@ -3296,7 +2125,7 @@ const CLI_PLAN_HELP = {
   operations: "--operations-file takes a repository-relative path to a JSON array of operations in the archcontext_plan_update MCP shape, or - to read that array from stdin, and plans them as one ChangeSet; it cannot be combined with --op, --path, --expected-hash, --body or --body-file.",
   body: "--body is the complete new YAML document, not a field patch. Give exactly one of --body <yaml>, --body - (stdin) or --body-file <path>. --body-file and --operations-file read only repository-relative files inside the repository (no absolute or .. paths, no symlinks); content from outside the repository must come through stdin (--body - or --operations-file -). delete_entity accepts no body.",
   expectedHash: "digestJson({ body }) of the file's current UTF-8 contents, not sha256sum of the file. Read it with `archctx hash --path <file>`; use `missing` (the create default) for a new file.",
-  drafts: "A draft lives in daemon memory. Planning the same --id again replaces it, and a daemon restart between plan and apply drops it: apply then fails with `Unknown ChangeSet`; plan again.",
+  drafts: "A draft is cached in the workspace local SQLite cache until applied. Planning the same --id again replaces it.",
   ownershipDelta: "When the plan writes a node file, data.preview.ownershipDelta compares file ownership before and after the planned model over the files the HEAD tree carries, with the parent-chain rule refactor scan uses. becameOwned, becameContested, ownerChanged and becameUnowned each give count, up to 50 files with before and after owners, and omittedCount. status unavailable gives the reason, for example a planned body that does not parse. Read-only.",
   next: "archctx apply --id <changeset.id> --approved --expected-worktree-digest <draft.base.worktreeDigest>"
 };
@@ -3546,12 +2375,6 @@ if (import.meta.main) {
     }
   } else if (command === "projection" && args[0] === "publish" && args.includes("--follow") && preflightCliArguments(command, args) === undefined) {
     process.exitCode = await runProjectionPublishFollowEntry(args.slice(1), process.cwd());
-  } else if (command === "daemon" && args[0] === "start" && args.includes("--foreground") && preflightCliArguments(command, args) === undefined) {
-    await runForegroundDaemon(process.cwd(), args).catch((error) => {
-      const message = error instanceof Error ? error.message : String(error);
-      process.stderr.write(`${message}\n`);
-      process.exitCode = isDaemonOwnedElsewhereError(message) ? DAEMON_OWNED_ELSEWHERE_EXIT_CODE : 1;
-    });
   } else {
     const result = await runCli(command, args, process.cwd()).catch(cliFailureEnvelope);
     process.stdout.write(`${renderResult(result, command === "export" && args[0] === "native" ? "json" : readFlag(args, "--format") ?? "json")}\n`);

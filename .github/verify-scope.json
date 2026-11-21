@@ -11,29 +11,20 @@
         "packages/core/changeset-engine/**",
         "packages/local-runtime/descriptor-write/**",
         "packages/local-runtime/codegraph-adapter/**",
-        "packages/local-runtime/control-file-security/**",
         "packages/local-runtime/egress-admission/**",
         "packages/local-runtime/git-adapter/**",
         "packages/local-runtime/local-store-sqlite/**",
-        "packages/local-runtime/process-liveness/**",
         "packages/local-runtime/projection-paths/**",
         "packages/local-runtime/runtime-state-paths/**",
         "packages/local-runtime/model-store-yaml/src/native-context.ts",
         "packages/local-runtime/model-store-yaml/test/native-context*",
-        "packages/local-runtime/runtime-daemon/src/daemon-control.ts",
         "packages/local-runtime/runtime-daemon/src/egress.ts",
         "packages/local-runtime/runtime-daemon/src/investigation-transport.ts",
         "packages/local-runtime/runtime-daemon/src/projection-writer.ts",
-        "packages/local-runtime/runtime-daemon/src/loopback-*.ts",
-        "packages/local-runtime/runtime-daemon/src/rpc-*.ts",
-        "packages/local-runtime/runtime-daemon/test/daemon-control*",
         "packages/local-runtime/runtime-daemon/test/egress*",
         "packages/local-runtime/runtime-daemon/test/investigation-transport*",
         "packages/local-runtime/runtime-daemon/test/projection-writer*",
-        "packages/local-runtime/runtime-daemon/test/rpc-*",
-        "packages/surfaces/cli/src/main.ts",
-        "packages/surfaces/cli/test/rpc-*",
-        "packages/surfaces/cli/**/hook*"
+        "packages/surfaces/cli/src/main.ts"
       ]
     },
     {
@@ -47,8 +38,7 @@
         "packages/surfaces/cli/bin/**",
         "packages/surfaces/cli/src/main.ts",
         "packages/surfaces/cli/test/bundle-entry.test.ts",
-        "packages/contracts/test/publishability.test.ts",
-        "tests/ownership-change-acceptance-recovery.test.ts"
+        "packages/contracts/test/publishability.test.ts"
       ]
     },
     {

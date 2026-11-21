@@ -8,16 +8,14 @@ import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from "node:c
 import { createHash } from "node:crypto";
 import { canonicalRepositoryRoot, computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { architectureDocumentationProjectionWorktreeDigest, loadNativeModelFromArchContext } from "@archcontext/core/projection-engine";
-import { createPrivateControlFile } from "@archcontext/local-runtime/control-file-security";
 import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { CodeGraphAdapter, codeGraphCliInvocation } from "@archcontext/local-runtime/codegraph-adapter";
 import { MockCodeGraphProvider, declareOptionalCodeFacts } from "@archcontext/local-runtime/test/codegraph-factories";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
-import { ArchctxRuntimeRpcServer, RUNTIME_RPC_VERSION, RuntimeRpcClient, createStartedDaemon, type RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-daemon";
-import { SqliteLocalStore, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
+import { createStartedDaemon, type RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-daemon";
+import { SqliteLocalStore, runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
-import { ARCHCONTEXT_PRODUCT_VERSION, ARCHCTX_FEATURES, archctxCapabilities, digestJson, productVersionManifest, validateJsonSchema, projectionApplyReadbackResultInvariantIssues, projectionApplyReadbackResultDigest, projectionApplyLookupKey, projectionResultInvariantIssues, stableYaml, type AcceptedArchitectureChangeReferenceV1, type JsonEnvelope, type ProjectionRequestV1, type ProjectionResultV3 } from "@archcontext/contracts";
-import { createDaemonSetupKeepalive } from "./daemon-setup-keepalive";
+import { ARCHCONTEXT_PRODUCT_VERSION, ARCHCTX_FEATURES, archctxCapabilities, digestJson, productVersionManifest, validateJsonSchema, projectionResultInvariantIssues, stableYaml, type AcceptedArchitectureChangeReferenceV1, type JsonEnvelope, type ProjectionRequestV1, type ProjectionResultV3 } from "@archcontext/contracts";
 import { CLI_COMMAND_FLAGS, resolveCommandExitCode, runCapabilitiesCommand, runCli } from "../src/main";
 
 const REPOSITORY_ROOT = resolve(import.meta.dir, "../../../..");
@@ -1308,137 +1306,6 @@ test("CLI flows check reports each selector proof status from a real index witho
   }
 }, PROJECTION_CODEGRAPH_TEST_TIMEOUT_MS);
 
-test("CLI ledger accept-committed previews, approves, and drives an accepted projection run to a clean fixed point", async () => {
-  const root = mkdtempSync(join(tmpdir(), "archctx-cli-accept-committed-"));
-  writeFileSync(join(root, "README.md"), "# accept-committed fixture\n", "utf8");
-  initializeArchContextModel(root, "Accept Committed App");
-  const daemon = await createStartedDaemon({
-    codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
-    codeGraphProviderFactory: () => new MockCodeGraphProvider(),
-    localStore: new TestLocalStore()
-  });
-  const cli = (command: string, args: string[]) => runCli(command, args, root, { runtimeClient: daemon });
-  const capabilityId = "capability.runtime-harness.hook-adapters";
-  const nodePath = `.archcontext/model/nodes/${capabilityId}.yaml`;
-  const capability = (summary: string) => stableYaml({
-    schemaVersion: "archcontext.node/v2",
-    id: capabilityId,
-    kind: "capability",
-    name: "Hook Adapters",
-    status: "active",
-    summary,
-    extensions: { contractFiles: { agents: "AGENTS.md", claude: "CLAUDE.md" } }
-  });
-  try {
-    nodeRmSync(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"), { force: true });
-    writeFileSync(join(root, nodePath), capability("Routes runtime hook events."), "utf8");
-    mkdirSync(join(root, ".archcontext/model/relations"), { recursive: true });
-    writeFileSync(join(root, ".archcontext/model/relations/relation.hook-journal.yaml"), stableYaml({
-      schemaVersion: "archcontext.relation/v1", id: "relation.hook-journal", kind: "writes", source: capabilityId, target: capabilityId, intent: "Persist hook events"
-    }), "utf8");
-    mkdirSync(join(root, ".archcontext/model/flows"), { recursive: true });
-    writeFileSync(join(root, ".archcontext/model/flows/flow.hook-adapters.yaml"), stableYaml({
-      schemaVersion: "archcontext.flow/v1", id: "flow.hook-adapters", capabilityId, name: "Hook routing", applicability: "not-applicable", rationale: "Acceptance fixture."
-    }), "utf8");
-    writeFileSync(join(root, "AGENTS.md"), "# Agent context\n", "utf8");
-    writeFileSync(join(root, "CLAUDE.md"), "# Agent context\n", "utf8");
-    git(root, "init");
-    git(root, "add", ".");
-    git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "accept-committed fixture");
-    // Refresh-signal delivery re-proves the approved snapshot, which requires a ready CodeGraph index.
-    execFileSync("codegraph", ["init", root], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
-    const baseline = await cli("docs", ["apply", "--profile", "repo-harness/v1", "--approved"]);
-    expect(baseline.ok, JSON.stringify(baseline)).toBe(true);
-
-    const current = readFileSync(join(root, nodePath), "utf8");
-    const planned = await daemon.planUpdate(root, {
-      id: "changeset.hook-adapters-summary",
-      operations: [{ op: "update_entity_fields", path: nodePath, expectedHash: digestJson({ body: current }), body: capability("Routes and validates runtime hook events.") }]
-    });
-    expect(planned.ok, JSON.stringify(planned)).toBe(true);
-    const applied = await daemon.applyUpdate(root, { id: "changeset.hook-adapters-summary", approved: true, expectedWorktreeDigest: (planned.data as any).draft.base.worktreeDigest });
-    expect(applied.ok, JSON.stringify(applied)).toBe(true);
-    const journalId = (applied.data as any).journalId as string;
-    const pair = `${journalId}=changeset.hook-adapters-summary`;
-
-    for (const invalid of [
-      ["accept-committed"],
-      ["accept-committed", "--journal", pair, "--journal-id", journalId, "--changeset-id", "changeset.hook-adapters-summary"],
-      ["accept-committed", "--journal", "missing-separator"],
-      ["accept-committed", "--journal", pair, "--approved"],
-      ["accept-committed", "--journal", pair, "--acceptance-plan-id", `sha256:${"a".repeat(64)}`]
-    ]) {
-      const refused = await cli("ledger", invalid);
-      expect((refused as any).error?.code, JSON.stringify(refused)).toBe("AC_SCHEMA_INVALID");
-    }
-    const preview = await cli("ledger", ["accept-committed", "--journal", pair]);
-    expect(preview.ok, JSON.stringify(preview)).toBe(true);
-    expect(preview.data).toMatchObject({
-      status: "preview",
-      plan: { reasonCodes: ["responsibility-changed"], affectedNodeIds: [capabilityId], directlyEditedNodeIds: [capabilityId] }
-    });
-    const shorthand = await cli("ledger", ["accept-committed", "--journal-id", journalId, "--changeset-id", "changeset.hook-adapters-summary"]);
-    expect((shorthand.data as any).acceptancePlanId).toBe((preview.data as any).acceptancePlanId);
-
-    const docsPlan = await cli("docs", ["plan", "--profile", "repo-harness/v1"]);
-    expect(docsPlan.ok, JSON.stringify(docsPlan)).toBe(true);
-    const projectionRequest = (acceptedChange: AcceptedArchitectureChangeReferenceV1 | undefined, requestId: string) => ({
-      schemaVersion: "archcontext.projection-request/v1",
-      requestId,
-      profile: "repo-harness/v1",
-      mode: "apply",
-      targets: ["agent-context", "architecture-docs"],
-      changedPaths: [nodePath],
-      ...(acceptedChange ? { acceptedChange } : {}),
-      expected: {
-        repositoryId: repositoryFingerprint(root),
-        workspaceId: `workspace.${digestJson({ root: canonicalRepositoryRoot(root) } as any).replace(/^sha256:/, "").slice(0, 16)}`,
-        headSha: gitOut(root, "rev-parse", "HEAD"),
-        worktreeDigest: (docsPlan.data as any).runtimeSnapshot.worktreeDigest
-      }
-    }) as ProjectionRequestV1;
-    // The preview is not an acceptance: nothing in it can drive an accepted projection run.
-    expect(Object.keys(preview.data as object).sort()).toEqual(["acceptancePlanId", "expectedWorktreeDigest", "plan", "status"]);
-    expect(JSON.stringify(preview.data)).not.toContain("architecture_event.");
-    const fromPreview = await cli("projection", ["run", "--request-json", JSON.stringify(projectionRequest((preview.data as any).acceptedChange, "projection_request.accept_committed_preview"))]);
-    expect(fromPreview.ok && (fromPreview.data as any).status === "applied", JSON.stringify(fromPreview)).toBe(false);
-    expect(((daemon as any).localStore.architectureEvents as unknown[]).length).toBe(0);
-
-    const approved = await cli("ledger", [
-      "accept-committed", "--journal", pair, "--approved",
-      "--acceptance-plan-id", (preview.data as any).acceptancePlanId,
-      "--expected-worktree-digest", (preview.data as any).expectedWorktreeDigest
-    ]);
-    expect(approved.ok, JSON.stringify(approved)).toBe(true);
-    const acceptedChange = (approved.data as any).acceptedChange as AcceptedArchitectureChangeReferenceV1;
-    expect(acceptedChange.eventId).toMatch(/^architecture_event\.changeset_accepted\./);
-    expect(((daemon as any).localStore.architectureEvents as unknown[]).length).toBe(1);
-    const request = projectionRequest(acceptedChange, "projection_request.accept_committed");
-    const run = await cli("projection", ["run", "--request-json", JSON.stringify(request)]);
-    expect(run.ok, JSON.stringify(run)).toBe(true);
-    const result = run.data as unknown as ProjectionResultV3;
-    expect(result.status).toBe("applied");
-    expect(result.refreshSignals).toHaveLength(1);
-    expect(result.refreshSignals[0]).toMatchObject({ mode: "refresh-required", cause: "accepted-semantic-delta", acceptedChange });
-    const lookupKey = result.applyReceipt!.lookupKey;
-    expect(await daemon.inspectProjectionApplyReceipt(root, lookupKey)).toMatchObject({ ok: true, data: { found: true, deliveryStatus: "delivered" } });
-    const recovered = await cli("projection", ["recover", "--request-json", JSON.stringify({
-      schemaVersion: "archcontext.projection-apply-recovery-intent/v1",
-      requestId: "projection_request.accept_committed_recover",
-      profile: "repo-harness/v1",
-      receipt: { lookupKey, applyId: result.applyReceipt!.applyId }
-    })]);
-    expect(recovered.ok, JSON.stringify(recovered)).toBe(true);
-    expect(recovered.data).toMatchObject({ proof: { deliveryStatus: "already-delivered" }, refreshSignals: [] });
-    const drift = await cli("docs", ["drift", "--profile", "repo-harness/v1"]);
-    expect(drift.ok, JSON.stringify(drift)).toBe(true);
-    expect(drift.data).toMatchObject({ ok: true, majorChange: { mode: "none" }, refreshSignals: [] });
-  } finally {
-    await daemon.stop();
-    removeTempRoot(root);
-  }
-}, PROJECTION_CODEGRAPH_TEST_TIMEOUT_MS);
-
 async function removeRuntimeSqliteFiles(localStorePath: string): Promise<void> {
   for (const path of [localStorePath, `${localStorePath}-wal`, `${localStorePath}-shm`]) {
     await removeFileWithTransientWindowsRetry(path);
@@ -1687,8 +1554,8 @@ describe("archctx CLI", () => {
       expect((install.data as any).marker).toContain("archcontext_prepare_task");
       mkdirSync(join(root, ".git"), { recursive: true });
       const doctor = await runTestCli("doctor", [], root);
-      expect((doctor.data as any).version.rpcSchemaVersion).toBe(RUNTIME_RPC_VERSION);
-      expect((doctor.data as any).daemon.running).toBe(false);
+      expect((doctor.data as any).version.schemaSetVersion).toBeTruthy();
+      expect((doctor.data as any).runtime).toMatchObject({ mode: "in-process" });
       expect((doctor.data as any).sqlite.path).toContain("runtime.sqlite");
       expect((doctor.data as any).git).toMatchObject({ ok: true, headSha: "unborn" });
       expectSameExistingPath((doctor.data as any).git.root, root);
@@ -1901,11 +1768,11 @@ describe("archctx CLI", () => {
     const cli = async (command: string, ...args: string[]) => await runCli(command, args, root, { runtimeClient: throwingRuntime as any }) as JsonEnvelope;
     try {
       // checkpoint and complete used to run a real checkpoint and record a real completion review.
-      for (const [command, ...args] of [["checkpoint", "--help"], ["complete", "--help"], ["complete", "--task", "x", "-h"], ["review", "--help"], ["prepare", "--help"], ["context", "-h"], ["sync", "--help"], ["ledger", "state", "--help"]]) {
+      for (const [command, ...args] of [["checkpoint", "--help"], ["complete", "--help"], ["complete", "--task", "x", "-h"], ["review", "--help"], ["prepare", "--help"], ["context", "-h"], ["sync", "--help"], ["doctor", "--help"]]) {
         const help = await cli(command!, ...args);
         expect(help, `${command} ${args.join(" ")}`).toMatchObject({ ok: true, requestId: "help", data: { command: `archctx ${command}` } });
       }
-      for (const [command, ...args] of [["checkpoint", "--bogus"], ["complete", "--json", "--strict"], ["status", "--verbose"], ["ledger", "state", "--state", "queued"], ["practices", "validate", "--stric"], ["sync", "--changed"], ["recommendations", "list", "--run-id", "x"]]) {
+      for (const [command, ...args] of [["checkpoint", "--bogus"], ["complete", "--json", "--strict"], ["status", "--verbose"], ["practices", "validate", "--stric"], ["sync", "--changed"], ["recommendations", "list", "--run-id", "x"]]) {
         const rejected = await cli(command!, ...args);
         expect(rejected.ok, `${command} ${args.join(" ")}`).toBe(false);
         expect(rejected.error, `${command} ${args.join(" ")}`).toMatchObject({ code: "AC_SCHEMA_INVALID", retryable: false });
@@ -1957,7 +1824,7 @@ describe("archctx CLI", () => {
       expect(spec, `${command} ${subcommand}`).toBeDefined();
       return new Set([...spec!.value, ...spec!.boolean]);
     };
-    const handlers: Record<string, string> = { practices: "runPracticesCommand", recommendations: "runRecommendationsCommand", ledger: "runLedgerCommand" };
+    const handlers: Record<string, string> = { practices: "runPracticesCommand", recommendations: "runRecommendationsCommand" };
     for (const [command, handler] of Object.entries(handlers)) {
       for (const [subcommands, block] of subcommandBlocks(functionBody(source, handler))) {
         for (const subcommand of subcommands) {
@@ -1975,18 +1842,17 @@ describe("archctx CLI", () => {
     for (const [subcommand, handler] of [["checkpoint", "runHookCheckpointCommand"]] as const) {
       expect([...readFlags(functionBody(source, handler))].filter((flag) => !accepted("hook", subcommand).has(flag)), `hook ${subcommand}`).toEqual([]);
     }
-    // projection: the protocol actions take only --request-json; snapshot takes no value flag.
+    // projection: `run` takes only --request-json; snapshot takes no value flag.
     const projectionBody = functionBody(source, "runProjectionProtocolCommand");
-    const protocolActions = [...projectionBody.match(/\[("[a-z]+"(?:, )?)+\]\.includes\(action\)/)![0].matchAll(/"([a-z]+)"/g)].map((match) => match[1]!);
-    expect(protocolActions).toEqual(["run", "recover", "readback"]);
-    for (const action of protocolActions) expect([...accepted("projection", action)], `projection ${action}`).toEqual([...readFlags(projectionBody)]);
+    expect(projectionBody).toContain('action !== "run"');
+    expect([...accepted("projection", "run")]).toEqual([...readFlags(projectionBody)]);
     expect(projectionBody).toContain('action === "snapshot"');
     expect([...accepted("projection", "snapshot")]).toEqual([]);
   });
 
   test("a flag another subcommand reads is refused before the runtime (#322)", async () => {
     const throwingRuntime = new Proxy({}, { get: () => () => { throw new Error("preflight let a handler reach the runtime"); } });
-    for (const [command, ...args] of [["practices", "list", "--waiver-id", "x"], ["ledger", "status", "--write"], ["explore", "status", "--view", "x"], ["recommendations", "list", "--id", "x"], ["projection", "snapshot", "--request-json", "{}"]]) {
+    for (const [command, ...args] of [["practices", "list", "--waiver-id", "x"], ["explore", "status", "--view", "x"], ["recommendations", "list", "--id", "x"], ["projection", "snapshot", "--request-json", "{}"]]) {
       const rejected = await runCli(command!, args, "/absent", { runtimeClient: throwingRuntime as any }) as JsonEnvelope;
       expect(rejected, `${command} ${args.join(" ")}`).toMatchObject({
         ok: false,
@@ -2007,13 +1873,12 @@ describe("archctx CLI", () => {
     }
   });
 
-  test("spawned CLI: --help on commands without their own help, daemon start --help and validate argument errors never start the daemon (#322)", async () => {
+  test("spawned CLI: --help on commands without their own help and validate argument errors never start runtime state (#322)", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-help-no-daemon-"));
     writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
     try {
       const paths = testRuntimePaths(root);
-      const assertNoDaemonFootprint = () => {
-        expect(existsSync(paths.daemonConnectionPath)).toBe(false);
+      const assertNoRuntimeFootprint = () => {
         expect(existsSync(paths.localStorePath)).toBe(false);
       };
       for (const args of [["docs", "--help"], ["docs", "pin", "-h"], ["validate", "--help"], ["status", "--help"], ["practices", "validate", "--help"]]) {
@@ -2022,62 +1887,17 @@ describe("archctx CLI", () => {
         expect(envelope.ok, `${args.join(" ")}: ${help.stdout}`).toBe(true);
         expect(envelope.requestId).toBe("help");
         expect(envelope.data.command).toBe(`archctx ${args[0]}`);
-        assertNoDaemonFootprint();
+        assertNoRuntimeFootprint();
       }
       expect(JSON.parse((await runCliProcessRaw(root, "docs", "--help")).stdout).data.examples).toEqual(["archctx docs anchors --json"]);
-
-      for (const args of [["daemon", "start", "--help"], ["daemon", "start", "--foreground", "--help"], ["daemon", "-h"]]) {
-        const help = await runCliProcessRaw(root, ...args);
-        expect(help.code, args.join(" ")).toBe(0);
-        expect(JSON.parse(help.stdout)).toMatchObject({ ok: true, requestId: "daemon" });
-        assertNoDaemonFootprint();
-      }
 
       for (const args of [["validate", "--format", "json", "--strict"], ["validate", "-x"], ["validate", "--format"]]) {
         const rejected = await runCliProcessRaw(root, ...args);
         expect(rejected.code, args.join(" ")).toBe(1);
         expect(JSON.parse(rejected.stdout).error).toMatchObject({ code: "AC_SCHEMA_INVALID", retryable: false });
-        assertNoDaemonFootprint();
+        assertNoRuntimeFootprint();
       }
     } finally {
-      await stopDaemonAndWait(root);
-      removeTempRoot(root);
-    }
-  }, DAEMON_TEST_TIMEOUT_MS);
-
-  // Regression test for a crash the --help fix itself introduced: AUDIT_RUN_VALUE_FLAGS and its five
-  // sibling constants were originally declared far below in the file, next to runAuditCommand — but
-  // still textually *after* the `if (import.meta.main)` entry block (~:141). That block's top-level
-  // `await runCli(...)` pauses this module's own evaluation partway through, so any top-level `const`
-  // after it is still an uninitialized binding (TDZ) while `runCli` runs. A real, non-help `audit run`,
-  // `audit approve`, or bare `audit` reached `findUnknownAuditFlag` — referencing those constants —
-  // while the module was still paused there, and crashed with "Cannot access '...' before
-  // initialization", surfaced to the caller as AC_RUNTIME_UNAVAILABLE instead of the real error. Every
-  // in-process `runCli` test (including the --help ones above) is blind to this: importing the module
-  // sets `import.meta.main` to false, so the entry block's body never runs and the module finishes
-  // evaluating top to bottom, past those constants, before any test calls `runCli`. Only a spawned
-  // process reproduces it — and only on a non-help path, since --help returns before ever touching
-  // these constants. Confirmed by hand too: `bun packages/surfaces/cli/src/main.ts audit run -n` in a
-  // scratch repo, before this fix, printed exactly that AC_RUNTIME_UNAVAILABLE message.
-  test("issue #183: doctor reports the running daemon's Context7 configuration across process environments", async () => {
-    const root = mkdtempSync(join(tmpdir(), "archctx-cli-daemon-egress-"));
-    const previous = process.env.ARCHCONTEXT_CONTEXT7_ENABLED;
-    writeFileSync(join(root, "README.md"), "# tmp\n");
-    try {
-      process.env.ARCHCONTEXT_CONTEXT7_ENABLED = "1";
-      await runCliProcess(root, "daemon", "start");
-      delete process.env.ARCHCONTEXT_CONTEXT7_ENABLED;
-      const doctor = await runCliProcess(root, "doctor");
-      expect(doctor.data.egress).toMatchObject({ source: "daemon", effectiveOutbound: "non-local" });
-      expect(doctor.data.egress.nonLocalEgress).toContainEqual(expect.objectContaining({ channel: "context7", status: "enabled" }));
-      expect(doctor.data.hardening.egress).toEqual(doctor.data.egress);
-      await stopDaemonAndWait(root);
-      const offline = await runCliProcess(root, "doctor");
-      expect(offline.data.egress).toMatchObject({ source: "cli-environment", effectiveOutbound: "local-only" });
-    } finally {
-      await stopDaemonAndWait(root);
-      if (previous === undefined) delete process.env.ARCHCONTEXT_CONTEXT7_ENABLED;
-      else process.env.ARCHCONTEXT_CONTEXT7_ENABLED = previous;
       removeTempRoot(root);
     }
   }, DAEMON_TEST_TIMEOUT_MS);
@@ -2191,63 +2011,6 @@ describe("archctx CLI", () => {
     }
   });
 
-  test("CLI ledger migrate accepts exactly one of --from-yaml and --recommendation-v3", async () => {
-    const root = mkdtempSync(join(tmpdir(), "archctx-cli-ledger-migrate-"));
-    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
-    try {
-      const calls: any[] = [];
-      const runtimeClient = {
-        ledgerMigrate(_root: string, input: any) {
-          calls.push(input);
-          return {
-            schemaVersion: "archcontext.envelope/v1",
-            ok: true,
-            requestId: "ledger.migrate",
-            data: { schemaVersion: "archcontext.runtime-recommendation-v3-migrate/v1", input }
-          };
-        }
-      };
-
-      const neither = await runCli("ledger", ["migrate", "--dry-run"], root, { runtimeClient: runtimeClient as any });
-      expect(neither.ok).toBe(false);
-      expect((neither as any).error.code).toBe("AC_SCHEMA_INVALID");
-      expect((neither as any).error.message).toContain("exactly one");
-
-      const both = await runCli("ledger", ["migrate", "--from-yaml", "--recommendation-v3", "--dry-run"], root, {
-        runtimeClient: runtimeClient as any
-      });
-      expect(both.ok).toBe(false);
-      expect((both as any).error.message).toContain("exactly one");
-      expect(calls).toHaveLength(0);
-
-      const planned = await runCli("ledger", ["migrate", "--recommendation-v3", "--dry-run"], root, {
-        runtimeClient: runtimeClient as any
-      });
-      expect(planned.ok).toBe(true);
-      expect(calls[0]).toEqual({ recommendationV3: true, dryRun: true, expectedWorktreeDigest: undefined });
-
-      const missingDigest = await runCli("ledger", ["migrate", "--recommendation-v3", "--write"], root, {
-        runtimeClient: runtimeClient as any
-      });
-      expect(missingDigest.ok).toBe(false);
-      expect((missingDigest as any).error.message).toContain("--recommendation-v3 --write requires --expected-worktree-digest");
-
-      const written = await runCli("ledger", [
-        "migrate", "--recommendation-v3", "--write",
-        "--expected-worktree-digest", `sha256:${"2".repeat(64)}`
-      ], root, { runtimeClient: runtimeClient as any });
-      expect(written.ok).toBe(true);
-      expect(calls[1]).toEqual({
-        recommendationV3: true,
-        dryRun: false,
-        expectedWorktreeDigest: `sha256:${"2".repeat(64)}`
-      });
-      expect(calls.every((call) => call.fromYaml === undefined)).toBe(true);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
-
   test("CLI docs commands keep Context7 manual and lockfile explicit", async () => {
     const root = gitTempRoot("archctx-cli-docs-");
     initializeArchContextModel(root, "Docs App");
@@ -2326,7 +2089,7 @@ describe("archctx CLI", () => {
     expect(develop).toContain("removed/downgraded");
   });
 
-  test("CLI init outside a Git worktree fails closed with a typed envelope, embedded and over RPC (#323)", async () => {
+  test("CLI init outside a Git worktree fails closed with a typed envelope (#323)", async () => {
     // A plain directory: archctx requires a Git worktree, and no ancestor of tmpdir is one.
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-non-git-"));
     writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
@@ -2335,7 +2098,6 @@ describe("archctx CLI", () => {
       codeGraphProviderFactory: () => new MockCodeGraphProvider(),
       localStore: new TestLocalStore()
     });
-    const rpc = new ArchctxRuntimeRpcServer(daemon, { root, port: 0, token: "cli-non-git-token" });
     try {
       const typed = { ok: false, error: { code: "AC_REPO_NOT_FOUND", reasonCode: "git-worktree-required" } };
       const embedded = await runCli("init", ["--name", "Non Git App"], root, { runtimeClient: daemon });
@@ -2343,272 +2105,13 @@ describe("archctx CLI", () => {
       // The refusal comes before any write, so a retry after `git init` is not blocked by a partial model.
       expect(existsSync(join(root, ".archcontext"))).toBe(false);
 
-      const connection = await rpc.start();
-      const overRpc = await runCli("init", ["--name", "Non Git App"], root, { runtimeClient: new RuntimeRpcClient(connection) });
-      expect(overRpc).toMatchObject(typed);
-      expect(existsSync(join(root, ".archcontext"))).toBe(false);
-
       const snapshot = await runCli("projection", ["snapshot", "--json"], root, { runtimeClient: daemon });
       expect(snapshot).toMatchObject({ ...typed, requestId: "projection.snapshot" });
     } finally {
-      await rpc.stop().catch(() => undefined);
       await daemon.stop().catch(() => undefined);
       removeTempRoot(root);
     }
   });
-
-  test("CLI discovers a running daemon RPC connection before embedded fallback", async () => {
-    const root = gitTempRoot("archctx-cli-rpc-");
-    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
-    const daemon = await createStartedDaemon({
-      codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
-      codeGraphProviderFactory: () => new MockCodeGraphProvider(),
-      localStore: new TestLocalStore()
-    });
-    const rpc = new ArchctxRuntimeRpcServer(daemon, { root, port: 0, token: "cli-rpc-token" });
-    let stopped = false;
-    try {
-      const connection = await rpc.start();
-      const init = await runCli("init", ["--name", "CLI RPC App"], root, {
-        runtimeClient: new RuntimeRpcClient(connection)
-      });
-      expect(init.ok).toBe(true);
-
-      const status = await runCli("status", [], root);
-      expect(status.ok).toBe(true);
-      expect((status.data as any).sessions).toBe(1);
-
-      const daemonStatus = await runCli("daemon", ["status"], root);
-      expect((daemonStatus.data as any).running).toBe(true);
-      expect(JSON.stringify(daemonStatus.data)).not.toContain("cli-rpc-token");
-
-      await rpc.stop();
-      stopped = true;
-    } finally {
-      if (!stopped) await rpc.stop().catch(() => undefined);
-      removeTempRoot(root);
-    }
-  }, DAEMON_TEST_TIMEOUT_MS);
-
-  test("CLI fails closed when a healthy daemon advertises a different product version", async () => {
-    const root = mkdtempSync(join(tmpdir(), "archctx-cli-product-mismatch-"));
-    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
-    const previousStateDir = process.env.ARCHCONTEXT_STATE_DIR;
-    process.env.ARCHCONTEXT_STATE_DIR = testStateRoot(root);
-    const daemon = await createStartedDaemon({
-      codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
-      codeGraphProviderFactory: () => new MockCodeGraphProvider(),
-      localStore: new TestLocalStore()
-    });
-    const currentProduct = productVersionManifest();
-    const rpc = new ArchctxRuntimeRpcServer(daemon, {
-      root,
-      port: 0,
-      token: "product-mismatch-token",
-      productManifest: () => ({
-        ...currentProduct,
-        product: { ...currentProduct.product, version: "0.4.4" },
-        surfaces: {
-          cli: { ...currentProduct.surfaces.cli, version: "0.4.4" },
-          daemon: { ...currentProduct.surfaces.daemon, version: "0.4.4" }
-        },
-        schemas: { ...currentProduct.schemas, contractsPackageVersion: "0.4.4" }
-      } as any)
-    });
-    try {
-      await rpc.start();
-      const status = await runCli("status", [], root);
-      expect(status).toMatchObject({
-        ok: false,
-        error: {
-          code: "AC_RUNTIME_VERSION_UNSUPPORTED",
-          action: "upgrade-archctx-runtime"
-        }
-      });
-      expect((status as any).error.message).toContain(`product version 0.4.4 does not exactly match this CLI (${ARCHCONTEXT_PRODUCT_VERSION})`);
-
-      const daemonStatus = await runCli("daemon", ["status"], root);
-      expect(daemonStatus).toMatchObject({
-        ok: true,
-        data: {
-          running: true,
-          rpcVersionCompatible: true,
-          productVersionCompatible: false,
-          versionUnsupported: {
-            reason: "product-version-mismatch",
-            expected: ARCHCONTEXT_PRODUCT_VERSION,
-            received: "0.4.4",
-            action: "upgrade-archctx-runtime",
-            command: "archctx daemon upgrade"
-          }
-        }
-      });
-
-      const doctor = await runCli("doctor", [], root);
-      expect((doctor.data as any).daemon).toMatchObject({
-        productVersionCompatible: false,
-        versionUnsupported: { reason: "product-version-mismatch" }
-      });
-    } finally {
-      await rpc.stop().catch(() => undefined);
-      if (previousStateDir === undefined) delete process.env.ARCHCONTEXT_STATE_DIR;
-      else process.env.ARCHCONTEXT_STATE_DIR = previousStateDir;
-      removeTempRoot(root);
-    }
-  }, DAEMON_TEST_TIMEOUT_MS);
-
-  test("CLI paths and doctor expose structured legacy local store migration status", async () => {
-    const root = mkdtempSync(join(tmpdir(), "archctx-cli-legacy-status-"));
-    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
-    try {
-      const paths = testRuntimePaths(root);
-      await writeTaskState(paths.legacyLocalStorePath, "task_cli_legacy", { source: "legacy" });
-
-      const beforePaths = await runTestCli("paths", [], root);
-      expect(beforePaths.ok).toBe(true);
-      expect((beforePaths.data as any).legacyLocalStore).toMatchObject({
-        status: "pending",
-        legacyLocalStorePath: paths.legacyLocalStorePath,
-        targetLocalStorePath: paths.localStorePath,
-        integrityCheck: { legacy: "ok" }
-      });
-
-      const beforeDoctor = await runTestCli("doctor", [], root);
-      expect((beforeDoctor.data as any).sqlite.legacyPath).toBe(paths.legacyLocalStorePath);
-      expect((beforeDoctor.data as any).sqlite.legacyExists).toBe(true);
-      expect((beforeDoctor.data as any).sqlite.legacyLocalStore.status).toBe("pending");
-
-      const migration = migrateLegacyLocalStoreIfNeeded(root, testStateEnv(root));
-      expect(migration.status).toBe("migrated");
-
-      const afterPaths = await runTestCli("paths", [], root);
-      expect((afterPaths.data as any).legacyLocalStore).toMatchObject({
-        status: "target-current",
-        skippedReason: "target-exists",
-        integrityCheck: { target: "ok" }
-      });
-      expect(existsSync((afterPaths.data as any).legacyLocalStore.markerPath)).toBe(true);
-
-      const afterDoctor = await runTestCli("doctor", [], root);
-      expect((afterDoctor.data as any).sqlite.legacyLocalStore.status).toBe("target-current");
-      expect(existsSync((afterDoctor.data as any).sqlite.legacyLocalStore.markerPath)).toBe(true);
-    } finally {
-      removeTempRoot(root);
-    }
-  }, 15_000);
-
-  test("CLI state recover bypasses the broken target, quarantines it, and rebuilds from Git through the daemon", async () => {
-    const root = createInitializedGitRepo();
-    try {
-      const paths = testRuntimePaths(root);
-      mkdirSync(dirname(paths.localStorePath), { recursive: true });
-      writeFileSync(paths.localStorePath, "broken operational sqlite fixture\n", "utf8");
-
-      const dryRun = await runTestCli("state", ["recover", "--from-git"], root);
-      expect(dryRun.ok).toBe(true);
-      expect((dryRun.data as any).status).toBe("recovery-required");
-      expect((dryRun.data as any).reasonCode).toBe("target-incomplete");
-      expect((dryRun.data as any).targetFingerprint).toMatch(/^sha256:[0-9a-f]{64}$/);
-      expect((dryRun.data as any).worktreeDigest).toMatch(/^sha256:[0-9a-f]{64}$/);
-      expect((dryRun.data as any).writeCommand).toContain("archctx state recover --from-git --write");
-      expect(readFileSync(paths.localStorePath, "utf8")).toBe("broken operational sqlite fixture\n");
-
-      const recovered = await runTestCli("state", [
-        "recover",
-        "--from-git",
-        "--write",
-        "--expected-worktree-digest", (dryRun.data as any).worktreeDigest,
-        "--expected-target-fingerprint", (dryRun.data as any).targetFingerprint
-      ], root);
-      expect(recovered.ok).toBe(true);
-      expect((recovered.data as any).status).toBe("recovered");
-      expect((recovered.data as any).recovery.status).toBe("target-published-rebuild-required");
-      expect((recovered.data as any).rebuildSummary).toMatchObject({
-        schemaVersion: "archcontext.runtime-state-recovery-rebuild-summary/v1",
-        ok: true,
-        requestId: "ledger.rebuild"
-      });
-      expect((recovered.data as any).rebuildSummary.resultDigest).toMatch(/^sha256:[0-9a-f]{64}$/);
-      expect(JSON.stringify(recovered).length).toBeLessThan(20_000);
-      expect((recovered.data as any).completion.status).toBe("recovered");
-      expect(JSON.parse(readFileSync((recovered.data as any).recovery.receiptPath, "utf8")).status).toBe("recovered");
-      const quarantinedDatabase = (recovered.data as any).recovery.quarantinedFiles.find((file: any) => file.name === "runtime.sqlite");
-      expect(readFileSync(quarantinedDatabase.path, "utf8")).toBe("broken operational sqlite fixture\n");
-      expect(migrateLegacyLocalStoreIfNeeded(root, testStateEnv(root)).status).toBe("target-current");
-
-      const after = await runTestCli("state", ["recover", "--from-git"], root);
-      expect((after.data as any).status).toBe("not-required");
-      expect((after.data as any).reasonCode).toBe("target-current");
-    } finally {
-      removeTempRoot(root);
-    }
-  }, 30_000);
-
-  test("CLI state recover requires exact confirmations and preserves retry evidence when daemon rebuild fails", async () => {
-    const root = createInitializedGitRepo();
-    const previousStateDir = process.env.ARCHCONTEXT_STATE_DIR;
-    process.env.ARCHCONTEXT_STATE_DIR = testStateRoot(root);
-    try {
-      const paths = testRuntimePaths(root);
-      mkdirSync(dirname(paths.localStorePath), { recursive: true });
-      writeFileSync(paths.localStorePath, "broken retry sqlite fixture\n", "utf8");
-      const dryRun = await runCli("state", ["recover", "--from-git"], root);
-      expect(dryRun.ok).toBe(true);
-
-      const missing = await runCli("state", ["recover", "--from-git", "--write"], root);
-      expect(missing.ok).toBe(false);
-      expect((missing as any).error?.code).toBe("AC_SCHEMA_INVALID");
-      expect(readFileSync(paths.localStorePath, "utf8")).toBe("broken retry sqlite fixture\n");
-
-      const stale = await runCli("state", [
-        "recover", "--from-git", "--write",
-        "--expected-worktree-digest", `sha256:${"f".repeat(64)}`,
-        "--expected-target-fingerprint", (dryRun.data as any).targetFingerprint
-      ], root);
-      expect(stale.ok).toBe(false);
-      expect((stale as any).error?.code).toBe("AC_PRECONDITION_FAILED");
-      expect(readFileSync(paths.localStorePath, "utf8")).toBe("broken retry sqlite fixture\n");
-
-      let rebuildInput: any;
-      const failed = await runCli("state", [
-        "recover", "--from-git", "--write", "--accept-external-projection",
-        "--expected-worktree-digest", (dryRun.data as any).worktreeDigest,
-        "--expected-target-fingerprint", (dryRun.data as any).targetFingerprint
-      ], root, {
-        runtimeClient: {
-          ledgerRebuild: async (_root: string, input: any) => {
-            rebuildInput = input;
-            return {
-              schemaVersion: "archcontext.envelope/v1",
-              ok: false,
-              requestId: "ledger.rebuild",
-              error: { code: "AC_PRECONDITION_FAILED", severity: "warning", retryable: true, action: "rebuild-plan", message: "fixture rebuild rejected" }
-            };
-          }
-        } as any
-      });
-      expect(failed.ok).toBe(false);
-      expect((failed as any).error.code).toBe("AC_PRECONDITION_FAILED");
-      expect(rebuildInput).toEqual({
-        fromGit: true,
-        expectedWorktreeDigest: (dryRun.data as any).worktreeDigest,
-        acceptExternalProjection: true
-      });
-      expect((failed.data as any).recovery.status).toBe("target-published-rebuild-required");
-      expect((failed.data as any).rebuildSummary).toMatchObject({
-        schemaVersion: "archcontext.runtime-state-recovery-rebuild-summary/v1",
-        ok: false,
-        requestId: "ledger.rebuild"
-      });
-      expect((failed.data as any).retryCommand).toContain("--accept-external-projection");
-      expect(JSON.parse(readFileSync((failed.data as any).recovery.receiptPath, "utf8")).status).toBe("target-published-rebuild-required");
-      expect(migrateLegacyLocalStoreIfNeeded(root, testStateEnv(root)).status).toBe("target-current");
-    } finally {
-      if (previousStateDir === undefined) delete process.env.ARCHCONTEXT_STATE_DIR;
-      else process.env.ARCHCONTEXT_STATE_DIR = previousStateDir;
-      removeTempRoot(root);
-    }
-  }, 30_000);
 
   test("CLI refactor scan and record are thin adapters over the daemon RPC", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-refactor-"));
@@ -3090,12 +2593,11 @@ describe("archctx CLI", () => {
       expect(envelope.error.code).toBe("AC_SCHEMA_INVALID");
       expect(String(envelope.error.message)).toContain("--assessment-digest");
     } finally {
-      await stopDaemonAndWait(root);
       removeTempRoot(root);
     }
   }, DAEMON_TEST_TIMEOUT_MS);
 
-  test("spawned CLI refactor verify without a request rejects before any daemon work", async () => {
+  test("spawned CLI refactor verify without a request rejects before any runtime work", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-refactor-verify-spawn-"));
     writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
     try {
@@ -3106,7 +2608,6 @@ describe("archctx CLI", () => {
       expect(envelope.error.code).toBe("AC_SCHEMA_INVALID");
       expect(String(envelope.error.message)).toBe("refactor verify --request-json is required");
     } finally {
-      await stopDaemonAndWait(root);
       removeTempRoot(root);
     }
   }, DAEMON_TEST_TIMEOUT_MS);
@@ -3123,617 +2624,11 @@ describe("archctx CLI", () => {
     }
   });
 
-  test("CLI help exposes the explicit state recovery command without a force alias", async () => {
-    const root = mkdtempSync(join(tmpdir(), "archctx-cli-state-help-"));
-    try {
-      const help = await runCli("help", [], root);
-      expect((help.data as any).commands).toContain("state");
-      expect((help.data as any).examples).toContain("archctx state recover --from-git");
-      expect(JSON.stringify(help.data)).not.toContain("state recover --force");
-    } finally {
-      removeTempRoot(root);
-    }
-  });
-
   test("github is not a command: it answers the command list, which omits it", async () => {
     const result = await runCli("github", ["connect"], tmpdir()) as any;
     expect(result).toMatchObject({ ok: true, requestId: "help" });
     expect(result.data.commands).not.toContain("github");
   });
-
-  test("foreground daemon subprocess shares runtime state across independent CLI processes", async () => {
-    const root = gitTempRoot("archctx-cli-foreground-");
-    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
-    const daemon = spawn(process.execPath, [CLI_ENTRY, "daemon", "start", "--foreground", "--port", "0"], {
-      cwd: root,
-      env: testStateEnv(root)
-    });
-    try {
-      const started = await readJsonFromProcess(daemon);
-      expect(started.ok).toBe(true);
-      expect(started.data.running).toBe(true);
-      expect(started.data.protocol).toBe("http-loopback");
-      expect(String(started.data.url)).toMatch(/^http:\/\/127\.0\.0\.1:/);
-      const paths = testRuntimePaths(root);
-      expect(existsSync(paths.daemonConnectionPath)).toBe(true);
-      expect(existsSync(paths.daemonLockPath)).toBe(true);
-      const health = await new RuntimeRpcClient(JSON.parse(readFileSync(paths.daemonConnectionPath, "utf8"))).health();
-      expect((health as any).composition).toMatchObject({
-        mode: "production",
-        productionSafe: true,
-        adapters: {
-          codeFacts: "codegraph-cli",
-          localStore: "sqlite"
-        }
-      });
-
-      const init = await runCliProcess(root, "init", "--name", "Foreground App");
-      expect(init.ok).toBe(true);
-
-      const status = await runCliProcess(root, "status");
-      expect(status.ok).toBe(true);
-      expect(status.data.sessions).toBe(1);
-      expect(status.data.running).toBe(true);
-
-      const daemonStatus = await runCliProcess(root, "daemon", "status");
-      const connection = JSON.parse(readFileSync(paths.daemonConnectionPath, "utf8"));
-      expect(daemonStatus.data.running).toBe(true);
-      expect(daemonStatus.data.rpcVersionCompatible).toBe(true);
-      expect(daemonStatus.data.product.schemaVersion).toBe("archcontext.product-version-manifest/v1");
-      expect(daemonStatus.data.product.runtime.localRpc.schemaVersion).toBe(RUNTIME_RPC_VERSION);
-      expect(JSON.stringify(daemonStatus.data)).toContain("stored-in-connection-file");
-      expect(JSON.stringify(daemonStatus.data)).not.toContain(connection.token);
-
-      const stopped = await runCliProcess(root, "daemon", "stop");
-      expect(stopped.ok).toBe(true);
-      await expectProcessExit(daemon);
-      expect(existsSync(paths.daemonConnectionPath)).toBe(false);
-      expect(existsSync(paths.daemonLockPath)).toBe(false);
-    } finally {
-      if (daemon.exitCode === null && !daemon.killed) daemon.kill("SIGTERM");
-      await expectProcessExit(daemon).catch(() => undefined);
-      removeTempRoot(root);
-    }
-  }, DAEMON_TEST_TIMEOUT_MS);
-
-  test("background daemon start returns after ready and survives the starter process", async () => {
-    const root = gitTempRoot("archctx-cli-background-");
-    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
-    const connectionPath = testRuntimePaths(root).daemonConnectionPath;
-    const lockPath = testRuntimePaths(root).daemonLockPath;
-    try {
-      const started = await runCliProcess(root, "daemon", "start");
-      expect(started.ok).toBe(true);
-      expect(started.data.running).toBe(true);
-      expect(started.data.background).toBe(true);
-      expect(String(started.data.url)).toMatch(/^http:\/\/127\.0\.0\.1:/);
-      expect(String(started.data.logPath)).toContain("archctxd.log");
-      expect(existsSync(connectionPath)).toBe(true);
-      expect(existsSync(lockPath)).toBe(true);
-
-      const init = await runCliProcess(root, "init", "--name", "Background App");
-      expect(init.ok).toBe(true);
-
-      const status = await runCliProcess(root, "status");
-      expect(status.ok).toBe(true);
-      expect(status.data.sessions).toBe(1);
-      expect(status.data.running).toBe(true);
-
-      const again = await runCliProcess(root, "daemon", "start");
-      expect(again.ok).toBe(true);
-      expect(again.data.alreadyRunning).toBe(true);
-      expect(JSON.stringify(again.data)).toContain("stored-in-connection-file");
-
-      const stopped = await runCliProcess(root, "daemon", "stop");
-      expect(stopped.ok).toBe(true);
-      await expectFileRemoved(connectionPath);
-      await expectFileRemoved(lockPath);
-    } finally {
-      await stopDaemonAndWait(root);
-      removeTempRoot(root);
-    }
-  }, DAEMON_TEST_TIMEOUT_MS);
-
-  test("concurrent cold starts all succeed: starters that lose store ownership wait for the winning daemon (#160)", async () => {
-    const root = gitTempRoot("archctx-cli-concurrent-cold-start-");
-    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
-    try {
-      // Every command finds no daemon and spawns one; only one can own the store, and the others'
-      // children exit as losers. Their commands must still reach the winner, never fail.
-      const results = await Promise.all(Array.from({ length: 6 }, () => runCliProcessRaw(root, "status")));
-      for (const result of results) {
-        expect({ code: result.code, stderr: result.stderr }).toEqual({ code: 0, stderr: "" });
-        const envelope = JSON.parse(result.stdout);
-        expect(envelope.ok).toBe(true);
-        expect(envelope.data.running).toBe(true);
-      }
-      const daemonStatus = await runCliProcess(root, "daemon", "status");
-      expect(daemonStatus.data.running).toBe(true);
-    } finally {
-      await stopDaemonAndWait(root);
-      removeTempRoot(root);
-    }
-  }, DAEMON_TEST_TIMEOUT_MS);
-
-  test("CLI recovers stale daemon control files after a crash and reconnects", async () => {
-    const root = gitTempRoot("archctx-cli-crash-recovery-");
-    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
-    const connectionPath = testRuntimePaths(root).daemonConnectionPath;
-    const lockPath = testRuntimePaths(root).daemonLockPath;
-    try {
-      const started = await runCliProcess(root, "daemon", "start");
-      expect(started.ok).toBe(true);
-      expect(started.data.running).toBe(true);
-      const firstConnection = JSON.parse(readFileSync(connectionPath, "utf8"));
-
-      process.kill(firstConnection.pid, "SIGKILL");
-      await expectPidGone(firstConnection.pid);
-      expect(existsSync(connectionPath)).toBe(true);
-      expect(existsSync(lockPath)).toBe(true);
-
-      const restarted = await runCliProcess(root, "daemon", "start");
-      expect(restarted.ok).toBe(true);
-      expect(restarted.data.running).toBe(true);
-      expect(restarted.data.recoveredStaleControlFiles).toEqual(expect.arrayContaining([
-        "dead-connection-pid",
-        "stale-lock-file"
-      ]));
-      const secondConnection = JSON.parse(readFileSync(connectionPath, "utf8"));
-      expect(secondConnection.pid).not.toBe(firstConnection.pid);
-
-      const status = await runCliProcess(root, "status");
-      expect(status.ok).toBe(true);
-      expect(status.data.running).toBe(true);
-    } finally {
-      await stopDaemonAndWait(root);
-      removeTempRoot(root);
-    }
-  }, DAEMON_TEST_TIMEOUT_MS);
-
-  test("CLI downgrades stale daemon connection files instead of failing commands", async () => {
-    const root = gitTempRoot("archctx-cli-stale-");
-    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
-    const previousStateDir = process.env.ARCHCONTEXT_STATE_DIR;
-    process.env.ARCHCONTEXT_STATE_DIR = testStateRoot(root);
-    try {
-      const connectionPath = testRuntimePaths(root).daemonConnectionPath;
-      const lockPath = testRuntimePaths(root).daemonLockPath;
-      mkdirSync(testRuntimePaths(root).workspaceStateDir, { recursive: true });
-      createPrivateControlFile(connectionPath, JSON.stringify({
-        schemaVersion: RUNTIME_RPC_VERSION,
-        protocol: "http-loopback",
-        version: 1,
-        root,
-        url: "http://127.0.0.1:1/",
-        token: "dead-token",
-        pid: 1,
-        lockPath,
-        connectionPath,
-        startedAt: "2026-06-20T00:00:00.000Z"
-      }, null, 2));
-
-      const daemonStatus = await runCli("daemon", ["status"], root);
-      expect((daemonStatus.data as any).running).toBe(false);
-      expect((daemonStatus.data as any).staleConnection).toBe(true);
-
-      const status = await runCli("status", [], root);
-      expect(status.ok).toBe(true);
-      expect((status.data as any).running).toBe(true);
-    } finally {
-      await stopDaemonAndWait(root);
-      if (previousStateDir === undefined) delete process.env.ARCHCONTEXT_STATE_DIR;
-      else process.env.ARCHCONTEXT_STATE_DIR = previousStateDir;
-      removeTempRoot(root);
-    }
-  }, DAEMON_TEST_TIMEOUT_MS);
-
-  test("CLI keeps a live daemon's connection file when its health check times out (#318)", async () => {
-    const root = mkdtempSync(join(tmpdir(), "archctx-cli-busy-"));
-    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
-    const previousStateDir = process.env.ARCHCONTEXT_STATE_DIR;
-    const previousStartTimeout = process.env.ARCHCONTEXT_DAEMON_START_TIMEOUT_MS;
-    process.env.ARCHCONTEXT_STATE_DIR = testStateRoot(root);
-    process.env.ARCHCONTEXT_DAEMON_START_TIMEOUT_MS = "500";
-    // A daemon whose event loop is blocked: the kernel accepts the connection, nothing answers.
-    const pending = new Set<ServerResponse>();
-    const busy = createHttpServer((_request, response) => { pending.add(response); });
-    await new Promise<void>((resolveListen) => busy.listen(0, "127.0.0.1", resolveListen));
-    try {
-      const { daemonConnectionPath: connectionPath, daemonLockPath: lockPath } = testRuntimePaths(root);
-      mkdirSync(testRuntimePaths(root).workspaceStateDir, { recursive: true });
-      createPrivateControlFile(connectionPath, JSON.stringify({
-        schemaVersion: RUNTIME_RPC_VERSION,
-        protocol: "http-loopback",
-        version: 1,
-        root,
-        url: `http://127.0.0.1:${(busy.address() as AddressInfo).port}/`,
-        token: "busy-token",
-        pid: process.pid,
-        lockPath,
-        connectionPath,
-        startedAt: new Date().toISOString()
-      }, null, 2));
-
-      const daemonStatus = await runCli("daemon", ["status"], root);
-      expect(daemonStatus.data).toMatchObject({ running: true, responding: false, pid: process.pid });
-      expect(existsSync(connectionPath)).toBe(true);
-
-      await expect(runCli("status", [], root)).rejects.toThrow(`archctxd pid ${process.pid} is alive but did not answer`);
-      expect(existsSync(connectionPath)).toBe(true);
-      // No replacement daemon was spawned against the busy owner.
-      expect(existsSync(lockPath)).toBe(false);
-    } finally {
-      for (const response of pending) response.destroy();
-      await new Promise<void>((resolveClose) => busy.close(() => resolveClose()));
-      if (previousStateDir === undefined) delete process.env.ARCHCONTEXT_STATE_DIR;
-      else process.env.ARCHCONTEXT_STATE_DIR = previousStateDir;
-      if (previousStartTimeout === undefined) delete process.env.ARCHCONTEXT_DAEMON_START_TIMEOUT_MS;
-      else process.env.ARCHCONTEXT_DAEMON_START_TIMEOUT_MS = previousStartTimeout;
-      removeTempRoot(root);
-    }
-  }, DAEMON_TEST_TIMEOUT_MS);
-
-  test("CLI names the live daemon lock owner when no connection file exists (#318)", async () => {
-    const root = mkdtempSync(join(tmpdir(), "archctx-cli-orphan-"));
-    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
-    const previousStateDir = process.env.ARCHCONTEXT_STATE_DIR;
-    const previousStartTimeout = process.env.ARCHCONTEXT_DAEMON_START_TIMEOUT_MS;
-    process.env.ARCHCONTEXT_STATE_DIR = testStateRoot(root);
-    process.env.ARCHCONTEXT_DAEMON_START_TIMEOUT_MS = "3000";
-    const owner = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
-    try {
-      const { daemonLockPath: lockPath } = testRuntimePaths(root);
-      mkdirSync(testRuntimePaths(root).workspaceStateDir, { recursive: true });
-      createPrivateControlFile(lockPath, JSON.stringify({ pid: owner.pid, root, startedAt: new Date().toISOString() }, null, 2));
-
-      const daemonStatus = await runCli("daemon", ["status"], root);
-      expect(daemonStatus.data).toMatchObject({ running: false, lockOwnerPid: owner.pid });
-
-      const started = await runCli("daemon", ["start"], root);
-      expect(started.ok).toBe(false);
-      expect((started as JsonEnvelope).error?.message).toContain(`daemon lock names live pid ${owner.pid}`);
-      expect(existsSync(lockPath)).toBe(true);
-    } finally {
-      owner.kill("SIGKILL");
-      if (previousStateDir === undefined) delete process.env.ARCHCONTEXT_STATE_DIR;
-      else process.env.ARCHCONTEXT_STATE_DIR = previousStateDir;
-      if (previousStartTimeout === undefined) delete process.env.ARCHCONTEXT_DAEMON_START_TIMEOUT_MS;
-      else process.env.ARCHCONTEXT_DAEMON_START_TIMEOUT_MS = previousStartTimeout;
-      removeTempRoot(root);
-    }
-  }, DAEMON_TEST_TIMEOUT_MS);
-
-  test("CLI reports incompatible daemon versions and replaces them through daemon upgrade", async () => {
-    const root = gitTempRoot("archctx-cli-upgrade-");
-    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
-    const connectionPath = testRuntimePaths(root).daemonConnectionPath;
-    try {
-      const started = await runCliProcess(root, "daemon", "start");
-      expect(started.ok).toBe(true);
-      const firstConnection = JSON.parse(readFileSync(connectionPath, "utf8"));
-      writeFileSync(connectionPath, JSON.stringify({
-        ...firstConnection,
-        schemaVersion: "archcontext.runtime-rpc/v0"
-      }, null, 2), { mode: 0o600 });
-      if (process.platform !== "win32") chmodSync(connectionPath, 0o600);
-
-      const daemonStatus = await runCliProcess(root, "daemon", "status");
-      expect(daemonStatus.ok).toBe(true);
-      expect(daemonStatus.data).toMatchObject({
-        running: true,
-        rpcVersionCompatible: false,
-        versionUnsupported: {
-          expected: RUNTIME_RPC_VERSION,
-          received: "archcontext.runtime-rpc/v0",
-          action: "upgrade-archctx-runtime",
-          command: "archctx daemon upgrade"
-        }
-      });
-
-      // `status` now exits non-zero on an ok:false envelope (verify's `&&` chains rely on this),
-      // so this expected-failure path must use the non-throwing raw process helper.
-      const ordinaryStatusRaw = await runCliProcessRaw(root, "status");
-      expect(ordinaryStatusRaw.code).not.toBe(0);
-      const ordinaryStatus = JSON.parse(ordinaryStatusRaw.stdout);
-      expect(ordinaryStatus.ok).toBe(false);
-      expect(ordinaryStatus.error).toMatchObject({
-        code: "AC_RUNTIME_VERSION_UNSUPPORTED",
-        action: "upgrade-archctx-runtime"
-      });
-
-      const startAgainRaw = await runCliProcessRaw(root, "daemon", "start");
-      expect(startAgainRaw.code).not.toBe(0);
-      const startAgain = JSON.parse(startAgainRaw.stdout);
-      expect(startAgain.ok).toBe(false);
-      expect(startAgain.error.code).toBe("AC_RUNTIME_VERSION_UNSUPPORTED");
-
-      const upgraded = await runCliProcess(root, "daemon", "upgrade");
-      expect(upgraded.ok).toBe(true);
-      expect(upgraded.requestId).toBe("daemon.upgrade");
-      expect(upgraded.data.upgraded).toBe(true);
-      expect(upgraded.data.replacedRuntime).toMatchObject({
-        previousRpcSchemaVersion: "archcontext.runtime-rpc/v0",
-        expectedRpcSchemaVersion: RUNTIME_RPC_VERSION,
-        previousPid: firstConnection.pid
-      });
-      await expectPidGone(firstConnection.pid);
-      const secondConnection = JSON.parse(readFileSync(connectionPath, "utf8"));
-      expect(secondConnection.pid).not.toBe(firstConnection.pid);
-      expect(secondConnection.schemaVersion).toBe(RUNTIME_RPC_VERSION);
-
-      const status = await runCliProcess(root, "status");
-      expect(status.ok).toBe(true);
-      expect(status.data.running).toBe(true);
-    } finally {
-      await stopDaemonAndWait(root);
-      removeTempRoot(root);
-    }
-  }, DAEMON_TEST_TIMEOUT_MS);
-
-  test("archctx daemon start --idle-timeout-ms exits the real background process on its own once idle", async () => {
-    // Real end-to-end proof for the daemon idle self-exit: `archctxd` is spawned
-    // `detached`+`unref()`'d with no other exit signal (F5,
-    // tasks/reviews/audit-approve-gh-publishing.review.md), so without this the process would
-    // accumulate as a cross-day zombie. This drives the actual spawned background process (not an
-    // in-process server instance) through a real short idle window and confirms both the OS
-    // process and its connection file are gone afterward.
-    const root = mkdtempSync(join(tmpdir(), "archctx-cli-idle-exit-"));
-    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
-    const connectionPath = testRuntimePaths(root).daemonConnectionPath;
-    const lockPath = testRuntimePaths(root).daemonLockPath;
-    // Observe publication during startup: native ACL discovery may outlast the 1 s idle window.
-    let sawConnection = false;
-    const observer = setInterval(() => { sawConnection ||= existsSync(connectionPath); }, 10);
-    try {
-      const started = await runCliProcess(root, "daemon", "start", "--idle-timeout-ms", "1000");
-      expect(started.ok).toBe(true);
-      expect(started.data.background).toBe(true);
-      const childPid: number = started.data.childPid;
-      expect(typeof childPid).toBe("number");
-      expect(sawConnection).toBe(true);
-
-      await expectFileRemoved(connectionPath);
-      await expectFileRemoved(lockPath);
-      await expectPidGone(childPid);
-
-      const status = await runCliProcess(root, "daemon", "status");
-      expect(status.ok).toBe(true);
-      expect(status.data.running).toBe(false);
-    } finally {
-      clearInterval(observer);
-      await stopDaemonAndWait(root);
-      removeTempRoot(root);
-    }
-  }, DAEMON_TEST_TIMEOUT_MS);
-
-  test("a real background daemon exits within its idle timeout after its worktree is deleted (#322)", async () => {
-    const parent = mkdtempSync(join(tmpdir(), "archctx-cli-deleted-root-"));
-    const root = join(parent, "repo");
-    mkdirSync(root);
-    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
-    execFileSync("git", ["init", "-q"], { cwd: root });
-    // Paths are computed while the root exists: after deletion the realpath, and with it the
-    // storage ids derived from the cwd, are gone too. That is why `daemon stop` from the cwd cannot
-    // find such a daemon and the idle exit must not depend on the root.
-    const paths = testRuntimePaths(root);
-    // Cold Windows CLI launches and native ACL discovery can outlast this idle window. Keep
-    // setup alive through the first published connection, which cannot silently replace its
-    // daemon. Stop and drain these RPCs before the final status and the unwrapped delete.
-    const idleTimeoutMs = 3_000;
-    const env = { ...testStateEnv(root), ARCHCONTEXT_DAEMON_IDLE_TIMEOUT_MS: String(idleTimeoutMs) };
-    const cli = async (cwd: string, ...args: string[]) => JSON.parse((await collectProcess(spawn(process.execPath, [CLI_ENTRY, ...args], { cwd, env }))).stdout);
-    const setup = createDaemonSetupKeepalive({
-      // Isolated fixture: avoid the production ACL probe while waiting for private publication.
-      readConnection: () => JSON.parse(readFileSync(paths.daemonConnectionPath, "utf8")),
-      createClient: (connection) => new RuntimeRpcClient(connection),
-      timeoutMs: CLI_PROCESS_TIMEOUT_MS
-    });
-    const keepAlive = setInterval(() => { void setup.poll(); }, 50);
-    try {
-      const started = await cli(root, "daemon", "start");
-      expect(started.ok).toBe(true);
-      expect(started.data.background).toBe(true);
-      expect((await cli(root, "validate")).ok).toBe(true);
-      // Exercise setup that takes longer than the idle window, as cold Windows CLI launches can.
-      await new Promise((resolve) => setTimeout(resolve, idleTimeoutMs + 500));
-      const status = await cli(root, "status");
-      expect(status.ok).toBe(true);
-      expect(status.data.sessions).toBeGreaterThanOrEqual(1);
-
-      clearInterval(keepAlive);
-      const pinnedClient = await setup.finish();
-      const pid = pinnedClient.connectionInfo().pid;
-      expect(pid).toBe(started.data.childPid);
-      expect(JSON.parse(readFileSync(paths.daemonConnectionPath, "utf8")).pid).toBe(pid);
-      expectOutsideWorktree(pid, root);
-      // Re-arm the same daemon immediately before deletion, with no CLI startup or keepalive
-      // left inside the measured idle window. A replacement process cannot satisfy this call.
-      const ready = await pinnedClient.runtimeStatus();
-      expect(ready.ok).toBe(true);
-      expect((ready.data as { sessions: number }).sessions).toBeGreaterThanOrEqual(1);
-
-      // The unwrapped rm: a daemon that pins the root makes Windows refuse this delete, and the
-      // test must see that instead of a cleanup helper swallowing it.
-      nodeRmSync(root, { recursive: true, force: true });
-      expect(existsSync(root)).toBe(false);
-      const deletedAt = Date.now();
-      // Alive here, so the exit below is the deleted-root idle path and not an exit that came first.
-      expect(process.kill(pid, 0)).toBe(true);
-      while (Date.now() - deletedAt < idleTimeoutMs + 5_000) {
-        try {
-          process.kill(pid, 0);
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code === "ESRCH") break;
-          throw error;
-        }
-        await new Promise((resolve) => setTimeout(resolve, 50));
-      }
-      await expectPidGone(pid);
-      expect(existsSync(paths.daemonConnectionPath)).toBe(false);
-      expect((await cli(parent, "daemon", "list")).data.daemons).toEqual([]);
-    } finally {
-      clearInterval(keepAlive);
-      // The main path reports setup errors; cleanup must still drain an RPC on earlier failure.
-      await setup.finish().catch(() => undefined);
-      await runCli("daemon", ["stop", "--state-dir", paths.workspaceStateDir], parent).catch(() => undefined);
-      rmSync(testStateRoot(root), { recursive: true, force: true });
-      rmSync(parent, { recursive: true, force: true });
-    }
-  }, DAEMON_TEST_TIMEOUT_MS);
-
-  test("daemon list shows a daemon whose worktree is deleted, daemon stop --workspace-id and --state-dir stop it, and bad targets fail closed (#322)", async () => {
-    const parent = mkdtempSync(join(tmpdir(), "archctx-cli-stop-target-"));
-    const root = join(parent, "repo");
-    mkdirSync(root);
-    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
-    execFileSync("git", ["init", "-q"], { cwd: root });
-    const paths = testRuntimePaths(root);
-    // Idle exit disabled: only an explicit stop can end this daemon.
-    const env = { ...testStateEnv(root), ARCHCONTEXT_DAEMON_IDLE_TIMEOUT_MS: "0" };
-    const cli = async (cwd: string, ...args: string[]) => JSON.parse((await collectProcess(spawn(process.execPath, [CLI_ENTRY, ...args], { cwd, env }))).stdout);
-    try {
-      expect((await cli(root, "daemon", "start")).ok).toBe(true);
-      const firstPid: number = JSON.parse(readFileSync(paths.daemonConnectionPath, "utf8")).pid;
-      const listing = { storageWorkspaceId: paths.storageWorkspaceId, stateDir: paths.workspaceStateDir, connection: "valid", pid: firstPid, pidAlive: true };
-      const listed = await cli(parent, "daemon", "list");
-      expect(listed.ok).toBe(true);
-      expect(listed.data.daemons).toEqual([expect.objectContaining({ ...listing, rootExists: true })]);
-      expectOutsideWorktree(firstPid, root);
-      nodeRmSync(root, { recursive: true, force: true });
-      expect(existsSync(root)).toBe(false);
-      expect((await cli(parent, "daemon", "list")).data.daemons).toEqual([expect.objectContaining({ ...listing, rootExists: false })]);
-      expect((await cli(parent, "daemon", "list")).data.daemons[0].readiness).toEqual({
-        ready: false, code: "AC_RUNTIME_UNAVAILABLE", reasonCode: "daemon-root-missing"
-      });
-
-      expect((await cli(parent, "daemon", "stop", "--state-dir", paths.workspaceStateDir, "--workspace-id", paths.storageWorkspaceId)).error)
-        .toMatchObject({ code: "AC_SCHEMA_INVALID", message: "daemon stop accepts at most one of --state-dir or --workspace-id" });
-      expect((await cli(parent, "daemon", "stop", "--workspace-id", "../repositories")).error).toMatchObject({ code: "AC_SCHEMA_INVALID" });
-      expect((await cli(parent, "daemon", "stop", "--workspace-id", "ws.0000000000000000")).error).toMatchObject({ code: "AC_RUNTIME_UNAVAILABLE" });
-      expect((await cli(parent, "daemon", "stop", "--bogus")).error).toMatchObject({ code: "AC_SCHEMA_INVALID", message: "daemon stop does not recognize the flag --bogus" });
-      expect(process.kill(firstPid, 0)).toBe(true);
-
-      const stopped = await cli(parent, "daemon", "stop", "--workspace-id", paths.storageWorkspaceId);
-      expect(stopped.ok, JSON.stringify(stopped)).toBe(true);
-      await expectPidGone(firstPid);
-      await expectFileRemoved(paths.daemonConnectionPath);
-
-      mkdirSync(root);
-      writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
-      execFileSync("git", ["init", "-q"], { cwd: root });
-      expect((await cli(root, "daemon", "start")).ok).toBe(true);
-      const secondPid: number = JSON.parse(readFileSync(paths.daemonConnectionPath, "utf8")).pid;
-      nodeRmSync(root, { recursive: true, force: true });
-      expect(existsSync(root)).toBe(false);
-      const stoppedByDir = await cli(parent, "daemon", "stop", "--state-dir", paths.workspaceStateDir);
-      expect(stoppedByDir.ok, JSON.stringify(stoppedByDir)).toBe(true);
-      await expectPidGone(secondPid);
-      expect((await cli(parent, "daemon", "stop", "--state-dir", paths.workspaceStateDir)).error).toMatchObject({ code: "AC_RUNTIME_UNAVAILABLE" });
-    } finally {
-      await runCli("daemon", ["stop", "--state-dir", paths.workspaceStateDir], parent).catch(() => undefined);
-      rmSync(testStateRoot(root), { recursive: true, force: true });
-      rmSync(parent, { recursive: true, force: true });
-    }
-  }, DAEMON_TEST_TIMEOUT_MS);
-
-  test("CLI detects a daemon started from a stale entrypoint and replaces it through daemon upgrade", async () => {
-    // Regression test for F3b/F1b (audit-approve-gh-publishing.review.md, third cut): a real
-    // `archctxd` is spawned `detached`+`unref()`'d with no idle shutdown, so an already-running
-    // daemon started from an older on-disk copy of `main.ts` keeps getting silently reused via the
-    // connection-file "reuse if healthy" fast path even after the source changes underneath it
-    // (e.g. a clock-composition fix). This asserts the CLI now refuses to reuse a daemon whose
-    // recorded `startedAt` predates the current entrypoint's mtime, mirroring the existing
-    // rpc-version-mismatch handling instead of silently talking to stale in-memory behavior.
-    const root = gitTempRoot("archctx-cli-stale-entry-");
-    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
-    const connectionPath = testRuntimePaths(root).daemonConnectionPath;
-    try {
-      const started = await runCliProcess(root, "daemon", "start");
-      expect(started.ok).toBe(true);
-      const firstConnection = JSON.parse(readFileSync(connectionPath, "utf8"));
-      writeFileSync(connectionPath, JSON.stringify({
-        ...firstConnection,
-        startedAt: "2000-01-01T00:00:00.000Z"
-      }, null, 2), { mode: 0o600 });
-      if (process.platform !== "win32") chmodSync(connectionPath, 0o600);
-
-      // `status` now exits non-zero on an ok:false envelope (verify's `&&` chains rely on this),
-      // so this expected-failure path must use the non-throwing raw process helper.
-      const ordinaryStatusRaw = await runCliProcessRaw(root, "status");
-      expect(ordinaryStatusRaw.code).not.toBe(0);
-      const ordinaryStatus = JSON.parse(ordinaryStatusRaw.stdout);
-      expect(ordinaryStatus.ok).toBe(false);
-      expect(ordinaryStatus.error).toMatchObject({
-        code: "AC_RUNTIME_VERSION_UNSUPPORTED",
-        action: "upgrade-archctx-runtime"
-      });
-      expect(String(ordinaryStatus.error.message)).toContain("archctx daemon upgrade");
-
-      // `daemon status` and `doctor` talk to the daemon's connection-file fast path directly
-      // (unlike `status`, which goes through `createOrStartRuntimeRpcClient`'s fail-closed check),
-      // so they previously kept reporting `running: true` for this same stale-but-healthy daemon.
-      // Both must now surface the same stale-daemon-entry signal instead.
-      const staleDaemonStatus = await runCliProcess(root, "daemon", "status");
-      expect(staleDaemonStatus.ok).toBe(true);
-      expect(staleDaemonStatus.data).toMatchObject({
-        running: true,
-        rpcVersionCompatible: false,
-        pid: firstConnection.pid,
-        versionUnsupported: {
-          reason: "stale-daemon-entry",
-          received: "2000-01-01T00:00:00.000Z",
-          action: "upgrade-archctx-runtime",
-          command: "archctx daemon upgrade"
-        }
-      });
-      expect(staleDaemonStatus.data.versionUnsupported.expected).toEqual(expect.any(String));
-
-      const staleDoctor = await runCliProcess(root, "doctor");
-      expect(staleDoctor.ok).toBe(true);
-      expect(staleDoctor.data.daemon).toMatchObject({
-        running: true,
-        rpcVersionCompatible: false,
-        pid: firstConnection.pid,
-        versionUnsupported: {
-          reason: "stale-daemon-entry",
-          received: "2000-01-01T00:00:00.000Z",
-          action: "upgrade-archctx-runtime",
-          command: "archctx daemon upgrade"
-        }
-      });
-      expect(staleDoctor.data.daemon.versionUnsupported.expected).toEqual(expect.any(String));
-
-      const startAgainRaw = await runCliProcessRaw(root, "daemon", "start");
-      expect(startAgainRaw.code).not.toBe(0);
-      const startAgain = JSON.parse(startAgainRaw.stdout);
-      expect(startAgain.ok).toBe(false);
-      expect(startAgain.error.code).toBe("AC_RUNTIME_VERSION_UNSUPPORTED");
-
-      const upgraded = await runCliProcess(root, "daemon", "upgrade");
-      expect(upgraded.ok).toBe(true);
-      expect(upgraded.requestId).toBe("daemon.upgrade");
-      expect(upgraded.data.upgraded).toBe(true);
-      expect(upgraded.data.replacedRuntime).toMatchObject({
-        previousStartedAt: "2000-01-01T00:00:00.000Z",
-        previousPid: firstConnection.pid
-      });
-      expect(upgraded.data.replacedRuntime.entrypointMtime).toEqual(expect.any(String));
-      expect(upgraded.data.replacedRuntime).not.toHaveProperty("previousRpcSchemaVersion");
-      expect(upgraded.data.replacedRuntime).not.toHaveProperty("expectedRpcSchemaVersion");
-      await expectPidGone(firstConnection.pid);
-
-      const secondConnection = JSON.parse(readFileSync(connectionPath, "utf8"));
-      expect(secondConnection.pid).not.toBe(firstConnection.pid);
-      expect(Date.parse(secondConnection.startedAt)).toBeGreaterThan(Date.parse("2000-01-01T00:00:00.000Z"));
-
-      const status = await runCliProcess(root, "status");
-      expect(status.ok).toBe(true);
-      expect(status.data.running).toBe(true);
-    } finally {
-      await stopDaemonAndWait(root);
-      removeTempRoot(root);
-    }
-  }, DAEMON_TEST_TIMEOUT_MS);
 
   test("CLI exposes repo and landscape commands without changing single-repo defaults", async () => {
     const root = gitTempRoot("archctx-cli-");
@@ -3779,647 +2674,6 @@ describe("archctx CLI", () => {
     } finally {
       removeTempRoot(root);
       removeTempRoot(otherRoot);
-    }
-  }, DAEMON_TEST_TIMEOUT_MS);
-
-  test("CLI plans YAML to ledger migration as a read-only dry-run", async () => {
-    const root = createInitializedGitRepo();
-    try {
-      const result = await runTestCli("ledger", ["migrate", "--from-yaml", "--dry-run"], root);
-      expect(result.ok).toBe(true);
-      expect((result.data as any).schemaVersion).toBe("archcontext.runtime-architecture-ledger-migrate/v1");
-      expect((result.data as any).status).toBe("planned");
-      expect((result.data as any).sourceMode).toBe("git-yaml");
-      expect((result.data as any).dryRun).toBe(true);
-      expect((result.data as any).append).toMatchObject({ status: "not-applied" });
-      expect((result.data as any).writes).toBe("none");
-      expect((result.data as any).backup).toMatchObject({ status: "not-created", reason: "dry-run" });
-      expect((result.data as any).verification).toMatchObject({ status: "not-run", reason: "dry-run" });
-      expect((result.data as any).graphDigest).toMatch(/^sha256:/);
-      expect((result.data as any).drift).toMatchObject({ ok: true, semanticDrift: false });
-      expect((result.data as any).ignoredFiles).toContainEqual({
-        path: ".archcontext/generated/ARCHITECTURE.md",
-        reasonCode: "generated-projection"
-      });
-      const state = await runTestCli("ledger", ["state"], root);
-      expect((state.data as any).ledger.entityCount).toBe(0);
-    } finally {
-      removeTempRoot(root);
-    }
-  }, DAEMON_TEST_TIMEOUT_MS);
-
-  test("CLI rebuilds ledger from Git, reports drift, and projects back to Git", async () => {
-    const root = createInitializedGitRepo();
-    const projectionPath = ".archcontext/model/nodes/capability.architecture.context.yaml";
-    try {
-      let status = await runTestCli("status", [], root);
-      const rebuild = await runTestCli("ledger", [
-        "rebuild",
-        "--from-git",
-        "--expected-worktree-digest",
-        (status.data as any).worktreeDigest
-      ], root);
-      expect(rebuild.ok).toBe(true);
-      expect((rebuild.data as any).schemaVersion).toBe("archcontext.runtime-architecture-ledger-rebuild/v1");
-      expect((rebuild.data as any).appendedEventCount).toBe(1);
-      expect((rebuild.data as any).graphDigest).toMatch(/^sha256:/);
-
-      rmSync(join(root, projectionPath), { force: true });
-      const drift = await runTestCli("ledger", ["drift", "--json"], root);
-      expect(drift.ok).toBe(true);
-      expect((drift.data as any).drift.reasonCodes).toContain("projection-file-missing");
-      expect((drift.data as any).reconcile.schemaVersion).toBe("archcontext.architecture-ledger-reconcile/v1");
-      expect((drift.data as any).reconcile.ledgerToGit.reasonCodes).toContain("projection-file-missing");
-      expect((drift.data as any).reconcile.gitToLedger.reasonCodes).toContain("semantic-drift");
-      expect((drift.data as any).reconcile.reconcileActions.map((action: any) => action.authority)).toContain("ledger");
-
-      status = await runTestCli("status", [], root);
-      const project = await runTestCli("ledger", [
-        "project",
-        "--to-git",
-        "--write",
-        "--expected-worktree-digest",
-        (status.data as any).worktreeDigest
-      ], root);
-      expect(project.ok).toBe(true);
-      expect((project.data as any).writes).toBe("git-projection");
-      expect((project.data as any).writtenPaths).toContain(projectionPath);
-      expect((project.data as any).reconcile.ok).toBe(true);
-      expect(readFileSync(join(root, projectionPath), "utf8")).toContain("capability.architecture.context");
-
-      const clean = await runTestCli("ledger", ["drift", "--json"], root);
-      expect((clean.data as any).drift.ok).toBe(true);
-      expect((clean.data as any).reconcile.ok).toBe(true);
-    } finally {
-      removeTempRoot(root);
-    }
-  }, DAEMON_TEST_TIMEOUT_MS);
-
-  test("CLI Book commands read ledger state, timeline, diff, evidence and exports with freshness", async () => {
-    const root = createInitializedGitRepo();
-    try {
-      let status = await runTestCli("status", [], root);
-      const rebuild = await runTestCli("ledger", [
-        "rebuild",
-        "--from-git",
-        "--expected-worktree-digest",
-        (status.data as any).worktreeDigest
-      ], root);
-      expect(rebuild.ok).toBe(true);
-
-      const bookStatus = await runTestCli("book", ["status"], root);
-      expect(bookStatus.ok).toBe(true);
-      expect((bookStatus.data as any).schemaVersion).toBe("archcontext.book-status/v1");
-      expect((bookStatus.data as any).freshness.graphDigest).toBe((rebuild.data as any).graphDigest);
-      expect((bookStatus.data as any).freshness.ledgerCursor.eventCount).toBeGreaterThan(0);
-      expect((bookStatus.data as any).counts.entities).toBeGreaterThan(0);
-
-      const query = await runTestCli("book", ["query", "--task", "architecture context", "--max-items", "2", "--explain"], root);
-      expect(query.ok).toBe(true);
-      expect((query.data as any).schemaVersion).toBe("archcontext.architecture-book-query/v1");
-      expect((query.data as any).results.map((result: any) => result.id)).toContain("capability.architecture.context");
-      expect((query.data as any).results[0].scoreBreakdown.graphDistance).toBeGreaterThan(0);
-      expect((query.data as any).results[0].scoreBreakdown.recency).toBeGreaterThan(0);
-      expect((query.data as any).results[0].explanation.schemaVersion).toBe("archcontext.architecture-book-selection-explanation/v1");
-      expect((query.data as any).results[0].explanation.reasonCodes.length).toBeGreaterThan(0);
-      expect((query.data as any).freshness.worktreeDigest).toBeTruthy();
-
-      const show = await runTestCli("book", ["show", "capability.architecture.context"], root);
-      expect(show.ok).toBe(true);
-      expect((show.data as any).subject.summary).toContain("architecture intent");
-
-      const neighbors = await runTestCli("book", ["neighbors", "capability.architecture.context", "--depth", "1"], root);
-      expect(neighbors.ok).toBe(true);
-      expect((neighbors.data as any).nodes.map((node: any) => node.id)).toContain("capability.architecture.context");
-
-      const timeline = await runTestCli("book", ["timeline", "capability.architecture.context"], root);
-      expect(timeline.ok).toBe(true);
-      expect((timeline.data as any).events[0].affectedSubjects).toContain("capability.architecture.context");
-      const allTimeline = await runTestCli("book", ["timeline"], root);
-      expect(allTimeline.ok).toBe(true);
-      const firstTimestamp = (allTimeline.data as any).events[0].timestamp;
-      expect(Date.parse(firstTimestamp)).not.toBeNaN();
-
-      const diff = await runTestCli("book", ["diff", "--from", "empty", "--to", "current"], root);
-      expect(diff.ok).toBe(true);
-      expect((diff.data as any).summary.added).toBeGreaterThan(0);
-      expect((diff.data as any).changes[0]).toHaveProperty("evidenceIds");
-      expect((diff.data as any).changes[0]).toHaveProperty("evidenceBindingIds");
-      const headSha = (bookStatus.data as any).freshness.headSha;
-      const commitDiff = await runTestCli("book", ["diff", "--from", "empty", "--to", `commit:${headSha}`], root);
-      expect(commitDiff.ok).toBe(true);
-      expect((commitDiff.data as any).toGraphDigest).toBe((diff.data as any).toGraphDigest);
-      const timestampDiff = await runTestCli("book", ["diff", "--from", "empty", "--to", `timestamp:${firstTimestamp}`], root);
-      expect(timestampDiff.ok).toBe(true);
-      expect((timestampDiff.data as any).summary.added).toBeGreaterThan(0);
-      const snapshotStore = new SqliteLocalStore(testRuntimePaths(root).localStorePath);
-      const snapshot = await snapshotStore.createArchitectureLedgerSnapshot({
-        repository: (bookStatus.data as any).freshness.repository,
-        worktree: (bookStatus.data as any).freshness.worktree,
-        sourceMode: "ledger-shadow",
-        projectionDigest: (bookStatus.data as any).freshness.projectionDigest,
-        inputDigests: { modelDigest: (bookStatus.data as any).freshness.graphDigest },
-        createdAt: "2026-06-26T00:00:00.000Z"
-      });
-      snapshotStore.close();
-      const snapshotDiff = await runTestCli("book", ["diff", "--from", "empty", "--to", `snapshot:${snapshot.snapshotId}`], root);
-      expect(snapshotDiff.ok).toBe(true);
-      expect((snapshotDiff.data as any).toGraphDigest).toBe((diff.data as any).toGraphDigest);
-
-      const evidence = await runTestCli("book", ["evidence", "product.review-app"], root);
-      expect(evidence.ok).toBe(true);
-      expect((evidence.data as any).evidenceItems.length).toBeGreaterThan(0);
-      expect(JSON.stringify(evidence.data)).not.toContain("README");
-
-      const recommendations = await runTestCli("book", ["recommendations", "--open", "--explain"], root);
-      expect(recommendations.ok).toBe(true);
-      expect((recommendations.data as any).schemaVersion).toBe("archcontext.architecture-book-recommendations/v1");
-      expect((recommendations.data as any).recommendations).toEqual([]);
-      expect((recommendations.data as any).explanations).toEqual([]);
-
-      const exported = await runTestCli("book", ["export", "--format", "markdown"], root);
-      expect(exported.ok).toBe(true);
-      expect((exported.data as any).markdown).toContain("# Architecture Book");
-      expect((exported.data as any).freshness.projectionDigest).toMatch(/^sha256:/);
-
-      for (const response of [bookStatus, query, show, neighbors, timeline, allTimeline, diff, evidence, recommendations, exported]) {
-        const data = response.data as any;
-        expect(data.freshness.schemaVersion).toBe("archcontext.book-freshness/v1");
-        expect(data.provenance.schemaVersion).toBe("archcontext.book-provenance/v1");
-        expect(data.provenance.graphDigest).toBe(data.freshness.graphDigest);
-        expect(data.provenance.projectionDigest).toBe(data.freshness.projectionDigest);
-        expect(data.provenance.ledgerCursor.eventCount).toBe(data.freshness.ledgerCursor.eventCount);
-      }
-
-      status = await runTestCli("status", [], root);
-      expect((status.data as any).running).toBe(true);
-    } finally {
-      removeTempRoot(root);
-    }
-  }, DAEMON_TEST_TIMEOUT_MS);
-
-  test("CLI rollback restores YAML authority projection with backup", async () => {
-    const root = createInitializedGitRepo();
-    const projectionPath = ".archcontext/model/nodes/capability.architecture.context.yaml";
-    const stalePath = ".archcontext/model/nodes/module.cli-rollback-stale.yaml";
-    try {
-      let status = await runTestCli("status", [], root);
-      const rebuild = await runTestCli("ledger", [
-        "rebuild",
-        "--from-git",
-        "--expected-worktree-digest",
-        (status.data as any).worktreeDigest
-      ], root);
-      expect(rebuild.ok).toBe(true);
-      const canonicalProjection = readFileSync(join(root, projectionPath), "utf8");
-      writeFileSync(join(root, projectionPath), canonicalProjection.replace("Keeps product and architecture intent available to coding agents.", "CLI rollback corrupted projection."), "utf8");
-      writeFileSync(join(root, stalePath), "schemaVersion: archcontext.node/v2\nid: module.cli-rollback-stale\nkind: module\nname: CLI Rollback Stale\nstatus: active\nsummary: CLI rollback stale projection\n", "utf8");
-
-      const dryRun = await runTestCli("ledger", ["rollback", "--to-yaml", "--dry-run"], root);
-      expect(dryRun.ok).toBe(true);
-      expect((dryRun.data as any).dryRun).toBe(true);
-      expect((dryRun.data as any).drift.ok).toBe(false);
-      expect(existsSync(join(root, stalePath))).toBe(true);
-
-      status = await runTestCli("status", [], root);
-      const rollback = await runTestCli("ledger", [
-        "rollback",
-        "--to-yaml",
-        "--write",
-        "--expected-worktree-digest",
-        (status.data as any).worktreeDigest
-      ], root);
-      expect(rollback.ok).toBe(true);
-      expect((rollback.data as any).schemaVersion).toBe("archcontext.runtime-architecture-ledger-rollback/v1");
-      expect((rollback.data as any).targetAuthority).toBe("yaml");
-      expect((rollback.data as any).removedPaths).toContain(stalePath);
-      expect((rollback.data as any).writtenPaths).toContain(projectionPath);
-      expect((rollback.data as any).drift.ok).toBe(true);
-      const backup = (rollback.data as any).backup;
-      expect(existsSync(join(root, backup.manifestPath))).toBe(true);
-      expect(readFileSync(join(root, backup.path, "model/nodes/capability.architecture.context.yaml"), "utf8")).toContain("CLI rollback corrupted projection.");
-      expect(existsSync(join(root, stalePath))).toBe(false);
-      expect(readFileSync(join(root, projectionPath), "utf8")).toBe(canonicalProjection);
-      expect((await runTestCli("validate", [], root)).ok).toBe(true);
-    } finally {
-      removeTempRoot(root);
-    }
-  }, DAEMON_TEST_TIMEOUT_MS);
-
-  test("CLI migrate writes through daemon-owned backup and verification workflow", async () => {
-    const root = createInitializedGitRepo();
-    try {
-      const dryRun = await runTestCli("ledger", ["migrate", "--from-yaml", "--dry-run"], root);
-      expect(dryRun.ok).toBe(true);
-      expect((dryRun.data as any)).toMatchObject({
-        schemaVersion: "archcontext.runtime-architecture-ledger-migrate/v1",
-        status: "planned",
-        dryRun: true,
-        writes: "none",
-        backup: { status: "not-created" },
-        append: { status: "not-applied" }
-      });
-      expect((dryRun.data as any).architectureLedger.phaseFlags).toMatchObject({
-        activePhase: "yaml",
-        safeDowngrade: {
-          to: "yaml"
-        }
-      });
-
-      const missingDigest = await runTestCli("ledger", ["migrate", "--from-yaml", "--write"], root);
-      expect(missingDigest.ok).toBe(false);
-      expect((missingDigest as any).error.code).toBe("AC_SCHEMA_INVALID");
-
-      const status = await runTestCli("status", [], root);
-      const migrated = await runTestCli("ledger", [
-        "migrate",
-        "--from-yaml",
-        "--write",
-        "--expected-worktree-digest",
-        (status.data as any).worktreeDigest
-      ], root);
-
-      expect(migrated.ok).toBe(true);
-      expect((migrated.data as any)).toMatchObject({
-        schemaVersion: "archcontext.runtime-architecture-ledger-migrate/v1",
-        status: "verified",
-        dryRun: false,
-        writes: "architecture-ledger",
-        backup: {
-          schemaVersion: "archcontext.runtime-architecture-ledger-sqlite-backup/v1",
-          status: "created",
-          integrity: "ok"
-        },
-        verification: {
-          ok: true,
-          driftOk: true,
-          reconcileOk: true
-        },
-        recommendedEnvironment: {
-          ARCHCONTEXT_LEDGER_MODE: "dual"
-        }
-      });
-      expect(existsSync((migrated.data as any).backup.backupPath)).toBe(true);
-      expect(JSON.stringify(migrated.data)).not.toContain("schemaVersion: archcontext.node/v2");
-      const state = await runTestCli("ledger", ["state"], root);
-      expect((state.data as any).ledger.entityCount).toBeGreaterThan(0);
-      expect((state.data as any).drift.ok).toBe(true);
-    } finally {
-      removeTempRoot(root);
-    }
-  }, DAEMON_TEST_TIMEOUT_MS);
-
-  test("CLI ledger promotion preflight gates authoritative mode without mutating state", async () => {
-    const root = createInitializedGitRepo();
-    try {
-      const missingPreflight = await runTestCli("ledger", ["promote", "--mode", "authoritative", "--rollback-plan"], root);
-      expect(missingPreflight.ok).toBe(false);
-      expect((missingPreflight as any).error.code).toBe("AC_SCHEMA_INVALID");
-
-      let status = await runTestCli("status", [], root);
-      const migrated = await runTestCli("ledger", [
-        "migrate",
-        "--from-yaml",
-        "--write",
-        "--expected-worktree-digest",
-        (status.data as any).worktreeDigest
-      ], root);
-      expect(migrated.ok).toBe(true);
-
-      const blocked = await runTestCli("ledger", [
-        "promote",
-        "--mode",
-        "authoritative",
-        "--preflight",
-        "--rollback-plan"
-      ], root);
-      expect(blocked.ok).toBe(true);
-      expect((blocked.data as any)).toMatchObject({
-        schemaVersion: "archcontext.runtime-architecture-ledger-promotion-preflight/v1",
-        targetMode: "ledger-authoritative",
-        status: "blocked",
-        ready: false,
-        writes: "none",
-        sideEffects: {
-          ledgerModeChanged: false,
-          hardEnforcementChanged: false,
-          sqliteMutated: false,
-          yamlMutated: false
-        },
-        preconditions: {
-          currentPhase: "yaml",
-          noModeSkip: false,
-          driftClean: true,
-          reconcileClean: true,
-          rollbackPlanPresent: true,
-          hardEnforcementUnchanged: true
-        },
-        nextRequiredPhase: "dual"
-      });
-      expect((blocked.data as any).reasonCodes).toContain("mode-sequence-not-ready:yaml->dual");
-
-      const beforeState = await runTestCli("ledger", ["state"], root);
-      await withEnv({
-        ARCHCONTEXT_LEDGER_MODE: "ledger-shadow",
-        ARCHCONTEXT_LEDGER_READ_MODE: undefined,
-        ARCHCONTEXT_LEDGER_WRITE_MODE: undefined
-      }, async () => {
-        const ready = await runTestCli("ledger", [
-          "promote",
-          "--mode",
-          "authoritative",
-          "--preflight",
-          "--rollback-plan"
-        ], root);
-        expect(ready.ok).toBe(true);
-        expect((ready.data as any)).toMatchObject({
-          status: "ready",
-          ready: true,
-          current: {
-            phase: "ledger-shadow",
-            readAuthority: "yaml"
-          },
-          recommendedEnvironment: {
-            ARCHCONTEXT_LEDGER_MODE: "ledger-authoritative",
-            ARCHCONTEXT_LEDGER_READ_MODE: "ledger",
-            ARCHCONTEXT_LEDGER_WRITE_MODE: "ledger-with-projection"
-          },
-          rollbackPlan: {
-            required: true,
-            targetAuthority: "yaml",
-            environment: {
-              ARCHCONTEXT_LEDGER_MODE: "yaml",
-              ARCHCONTEXT_LEDGER_READ_MODE: "yaml",
-              ARCHCONTEXT_LEDGER_WRITE_MODE: "yaml"
-            }
-          },
-          boundary: {
-            advisoryDefaultPreserved: true,
-            productionGaClaimed: false,
-            hardEnforcementEnabled: false,
-            operatorActionRequired: true
-          }
-        });
-        expect((ready.data as any).rollbackPlan.command).toContain((ready.data as any).worktree.worktreeDigest);
-        expect((ready.data as any).reasonCodes).toEqual([]);
-      });
-
-      const afterState = await runTestCli("ledger", ["state"], root);
-      expect((afterState.data as any).ledger.graphDigest).toBe((beforeState.data as any).ledger.graphDigest);
-    } finally {
-      removeTempRoot(root);
-    }
-  }, DAEMON_TEST_TIMEOUT_MS);
-
-  test("CLI rebuild reproduces graph after SQLite deletion and project restores deleted YAML", async () => {
-    const root = createInitializedGitRepo();
-    const projectionPath = ".archcontext/model/nodes/capability.architecture.context.yaml";
-    try {
-      mkdirSync(join(root, "docs/adr"), { recursive: true });
-      writeFileSync(join(root, "docs/adr/ADR-0099-cli-ledger-import.md"), [
-        "---",
-        "schemaVersion: archcontext.adr/v1",
-        "id: adr.0099.cli-ledger-import",
-        "title: CLI Ledger Import",
-        "status: accepted",
-        "decidedAt: 2026-06-25",
-        "appliesTo:",
-        "  - capability.architecture.context",
-        "supersedes: []",
-        "---",
-        "",
-        "# CLI Ledger Import",
-        ""
-      ].join("\n"), "utf8");
-      git(root, "add", "docs/adr/ADR-0099-cli-ledger-import.md");
-      git(root, "commit", "-m", "add cli ledger import adr");
-
-      let status = await runTestCli("status", [], root);
-      const first = await runTestCli("ledger", [
-        "rebuild",
-        "--from-git",
-        "--expected-worktree-digest",
-        (status.data as any).worktreeDigest
-      ], root);
-      expect(first.ok).toBe(true);
-      expect((first.data as any).imported).toContainEqual(expect.objectContaining({
-        path: "docs/adr/ADR-0099-cli-ledger-import.md",
-        targetKind: "evidence",
-        targetId: "adr.0099.cli-ledger-import"
-      }));
-      const firstGraphDigest = (first.data as any).graphDigest;
-      const originalProjection = readFileSync(join(root, projectionPath), "utf8");
-
-      const paths = testRuntimePaths(root);
-      await removeRuntimeSqliteFiles(paths.localStorePath);
-      status = await runTestCli("status", [], root);
-      const rebuilt = await runTestCli("ledger", [
-        "rebuild",
-        "--from-git",
-        "--expected-worktree-digest",
-        (status.data as any).worktreeDigest
-      ], root);
-      expect(rebuilt.ok).toBe(true);
-      expect((rebuilt.data as any).graphDigest).toBe(firstGraphDigest);
-
-      rmSync(join(root, projectionPath), { force: true });
-      status = await runTestCli("status", [], root);
-      const project = await runTestCli("ledger", [
-        "project",
-        "--to-git",
-        "--write",
-        "--expected-worktree-digest",
-        (status.data as any).worktreeDigest
-      ], root);
-      expect(project.ok).toBe(true);
-      expect((project.data as any).writtenPaths).toContain(projectionPath);
-      expect(readFileSync(join(root, projectionPath), "utf8")).toBe(originalProjection);
-      expect(((await runTestCli("ledger", ["drift", "--json"], root)).data as any).drift.ok).toBe(true);
-    } finally {
-      removeTempRoot(root);
-    }
-  }, DAEMON_TEST_TIMEOUT_MS);
-
-  test("CLI refreshes ledger cursor across branch, reset, rebase, and worktree changes", async () => {
-    const root = createInitializedGitRepo();
-    try {
-      let status = await runTestCli("status", [], root);
-      const initial = await runTestCli("ledger", [
-        "rebuild",
-        "--from-git",
-        "--expected-worktree-digest",
-        (status.data as any).worktreeDigest
-      ], root);
-      expect(initial.ok).toBe(true);
-      expect((initial.data as any).status).toBe("rebuilt");
-      const initialGraphDigest = (initial.data as any).graphDigest;
-      const initialBranch = gitOut(root, "rev-parse", "--abbrev-ref", "HEAD");
-
-      git(root, "checkout", "-b", "feature/cursor-refresh");
-      writeFileSync(join(root, "README.md"), "# cursor refresh\n", "utf8");
-      git(root, "add", "README.md");
-      git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "cursor refresh");
-      status = await runTestCli("status", [], root);
-      const branchRefresh = await runTestCli("ledger", [
-        "rebuild",
-        "--from-git",
-        "--expected-worktree-digest",
-        (status.data as any).worktreeDigest
-      ], root);
-      expect(branchRefresh.ok).toBe(true);
-      expect((branchRefresh.data as any).status).toBe("cursor-refreshed");
-      expect((branchRefresh.data as any).graphDigest).toBe(initialGraphDigest);
-      expect((branchRefresh.data as any).cursor).toMatchObject({
-        changed: true,
-        branch: "feature/cursor-refresh",
-        headSha: gitOut(root, "rev-parse", "HEAD")
-      });
-
-      git(root, "reset", "--hard", "HEAD~1");
-      status = await runTestCli("status", [], root);
-      const resetRefresh = await runTestCli("ledger", [
-        "rebuild",
-        "--from-git",
-        "--expected-worktree-digest",
-        (status.data as any).worktreeDigest
-      ], root);
-      expect(resetRefresh.ok).toBe(true);
-      expect((resetRefresh.data as any).status).toBe("cursor-refreshed");
-      expect((resetRefresh.data as any).graphDigest).toBe(initialGraphDigest);
-
-      git(root, "checkout", initialBranch);
-      writeFileSync(join(root, "BASE.md"), "# base cursor refresh\n", "utf8");
-      git(root, "add", "BASE.md");
-      git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "base cursor refresh");
-      git(root, "checkout", "feature/cursor-refresh");
-      writeFileSync(join(root, "FEATURE.md"), "# feature cursor refresh\n", "utf8");
-      git(root, "add", "FEATURE.md");
-      git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "feature cursor refresh");
-      git(root, "rebase", initialBranch);
-      status = await runTestCli("status", [], root);
-      const rebaseRefresh = await runTestCli("ledger", [
-        "rebuild",
-        "--from-git",
-        "--expected-worktree-digest",
-        (status.data as any).worktreeDigest
-      ], root);
-      expect(rebaseRefresh.ok).toBe(true);
-      expect((rebaseRefresh.data as any).status).toBe("cursor-refreshed");
-      expect((rebaseRefresh.data as any).graphDigest).toBe(initialGraphDigest);
-
-      writeFileSync(join(root, "README.md"), "# dirty cursor refresh\n", "utf8");
-      status = await runTestCli("status", [], root);
-      const dirtyRefresh = await runTestCli("ledger", [
-        "rebuild",
-        "--from-git",
-        "--expected-worktree-digest",
-        (status.data as any).worktreeDigest
-      ], root);
-      expect(dirtyRefresh.ok).toBe(true);
-      expect((dirtyRefresh.data as any).status).toBe("cursor-refreshed");
-      expect((dirtyRefresh.data as any).graphDigest).toBe(initialGraphDigest);
-      expect((dirtyRefresh.data as any).cursor.worktreeDigest).toBe((status.data as any).worktreeDigest);
-    } finally {
-      removeTempRoot(root);
-    }
-  }, DAEMON_TEST_TIMEOUT_MS);
-
-  test("CLI keeps ledger cursor scoped across detached HEAD and simultaneous worktrees", async () => {
-    const root = createInitializedGitRepo();
-    const sharedStateRoot = testStateRoot(root);
-    const linkedParent = mkdtempSync(join(tmpdir(), "archctx-cli-worktree-parent-"));
-    const linkedRoot = join(linkedParent, "linked");
-    try {
-      let status = await runTestCli("status", [], root, sharedStateRoot);
-      const initial = await runTestCli("ledger", [
-        "rebuild",
-        "--from-git",
-        "--expected-worktree-digest",
-        (status.data as any).worktreeDigest
-      ], root, sharedStateRoot);
-      expect(initial.ok).toBe(true);
-      const initialGraphDigest = (initial.data as any).graphDigest;
-      const initialBranch = gitOut(root, "rev-parse", "--abbrev-ref", "HEAD");
-      const initialWorkspaceId = (initial.data as any).worktree.storageWorkspaceId;
-
-      git(root, "checkout", "--detach", "HEAD");
-      status = await runTestCli("status", [], root, sharedStateRoot);
-      const detached = await runTestCli("ledger", [
-        "rebuild",
-        "--from-git",
-        "--expected-worktree-digest",
-        (status.data as any).worktreeDigest
-      ], root, sharedStateRoot);
-      expect(detached.ok).toBe(true);
-      expect((detached.data as any).status).toBe("cursor-refreshed");
-      expect((detached.data as any).graphDigest).toBe(initialGraphDigest);
-      expect((detached.data as any).cursor.branch).toBe("detached");
-
-      git(root, "checkout", initialBranch);
-      git(root, "worktree", "add", "-b", "feature/two-worktree", linkedRoot, initialBranch);
-      status = await runTestCli("status", [], linkedRoot, sharedStateRoot);
-      const linked = await runTestCli("ledger", [
-        "rebuild",
-        "--from-git",
-        "--expected-worktree-digest",
-        (status.data as any).worktreeDigest
-      ], linkedRoot, sharedStateRoot);
-      expect(linked.ok).toBe(true);
-      expect((linked.data as any).graphDigest).toBe(initialGraphDigest);
-      expect((linked.data as any).worktree.storageWorkspaceId).not.toBe(initialWorkspaceId);
-      expect((linked.data as any).worktree.branch).toBe("feature/two-worktree");
-
-      const rootState = await runTestCli("ledger", ["state"], root, sharedStateRoot);
-      const linkedState = await runTestCli("ledger", ["state"], linkedRoot, sharedStateRoot);
-      expect((rootState.data as any).worktree.storageWorkspaceId).not.toBe((linkedState.data as any).worktree.storageWorkspaceId);
-      expect((rootState.data as any).repository.storageRepositoryId).toBe((linkedState.data as any).repository.storageRepositoryId);
-    } finally {
-      gitExitCode(root, "worktree", "remove", "--force", linkedRoot);
-      removeTempRoot(root);
-      rmSync(linkedParent, { recursive: true, force: true });
-    }
-  }, DAEMON_TEST_TIMEOUT_MS);
-
-  test("CLI rebuild rejects merge-conflict YAML projection without mutating ledger state", async () => {
-    const root = createInitializedGitRepo();
-    const projectionPath = ".archcontext/model/nodes/capability.architecture.context.yaml";
-    try {
-      let status = await runTestCli("status", [], root);
-      const initial = await runTestCli("ledger", [
-        "rebuild",
-        "--from-git",
-        "--expected-worktree-digest",
-        (status.data as any).worktreeDigest
-      ], root);
-      expect(initial.ok).toBe(true);
-      const initialGraphDigest = (initial.data as any).graphDigest;
-      const initialBranch = gitOut(root, "rev-parse", "--abbrev-ref", "HEAD");
-
-      git(root, "checkout", "-b", "feature/ledger-merge-conflict");
-      writeFileSync(join(root, projectionPath), readFileSync(join(root, projectionPath), "utf8").replace("Keeps product and architecture intent available to coding agents.", "Feature branch projection conflict."), "utf8");
-      git(root, "add", projectionPath);
-      git(root, "commit", "-m", "feature projection conflict");
-      git(root, "checkout", initialBranch);
-      writeFileSync(join(root, projectionPath), readFileSync(join(root, projectionPath), "utf8").replace("Keeps product and architecture intent available to coding agents.", "Base branch projection conflict."), "utf8");
-      git(root, "add", projectionPath);
-      git(root, "commit", "-m", "base projection conflict");
-
-      expect(gitExitCode(root, "merge", "feature/ledger-merge-conflict")).not.toBe(0);
-      status = await runTestCli("status", [], root);
-      const rejected = await runTestCli("ledger", [
-        "rebuild",
-        "--from-git",
-        "--expected-worktree-digest",
-        (status.data as any).worktreeDigest
-      ], root);
-      expect(rejected.ok).toBe(false);
-      expect((rejected as any).error.code).toBe("AC_SCHEMA_INVALID");
-
-      git(root, "merge", "--abort");
-      const state = await runTestCli("ledger", ["state"], root);
-      expect((state.data as any).ledger.graphDigest).toBe(initialGraphDigest);
-    } finally {
-      removeTempRoot(root);
     }
   }, DAEMON_TEST_TIMEOUT_MS);
 
@@ -4985,15 +3239,12 @@ describe("archctx CLI", () => {
         expect(adopted.ok, JSON.stringify(adopted)).toBe(true);
         expect(adopted.data as ProjectionResultV3).toMatchObject({
           status: "applied",
-          refreshSignals: [{ mode: "refresh-required", acceptedChange }],
-          applyReceipt: { acceptedChange }
+          refreshSignals: [{ mode: "refresh-required", acceptedChange }]
         });
         expect(projectionResultInvariantIssues(adopted.data as ProjectionResultV3)).toEqual([]);
         const adoptedBody = readFileSync(join(root, modulePath), "utf8");
         expect(adoptedBody).toStartWith("# runtime-harness/hook-adapters\n<!-- BEGIN ARCHCONTEXT:generated");
         expect(adoptedBody).toEndWith("## 3. P3 Decisions\nhuman decision  \n\n## 4. History\nhuman history\n");
-        const receipt = await daemon.inspectProjectionApplyReceipt(root, (adopted.data as ProjectionResultV3).applyReceipt!.lookupKey);
-        expect(receipt).toMatchObject({ ok: true, data: { found: true, deliveryStatus: "delivered" } });
       } finally {
         await daemon.stop();
       }
@@ -5007,205 +3258,6 @@ describe("archctx CLI", () => {
     }
   }, PROJECTION_CODEGRAPH_TEST_TIMEOUT_MS);
 
-  test("projection readback preserves delivered receipt and validates every current read over RPC", async () => {
-    const { root, modulePath, protocolRequest, acceptedChange } = await runAdoptedHookAdaptersScenario({ codeGraphReady: true });
-    const daemon = await createStartedDaemon({
-      localStorePath: testRuntimePaths(root).localStorePath,
-      codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
-      codeGraphProviderFactory: () => new MockCodeGraphProvider()
-    });
-    const paths = testRuntimePaths(root);
-    const rpc = new ArchctxRuntimeRpcServer(daemon, {
-      root, port: 0, token: "projection-readback-test-token",
-      connectionPath: paths.daemonConnectionPath, lockPath: paths.daemonLockPath
-    });
-    try {
-      const rpcClient = new RuntimeRpcClient(await rpc.start());
-      const request: ProjectionRequestV1 = { ...protocolRequest, mode: "apply", acceptedChange,
-        requestId: "projection_request.readback" };
-      const absent = await runCli("projection", ["readback", "--request-json", JSON.stringify(request)], root, { runtimeClient: rpcClient });
-      expect(absent).toMatchObject({ ok: true, data: { schemaVersion: "archcontext.projection-apply-absence/v1", current: request.expected } });
-      let appliedInput: Parameters<RuntimeDaemonClient["applyUpdate"]> | undefined;
-      let pendingReadbacks = 0;
-      const applyUpdate = daemon.applyUpdate.bind(daemon);
-      daemon.applyUpdate = (...args) => {
-        appliedInput = args;
-        return applyUpdate(...args);
-      };
-      const recoverProjectionApply = daemon.recoverProjectionApply.bind(daemon);
-      daemon.recoverProjectionApply = async (...args) => {
-        const readback = await runCli("projection", ["readback", "--request-json", JSON.stringify(request)], root, { runtimeClient: rpcClient });
-        expect(readback.ok, JSON.stringify(readback)).toBe(true);
-        const receipt = (readback.data as any).receipt;
-        expect(receipt.result.refreshSignals.length).toBeGreaterThan(0);
-        expect(await daemon.inspectProjectionApplyReceipt(root, receipt.identity.lookupKey))
-          .toMatchObject({ ok: true, data: { deliveryStatus: "pending" } });
-        pendingReadbacks += 1;
-        return recoverProjectionApply(...args);
-      };
-      const client = rpcClient;
-      const applied = await runCli("projection", ["run", "--request-json", JSON.stringify(request)], root, { runtimeClient: client });
-      expect(applied.ok, JSON.stringify(applied)).toBe(true);
-      expect(pendingReadbacks).toBe(1);
-      expect(appliedInput).toBeDefined();
-      const duplicate = await rpcClient.applyUpdate(...appliedInput!);
-      expect(duplicate).toMatchObject({
-        ok: false,
-        // The writer-time guard refuses before any write (#325).
-        error: { code: "AC_PROJECTION_APPLY_COMMITTED", reasonCode: "projection-accepted-change-committed", details: { requestId: request.requestId, written: false } }
-      });
-      const original = applied.data as ProjectionResultV3;
-      const before = await daemon.inspectProjectionApplyReceipt(root, original.applyReceipt!.lookupKey);
-      expect(before).toMatchObject({ ok: true, data: { found: true, deliveryStatus: "delivered" } });
-      const read = (value: ProjectionRequestV1) => runCli("projection", ["readback", "--request-json", JSON.stringify(value)], root, { runtimeClient: client });
-      const first = await read(request);
-      expect(first.ok, JSON.stringify(first)).toBe(true);
-      const readback = first.data as any;
-      const schema = JSON.parse(readFileSync(join(REPOSITORY_ROOT, "schemas/runtime/projection-apply-readback.schema.json"), "utf8"));
-      expect(validateJsonSchema(schema, readback)).toEqual({ valid: true, issues: [] });
-      expect(validateJsonSchema(schema, { ...readback, unknown: true }).valid).toBe(false);
-      expect(validateJsonSchema(schema, { ...readback, current: { ...readback.current, snapshot: {
-        ...readback.current.snapshot, generatedFrom: { ...readback.current.snapshot.generatedFrom, codeGraphStatus: "unavailable" }
-      } } }).valid).toBe(false);
-      expect(projectionApplyReadbackResultInvariantIssues(readback, request)).toEqual([]);
-      expect(projectionApplyReadbackResultInvariantIssues({ ...readback, requestDigest: `sha256:${"0".repeat(64)}` }, request)).not.toEqual([]);
-      const { readbackDigest: _digest, ...body } = readback;
-      const altered = { ...body, current: { ...body.current, ownedOutputDigest: `sha256:${"0".repeat(64)}` } };
-      expect(projectionApplyReadbackResultInvariantIssues({ ...altered, readbackDigest: projectionApplyReadbackResultDigest(altered) }, request))
-        .toContain("readback current state differs from committed recovery binding");
-      expect(readback.receipt.result).toEqual(original);
-      expect((first.data as any).receipt.result.refreshSignals.length).toBeGreaterThan(0);
-      expect((await read(request)).data).toEqual(first.data);
-      expect(await daemon.inspectProjectionApplyReceipt(root, original.applyReceipt!.lookupKey)).toEqual(before);
-      for (const invalid of [
-        { ...request, requestId: "projection_request.wrong" },
-        { ...request, targets: ["agent-context"] as ProjectionRequestV1["targets"] },
-        { ...request, changedPaths: ["README.md"] },
-        { ...request, expected: { ...request.expected, worktreeDigest: `sha256:${"0".repeat(64)}` as const } }
-      ]) {
-        const rejected = await read(invalid);
-        expect(rejected.ok, JSON.stringify(rejected)).toBe(false);
-        expect((rejected as any).error.code).toBe("AC_PRECONDITION_FAILED");
-      }
-      const originalBody = readFileSync(join(root, modulePath), "utf8");
-      writeFileSync(join(root, modulePath), originalBody.replace("# runtime-harness/", "# tampered-runtime-harness/"));
-      const tamperedBody = readFileSync(join(root, modulePath), "utf8");
-      expect(tamperedBody).not.toBe(originalBody);
-      const rejected = await read(request);
-      expect(rejected.ok, JSON.stringify(rejected)).toBe(false);
-      expect((rejected as any).error.code).toBe("AC_PRECONDITION_FAILED");
-      expect(readFileSync(join(root, modulePath), "utf8")).toBe(tamperedBody);
-      expect(await daemon.inspectProjectionApplyReceipt(root, original.applyReceipt!.lookupKey)).toEqual(before);
-    } finally {
-      await rpc.stop();
-      await daemon.stop();
-      removeTempRoot(root);
-    }
-  }, PROJECTION_CODEGRAPH_TEST_TIMEOUT_MS);
-
-  test("projection recovery leaves a post-write non-owned race receipt pending", async () => {
-    const { root, protocolRequest, acceptedChange } = await runAdoptedHookAdaptersScenario({ codeGraphReady: true });
-    try {
-      const daemon = await createStartedDaemon({
-        localStorePath: testRuntimePaths(root).localStorePath,
-        codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
-        codeGraphProviderFactory: () => new MockCodeGraphProvider()
-      });
-      let applyCalls = 0;
-      const applyUpdate = daemon.applyUpdate.bind(daemon);
-      daemon.applyUpdate = async (...callArgs) => {
-        applyCalls += 1;
-        const result = await applyUpdate(...callArgs);
-        if (applyCalls === 1 && result.ok) writeFileSync(join(root, "README.md"), "# concurrent non-owned mutation\n", "utf8");
-        return result;
-      };
-      const racingClient = daemon;
-      try {
-        const firstApplyRequest: ProjectionRequestV1 = {
-          ...protocolRequest,
-          requestId: "projection_request.hook_adapters_major_apply",
-          mode: "apply",
-          acceptedChange
-        };
-        const originalWrite = process.stderr.write.bind(process.stderr);
-        let racedStderr = "";
-        (process.stderr as { write: unknown }).write = (chunk: unknown) => {
-          racedStderr += String(chunk);
-          return true;
-        };
-        let raced;
-        try {
-          raced = await runCli("projection", ["run", "--request-json", JSON.stringify(firstApplyRequest)], root, { runtimeClient: racingClient });
-        } finally {
-          (process.stderr as { write: unknown }).write = originalWrite;
-        }
-        expect(raced.ok).toBe(true);
-        expect((raced.data as ProjectionResultV3)).toMatchObject({
-          status: "applied-reconcile-required",
-          refreshSignals: [],
-          applyReceipt: { acceptedChange }
-        });
-        // The deferral must be caused by the injected non-owned write, not by re-running the
-        // major-change classifier against an already-applied delta.
-        expect(racedStderr).toContain("projection post-apply worktree digest diverged from the accepted snapshot");
-        expect(racedStderr).not.toContain("accepted-reference-without-semantic-delta");
-        const committedManifest = readFileSync(join(root, "docs/architecture/.projection-manifest.json"), "utf8");
-
-        const postRacePlan = await runCli("docs", ["plan", "--profile", "repo-harness/v1"], root, { runtimeClient: racingClient });
-        expect(postRacePlan.ok, JSON.stringify(postRacePlan)).toBe(true);
-        const receiptInspection = await daemon.inspectProjectionApplyReceipt(root, (raced.data as ProjectionResultV3).applyReceipt!.lookupKey);
-        expect(receiptInspection).toMatchObject({ ok: true, data: { found: true, deliveryStatus: "pending" } });
-        // The same request replays the committed result without applying again (#265). Its refresh
-        // signals were never delivered, so the replay still reports reconcile-required.
-        const replayed = await runCli("projection", ["run", "--request-json", JSON.stringify(firstApplyRequest)], root, { runtimeClient: racingClient });
-        expect(replayed.ok, JSON.stringify(replayed)).toBe(true);
-        // The non-owned write moved the approved snapshot, so the replay proves and writes nothing (#325).
-        expect(replayed.data).toEqual({ ...(raced.data as object), replayed: true, written: false });
-        expect(applyCalls).toBe(1);
-        const ordinaryRetry = await runCli("projection", ["run", "--request-json", JSON.stringify({
-          ...firstApplyRequest,
-          requestId: "projection_request.hook_adapters_major_ordinary_retry",
-          expected: {
-            ...firstApplyRequest.expected,
-            worktreeDigest: architectureDocumentationProjectionWorktreeDigest(root, loadNativeModelFromArchContext(root), listGitVisibleFiles(root))
-          }
-        })], root, { runtimeClient: racingClient });
-        expect(ordinaryRetry.ok).toBe(false);
-        expect((ordinaryRetry as any).error).toMatchObject({
-          code: "AC_PROJECTION_APPLY_COMMITTED",
-          reasonCode: "projection-accepted-change-committed",
-          details: { requestId: firstApplyRequest.requestId, lookupKey: (raced.data as ProjectionResultV3).applyReceipt!.lookupKey }
-        });
-        expect(applyCalls).toBe(1);
-        expect(readFileSync(join(root, "docs/architecture/.projection-manifest.json"), "utf8")).toBe(committedManifest);
-
-        const staleAcceptedChange = { ...acceptedChange, changeSetId: "changeset.stale-before-write", eventId: "architecture_event.stale-before-write" };
-        const staleBeforeWrite = await runCli("projection", ["run", "--request-json", JSON.stringify({
-          ...firstApplyRequest,
-          requestId: "projection_request.stale_before_write",
-          acceptedChange: staleAcceptedChange,
-          expected: { ...firstApplyRequest.expected, worktreeDigest: `sha256:${"f".repeat(64)}` }
-        })], root, { runtimeClient: racingClient });
-        expect(staleBeforeWrite.ok).toBe(false);
-        const absentReceipt = await daemon.inspectProjectionApplyReceipt(root, projectionApplyLookupKey({
-          repositoryId: firstApplyRequest.expected.repositoryId,
-          workspaceId: firstApplyRequest.expected.workspaceId,
-          acceptedChange: staleAcceptedChange
-        }));
-        expect(absentReceipt).toMatchObject({ ok: true, data: { found: false } });
-        expect(applyCalls).toBe(1);
-      } finally {
-        await daemon.stop();
-      }
-    } finally {
-      removeTempRoot(root);
-    }
-  }, PROJECTION_CODEGRAPH_TEST_TIMEOUT_MS);
-
-  // Causation control for the race test above: identical scenario and identical apply request,
-  // with the injected non-owned mutation as the only removed variable. Without it the first
-  // accepted apply must deliver its refresh signals immediately, and the post-apply check must
-  // stay silent — a reconcile-required here would prove the race test passes for the wrong reason.
   test.each(["present", "missing"])("an accepted projection apply with no concurrent mutation delivers refresh signals on the first pass (generated %s)", async (generatedState) => {
     const { root, protocolRequest, acceptedChange } = await runAdoptedHookAdaptersScenario({ codeGraphReady: true });
     const daemon = await createStartedDaemon({
@@ -5237,8 +3289,7 @@ describe("archctx CLI", () => {
       expect(architectureDocumentationProjectionWorktreeDigest(root, loadNativeModelFromArchContext(root), listGitVisibleFiles(root))).toBe(applyRequest.expected.worktreeDigest);
       expect((applied.data as ProjectionResultV3)).toMatchObject({
         status: "applied",
-        refreshSignals: [{ signalId: (currentPlan.data as ProjectionResultV3).refreshSignals[0]!.signalId, acceptedChange }],
-        applyReceipt: { acceptedChange }
+        refreshSignals: [{ signalId: (currentPlan.data as ProjectionResultV3).refreshSignals[0]!.signalId, acceptedChange }]
       });
     } finally {
       (process.stderr as { write: unknown }).write = originalWrite;
@@ -5250,168 +3301,81 @@ describe("archctx CLI", () => {
     expect(stderrOutput).not.toContain("projection post-apply worktree digest diverged");
   }, PROJECTION_CODEGRAPH_TEST_TIMEOUT_MS);
 
-  test("projection apply over real RPC ignores concurrent .ai/harness runtime churn", async () => {
+  test("projection apply ignores concurrent .ai/harness runtime churn", async () => {
     const { root, protocolRequest, acceptedChange, signalPlan } = await runAdoptedHookAdaptersScenario({ codeGraphReady: true });
     const daemon = await createStartedDaemon({
       localStorePath: testRuntimePaths(root).localStorePath,
       codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
       codeGraphProviderFactory: () => new MockCodeGraphProvider()
     });
-    const paths = testRuntimePaths(root);
-    const rpc = new ArchctxRuntimeRpcServer(daemon, {
-      root,
-      port: 0,
-      token: "projection-runtime-churn-token",
-      connectionPath: paths.daemonConnectionPath,
-      lockPath: paths.daemonLockPath
-    });
     try {
-      const client = new RuntimeRpcClient(await rpc.start());
       let injected = false;
       const planUpdate = daemon.planUpdate.bind(daemon);
       daemon.planUpdate = async (...args) => {
-              const planned = await planUpdate(...args);
-              if (planned.ok && !injected) {
-                injected = true;
-                const runtimeEvidence = join(root, ".ai/harness/runs/live-projection.json");
-                mkdirSync(dirname(runtimeEvidence), { recursive: true });
-                writeFileSync(runtimeEvidence, "{\"status\":\"running\"}\n", "utf8");
-              }
-              return planned;
+        const planned = await planUpdate(...args);
+        if (planned.ok && !injected) {
+          injected = true;
+          const runtimeEvidence = join(root, ".ai/harness/runs/live-projection.json");
+          mkdirSync(dirname(runtimeEvidence), { recursive: true });
+          writeFileSync(runtimeEvidence, "{\"status\":\"running\"}\n", "utf8");
+        }
+        return planned;
       };
-      const racingClient = client;
       const request: ProjectionRequestV1 = {
         ...protocolRequest,
-        requestId: "projection_request.rpc_runtime_churn",
+        requestId: "projection_request.runtime_churn",
         mode: "apply",
         acceptedChange
       };
-      const applied = await runCli("projection", ["run", "--request-json", JSON.stringify(request)], root, { runtimeClient: racingClient });
+      const applied = await runCli("projection", ["run", "--request-json", JSON.stringify(request)], root, { runtimeClient: daemon });
       expect(injected).toBe(true);
       expect(applied.ok, JSON.stringify(applied)).toBe(true);
       expect(applied.data as ProjectionResultV3).toMatchObject({
         status: "applied",
-        refreshSignals: [{ signalId: (signalPlan.data as any).refreshSignals[0].signalId, acceptedChange }],
-        applyReceipt: { acceptedChange }
+        refreshSignals: [{ signalId: (signalPlan.data as any).refreshSignals[0].signalId, acceptedChange }]
       });
     } finally {
-      await rpc.stop().catch(() => undefined);
+      await daemon.stop().catch(() => undefined);
       removeTempRoot(root);
     }
   }, PROJECTION_CODEGRAPH_TEST_TIMEOUT_MS);
 
-  test("projection apply over real RPC rejects concurrent authority-input mutation without a receipt", async () => {
+  test("projection apply rejects concurrent authority-input mutation without writing", async () => {
     const { root, protocolRequest, acceptedChange } = await runAdoptedHookAdaptersScenario({ codeGraphReady: true });
     const daemon = await createStartedDaemon({
       localStorePath: testRuntimePaths(root).localStorePath,
       codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
       codeGraphProviderFactory: () => new MockCodeGraphProvider()
-    });
-    const paths = testRuntimePaths(root);
-    const rpc = new ArchctxRuntimeRpcServer(daemon, {
-      root,
-      port: 0,
-      token: "projection-authority-race-token",
-      connectionPath: paths.daemonConnectionPath,
-      lockPath: paths.daemonLockPath
     });
     const manifestPath = join(root, "docs/architecture/.projection-manifest.json");
     const manifestBefore = readFileSync(manifestPath, "utf8");
     try {
-      const client = new RuntimeRpcClient(await rpc.start());
       let injected = false;
       const planUpdate = daemon.planUpdate.bind(daemon);
       daemon.planUpdate = async (...args) => {
-              const planned = await planUpdate(...args);
-              if (planned.ok && !injected) {
-                injected = true;
-                writeFileSync(join(root, "README.md"), "# concurrent authority input mutation\n", "utf8");
-              }
-              return planned;
+        const planned = await planUpdate(...args);
+        if (planned.ok && !injected) {
+          injected = true;
+          writeFileSync(join(root, "README.md"), "# concurrent authority input mutation\n", "utf8");
+        }
+        return planned;
       };
-      const racingClient = client;
       const request: ProjectionRequestV1 = {
         ...protocolRequest,
-        requestId: "projection_request.rpc_authority_race",
+        requestId: "projection_request.authority_race",
         mode: "apply",
         acceptedChange
       };
-      const stale = await runCli("projection", ["run", "--request-json", JSON.stringify(request)], root, { runtimeClient: racingClient });
+      const stale = await runCli("projection", ["run", "--request-json", JSON.stringify(request)], root, { runtimeClient: daemon });
       expect(injected).toBe(true);
       expect(stale.ok).toBe(false);
       expect(JSON.stringify(stale)).toContain("Worktree digest changed before apply");
       expect(readFileSync(manifestPath, "utf8")).toBe(manifestBefore);
-
-      const receipt = await client.inspectProjectionApplyReceipt(root, projectionApplyLookupKey({
-        repositoryId: request.expected.repositoryId,
-        workspaceId: request.expected.workspaceId,
-        acceptedChange
-      }));
-      expect(receipt).toMatchObject({ ok: true, data: { found: false } });
     } finally {
-      await rpc.stop().catch(() => undefined);
+      await daemon.stop().catch(() => undefined);
       removeTempRoot(root);
     }
   }, PROJECTION_CODEGRAPH_TEST_TIMEOUT_MS);
-
-  // The complete real-CodeGraph fixture + approval/recovery path measured 130s locally.
-  // Keep the existing Windows allowance for this scenario on every platform.
-  test("projection CLI and RPC share results and approved RPC writes require explicit snapshot-bound approval", async () => {
-    const { root, protocolRequest, acceptedChange } = await runAdoptedHookAdaptersScenario({ codeGraphReady: true });
-    const daemon = await createStartedDaemon({
-      localStorePath: testRuntimePaths(root).localStorePath,
-      codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
-      codeGraphProviderFactory: () => new MockCodeGraphProvider()
-    });
-    const paths = testRuntimePaths(root);
-    const rpc = new ArchctxRuntimeRpcServer(daemon, {
-      root, port: 0, token: "projection-parity-test-token",
-      connectionPath: paths.daemonConnectionPath, lockPath: paths.daemonLockPath
-    });
-    try {
-      const client = new RuntimeRpcClient(await rpc.start());
-      const cli = (action: string, request: unknown, flags: string[] = []) => runCli("projection", [action, "--request-json", JSON.stringify(request), ...flags], root, { runtimeClient: client });
-      const call = (action: string, request: unknown, approved = false, atRoot = root): Promise<any> =>
-        client.mcpProjection(atRoot, { action, request } as any, approved);
-      const request: ProjectionRequestV1 = { ...protocolRequest, mode: "apply", acceptedChange, requestId: "projection_request.mcp_parity" };
-      const check = { ...request, mode: "check" };
-      expect(await call("run", check)).toEqual(await cli("run", check));
-      expect(await call("readback", request)).toEqual(await cli("readback", request));
-      expect(await call("run", request, false)).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
-      expect(await cli("approve", request, ["--approved"])).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID" } });
-      const malformed = { ...request, mode: "arbitrary-write" };
-      expect(await call("run", malformed, true)).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID" } });
-      expect(await client.docsProjection(root, { action: "apply", approved: "true" } as any)).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID" } });
-      expect(await client.agentContextProjection(root, { action: "erase" } as any)).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID" } });
-      expect(await call("run", { ...request, expected: { ...request.expected, worktreeDigest: `sha256:${"0".repeat(64)}` } }, true)).toMatchObject({ ok: false, error: { code: "AC_PRECONDITION_FAILED" } });
-      expect(await call("run", request, true, dirname(root))).toMatchObject({ ok: false });
-      const applied = await call("run", request, true);
-      expect(applied.ok, JSON.stringify(applied)).toBe(true);
-      expect(applied.data.status).toBe("applied");
-      expect(projectionResultInvariantIssues(applied.data)).toEqual([]);
-      expect(await call("readback", request)).toEqual(await cli("readback", request));
-      // Replaying the identical approved apply must not apply twice: it returns the committed result, marked replayed.
-      const readbackBeforeReplay = await call("readback", request);
-      const manifestPath = join(root, "docs", "architecture", ".projection-manifest.json");
-      const manifestBeforeReplay = readFileSync(manifestPath, "utf8");
-      const replayed = await call("run", request, true);
-      expect(replayed.ok, JSON.stringify(replayed)).toBe(true);
-      expect(replayed.data).toEqual({ ...applied.data, replayed: true, written: false });
-      expect(await call("readback", request)).toEqual(readbackBeforeReplay);
-      expect(readFileSync(manifestPath, "utf8")).toBe(manifestBeforeReplay);
-      const intent = {
-        schemaVersion: "archcontext.projection-apply-recovery-intent/v1", requestId: request.requestId, profile: request.profile,
-        receipt: { lookupKey: applied.data.applyReceipt.lookupKey, applyId: applied.data.applyReceipt.applyId }
-      };
-      expect(await call("recover", intent)).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
-      const recovered = await call("recover", intent, true);
-      expect(recovered.ok, JSON.stringify(recovered)).toBe(true);
-    } finally {
-      await rpc.stop();
-      await daemon.stop();
-      removeTempRoot(root);
-    }
-  }, 240_000);
 
   test("CLI process exit code reflects the final envelope ok value", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-exitcode-"));
@@ -5522,7 +3486,6 @@ describe("archctx CLI", () => {
         expect(envelope.data.errors.length).toBeGreaterThan(0);
       }
     } finally {
-      await runCliProcessRaw(root, "daemon", "stop", "--json");
       removeTempRoot(root);
     }
   }, DAEMON_TEST_TIMEOUT_MS);
@@ -5779,59 +3742,6 @@ async function runCliProcessRaw(root: string, ...args: string[]): Promise<{ stdo
   return collectProcess(child);
 }
 
-async function stopDaemonAndWait(root: string): Promise<void> {
-  await runCliProcess(root, "daemon", "stop").catch(() => undefined);
-  await expectFileRemoved(testRuntimePaths(root).daemonConnectionPath).catch(() => undefined);
-  await expectFileRemoved(testRuntimePaths(root).daemonLockPath).catch(() => undefined);
-}
-
-function readJsonFromProcess(child: ChildProcessWithoutNullStreams): Promise<any> {
-  return new Promise((resolve, reject) => {
-    let stdout = "";
-    let stderr = "";
-    let done = false;
-    const timeout = setTimeout(() => finish(() => reject(new Error(`Timed out waiting for daemon start: ${stderr || stdout}`))), CLI_PROCESS_TIMEOUT_MS);
-    const finish = (callback: () => void) => {
-      if (done) return;
-      done = true;
-      clearTimeout(timeout);
-      callback();
-    };
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk.toString();
-      try {
-        const parsed = JSON.parse(stdout);
-        finish(() => resolve(parsed));
-      } catch {
-        // Wait for the pretty-printed JSON object to finish.
-      }
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString();
-    });
-    child.once("exit", (code) => {
-      finish(() => reject(new Error(`daemon exited before ready (${code}): ${stderr || stdout}`)));
-    });
-  });
-}
-
-/**
- * A started daemon's working directory is outside its worktree: Windows refuses to delete any
- * process's current directory (#322). Linux and macOS allow that delete, so read the cwd there;
- * on Windows the unwrapped delete in the caller is the check.
- */
-function expectOutsideWorktree(pid: number, root: string): void {
-  const cwd = process.platform === "linux"
-    ? readlinkSync(`/proc/${pid}/cwd`)
-    : process.platform === "darwin"
-      ? execFileSync("lsof", ["-a", "-p", String(pid), "-d", "cwd", "-Fn"], { encoding: "utf8" }).split("\n").find((line) => line.startsWith("n"))?.slice(1)
-      : undefined;
-  if (process.platform === "win32") return;
-  expect(cwd, `daemon ${pid} cwd`).toBeDefined();
-  const inside = relative(realpathSync(root), cwd!);
-  expect(inside === "" || !(inside.startsWith("..") || isAbsolute(inside)), `daemon ${pid} cwd ${cwd}`).toBe(false);
-}
-
 /** The source of one top-level function of main.ts, up to its closing brace at column 0. */
 function functionBody(source: string, name: string): string {
   const start = source.search(new RegExp(`^(?:async )?function ${name}\\(`, "m"));
@@ -5878,40 +3788,6 @@ function collectProcess(child: ChildProcessWithoutNullStreams): Promise<{ stdout
       resolve({ stdout, stderr, code });
     });
   });
-}
-
-function expectProcessExit(child: ChildProcessWithoutNullStreams): Promise<void> {
-  if (child.exitCode !== null) return Promise.resolve();
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error("Timed out waiting for daemon process exit")), 5000);
-    child.once("exit", () => {
-      clearTimeout(timeout);
-      resolve();
-    });
-  });
-}
-
-async function expectFileRemoved(path: string): Promise<void> {
-  const deadline = Date.now() + 5_000;
-  while (Date.now() < deadline) {
-    if (!existsSync(path)) return;
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-  throw new Error(`Timed out waiting for file removal: ${path}`);
-}
-
-async function expectPidGone(pid: number): Promise<void> {
-  const deadline = Date.now() + 5_000;
-  while (Date.now() < deadline) {
-    try {
-      process.kill(pid, 0);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ESRCH") return;
-      throw error;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-  throw new Error(`Timed out waiting for process exit: ${pid}`);
 }
 
 test("CLI state-machines check reads the model without runtime state and refuses other arguments (#510)", async () => {

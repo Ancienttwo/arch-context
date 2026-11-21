@@ -8,7 +8,7 @@ import { digestJson, errorEnvelope, okEnvelope, type ArchitectureDebtReportV1, t
 import { findRepositoryRoot, listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import type { RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import type { ExternalDocumentationService } from "./external-documentation";
-import type { RuntimePracticeCheckpointInput } from "./rpc-types";
+import type { RuntimePracticeCheckpointInput } from "./runtime-types";
 import { runArchitectureDebtCommand, selectedProducerFailureEnvelope } from "./architecture-debt";
 
 /** The parts of the daemon's repository session this service reads. */

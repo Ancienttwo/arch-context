@@ -76,10 +76,8 @@ function projectionResult(envelope: JsonEnvelope): ProjectionResultV3 {
   return envelope.data as unknown as ProjectionResultV3;
 }
 
-/** `plan` needs only the journal lookup from the daemon; nothing was committed under this requestId. */
-const NO_PRIOR_APPLIES = {
-  listProjectionPriorCommittedApplies: async () => okEnvelope("projection.prior-committed-applies", { applies: [] })
-} as unknown as ProjectionServiceHost;
+/** Unused projection host placeholder kept typed cleanly for fixture helpers. */
+const NO_PRIOR_APPLIES = {} as unknown as ProjectionServiceHost;
 
 function depsCode(read: () => unknown): { code: string; reasonCode?: string } {
   try {

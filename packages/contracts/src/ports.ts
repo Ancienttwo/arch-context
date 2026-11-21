@@ -160,8 +160,6 @@ export interface CodeFactsPort {
 
 export interface LocalStorePort {
   migrate(): Promise<void>;
-  beginSnapshot(snapshot: RepositorySnapshot): Promise<string>;
-  commitSnapshot(snapshotId: string): Promise<void>;
   saveTaskState(taskSessionId: string, state: unknown): Promise<void>;
   readTaskState(taskSessionId: string): Promise<unknown | undefined>;
   saveReviewResult(reviewId: string, result: unknown): Promise<void>;

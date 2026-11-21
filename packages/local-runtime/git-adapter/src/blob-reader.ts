@@ -44,7 +44,7 @@ export function readOnlyGit(root: string, operation: GitReadOperation, args: str
   if (!["rev-parse", "ls-tree", "ls-files", "cat-file", "log"].includes(operation)) throw new NativeContextError("native-context-git-read-failed", { category: "unsupported-operation" });
   const unsafeArguments = (): never => { throw new NativeContextError("native-context-git-read-failed", { operation, category: "unsupported-read-arguments" }); };
   if (operation === "rev-parse") {
-    if (args.length === 1 && ["--show-toplevel", "--is-shallow-repository"].includes(args[0]!)) { /* repository metadata */ }
+    if (args.length === 1 && ["--show-toplevel", "--is-shallow-repository", "--git-dir", "--git-common-dir"].includes(args[0]!)) { /* repository metadata */ }
     else if (args.length === 1 && isGitRevisionArgument(args[0]!)) { /* bounded metadata helper */ }
     else if (args.length === 3 && args[0] === "--verify" && args[1] === "--end-of-options") assertNativeGitRevision(args[2]!);
     else unsafeArguments();

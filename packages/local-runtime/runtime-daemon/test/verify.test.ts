@@ -185,45 +185,6 @@ for (const state of ["stale", "missing"] as const) {
   }, timeout);
 }
 
-test("verify validates the worktree YAML when standalone validate uses the authoritative ledger", async () => {
-  const root = mkdtempSync(join(tmpdir(), "archctx-verify-ledger-"));
-  const daemon = await createStartedTestDaemon({ architectureLedger: { rolloutMode: "ledger-authoritative" } });
-  try {
-    fixtureGit(root, ["init", "-q"]);
-    expect((await daemon.init(root, "Verify ledger authority")).ok).toBe(true);
-    const path = ".archcontext/model/nodes/module.verify.ledger.yaml";
-    const plan = await daemon.planUpdate(root, {
-      id: "changeset.verify-ledger-node",
-      operations: [{ op: "create_entity", path, expectedHash: "missing", body: stableYaml({
-        schemaVersion: "archcontext.node/v2", id: "module.verify.ledger", kind: "module",
-        name: "Ledger node", status: "active", summary: "Retained in the ledger."
-      }) }]
-    });
-    expect(plan.ok).toBe(true);
-    const data = plan.data as { draft: { base: { worktreeDigest: string } } };
-    const applied = await daemon.applyUpdate(root, {
-      id: "changeset.verify-ledger-node", approved: true, expectedWorktreeDigest: data.draft.base.worktreeDigest
-    });
-    expect(applied.ok).toBe(true);
-    commitFixture(root);
-    rmSync(join(root, path));
-
-    const standalone = await runCli("validate", ["--json"], root, { runtimeClient: daemon });
-    expect(standalone).toMatchObject({ ok: true, data: { valid: true, architectureLedger: { readAuthority: "ledger" } } });
-    const yaml = modelStore.validateModelFiles(modelStore.listModelFiles(root));
-    expect(yaml.modelDigest).not.toBe((standalone.data as { modelDigest: string }).modelDigest);
-    const before = checkoutSnapshot(root);
-    const verify = await runCli("verify", ["--base", "HEAD", "--json"], root, { runtimeClient: daemon });
-    expect(verify).toMatchObject({ ok: true });
-    expect((verify.data as { checks: { validate: unknown } }).checks.validate).toEqual({ ok: true, data: yaml });
-    expect(publishedSchemaIssues(verifySchema, verify.data)).toEqual([]);
-    expect(checkoutSnapshot(root)).toEqual(before);
-  } finally {
-    await daemon.stop();
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
 test("verify fails closed on an invalid base and preserves the model adoption error at a valid base", async () => {
   const root = mkdtempSync(join(tmpdir(), "archctx-verify-bad-base-"));
   try {

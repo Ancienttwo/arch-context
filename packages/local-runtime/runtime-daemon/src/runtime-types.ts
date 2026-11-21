@@ -1,4 +1,5 @@
 import type { ChangeOperation } from "@archcontext/core/changeset-engine";
+import type { PracticeCatalogCommandInput } from "@archcontext/core/practice-catalog";
 import type { ArchitectureProjectionProfile } from "@archcontext/core/projection-engine";
 import type { RecommendationFeedbackAction, RecommendationFeedbackSource, RecommendationStatus } from "@archcontext/core/recommendation-engine";
 import type { CompleteTaskInput } from "@archcontext/core/review-engine";
@@ -6,9 +7,8 @@ import type {
   AcceptedArchitectureChangeReferenceV1,
   ArchitectureActorKind,
   ExternalDocumentationProvider,
+  JsonEnvelope,
   PracticeCheckpointEvent,
-  ProjectionApplyRecoveryIntentV1,
-  ProjectionApplyReceiptV1,
   ProjectionRequestV1,
   RefactorRequestV1,
   RefactorVerificationRequestV1
@@ -43,41 +43,6 @@ export interface RuntimePracticeWaiverInput {
   pathGlobs?: string[];
 }
 
-export interface RuntimeLedgerProjectInput {
-  dryRun?: boolean;
-  expectedWorktreeDigest?: string;
-}
-
-/**
- * Ordered 1-32 committed journals forming one model-transition chain. Without `approved` the daemon
- * returns a preview; approval must echo the previewed `acceptancePlanId` and worktree digest.
- */
-export interface RuntimeAcceptCommittedChangeInput {
-  journals: { journalId: string; changeSetId: string }[];
-  approved?: boolean;
-  expectedWorktreeDigest?: string;
-  acceptancePlanId?: string;
-}
-
-export interface RuntimeLedgerRebuildInput {
-  fromGit?: boolean;
-  expectedWorktreeDigest?: string;
-  acceptExternalProjection?: boolean;
-}
-
-export interface RuntimeLedgerMigrateInput {
-  fromYaml?: boolean;
-  recommendationV3?: boolean;
-  dryRun?: boolean;
-  expectedWorktreeDigest?: string;
-}
-
-export interface RuntimeLedgerRollbackInput {
-  toYaml?: boolean;
-  dryRun?: boolean;
-  expectedWorktreeDigest?: string;
-}
-
 export interface RuntimeCompleteTaskInput {
   taskSessionId?: string;
   task?: string;
@@ -106,23 +71,6 @@ export interface RuntimeApplyUpdateInput {
   approved: boolean;
   expectedWorktreeDigest: string;
   worktreeDigestProfile?: RuntimeWorktreeDigestProfile;
-  projectionApplyReceipt?: ProjectionApplyReceiptV1;
-}
-
-export interface RuntimeBookInput {
-  command?: "status" | "query" | "show" | "neighbors" | "timeline" | "diff" | "evidence" | "recommendations" | "export";
-  id?: string;
-  query?: string;
-  task?: string;
-  explain?: boolean;
-  depth?: number;
-  fromRef?: string;
-  toRef?: string;
-  sinceRef?: string;
-  openOnly?: boolean;
-  format?: "yaml" | "markdown" | "json";
-  maxItems?: number;
-  maxBytes?: number;
 }
 
 export interface RuntimeDocsInput {
@@ -154,6 +102,7 @@ export interface RuntimeDocsProjectionInput {
   expectedWorktreeDigest?: string;
   adoptionPlanId?: string;
 }
+
 export interface RuntimeAgentContextProjectionInput {
   action: "plan" | "preview" | "apply";
   id?: string;
@@ -161,52 +110,27 @@ export interface RuntimeAgentContextProjectionInput {
   approved?: boolean;
   expectedWorktreeDigest?: string;
 }
-export type RuntimeProjectionInvocation =
-  | { action: "run" | "readback"; request: ProjectionRequestV1 }
-  | { action: "recover"; request: ProjectionApplyRecoveryIntentV1 };
+
+export type RuntimeProjectionInvocation = { action: "run"; request: ProjectionRequestV1 };
 
 export interface RuntimeRecommendationInput {
-  /**
-   * `show` is a read: one recommendation (recorded, or a current scan candidate) with its evidence.
-   * `list` is a read: the latest record of every recorded recommendation in `status`, unbudgeted.
-   */
   command: "metrics" | "show" | "list" | RecommendationFeedbackAction;
   recommendationId?: string;
-  /** Required by `list`; one of `RECOMMENDATION_STATUSES`. */
   status?: RecommendationStatus;
   reason?: string;
-  /**
-   * `resolve` on a non-practice category requires resolution evidence: the gate looks the digest
-   * up in the replayed evidence state and rejects it when unrecorded, verified at a different
-   * HEAD, verified over a different worktree digest, or carrying a disposition other than
-   * resolved. `refactor verify` writes those records.
-   */
   evidenceDigest?: string;
   actor?: string;
   actorKind?: ArchitectureActorKind;
   source?: RecommendationFeedbackSource;
   expectedWorktreeDigest?: string;
-  /**
-   * `show` and the decisions on a scan candidate: the import-node read limit of the scan that
-   * finds the candidate. Give the limit the `refactor scan --import-node-limit <n>` had; a
-   * recorded recommendation is read from the ledger and needs none.
-   */
   importNodeLimit?: number;
-  /** The scan response's top-level digest for accept, defer or reject. */
   snapshotDigest?: string;
-  /**
-   * The explicit approval of one refactor decision write (ADR-0046). A decision on a
-   * `refactor_proposal` or `structural_observation` writes its Git decision file through a
-   * ChangeSet, so it requires `approved: true`; the one-shot CLI verbs pass it, every other ingress
-   * must pass it itself. Practice decisions stay ledger-only and do not read it.
-   */
   approved?: boolean;
   agentJobId?: string;
   now?: string;
 }
 
 export interface RuntimeRefactorScanInput {
-  /** Absent means the default repository-scope request; the daemon never invents a proposal. */
   request?: RefactorRequestV1;
 }
 
@@ -215,10 +139,47 @@ export interface RuntimeRefactorRecordInput {
   expectedWorktreeDigest: string;
 }
 
-/**
- * The daemon's `refactor verify` ingress is the frozen contract type itself. RF5b gave the CLI a
- * `--request-json` flag, so the shape a caller sends over JSON and the shape the daemon accepts
- * over RPC are one declaration; a daemon-local twin would let the two drift while both claim to
- * describe the same request.
- */
 export type RuntimeRefactorVerifyInput = RefactorVerificationRequestV1;
+
+export interface LocalRuntimeClient {
+  init(root: string, productName?: string): Promise<JsonEnvelope>;
+  sync(root: string, changedPaths?: string[]): Promise<JsonEnvelope>;
+  validate(root: string): Promise<JsonEnvelope>;
+  context(root: string, task: string, maxSymbols?: number): Promise<JsonEnvelope>;
+  prepare(root: string, task: string, maxBytes?: number, maxItems?: number, taskSessionId?: string): Promise<JsonEnvelope>;
+  practiceCheckpoint(root: string, input: RuntimePracticeCheckpointInput): Promise<JsonEnvelope>;
+  planPracticeWaiver(root: string, input: RuntimePracticeWaiverInput): Promise<JsonEnvelope>;
+  practices(root: string, input: PracticeCatalogCommandInput): JsonEnvelope;
+  practiceWaivers(root: string): JsonEnvelope;
+  docs(root: string, input: RuntimeDocsInput): Promise<JsonEnvelope>;
+  readResource(root: string, uri: string): Promise<JsonEnvelope>;
+  planUpdate(root: string, input: RuntimePlanUpdateInput): Promise<JsonEnvelope>;
+  applyUpdate(root: string, input: RuntimeApplyUpdateInput): Promise<JsonEnvelope>;
+  docsProjection(root: string, input: RuntimeDocsProjectionInput): Promise<JsonEnvelope>;
+  agentContextProjection(root: string, input: RuntimeAgentContextProjectionInput): Promise<JsonEnvelope>;
+  projection(root: string, input: RuntimeProjectionInvocation): Promise<JsonEnvelope>;
+  recommendations(root: string, input: RuntimeRecommendationInput): Promise<JsonEnvelope>;
+  refactorScan(root: string, input?: RuntimeRefactorScanInput): Promise<JsonEnvelope>;
+  refactorRecord(root: string, input: RuntimeRefactorRecordInput): Promise<JsonEnvelope>;
+  refactorVerify(root: string, input: RuntimeRefactorVerifyInput): Promise<JsonEnvelope>;
+  completeTask(root: string, input?: RuntimeCompleteTaskInput): Promise<JsonEnvelope>;
+  reviewTask(root: string, input?: { taskSessionId?: string; task?: string; posture?: CompleteTaskInput["posture"]; headSha?: string; changedPaths?: string[]; changeSource?: GitChangeSource; cleanupRequired?: number; cleanupCompleted?: number }): Promise<JsonEnvelope>;
+  repoAdd(root: string, name?: string): Promise<JsonEnvelope>;
+  repoList(): Promise<JsonEnvelope>;
+  repoRemove(repositoryId: string): Promise<JsonEnvelope>;
+  landscapeStatus(): Promise<JsonEnvelope>;
+  contextLandscape(task: string, maxSymbols?: number): Promise<JsonEnvelope>;
+  explorerProjectionV2(root: string, query: import("@archcontext/contracts").ExplorerProjectionQueryV2): Promise<JsonEnvelope>;
+  explorerProjectionDelta(root: string, query: import("@archcontext/contracts").ExplorerDeltaQueryV2): Promise<JsonEnvelope>;
+  explorerStatus(): JsonEnvelope;
+  explorerServiceContract(tokenTtlSeconds?: number): JsonEnvelope;
+  startExplorer(root: string, options?: ExplorerServerOptions): Promise<JsonEnvelope>;
+  stopExplorer(): Promise<JsonEnvelope>;
+  revokeExplorerToken(): Promise<JsonEnvelope>;
+  runtimeStatus(root?: string): Promise<JsonEnvelope>;
+  egressReport(root: string): Promise<unknown>;
+  stop(): Promise<void>;
+}
+
+/** @deprecated Alias kept during Stage 3–4 daemonless migration. */
+export type RuntimeDaemonClient = LocalRuntimeClient;

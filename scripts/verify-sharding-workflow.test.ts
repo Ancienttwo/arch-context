@@ -511,7 +511,7 @@ test("the impact and gate commands plan each event from its base and gate the sa
     mkdirSync(docs); mkdirSync(platform);
     mergeRepo(docs, ["docs/a.md"], ["docs/old.md", "docs/new.md"]);
     // Every workspace has a check in this fixture, so a release plan may select them all.
-    mergeRepo(platform, ["packages/local-runtime/runtime-daemon/src/rpc-server.ts", ...["contracts", "core", "local-runtime", "surfaces"].map(name => `packages/${name}/a.test.ts`), "scripts/a.test.ts"]);
+    mergeRepo(platform, ["packages/local-runtime/runtime-daemon/src/projection-writer.ts", ...["contracts", "core", "local-runtime", "surfaces"].map(name => `packages/${name}/a.test.ts`), "scripts/a.test.ts"]);
     const pr = (cwd: string) => ({ GITHUB_EVENT_NAME: "pull_request", GITHUB_REF: "refs/pull/7/merge", GITHUB_SHA: head(cwd), VERIFY_DISPATCH_SHA: "" });
     const docsPlan = run(docs, "impact", pr(docs)).outputs!;
     // Renames count both sides, as `--no-renames` lists them.
@@ -582,15 +582,12 @@ interface ReviewedScript { run: string; inputs?: string[]; scripts?: string[]; b
 
 const PLATFORM_SUITES = [
   "packages/core/changeset-engine", "packages/local-runtime/codegraph-adapter",
-  "packages/local-runtime/control-file-security", "packages/local-runtime/descriptor-write", "packages/local-runtime/git-adapter", "packages/local-runtime/local-store-sqlite",
+  "packages/local-runtime/descriptor-write", "packages/local-runtime/git-adapter", "packages/local-runtime/local-store-sqlite",
   "packages/local-runtime/runtime-state-paths", "packages/local-runtime/model-store-yaml/test/native-context.test.ts",
-  ...["daemon-control-acl", "egress-admission", "projection-writer", "rpc-argument-codec", "rpc-client",
-    "rpc-contract-boundary", "rpc-methods", "rpc-prepare-session", "rpc-server", "rpc-v2-failure-compat", "rpc-version"]
-    .map(name => `packages/local-runtime/runtime-daemon/test/${name}.test.ts`),
-  ...["rpc-version-upgrade"].map(name => `packages/surfaces/cli/test/${name}.test.ts`)
+  "packages/local-runtime/runtime-daemon/test/egress-admission.test.ts",
+  "packages/local-runtime/runtime-daemon/test/projection-writer.test.ts"
 ];
-const NODE_COMPAT_SUITES = ["packages/surfaces/cli/test/bundle-entry.test.ts",
-  "tests/ownership-change-acceptance-recovery.test.ts", "packages/contracts/test/publishability.test.ts"];
+const NODE_COMPAT_SUITES = ["packages/surfaces/cli/test/bundle-entry.test.ts", "packages/contracts/test/publishability.test.ts"];
 const REVIEWED_SCRIPTS: Record<string, ReviewedScript> = {
   "archcontext#verify:platform": { run: `bun test --timeout 60000 ${PLATFORM_SUITES.map(path => `./${path}`).join(" ")}`, inputs: PLATFORM_SUITES, bunTest: true },
   "archcontext#verify:node-compat": {
@@ -721,7 +718,7 @@ test("owner drift contract: each targeted family job equals its reviewed job and
   const tracked = new Set(TRACKED);
   const { failures, checked } = ownerDrift(workflow, manifests, tracked);
   expect(failures).toEqual([]);
-  expect(checked).toBeGreaterThanOrEqual(50);
+  expect(checked).toBeGreaterThanOrEqual(30);
   expect(Object.keys(REVIEWED_JOBS).sort()).toEqual(SCOPE.families.filter((family: any) => family.id !== SCOPE.completeSuite).flatMap((family: any) => family.jobs).sort());
   // Every bun-test family runs the root preload files; each counts them as inputs.
   const preload = ["scripts/check-bun-version.mjs", "packages/surfaces/cli/bin/bun-darwin-sqlite.ts"];
