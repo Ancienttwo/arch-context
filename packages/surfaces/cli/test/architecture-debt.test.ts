@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, rmdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -9,8 +9,10 @@ import { initializeArchContextModel } from "@archcontext/local-runtime/model-sto
 import { readArchitectureDebt } from "@archcontext/local-runtime/architecture-debt";
 import type { RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-daemon";
 import { publishedSchemaIssues } from "../../../contracts/test/published-schemas";
+import * as codegraphAdapter from "@archcontext/local-runtime/codegraph-adapter";
 import { CodeGraphSdkProvider, codeGraphBaseDirectory } from "@archcontext/local-runtime/codegraph-adapter";
 import { indexCodeGraphFixture } from "../../../local-runtime/codegraph-adapter/test/real-index";
+import { runArchitectureDebtDeltaCommand } from "../src/architecture-debt-delta";
 import { runCli } from "../src/main";
 import { McpLocalServer } from "@archcontext/surfaces/mcp-local";
 
@@ -224,21 +226,134 @@ test("missing CodeGraph evidence on either side does not manufacture a dependenc
   write(root, "src/a/main.ts", "import { other } from '../b/main';\nexport const value = other;\n");
   git(root, "add", "-A"); git(root, "commit", "-qm", "same dependency");
   indexCodeGraphFixture(root);
-  await withDebtSandbox(async () => {
-    const noBaseIndex = await readDelta(root, "HEAD", "--complete");
-    expect(noBaseIndex.head.debt.items.some(item => item.kind === "undeclared-dependency")).toBe(true);
-    expect(noBaseIndex.base.coverage).toBe("partial");
-    expect(noBaseIndex.base.coverageReasonCodes).toContain("dependencies:index-missing");
-    expect(noBaseIndex.introduced).toEqual([]);
-    if (process.platform === "win32") return;
-    expect((await new CodeGraphSdkProvider().indexAll(root)).codeGraphBase).toBe("published");
+  await withDebtSandbox(async ({ scratch }) => {
+    const worktrees = git(root, "worktree", "list", "--porcelain");
+    const initSpy = spyOn(codegraphAdapter, "initCodeGraphIndex").mockRejectedValueOnce(new Error("simulated cold-index failure"));
+    try {
+      const noBaseIndex = await readDelta(root, "HEAD", "--complete");
+      expect(noBaseIndex.head.debt.items.some(item => item.kind === "undeclared-dependency")).toBe(true);
+      expect(noBaseIndex.base.coverage).toBe("partial");
+      expect(noBaseIndex.base.coverageReasonCodes).toContain("dependencies:index-missing");
+      expect(noBaseIndex.introduced).toEqual([]);
+      expect(git(root, "worktree", "list", "--porcelain")).toBe(worktrees);
+      expect(readdirSync(scratch)).toEqual([]);
+    } finally {
+      initSpy.mockRestore();
+    }
     rmSync(join(root, ".codegraph"), { recursive: true });
     const noHeadIndex = await readDelta(root, "HEAD", "--complete");
     expect(noHeadIndex.base.coverageReasonCodes.filter(reason => reason.startsWith("dependencies:"))).toEqual([]);
     expect(noHeadIndex.head.debt.coverageReasonCodes).toContain("dependencies:index-missing");
     expect(noHeadIndex.resolvedIds).toEqual([]);
+    expect(git(root, "worktree", "list", "--porcelain")).toBe(worktrees);
+    expect(readdirSync(scratch)).toEqual([]);
   });
 }, 60_000);
+
+test("debt --base --complete cold-indexes detached base from a linked worktree without a shared base pointer (#632)", async () => {
+  const { root } = fixture();
+  // Remove `.codegraph/` from root `.gitignore` to prove cold-indexing never leaks `.codegraph/.gitignore` as unowned debt.
+  write(root, ".gitignore", ".archcontext/.local/\n");
+  write(root, "src/a/main.ts", "import { other } from '../b/main';\nexport const value = other;\n");
+  write(root, ".archcontext/model/state-machines/value.yaml", stableYaml({
+    schemaVersion: "archcontext.state-machine/v1", id: "state-machine.a.value", capabilityId: "capability.a", name: "Value",
+    regions: [{ id: "value", label: "Value", initial: "new", states: [{ id: "new", label: "New" }, { id: "set", label: "Set", terminal: true }], source: { kind: "code", path: "src/a/main.ts" } }],
+    events: [{ id: "assign", label: "Assign", source: { kind: "code", path: "src/a/main.ts", symbol: "value" }, steps: [{ when: { value: ["new"] }, then: { value: "set" } }] }],
+    rules: []
+  }));
+  git(root, "add", "-A"); git(root, "commit", "-qm", "base with dependency and symbol anchor");
+  const baseSha = git(root, "rev-parse", "HEAD").trim();
+  write(root, "src/b/main.ts", "import { value } from '../a/main';\nexport const other = () => value;\n");
+  git(root, "add", "-A"); git(root, "commit", "-qm", "head adds reverse dependency");
+
+  const linkedParent = mkdtempSync(join(tmpdir(), "archctx-debt-linked-"));
+  roots.push(linkedParent);
+  const linked = join(linkedParent, "wt");
+  git(root, "worktree", "add", "-q", linked, "HEAD");
+  indexCodeGraphFixture(linked);
+  const sharedBase = codeGraphBaseDirectory(join(root, ".git"));
+  expect(existsSync(join(sharedBase, "current.json"))).toBe(false);
+
+  const hooksDir = join(root, ".git", "hooks");
+  const hooksBefore = existsSync(hooksDir) ? readdirSync(hooksDir).sort() : [];
+  await withDebtSandbox(async ({ scratch }) => {
+    const worktrees = git(root, "worktree", "list", "--porcelain");
+    const delta = await readDelta(linked, baseSha, "--complete");
+    expect(delta.base.sha).toBe(baseSha);
+    expect(delta.base.coverageReasonCodes.filter(reason =>
+      reason.startsWith("dependencies:") || reason.startsWith("flows:") || reason.startsWith("state-machines:") || reason.startsWith("anchors:")
+    )).toEqual([]);
+    expect(delta.introduced).toEqual([expect.objectContaining({
+      kind: "undeclared-dependency",
+      details: expect.objectContaining({ fromCapabilityId: "capability.b", toCapabilityId: "capability.a" })
+    })]);
+    expect(delta.resolvedIds).toEqual([]);
+    expect(git(root, "worktree", "list", "--porcelain")).toBe(worktrees);
+    expect(readdirSync(scratch)).toEqual([]);
+    expect(existsSync(hooksDir) ? readdirSync(hooksDir).sort() : []).toEqual(hooksBefore);
+    // Cache hit: removing scratch proves the complete base measurement was stored in SQLite.
+    rmdirSync(scratch);
+    expect(await readDelta(linked, baseSha, "--complete")).toEqual(delta);
+  });
+}, 120_000);
+
+test("debt --base --complete cold-indexes detached base when seeding is declined (native Windows path, #632)", async () => {
+  const { root } = fixture();
+  write(root, "src/a/main.ts", "import { other } from '../b/main';\nexport const value = other;\n");
+  git(root, "add", "-A"); git(root, "commit", "-qm", "base dependency");
+  const baseSha = git(root, "rev-parse", "HEAD").trim();
+  write(root, "src/b/main.ts", "import { value } from '../a/main';\nexport const other = () => value;\n");
+  git(root, "add", "-A"); git(root, "commit", "-qm", "head adds reverse dependency");
+  indexCodeGraphFixture(root);
+
+  const seedSpy = spyOn(codegraphAdapter, "seedCodeGraphIndexFromBase").mockReturnValue("declined");
+  try {
+    await withDebtSandbox(async ({ scratch }) => {
+      const worktrees = git(root, "worktree", "list", "--porcelain");
+      const delta = await readDelta(root, baseSha, "--complete");
+      expect(seedSpy).toHaveBeenCalled();
+      expect(delta.base.coverageReasonCodes.filter(reason =>
+        reason.startsWith("dependencies:") || reason.startsWith("flows:") || reason.startsWith("state-machines:") || reason.startsWith("anchors:")
+      )).toEqual([]);
+      expect(delta.introduced).toEqual([expect.objectContaining({
+        kind: "undeclared-dependency",
+        details: expect.objectContaining({ fromCapabilityId: "capability.b", toCapabilityId: "capability.a" })
+      })]);
+      expect(git(root, "worktree", "list", "--porcelain")).toBe(worktrees);
+      expect(readdirSync(scratch)).toEqual([]);
+      rmdirSync(scratch);
+      expect(await readDelta(root, baseSha, "--complete")).toEqual(delta);
+    });
+  } finally {
+    seedSpy.mockRestore();
+  }
+}, 120_000);
+
+test("aborting during detached base cold-index cleans up the worktree and local .codegraph state (#632)", async () => {
+  const { root } = fixture();
+  const baseSha = git(root, "rev-parse", "HEAD").trim();
+  const { FailureError } = await import("@archcontext/contracts");
+  const controller = new AbortController();
+  const seedSpy = spyOn(codegraphAdapter, "seedCodeGraphIndexFromBase").mockReturnValue("declined");
+  const initSpy = spyOn(codegraphAdapter, "initCodeGraphIndex").mockImplementation(async (worktree, options) => {
+    expect(existsSync(join(worktree, ".codegraph", ".gitignore"))).toBe(true);
+    controller.abort(new FailureError("AC_RUNTIME_UNAVAILABLE", "debt-measurement-interrupted"));
+    options?.signal?.throwIfAborted();
+  });
+  try {
+    await withDebtSandbox(async ({ state, scratch }) => {
+      const worktrees = git(root, "worktree", "list", "--porcelain");
+      const result = await runArchitectureDebtDeltaCommand(root, baseSha, true, controller.signal);
+      expect(result).toMatchObject({ ok: false, error: { reasonCode: "debt-measurement-interrupted" } });
+      expect(git(root, "worktree", "list", "--porcelain")).toBe(worktrees);
+      expect(readdirSync(state)).toEqual([]);
+      expect(readdirSync(scratch)).toEqual([]);
+    });
+  } finally {
+    initSpy.mockRestore();
+    seedSpy.mockRestore();
+  }
+});
 
 test("an unadopted base reports unknown coverage without classifying existing debt as introduced", async () => {
   const { root } = fixture();
