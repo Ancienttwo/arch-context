@@ -15,7 +15,7 @@
     "projectionInputDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
     "rendererVersion": "archcontext.docs-renderer/v6",
     "layoutVersion": "archcontext.docs-layout/v1",
-    "generatedFrom": { "codeGraphPackage": "@colbymchenry/codegraph", "codeGraphVersion": "1.6.2", "codeGraphStatus": "ready" }
+    "generatedFrom": { "codeGraphPackage": "@colbymchenry/codegraph", "codeGraphVersion": "1.6.4", "codeGraphStatus": "ready" }
   },
   "outputSnapshot": {
     "repositoryId": "repo.example",
@@ -30,7 +30,7 @@
     "projectionInputDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "rendererVersion": "archcontext.docs-renderer/v6",
     "layoutVersion": "archcontext.docs-layout/v1",
-    "generatedFrom": { "codeGraphPackage": "@colbymchenry/codegraph", "codeGraphVersion": "1.6.2", "codeGraphStatus": "ready" }
+    "generatedFrom": { "codeGraphPackage": "@colbymchenry/codegraph", "codeGraphVersion": "1.6.4", "codeGraphStatus": "ready" }
   },
   "affectedNodeIds": ["capability.api"],
   "files": [
@@ -43,5 +43,5 @@
   ],
   "humanActions": [],
   "refreshSignals": [],
-  "receiptDigest": "sha256:2f8e73315a0ff9c678d496bf78438b47dc5a8a25eb757eda3d15718f58dd2b8c"
+  "receiptDigest": "sha256:40a248cc88b71163fbfed7aad045d975955b98d44b52d43d48a7ffcde0bb7c33"
 }

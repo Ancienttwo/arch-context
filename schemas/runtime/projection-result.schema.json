@@ -98,7 +98,7 @@
           "required": ["codeGraphPackage", "codeGraphVersion", "codeGraphStatus"],
           "properties": {
             "codeGraphPackage": { "const": "@colbymchenry/codegraph" },
-            "codeGraphVersion": { "const": "1.6.2" },
+            "codeGraphVersion": { "const": "1.6.4" },
             "codeGraphStatus": { "enum": ["ready", "unavailable"] }
           }
         }

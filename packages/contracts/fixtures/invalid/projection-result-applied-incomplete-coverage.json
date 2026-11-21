@@ -17,7 +17,7 @@
     "layoutVersion": "archcontext.docs-layout/v1",
     "generatedFrom": {
       "codeGraphPackage": "@colbymchenry/codegraph",
-      "codeGraphVersion": "1.6.2",
+      "codeGraphVersion": "1.6.4",
       "codeGraphStatus": "ready"
     }
   },
@@ -36,7 +36,7 @@
     "layoutVersion": "archcontext.docs-layout/v1",
     "generatedFrom": {
       "codeGraphPackage": "@colbymchenry/codegraph",
-      "codeGraphVersion": "1.6.2",
+      "codeGraphVersion": "1.6.4",
       "codeGraphStatus": "ready"
     }
   },
@@ -74,5 +74,5 @@
       "projection_target.entity.capability.api"
     ]
   },
-  "receiptDigest": "sha256:04b89c0dfb1f4a5771286b9b968ac585686d58ca12f62fb12a9e6d1db78aa8f2"
+  "receiptDigest": "sha256:71477b4848986a2863ca700f856b01d0c42205cbdc19c365aceba50eb1ad251b"
 }
