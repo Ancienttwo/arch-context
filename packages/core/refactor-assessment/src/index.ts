@@ -27,7 +27,7 @@ import {
   resolveOwnership,
   type ModuleStructureV1
 } from "@archcontext/core/module-statistics";
-import { nodeSubtreeIds, type NativeModel } from "@archcontext/core/projection-engine";
+import { nodeSubtreeIds, type NativeModel } from "@archcontext/core/architecture-domain";
 import { ObservationEvidenceBuilder } from "./evidence";
 import { deriveTargetDelta, withUnresolvedTargets, type TargetDeltaDerivationV1 } from "./target-delta";
 

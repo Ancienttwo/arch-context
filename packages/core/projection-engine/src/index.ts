@@ -3,12 +3,46 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, posix, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { generatedMarkerAttributes, scanDocumentRegions } from "./document-regions";
-import { globLiteralPrefixLength } from "./source-globs";
 import { renderStateMachineSection } from "./state-machine-diagrams";
 import { renderHistoryMarkdown } from "./architecture-history";
+import {
+  ancestorChain,
+  deepestOnOneParentChain,
+  globLiteralPrefixLength,
+  globRegExpCompilationCount,
+  matchesGlob,
+  modelSelectorIds,
+  nativeNodeSource,
+  nodeSubtreeIds,
+  resolveArchitectureOwnerForPath,
+  resolveArchitectureOwnersForPaths,
+  sourceIncludeAnchors,
+  type NativeModel,
+  type NativeNode,
+  type NativeNodeSource,
+  type NativeRelation,
+  type ResolveArchitectureOwnerResult
+} from "@archcontext/core/architecture-domain";
 export * from "./document-regions";
 export * from "./architecture-history";
-export * from "./source-globs";
+export {
+  ancestorChain,
+  deepestOnOneParentChain,
+  globLiteralPrefixLength,
+  globRegExpCompilationCount,
+  matchesGlob,
+  modelSelectorIds,
+  nativeNodeSource,
+  nodeSubtreeIds,
+  resolveArchitectureOwnerForPath,
+  resolveArchitectureOwnersForPaths,
+  sourceIncludeAnchors,
+  type NativeModel,
+  type NativeNode,
+  type NativeNodeSource,
+  type NativeRelation,
+  type ResolveArchitectureOwnerResult
+};
 import {
   AGENT_CONTEXT_RENDERER_VERSION as CONTRACT_AGENT_CONTEXT_RENDERER_VERSION,
   ARCHITECTURE_DOCS_PROJECTION_MANIFEST_MIGRATION_GUIDE,
@@ -110,64 +144,6 @@ export * from "./major-change";
 export * from "./preview";
 export * from "./prose-anchors";
 export * from "./semantic-diagrams";
-
-export type NativeNodeSource = ArchitectureNodeSourceV2;
-
-export interface NativeNode extends Record<string, Json | undefined> {
-  schemaVersion?: "archcontext.node/v2";
-  id: string;
-  kind: string;
-  name: string;
-  parent?: string;
-  /** Optional layer slug (ADR-0049); the only authority the layered diagram views group by. */
-  layer?: string;
-  status?: string;
-  summary?: string;
-  // Typed as Json (not NativeNodeSource) so this interface still satisfies its own
-  // Record<string, Json | undefined> index signature; use nativeNodeSource(node) to read
-  // this field with the NativeNodeSource shape.
-  source?: Json;
-  extensions?: Record<string, Json>;
-}
-
-/** Reads `node.source` (ADR-0043 `source.include`/`source.exclude`/`entrypoints`) as NativeNodeSource. */
-export function nativeNodeSource(node: NativeNode): NativeNodeSource | undefined {
-  const value = node.source;
-  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-  return value as unknown as NativeNodeSource;
-}
-
-/**
- * The ids a `<id>#symbol` selector may name in `model`: node ids, the entrypoint ids and sink ids
- * under `source.entrypoints`, and flow ids.
- */
-export function modelSelectorIds(model: { nodes: readonly NativeNode[]; flows?: readonly { id: string }[] }): string[] {
-  const ids = new Set<string>();
-  for (const node of model.nodes) {
-    ids.add(node.id);
-    for (const entrypoint of nativeNodeSource(node)?.entrypoints ?? []) {
-      ids.add(entrypoint.id);
-      for (const symbol of entrypoint.symbols) for (const sink of symbol.sinks) ids.add(sink.id);
-    }
-  }
-  for (const flow of model.flows ?? []) ids.add(flow.id);
-  return [...ids].sort();
-}
-
-export interface NativeRelation extends Record<string, Json> {
-  id: string;
-  kind: string;
-  source: string;
-  target: string;
-  intent: string;
-}
-
-export interface NativeModel {
-  layers?: string[];
-  nodes: NativeNode[];
-  relations: NativeRelation[];
-  flows?: ArchitectureFlowV1[];
-}
 
 export interface ArchitectureDecisionRecord {
   id: string;
@@ -2974,10 +2950,6 @@ function escapeDsl(value: string): string {
   return value.replace(/"/g, "'");
 }
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 // --- Agent Context Provider (ADR-0043, ADR-0056 §9) ---
 //
 // Projects one capability node's identity/source/extensions into a marker-owned region of each
@@ -3256,179 +3228,4 @@ function agentContextBeginMarker(text: string): { id: string; marker: string; ou
 
 function findAgentContextRegion(body: string, nodeId: string): AgentContextRegion | undefined {
   return parseAgentContextRegions(body).get(nodeId);
-}
-
-// --- Path Ownership Resolution (ADR-0043 tie-break, parent-chain amendment) ---
-//
-// Single implementation of the ADR-0043 path-ownership rule, in this order:
-// 1. Apply `source.exclude` first; a node with no `source.include` never participates.
-// 2. Parent chain: when every candidate lies on one `parent` chain, the deepest candidate owns the
-//    path. This is `deepestOnOneParentChain`, the same function the module-statistics ownership
-//    index (and so `refactor scan`) calls, so the two resolvers cannot disagree on this case.
-// 3. Different chains: a candidate that is an ancestor of another candidate yields to it. Among the
-//    rest, the longest literal `source.include` prefix wins, and an equal-specificity tie is
-//    rejected as ambiguous.
-// `archctx resolve --path` and `archctx resolve --paths-from` (packages/surfaces/cli/src/main.ts)
-// call this; a repo-harness adapter is expected to call the CLI rather than re-deriving it.
-
-export type ResolveArchitectureOwnerResult =
-  | { status: "matched"; node: NativeNode; owningCapabilityId: string | null }
-  | { status: "no-match"; owningCapabilityId: null }
-  | { status: "ambiguous"; candidates: NativeNode[]; owningCapabilityId: string | null };
-
-export function resolveArchitectureOwnerForPath(nodes: NativeNode[], path: string): ResolveArchitectureOwnerResult {
-  return resolveArchitectureOwnersForPaths(nodes, [path])[0];
-}
-
-/**
- * Resolves many paths against one node set, in input order. The globs are compiled once, so a
- * batch costs one model load instead of one process per path.
- *
- * `owningCapabilityId` is the nearest `kind: capability` node on the owner's parent chain (the
- * owner itself when it is a capability). For an ambiguous path it is set only when every
- * candidate has the same owning capability; otherwise it is `null`.
- */
-export function resolveArchitectureOwnersForPaths(nodes: NativeNode[], paths: readonly string[]): ResolveArchitectureOwnerResult[] {
-  const declaring = nodes.flatMap((node) => {
-    const source = nativeNodeSource(node);
-    const include = source?.include ?? [];
-    if (include.length === 0) return [];
-    return [{
-      node,
-      include: include.map((pattern) => ({ regex: globToRegExp(pattern), specificity: globLiteralPrefixLength(pattern) })),
-      exclude: (source?.exclude ?? []).map(globToRegExp)
-    }];
-  });
-  const parents = new Map<string, string | undefined>(nodes.map((node) => [node.id, node.parent]));
-  const kinds = new Map(nodes.map((node) => [node.id, node.kind]));
-  const owningCapabilityOf = (id: string): string | null => {
-    for (const ancestor of ancestorChain(id, parents)) if (kinds.get(ancestor) === "capability") return ancestor;
-    return null;
-  };
-
-  return paths.map((path): ResolveArchitectureOwnerResult => {
-    const candidates: { node: NativeNode; specificity: number }[] = [];
-    for (const entry of declaring) {
-      if (entry.exclude.some((regex) => regex.test(path))) continue;
-      const specificity = entry.include
-        .filter((pattern) => pattern.regex.test(path))
-        .reduce((max, pattern) => Math.max(max, pattern.specificity), -1);
-      if (specificity >= 0) candidates.push({ node: entry.node, specificity });
-    }
-    if (candidates.length === 0) return { status: "no-match", owningCapabilityId: null };
-
-    const chainOwner = deepestOnOneParentChain(candidates.map((candidate) => candidate.node.id), parents);
-    if (chainOwner !== undefined) {
-      const node = candidates.find((candidate) => candidate.node.id === chainOwner)!.node;
-      return { status: "matched", node, owningCapabilityId: owningCapabilityOf(node.id) };
-    }
-
-    const chains = new Map(candidates.map((candidate) => [candidate.node.id, ancestorChain(candidate.node.id, parents)]));
-    const isStrictAncestorOf = (ancestor: string, descendant: string): boolean =>
-      ancestor !== descendant && chains.get(descendant)!.has(ancestor) && !chains.get(ancestor)!.has(descendant);
-    const leaves = candidates.filter((candidate) => !candidates.some((other) => isStrictAncestorOf(candidate.node.id, other.node.id)));
-    // Only a `parent` cycle (which `validate` reports) can leave no leaf; then every candidate competes.
-    const contenders = leaves.length > 0 ? leaves : candidates;
-    const maxSpecificity = contenders.reduce((max, candidate) => Math.max(max, candidate.specificity), -1);
-    const winners = contenders.filter((candidate) => candidate.specificity === maxSpecificity).map((candidate) => candidate.node);
-    if (winners.length === 1) return { status: "matched", node: winners[0], owningCapabilityId: owningCapabilityOf(winners[0].id) };
-    const capabilities = new Set(winners.map((node) => owningCapabilityOf(node.id)));
-    return { status: "ambiguous", candidates: winners, owningCapabilityId: capabilities.size === 1 ? [...capabilities][0] : null };
-  });
-}
-
-/**
- * The parent-chain ownership rule, shared by `resolveArchitectureOwnersForPaths` and the
- * module-statistics ownership index behind `refactor scan`: when every candidate lies on one
- * `parent` chain, the deepest candidate (lowest id on a depth tie) owns the path. Returns
- * `undefined` when the candidates sit on more than one chain.
- */
-export function deepestOnOneParentChain(candidateIds: readonly string[], parents: ReadonlyMap<string, string | undefined>): string | undefined {
-  if (candidateIds.length === 0) return undefined;
-  const depthOf = (id: string): number => ancestorChain(id, parents).size - 1;
-  const deepest = candidateIds.reduce((best, id) => {
-    const bestDepth = depthOf(best);
-    const depth = depthOf(id);
-    if (depth !== bestDepth) return depth > bestDepth ? id : best;
-    return id < best ? id : best;
-  });
-  // Two distinct nodes at the same depth can never both sit on one chain, so the ancestor-set
-  // test below already covers the depth-tie case; it needs no separate branch.
-  const chain = ancestorChain(deepest, parents);
-  return candidateIds.every((id) => chain.has(id)) ? deepest : undefined;
-}
-
-/** The node plus every ancestor reachable through `parent`, nearest first. A cycle or dangling parent ends the walk. */
-export function ancestorChain(id: string, parents: ReadonlyMap<string, string | undefined>): Set<string> {
-  const chain = new Set<string>();
-  let current: string | undefined = id;
-  while (current !== undefined && parents.has(current) && !chain.has(current)) {
-    chain.add(current);
-    current = parents.get(current);
-  }
-  return chain;
-}
-
-/** The selected node and its descendants under the declared parent relation. */
-export function nodeSubtreeIds(nodes: readonly NativeNode[], nodeId: string): Set<string> {
-  const parents = new Map(nodes.map((node) => [node.id, node.parent]));
-  return new Set(nodes.filter((node) => ancestorChain(node.id, parents).has(nodeId)).map((node) => node.id));
-}
-
-export function matchesGlob(path: string, pattern: string): boolean {
-  return globToRegExp(pattern).test(path);
-}
-
-/**
- * Compiled globs by pattern, so each distinct pattern is compiled once per process instead of once
- * per (node, file, pattern) match: recompiling dominated a projection build (#324). The regexes have
- * no `g`/`y` flag, so `test` keeps no state and one instance is safe to share. Patterns come from
- * repository models (`source.include`/`exclude`) and the paths derived from them, which a
- * long-lived daemon re-reads as they change, so the cache drops its oldest entry past a fixed size
- * instead of growing with every pattern it has ever seen.
- */
-const GLOB_REGEXP_CACHE_LIMIT = 4096;
-const globRegExpCache = new Map<string, RegExp>();
-let globRegExpCompilations = 0;
-
-/** Test seam: how many globs this process has compiled (cache misses), never a cache hit. */
-export function globRegExpCompilationCount(): number {
-  return globRegExpCompilations;
-}
-
-function globToRegExp(pattern: string): RegExp {
-  const cached = globRegExpCache.get(pattern);
-  if (cached !== undefined) return cached;
-  const compiled = compileGlob(pattern);
-  globRegExpCompilations += 1;
-  if (globRegExpCache.size >= GLOB_REGEXP_CACHE_LIMIT) globRegExpCache.delete(globRegExpCache.keys().next().value!);
-  globRegExpCache.set(pattern, compiled);
-  return compiled;
-}
-
-function compileGlob(pattern: string): RegExp {
-  let out = "";
-  let index = 0;
-  while (index < pattern.length) {
-    if (pattern.startsWith("**/", index)) {
-      out += "(?:.*/)?";
-      index += 3;
-      continue;
-    }
-    if (pattern.startsWith("**", index)) {
-      out += ".*";
-      index += 2;
-      continue;
-    }
-    const char = pattern[index];
-    if (char === "*") {
-      out += "[^/]*";
-    } else if (char === "?") {
-      out += "[^/]";
-    } else {
-      out += escapeRegExp(char);
-    }
-    index += 1;
-  }
-  return new RegExp(`^${out}$`);
 }

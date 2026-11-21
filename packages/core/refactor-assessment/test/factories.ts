@@ -12,7 +12,7 @@ import {
   type RefactorRequestV1
 } from "@archcontext/contracts";
 import { measureModuleStatistics, type ModuleStatisticsInputV1, type ModuleStructureV1 } from "@archcontext/core/module-statistics";
-import type { NativeModel } from "@archcontext/core/projection-engine";
+import type { NativeModel } from "@archcontext/core/architecture-domain";
 import type { RefactorAssessmentInputV1 } from "../src/index";
 
 export function digestOf(seed: string): string {

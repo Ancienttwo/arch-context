@@ -1,3 +1,7 @@
+export * from "./source-globs";
+export * from "./native-model";
+export * from "./ownership";
+
 import { createHash } from "node:crypto";
 import { readFileSync, realpathSync, statSync } from "node:fs";
 import { resolve } from "node:path";

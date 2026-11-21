@@ -25,7 +25,7 @@ import {
   resolveOwnership,
   type ModuleStatisticsTrackedFileV1
 } from "@archcontext/core/module-statistics";
-import type { NativeModel } from "@archcontext/core/projection-engine";
+import type { NativeModel } from "@archcontext/core/architecture-domain";
 
 const DIGEST_PREFIX_LENGTH = "sha256:".length;
 const OUTCOME_ID_LENGTH = 16;

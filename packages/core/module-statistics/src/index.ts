@@ -23,7 +23,7 @@ import {
   type ModuleStatisticsV1,
   type RefactorScaleReasonCode
 } from "@archcontext/contracts";
-import { nativeNodeSource, nodeSubtreeIds, type NativeModel, type NativeNode, type NativeRelation } from "@archcontext/core/projection-engine";
+import { nativeNodeSource, nodeSubtreeIds, type NativeModel, type NativeNode, type NativeRelation } from "@archcontext/core/architecture-domain";
 import { buildModuleGraph, type ModuleGraphEdgeCounts } from "./graph";
 import { ancestorChain, resolveOwnership, type OwnershipIndex } from "./ownership";
 

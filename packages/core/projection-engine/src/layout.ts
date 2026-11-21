@@ -2,7 +2,7 @@ import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION, architectureDocsProjectionManifestIssues, architectureDocsProjectionManifestSchemaVersion, isSupersededArchitectureDocsProjectionManifestSchemaVersion, digestJson, isRepoRelativePosixPath, type ArchitectureHistoryReadReason, isRuntimeTopologyNodeKind, stableId, type ArchitectureDocsProjectionManifestV4, type Json, type ProjectionTargetV1 } from "@archcontext/contracts";
 import { ARCHITECTURE_HISTORY_PATH } from "./architecture-history";
-export { sourceIncludeAnchors as repoHarnessIncludeAnchors } from "./source-globs";
+export { sourceIncludeAnchors as repoHarnessIncludeAnchors } from "@archcontext/core/architecture-domain";
 
 export const REPO_HARNESS_PROJECTION_PROFILE = "repo-harness/v1" as const;
 export const ARCHITECTURE_DOCS_LAYOUT_VERSION = "archcontext.docs-layout/v1" as const;

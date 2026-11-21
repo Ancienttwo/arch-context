@@ -7,7 +7,7 @@ import {
   type OwnershipDeltaCategoryV1,
   type OwnershipDeltaFileV1
 } from "@archcontext/contracts";
-import { ancestorChain, deepestOnOneParentChain, globLiteralPrefixLength, matchesGlob, nativeNodeSource, type NativeNode } from "@archcontext/core/projection-engine";
+import { ancestorChain, deepestOnOneParentChain, globLiteralPrefixLength, matchesGlob, nativeNodeSource, type NativeNode } from "@archcontext/core/architecture-domain";
 
 export { ancestorChain };
 

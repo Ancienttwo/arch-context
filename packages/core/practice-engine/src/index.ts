@@ -1,7 +1,6 @@
 import { digestJson, type EffectivePracticeAssetV1, type NormalizedCodeContext, type PracticeEvidenceBinding, type PracticeEvidenceStrength, type PracticeEvidenceV1, type PracticeGuidanceResultV1, type PracticeMatchReason, type PracticeMatchV1, type PracticeProfileV1 } from "@archcontext/contracts";
-import { isArchitectureDirectionViolationSubject, isArchitectureDirectionalEdgeViolationSubject, parseArchitectureDirectionViolationSubject, type ArchitectureDirectionViolationKind } from "@archcontext/core/architecture-domain";
+import { isArchitectureDirectionViolationSubject, isArchitectureDirectionalEdgeViolationSubject, matchesGlob, parseArchitectureDirectionViolationSubject, type ArchitectureDirectionViolationKind } from "@archcontext/core/architecture-domain";
 import type { ArchitecturePressure } from "@archcontext/core/pressure-engine";
-import { matchesGlob } from "@archcontext/core/projection-engine";
 import { InMemoryLexicalRetriever, type RetrievalDocument } from "@archcontext/core/retrieval";
 export * from "./check-registry";
 export * from "./enforcement";

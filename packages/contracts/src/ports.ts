@@ -271,57 +271,6 @@ export interface InvestigationRunnerPort {
   runInvestigation(input: InvestigationRunnerInput): Promise<InvestigationReportV1>;
 }
 
-export interface RendererPort {
-  renderProjection(input: { modelDigest: string; model: unknown[] }): Promise<{ path: string; content: string }[]>;
-}
-
-export interface CloudMetadataPort {
-  verifyEntitlement(input: { repositoryVisibility: "public" | "private"; accountId?: string }): Promise<{ allowed: boolean; reason?: string }>;
-}
-
-export type NotificationResult = "pass" | "pass_with_warnings" | "fail_action_required";
-export type NotificationRiskLevel = "low" | "medium" | "high" | "critical";
-export type NotificationProviderKind = "github-check" | "slack" | "webhook" | "email";
-
-export interface NotificationEvent {
-  schemaVersion: "archcontext.notification-event/v1";
-  eventId: string;
-  prUrl: string;
-  result: NotificationResult;
-  riskLevel: NotificationRiskLevel;
-  commitSha: string;
-  runtimeVersion: string;
-  occurredAt: string;
-}
-
-export interface NotificationProviderConfig {
-  schemaVersion: "archcontext.notification-provider/v1";
-  id: string;
-  provider: NotificationProviderKind;
-  enabled: boolean;
-  target: string;
-  secretRef?: string;
-  unsubscribeUrl?: string;
-  retry: {
-    maxAttempts: number;
-    backoffSeconds: number;
-  };
-}
-
-export interface NotificationDeliveryResult {
-  providerId: string;
-  delivered: boolean;
-  idempotencyKey: string;
-  attempt: number;
-  statusCode?: number;
-  deadLettered?: boolean;
-  reason?: string;
-}
-
-export interface NotificationPublisher {
-  publish(event: NotificationEvent): Promise<NotificationDeliveryResult[]>;
-}
-
 export interface ModelProjectionFile {
   path: string;
   content: string;
@@ -817,16 +766,6 @@ export interface RetrievalDecisionRecord {
   thresholds: RetrievalDecisionThresholds;
   decision: "enable-embedding" | "keep-lexical";
   evidenceDigest: string;
-}
-
-export interface ChatGptGaToolContract {
-  schemaVersion: "archcontext.chatgpt-ga-tool/v1";
-  toolName: string;
-  surface: "cloud-metadata" | "local-runtime";
-  readOnlyByDefault: boolean;
-  dataClassification: "cloud-metadata" | "local-metadata" | "local-architecture";
-  requiresLocalConfirmationForWrite: boolean;
-  disclosure: string;
 }
 
 export interface NonLocalEgressChannel {

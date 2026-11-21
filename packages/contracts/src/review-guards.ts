@@ -1,12 +1,8 @@
 /**
- * Guards that keep a caller from forging a review conclusion, and the envelope shape the remaining
- * Cloud surfaces still record.
+ * Guards that keep a caller from forging a review conclusion.
  *
- * These live here, not with the rest of the retired governance surface, because they survive ADR-0053:
- * the runtime daemon's `completeTask` and the mcp-local `complete-task` tool use the attestation-field
- * guards for local review, and `schemas/cloud/cloud-egress-envelope.schema.json` plus the ADR-0035
- * privacy rule keep `CloudEgressEnvelope`. Keeping them in `github-governance.ts` would have made that
- * file undeletable without breaking local review.
+ * These survive ADR-0053 so local review and attestation checks reject caller-supplied conclusion
+ * or attestation fields. Keeping them outside governance files allows independent cleanup.
  */
 
 export const CALLER_PROVIDED_ATTESTATION_FIELDS = [
@@ -71,20 +67,4 @@ export function findLlmAdvisoryForbiddenFields(value: unknown): LlmAdvisoryForbi
 export function assertNoLlmAdvisoryConclusionFields(value: unknown): void {
   const fields = findLlmAdvisoryForbiddenFields(value);
   if (fields.length > 0) throw new Error(`llm-advisory-conclusion-field-forbidden: ${fields.join(",")}`);
-}
-
-/**
- * What a remaining Cloud surface records when it calls the GitHub API. ADR-0035's privacy rule and
- * `schemas/cloud/cloud-egress-envelope.schema.json` both depend on this shape.
- */
-export interface CloudEgressEnvelope {
-  schemaVersion: "archcontext.cloud-egress/v1";
-  requestId: string;
-  category: "github.metadata" | "github.pull-head" | "github.check-list-for-ref" | "github.check-create" | "github.check-update";
-  method: "GET" | "POST" | "PATCH";
-  host: "api.github.com";
-  pathTemplate: string;
-  statusCode: number;
-  latencyMs: number;
-  recordedAt: string;
 }

@@ -13,7 +13,7 @@ import {
   type RefactorObservationEvidenceV1
 } from "@archcontext/contracts";
 import type { ModuleStatisticsImportEdgeV1, ModuleStructureV1 } from "@archcontext/core/module-statistics";
-import { nativeNodeSource, type NativeModel } from "@archcontext/core/projection-engine";
+import { nativeNodeSource, type NativeModel } from "@archcontext/core/architecture-domain";
 
 /**
  * Builds each observation kind's evidence from the structure the snapshot counted.

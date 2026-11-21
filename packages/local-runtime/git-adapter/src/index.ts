@@ -3,8 +3,7 @@ import { existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, realpath
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { bindRepository, type GitTrackedTreeEntry, type RepositoryBinding } from "@archcontext/core/architecture-domain";
-import { matchesGlob } from "@archcontext/core/projection-engine";
+import { bindRepository, matchesGlob, type GitTrackedTreeEntry, type RepositoryBinding } from "@archcontext/core/architecture-domain";
 import { digestJson, FailureError, type Json } from "@archcontext/contracts";
 import { isGitRevisionArgument, localGitEnv, readGitBlobTree, readGitBlobs, readOnlyGit } from "./blob-reader";
 export * from "./blob-reader";

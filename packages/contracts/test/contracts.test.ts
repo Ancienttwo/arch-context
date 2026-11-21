@@ -244,15 +244,7 @@ const schemaByFixture: Record<string, string> = {
   "hook-debt-checkpoint": "schemas/runtime/hook-debt-checkpoint.schema.json",
   "retrieval-config": "schemas/runtime/retrieval-config.schema.json",
   "retrieval-eval": "schemas/runtime/retrieval-eval.schema.json",
-  "retrieval-decision": "schemas/runtime/retrieval-decision.schema.json",
-  "notification-event": "schemas/runtime/notification-event.schema.json",
-  "notification-provider": "schemas/runtime/notification-provider.schema.json",
-  "likec4-mapping": "schemas/integrations/likec4-mapping.schema.json",
-  "structurizr-mapping": "schemas/integrations/structurizr-mapping.schema.json",
-  "adapter-fidelity": "schemas/integrations/adapter-fidelity.schema.json",
-  "chatgpt-ga-tool": "schemas/integrations/chatgpt-ga-tool.schema.json",
-  "cloud-egress-envelope": "schemas/cloud/cloud-egress-envelope.schema.json",
-  "entitlement": "schemas/cloud/entitlement.schema.json"
+  "retrieval-decision": "schemas/runtime/retrieval-decision.schema.json"
 };
 
 test("projection request contract enforces adopt binding, unique arrays, and canonical ordering", () => {
@@ -1552,33 +1544,6 @@ describe("JSON schema contracts", () => {
     expect(fixtures).toEqual(Object.keys(schemaByFixture).sort());
   });
 
-  test("notification event is a Check-level whitelist and rejects private content fields", () => {
-    const schema = readJson("schemas/runtime/notification-event.schema.json") as any;
-    const fixture = readJson("packages/contracts/fixtures/valid/notification-event.json") as Record<string, Json>;
-    expect(Object.keys(schema.properties).sort()).toEqual([
-      "commitSha",
-      "eventId",
-      "occurredAt",
-      "prUrl",
-      "result",
-      "riskLevel",
-      "runtimeVersion",
-      "schemaVersion"
-    ]);
-    for (const field of ["code", "diff", "finding", "findings", "architectureBody", "modelBody"]) {
-      expect(validateJsonSchema(schema, { ...fixture, [field]: "private content" }).valid).toBe(false);
-    }
-  });
-
-  test("adapter fidelity contract keeps Native model as source of truth", () => {
-    const schema = readJson("schemas/integrations/adapter-fidelity.schema.json");
-    const fixture = readJson("packages/contracts/fixtures/valid/adapter-fidelity.json") as Record<string, Json>;
-    expect(validateJsonSchema(schema as any, fixture).valid).toBe(true);
-    expect(fixture.nativeIsSourceOfTruth).toBe(true);
-    expect(fixture.reverseSync).toBe("forbidden");
-    expect(fixture.protectedNativeFields).toEqual(["evidence", "verification", "constraint", "intervention"]);
-  });
-
   test("explorer projection contract is read-only and contains no SaaS egress fields", () => {
     const v2 = readJson("schemas/runtime/explorer-projection-v2.schema.json") as any;
     const v2RootProperties = Object.keys(v2.properties);
@@ -1759,16 +1724,8 @@ function fixtureNameFromSchemaVersion(schemaVersion: Json): string {
     "archcontext.retrieval-config/v1": "retrieval-config",
     "archcontext.retrieval-eval/v1": "retrieval-eval",
     "archcontext.retrieval-decision/v1": "retrieval-decision",
-    "archcontext.notification-event/v1": "notification-event",
-    "archcontext.notification-provider/v1": "notification-provider",
-    "archcontext.likec4-mapping/v1": "likec4-mapping",
-    "archcontext.structurizr-mapping/v1": "structurizr-mapping",
-    "archcontext.adapter-fidelity/v1": "adapter-fidelity",
-    "archcontext.chatgpt-ga-tool/v1": "chatgpt-ga-tool",
     "archcontext.architecture-debt-delta/v1": "architecture-debt-delta",
     "archcontext.hook-debt-checkpoint/v1": "hook-debt-checkpoint",
-    "archcontext.cloud-egress/v1": "cloud-egress-envelope",
-    "archcontext.entitlement/v1": "entitlement",
     "archcontext.native-context-export/v1": "native-context-export"
   };
   const fixtureName = byVersion[schemaVersion];
@@ -1872,14 +1829,6 @@ describe("review guard and cloud egress contracts", () => {
       "agent-caller-provided-attestation-field-forbidden: result,reviewDigest,policyDigest,modelDigest,signature,practiceViolations,practiceCheckResultDigest"
     );
     expect(() => assertNoCallerProvidedAttestationFields({ challengeId: "chal_1", taskSessionId: "task_1" }, "agent")).not.toThrow();
-  });
-
-  test("cloud egress envelope schema rejects private content keys", () => {
-    const schema = readJson("schemas/cloud/cloud-egress-envelope.schema.json") as any;
-    const fixture = readJson("packages/contracts/fixtures/valid/cloud-egress-envelope.json") as Record<string, Json>;
-    for (const field of ["source", "sourceCode", "diff", "patch", "filename", "filePath", "symbol", "finding", "prompt", "completion", "llmProvider"]) {
-      expect(validateJsonSchema(schema, { ...fixture, [field]: "private content" }).valid, field).toBe(false);
-    }
   });
 });
 

@@ -1,5 +1,5 @@
 import { canonicalize, isRefImpactBatchRequest, isRepoRelativePosixPath, nativeByteCompare, NativeContextError, okEnvelope, REF_IMPACT_BATCH_SCHEMA_VERSION, type Json, type NativeContextModel, type NativeContextSnapshot, type NativeModelRecord, type RefImpactBatchV1, type RefImpactV1 } from "@archcontext/contracts";
-import { resolveArchitectureOwnersForPaths, type NativeNode, type ResolveArchitectureOwnerResult } from "@archcontext/core/projection-engine";
+import { resolveArchitectureOwnersForPaths, type NativeNode, type ResolveArchitectureOwnerResult } from "@archcontext/core/architecture-domain";
 import { decodeUtf8, readGitBlobTree, readGitBlobs, readNativeGitRoot, resolveNativeGitSnapshot, type GitBlobTreeEntry } from "../../git-adapter/src/blob-reader";
 import { exportNativeContext } from "./native-context";
 import { readRefImpactFacts } from "../../codegraph-adapter/src/ref-impact-facts";
