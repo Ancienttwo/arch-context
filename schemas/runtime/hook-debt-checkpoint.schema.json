@@ -2,8 +2,8 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://archctx.repoharness.com/schemas/runtime/hook-debt-checkpoint.schema.json",
   "title": "ArchitectureDebtHookCheckpointV1",
-  "type": "object",
   "additionalProperties": false,
+  "type": "object",
   "required": [
     "schemaVersion",
     "debt",
@@ -17,8 +17,8 @@
       "$ref": "architecture-debt.schema.json"
     },
     "hookLog": {
-      "type": "object",
       "additionalProperties": false,
+      "type": "object",
       "required": [
         "schemaVersion",
         "event",
@@ -35,24 +35,24 @@
           "const": "archcontext.hook-log/v1"
         },
         "event": {
-          "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "type": "string"
         },
         "elapsedMs": {
-          "type": "number",
-          "minimum": 0
+          "minimum": 0,
+          "type": "number"
         },
         "pathCount": {
-          "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "type": "integer"
         },
         "changedPathDigest": {
-          "type": "string",
-          "pattern": "^sha256:[0-9a-f]{64}$"
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
         },
         "reasonCode": {
-          "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "type": "string"
         },
         "failOpen": {
           "const": false

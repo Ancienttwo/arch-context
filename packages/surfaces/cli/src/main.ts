@@ -2121,7 +2121,6 @@ async function doctorReport(cwd: string, args: string[] = []) {
       product: product.product.version,
       cli: product.surfaces.cli.version,
       daemon: product.surfaces.daemon.version,
-      mcp: product.surfaces.mcp.version,
       rpcSchemaVersion: product.runtime.localRpc.schemaVersion,
       schemaSetVersion: product.schemas.schemaSetVersion
     },

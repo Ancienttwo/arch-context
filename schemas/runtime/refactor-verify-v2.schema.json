@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archcontext.dev/schemas/runtime/refactor-verify-v2.schema.json",
+  "title": "RefactorVerifyV2",
+  "description": "v2 Stage 5 attested resolution verification output for `archctx verify <id> --json` (#643).",
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "recommendationId",
+    "headSha",
+    "snapshotDigest",
+    "disposition",
+    "resolutionDigest",
+    "killListChecks",
+    "metricChecks",
+    "blockingReasons"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "archcontext.refactor-verify/v2"
+    },
+    "recommendationId": {
+      "pattern": "^recommendation\\.[a-f0-9]{16}$",
+      "type": "string"
+    },
+    "headSha": {
+      "pattern": "^[a-f0-9]{40}$",
+      "type": "string"
+    },
+    "snapshotDigest": {
+      "pattern": "^sha256:[a-f0-9]{64}$",
+      "type": "string"
+    },
+    "disposition": {
+      "type": "string",
+      "enum": [
+        "resolved",
+        "partially_resolved",
+        "unresolved",
+        "regressed",
+        "stale"
+      ]
+    },
+    "resolutionDigest": {
+      "pattern": "^sha256:[a-f0-9]{64}$",
+      "type": "string"
+    },
+    "killListChecks": {
+      "type": "array",
+      "items": {
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "target",
+          "required",
+          "status"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "path",
+              "relation",
+              "symbol"
+            ]
+          },
+          "target": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "removed",
+              "still-present",
+              "uncheckable"
+            ]
+          }
+        }
+      }
+    },
+    "metricChecks": {
+      "type": "array",
+      "items": {
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "metric",
+          "before",
+          "after",
+          "satisfied"
+        ],
+        "properties": {
+          "metric": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "before": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "after": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "satisfied": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "blockingReasons": {
+      "uniqueItems": true,
+      "type": "array",
+      "items": {
+        "minLength": 1,
+        "maxLength": 1024,
+        "type": "string"
+      }
+    }
+  }
+}

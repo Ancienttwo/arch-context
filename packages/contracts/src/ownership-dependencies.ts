@@ -1,4 +1,19 @@
 import type { EvidenceCoverageLevelV2 } from "./ledger";
+import {
+  Const,
+  CountSchema,
+  GitCommitShaSchema,
+  NonEmptyStringSchema,
+  NullableType,
+  PositiveIntSchema,
+  RawEnum,
+  SchemaDocument,
+  Sha256DigestSchema,
+  StrictObject,
+  Type,
+  UniqueStringArray,
+  type Static
+} from "./schema-kit";
 
 // --- ChangeSet ownership delta (plan preview) ---
 //
@@ -167,3 +182,82 @@ export interface CapabilityDependenciesV1 {
   /** Attributed file-level edges behind `matrix`, sorted by path. */
   edges: { limit: number; count: number; omittedCount: number; items: CapabilityDependencyEdgeV1[] };
 }
+
+export const CapabilityDependenciesBodySchema = StrictObject({
+  schemaVersion: Const(CAPABILITY_DEPENDENCIES_SCHEMA_VERSION),
+  ownershipRule: Const("parent-chain"),
+  filter: StrictObject({
+    from: NullableType("string"),
+    into: NullableType("string")
+  }),
+  capabilities: UniqueStringArray(NonEmptyStringSchema),
+  matrix: Type.Array(
+    StrictObject(
+      {
+        from: NonEmptyStringSchema,
+        to: NonEmptyStringSchema,
+        imports: PositiveIntSchema,
+        calls: Type.Null(),
+        declared: Type.Boolean({
+          description:
+            "A relation of a declaring kind (every kind but deployed-on, spawns, runs-in and mounts) runs from a node that rolls up to `from` into a node that rolls up to `to`. A cell with from equal to to is always declared and lists no relation ids."
+        }),
+        relationIds: UniqueStringArray(NonEmptyStringSchema, {
+          description: "The declaring relation ids, sorted. Non-empty exactly when a cross-capability cell is declared."
+        })
+      },
+      {
+        if: { properties: { relationIds: { minItems: 1 } } },
+        then: { properties: { declared: { const: true } } }
+      }
+    )
+  ),
+  imports: StrictObject({
+    coverage: RawEnum(["complete", "partial"] as const),
+    reasonCodes: UniqueStringArray(RawEnum(["code-facts-import-limit", "code-facts-truncated"] as const)),
+    truncated: Type.Boolean(),
+    importNodeCount: NullableType("integer", { minimum: 0 }),
+    importNodeLimit: PositiveIntSchema,
+    importNodeLimitExceeded: Type.Boolean(),
+    edgeCount: CountSchema,
+    unresolvedCount: CountSchema,
+    unattributed: StrictObject({
+      unownedEndpoint: CountSchema,
+      contestedEndpoint: CountSchema,
+      noCapabilityEndpoint: CountSchema
+    })
+  }),
+  calls: StrictObject({
+    coverage: Const("unknown"),
+    reasonCodes: Type.Array(Const(CAPABILITY_DEPENDENCIES_CALLS_UNAVAILABLE_REASON), { minItems: 1, maxItems: 1 })
+  }),
+  edges: StrictObject({
+    limit: CountSchema,
+    count: CountSchema,
+    omittedCount: CountSchema,
+    items: Type.Array(
+      StrictObject({
+        fromPath: NonEmptyStringSchema,
+        toPath: NonEmptyStringSchema,
+        fromCapability: NonEmptyStringSchema,
+        toCapability: NonEmptyStringSchema
+      })
+    )
+  }),
+  worktree: StrictObject({
+    headSha: GitCommitShaSchema,
+    worktreeDigest: Sha256DigestSchema
+  }),
+  privacy: StrictObject({
+    writes: Const("none")
+  })
+});
+
+export const CapabilityDependenciesSchema = SchemaDocument({
+  $id: "https://archcontext.dev/schemas/runtime/capability-dependencies.schema.json",
+  title: "CapabilityDependenciesV1",
+  description:
+    "The data of `archctx deps`: a read-only capability x capability import matrix. Owners come from the parent-chain rule `refactor scan` uses, rolled up to the nearest capability. Each cell says whether a model relation declares it. Call counts are not available in v1. Without code facts that attest to the measured tree, deps refuses with AC_CODE_FACTS_UNAVAILABLE instead of returning this data.",
+  schema: CapabilityDependenciesBodySchema
+});
+export type CapabilityDependenciesReportV1 = Static<typeof CapabilityDependenciesSchema>;

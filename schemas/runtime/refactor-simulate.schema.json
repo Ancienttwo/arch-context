@@ -1,0 +1,176 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archcontext.dev/schemas/runtime/refactor-simulate.schema.json",
+  "title": "RefactorSimulateV1",
+  "description": "Read-only move/cut impact simulation preview (#638, #643 Phase 2).",
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "headSha",
+    "operation",
+    "before",
+    "after",
+    "coverage",
+    "caveats",
+    "readOnly"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "archcontext.refactor-simulate/v1"
+    },
+    "headSha": {
+      "pattern": "^[a-f0-9]{40}$",
+      "type": "string"
+    },
+    "operation": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "kind",
+            "from",
+            "to"
+          ],
+          "properties": {
+            "kind": {
+              "const": "cut-edge"
+            },
+            "from": {
+              "type": "string",
+              "minLength": 1,
+              "not": {
+                "anyOf": [
+                  {
+                    "pattern": "^/"
+                  },
+                  {
+                    "pattern": "\\\\"
+                  },
+                  {
+                    "pattern": "(^|/)\\.\\.(/|$)"
+                  }
+                ]
+              }
+            },
+            "to": {
+              "type": "string",
+              "minLength": 1,
+              "not": {
+                "anyOf": [
+                  {
+                    "pattern": "^/"
+                  },
+                  {
+                    "pattern": "\\\\"
+                  },
+                  {
+                    "pattern": "(^|/)\\.\\.(/|$)"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "kind",
+            "from",
+            "targetNodeId"
+          ],
+          "properties": {
+            "kind": {
+              "const": "move-path"
+            },
+            "from": {
+              "type": "string",
+              "minLength": 1,
+              "not": {
+                "anyOf": [
+                  {
+                    "pattern": "^/"
+                  },
+                  {
+                    "pattern": "\\\\"
+                  },
+                  {
+                    "pattern": "(^|/)\\.\\.(/|$)"
+                  }
+                ]
+              }
+            },
+            "targetNodeId": {
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "before": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "cycleCount",
+        "undeclaredEdgeCount"
+      ],
+      "properties": {
+        "cycleCount": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "undeclaredEdgeCount": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      }
+    },
+    "after": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "cycleCount",
+        "undeclaredEdgeCount"
+      ],
+      "properties": {
+        "cycleCount": {
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "undeclaredEdgeCount": {
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      }
+    },
+    "coverage": {
+      "type": "string",
+      "enum": [
+        "static-graph-only",
+        "partial",
+        "unavailable"
+      ]
+    },
+    "caveats": {
+      "uniqueItems": true,
+      "type": "array",
+      "items": {
+        "minLength": 1,
+        "maxLength": 1024,
+        "type": "string"
+      }
+    },
+    "readOnly": {
+      "const": true
+    }
+  }
+}

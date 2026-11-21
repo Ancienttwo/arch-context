@@ -2,127 +2,345 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://archcontext.dev/schemas/runtime/runtime-verify.schema.json",
   "title": "RuntimeVerifyV1",
-  "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "base", "baseSha", "headSha", "checks"],
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "base",
+    "baseSha",
+    "headSha",
+    "checks"
+  ],
   "properties": {
-    "schemaVersion": { "const": "archcontext.runtime-verify/v1" },
-    "base": { "type": "string", "minLength": 1 },
-    "baseSha": { "$ref": "#/$defs/oid" },
-    "headSha": { "$ref": "#/$defs/oid" },
+    "schemaVersion": {
+      "const": "archcontext.runtime-verify/v1"
+    },
+    "base": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "baseSha": {
+      "$ref": "#/$defs/oid"
+    },
+    "headSha": {
+      "$ref": "#/$defs/oid"
+    },
     "checks": {
-      "type": "object",
       "additionalProperties": false,
-      "required": ["validate", "flows", "state-machines", "constraints", "docs", "projection", "debt"],
+      "type": "object",
+      "required": [
+        "validate",
+        "flows",
+        "state-machines",
+        "constraints",
+        "docs",
+        "projection",
+        "debt"
+      ],
       "properties": {
         "validate": {
           "oneOf": [
-            { "$ref": "#/$defs/failed" },
-            { "allOf": [{ "$ref": "#/$defs/passed" }, { "properties": { "data": { "$ref": "#/$defs/validation" } } }] }
+            {
+              "$ref": "#/$defs/failed"
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/passed"
+                },
+                {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/$defs/validation"
+                    }
+                  }
+                }
+              ]
+            }
           ]
         },
         "flows": {
           "oneOf": [
-            { "$ref": "#/$defs/failed" },
-            { "allOf": [{ "$ref": "#/$defs/passed" }, { "properties": { "data": { "$ref": "flow-selector-check.schema.json" } } }] }
+            {
+              "$ref": "#/$defs/failed"
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/passed"
+                },
+                {
+                  "properties": {
+                    "data": {
+                      "$ref": "flow-selector-check.schema.json"
+                    }
+                  }
+                }
+              ]
+            }
           ]
         },
         "state-machines": {
           "oneOf": [
-            { "$ref": "#/$defs/failed" },
-            { "allOf": [{ "$ref": "#/$defs/passed" }, { "properties": { "data": { "$ref": "state-machine-check.schema.json" } } }] }
+            {
+              "$ref": "#/$defs/failed"
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/passed"
+                },
+                {
+                  "properties": {
+                    "data": {
+                      "$ref": "state-machine-check.schema.json"
+                    }
+                  }
+                }
+              ]
+            }
           ]
         },
         "constraints": {
           "oneOf": [
-            { "$ref": "#/$defs/failed" },
-            { "allOf": [{ "$ref": "#/$defs/passed" }, { "properties": { "data": { "$ref": "dependency-constraint-evaluation.schema.json" } } }] }
+            {
+              "$ref": "#/$defs/failed"
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/passed"
+                },
+                {
+                  "properties": {
+                    "data": {
+                      "$ref": "dependency-constraint-evaluation.schema.json"
+                    }
+                  }
+                }
+              ]
+            }
           ]
         },
         "docs": {
           "oneOf": [
-            { "$ref": "#/$defs/failed" },
-            { "allOf": [{ "$ref": "#/$defs/passed" }, { "properties": { "data": { "$ref": "docs-anchors.schema.json" } } }] }
+            {
+              "$ref": "#/$defs/failed"
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/passed"
+                },
+                {
+                  "properties": {
+                    "data": {
+                      "$ref": "docs-anchors.schema.json"
+                    }
+                  }
+                }
+              ]
+            }
           ]
         },
         "projection": {
           "oneOf": [
-            { "$ref": "#/$defs/failed" },
-            { "allOf": [{ "$ref": "#/$defs/passed" }, { "properties": { "data": { "$ref": "projection-pr-verification.schema.json" } } }] }
+            {
+              "$ref": "#/$defs/failed"
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/passed"
+                },
+                {
+                  "properties": {
+                    "data": {
+                      "$ref": "projection-pr-verification.schema.json"
+                    }
+                  }
+                }
+              ]
+            }
           ]
         },
         "debt": {
           "oneOf": [
-            { "$ref": "#/$defs/failed" },
-            { "allOf": [{ "$ref": "#/$defs/passed" }, { "properties": { "data": { "$ref": "https://archctx.repoharness.com/schemas/runtime/architecture-debt.schema.json" } } }] }
+            {
+              "$ref": "#/$defs/failed"
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/passed"
+                },
+                {
+                  "properties": {
+                    "data": {
+                      "$ref": "https://archctx.repoharness.com/schemas/runtime/architecture-debt.schema.json"
+                    }
+                  }
+                }
+              ]
+            }
           ]
         }
       }
     }
   },
   "$defs": {
-    "oid": { "type": "string", "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$" },
-    "strings": { "type": "array", "items": { "type": "string" } },
+    "oid": {
+      "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$",
+      "type": "string"
+    },
+    "strings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
     "passed": {
-      "type": "object",
       "additionalProperties": false,
-      "required": ["ok", "data"],
-      "properties": { "ok": { "const": true }, "data": {} }
+      "type": "object",
+      "required": [
+        "ok",
+        "data"
+      ],
+      "properties": {
+        "ok": {
+          "const": true
+        },
+        "data": {}
+      }
     },
     "failed": {
-      "type": "object",
       "additionalProperties": false,
-      "required": ["ok", "error"],
+      "type": "object",
+      "required": [
+        "ok",
+        "error"
+      ],
       "properties": {
-        "ok": { "const": false },
+        "ok": {
+          "const": false
+        },
         "error": {
-          "type": "object",
           "additionalProperties": false,
-          "required": ["code", "message", "severity", "retryable", "action"],
+          "type": "object",
+          "required": [
+            "code",
+            "message",
+            "severity",
+            "retryable",
+            "action"
+          ],
           "properties": {
-            "code": { "type": "string", "pattern": "^AC_[A-Z_]+$" },
-            "message": { "type": "string" },
-            "severity": { "enum": ["notice", "warning", "error", "critical"] },
-            "retryable": { "type": "boolean" },
-            "action": { "type": "string" },
-            "reasonCode": { "type": "string" },
-            "details": { "type": "object" }
+            "code": {
+              "pattern": "^AC_[A-Z_]+$",
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            },
+            "severity": {
+              "enum": [
+                "notice",
+                "warning",
+                "error",
+                "critical"
+              ]
+            },
+            "retryable": {
+              "type": "boolean"
+            },
+            "action": {
+              "type": "string"
+            },
+            "reasonCode": {
+              "type": "string"
+            },
+            "details": {
+              "type": "object"
+            }
           }
         }
       }
     },
     "validation": {
-      "type": "object",
       "additionalProperties": false,
-      "required": ["valid", "errors", "modelDigest"],
+      "type": "object",
+      "required": [
+        "valid",
+        "errors",
+        "modelDigest"
+      ],
       "properties": {
-        "valid": { "type": "boolean" },
-        "errors": { "$ref": "#/$defs/strings" },
-        "modelDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
-        "referenceErrors": { "$ref": "#/$defs/strings" },
-        "layerOrderErrors": { "$ref": "#/$defs/strings" },
-        "allowedTargetErrors": { "$ref": "#/$defs/strings" },
-        "warnings": { "$ref": "#/$defs/strings" },
+        "valid": {
+          "type": "boolean"
+        },
+        "errors": {
+          "$ref": "#/$defs/strings"
+        },
+        "modelDigest": {
+          "pattern": "^sha256:[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "referenceErrors": {
+          "$ref": "#/$defs/strings"
+        },
+        "layerOrderErrors": {
+          "$ref": "#/$defs/strings"
+        },
+        "allowedTargetErrors": {
+          "$ref": "#/$defs/strings"
+        },
+        "warnings": {
+          "$ref": "#/$defs/strings"
+        },
         "diagnostics": {
           "type": "array",
           "items": {
-            "type": "object",
             "additionalProperties": false,
-            "required": ["path", "code", "error"],
+            "type": "object",
+            "required": [
+              "path",
+              "code",
+              "error"
+            ],
             "properties": {
-              "path": { "type": "string" },
-              "code": { "enum": ["missing-file", "schema-version-missing", "node-schema-invalid"] },
-              "error": { "type": "string" }
+              "path": {
+                "type": "string"
+              },
+              "code": {
+                "enum": [
+                  "missing-file",
+                  "schema-version-missing",
+                  "node-schema-invalid"
+                ]
+              },
+              "error": {
+                "type": "string"
+              }
             }
           }
         },
         "nodeSchemaErrors": {
           "type": "array",
           "items": {
-            "type": "object",
             "additionalProperties": false,
-            "required": ["path", "error"],
-            "properties": { "path": { "type": "string" }, "error": { "type": "string" } }
+            "type": "object",
+            "required": [
+              "path",
+              "error"
+            ],
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "error": {
+                "type": "string"
+              }
+            }
           }
         }
       }

@@ -1,92 +1,168 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://archcontext.dev/schemas/runtime/product-version-manifest.schema.json",
-  "type": "object",
+  "title": "ProductVersionManifest",
   "additionalProperties": false,
-  "required": ["schemaVersion", "product", "packageManager", "engines", "surfaces", "schemas", "runtime"],
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "product",
+    "packageManager",
+    "engines",
+    "surfaces",
+    "schemas",
+    "runtime"
+  ],
   "properties": {
-    "schemaVersion": { "const": "archcontext.product-version-manifest/v1" },
+    "schemaVersion": {
+      "const": "archcontext.product-version-manifest/v1"
+    },
     "product": {
-      "type": "object",
       "additionalProperties": false,
-      "required": ["name", "version", "distribution"],
+      "type": "object",
+      "required": [
+        "name",
+        "version",
+        "distribution"
+      ],
       "properties": {
-        "name": { "const": "archctx" },
-        "version": { "$ref": "#/$defs/semver" },
-        "distribution": { "enum": ["one-package"] }
+        "name": {
+          "const": "archctx"
+        },
+        "version": {
+          "$ref": "#/$defs/semver"
+        },
+        "distribution": {
+          "enum": [
+            "one-package"
+          ]
+        }
       }
     },
-    "packageManager": { "type": "string", "minLength": 1 },
+    "packageManager": {
+      "minLength": 1,
+      "type": "string"
+    },
     "engines": {
-      "type": "object",
       "additionalProperties": false,
-      "required": ["node"],
+      "type": "object",
+      "required": [
+        "node"
+      ],
       "properties": {
-        "node": { "const": ">=22.22 <26" }
+        "node": {
+          "const": ">=22.22 <26"
+        }
       }
     },
     "surfaces": {
-      "type": "object",
       "additionalProperties": false,
-      "required": ["cli", "daemon", "mcp"],
+      "type": "object",
+      "required": [
+        "cli",
+        "daemon"
+      ],
       "properties": {
-        "cli": { "$ref": "#/$defs/surface" },
-        "daemon": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["packageName", "version", "entrypoint", "rpcSchemaVersion"],
-          "properties": {
-            "packageName": { "type": "string", "minLength": 1 },
-            "version": { "$ref": "#/$defs/semver" },
-            "entrypoint": { "type": "string", "minLength": 1 },
-            "rpcSchemaVersion": { "const": "archcontext.runtime-rpc/v2" }
-          }
+        "cli": {
+          "$ref": "#/$defs/surface"
         },
-        "mcp": {
-          "type": "object",
+        "daemon": {
           "additionalProperties": false,
-          "required": ["packageName", "version", "entrypoint", "transport"],
+          "type": "object",
+          "required": [
+            "packageName",
+            "version",
+            "entrypoint",
+            "rpcSchemaVersion"
+          ],
           "properties": {
-            "packageName": { "type": "string", "minLength": 1 },
-            "version": { "$ref": "#/$defs/semver" },
-            "entrypoint": { "type": "string", "minLength": 1 },
-            "transport": { "enum": ["stdio"] }
+            "packageName": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "version": {
+              "$ref": "#/$defs/semver"
+            },
+            "entrypoint": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "rpcSchemaVersion": {
+              "const": "archcontext.runtime-rpc/v2"
+            }
           }
         }
       }
     },
     "schemas": {
-      "type": "object",
       "additionalProperties": false,
-      "required": ["schemaSetVersion", "contractsPackageVersion"],
+      "type": "object",
+      "required": [
+        "schemaSetVersion",
+        "contractsPackageVersion"
+      ],
       "properties": {
-        "schemaSetVersion": { "type": "string", "minLength": 1 },
-        "contractsPackageVersion": { "$ref": "#/$defs/semver" }
+        "schemaSetVersion": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "contractsPackageVersion": {
+          "$ref": "#/$defs/semver"
+        }
       }
     },
     "runtime": {
-      "type": "object",
       "additionalProperties": false,
-      "required": ["localRpc", "sqliteMigrations", "codeGraph"],
+      "type": "object",
+      "required": [
+        "localRpc",
+        "sqliteMigrations",
+        "codeGraph"
+      ],
       "properties": {
         "localRpc": {
-          "type": "object",
           "additionalProperties": false,
-          "required": ["schemaVersion", "protocol"],
+          "type": "object",
+          "required": [
+            "schemaVersion",
+            "protocol"
+          ],
           "properties": {
-            "schemaVersion": { "const": "archcontext.runtime-rpc/v2" },
-            "protocol": { "enum": ["http-loopback"] }
+            "schemaVersion": {
+              "const": "archcontext.runtime-rpc/v2"
+            },
+            "protocol": {
+              "enum": [
+                "http-loopback"
+              ]
+            }
           }
         },
-        "sqliteMigrations": { "type": "string", "minLength": 1 },
+        "sqliteMigrations": {
+          "minLength": 1,
+          "type": "string"
+        },
         "codeGraph": {
-          "type": "object",
           "additionalProperties": false,
-          "required": ["packageName", "requiredVersion", "adapter"],
+          "type": "object",
+          "required": [
+            "packageName",
+            "requiredVersion",
+            "adapter"
+          ],
           "properties": {
-            "packageName": { "const": "@colbymchenry/codegraph" },
-            "requiredVersion": { "type": "string", "minLength": 1 },
-            "adapter": { "enum": ["codegraph-cli"] }
+            "packageName": {
+              "const": "@colbymchenry/codegraph"
+            },
+            "requiredVersion": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "adapter": {
+              "enum": [
+                "codegraph-cli"
+              ]
+            }
           }
         }
       }
@@ -94,17 +170,29 @@
   },
   "$defs": {
     "semver": {
-      "type": "string",
-      "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
+      "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$",
+      "type": "string"
     },
     "surface": {
-      "type": "object",
       "additionalProperties": false,
-      "required": ["packageName", "version", "entrypoint"],
+      "type": "object",
+      "required": [
+        "packageName",
+        "version",
+        "entrypoint"
+      ],
       "properties": {
-        "packageName": { "type": "string", "minLength": 1 },
-        "version": { "$ref": "#/$defs/semver" },
-        "entrypoint": { "type": "string", "minLength": 1 }
+        "packageName": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "version": {
+          "$ref": "#/$defs/semver"
+        },
+        "entrypoint": {
+          "minLength": 1,
+          "type": "string"
+        }
       }
     }
   }

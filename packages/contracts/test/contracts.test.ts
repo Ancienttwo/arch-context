@@ -1746,7 +1746,7 @@ describe("contract utilities", () => {
     expect(failed.error?.retryable).toBe(false);
   });
 
-  test("product version manifest aligns CLI, daemon, MCP, schema, and package versions", () => {
+  test("product version manifest aligns CLI, daemon, schema, and package versions", () => {
     const manifest = productVersionManifest();
     const schema = readJson("schemas/runtime/product-version-manifest.schema.json");
     const rootManifest = readJson("package.json") as any;
@@ -1766,7 +1766,6 @@ describe("contract utilities", () => {
     expect(manifest.surfaces.daemon.version).toBe(runtimeManifest.version);
     expect(manifest.surfaces.cli.version).toBe(surfacesManifest.version);
     expect(staticCatalogManifest.productVersion).toBe(ARCHCONTEXT_PRODUCT_VERSION);
-    expect(manifest.surfaces.mcp.version).toBe(surfacesManifest.version);
     expect(LOCAL_RUNTIME_RPC_SCHEMA_VERSION).toBe("archcontext.runtime-rpc/v2");
     expect(manifest.runtime.localRpc.schemaVersion).toBe(LOCAL_RUNTIME_RPC_SCHEMA_VERSION);
     expect(manifest.surfaces.daemon.rpcSchemaVersion).toBe(LOCAL_RUNTIME_RPC_SCHEMA_VERSION);

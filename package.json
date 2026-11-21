@@ -22,6 +22,8 @@
     "test:codegraph-selector-node": "node scripts/codegraph-selector-node-integration.mjs",
     "typecheck": "tsc --noEmit",
     "test:contracts": "bun test packages/contracts/test/contracts.test.ts",
+    "generate:schemas": "bun scripts/generate-contract-schemas.ts",
+    "check:schemas": "bun scripts/generate-contract-schemas.ts --check",
     "test:practices": "bun test packages/core/practice-catalog packages/core/practice-engine",
     "test:practice-engine": "bun test packages/core/practice-engine",
     "verify:practices": "bun test packages/core/practice-catalog packages/core/practice-engine && bun packages/surfaces/cli/src/main.ts practices validate --strict && bun packages/surfaces/cli/src/main.ts practices list --json",

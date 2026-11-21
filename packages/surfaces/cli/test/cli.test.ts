@@ -2410,8 +2410,7 @@ describe("archctx CLI", () => {
         product: { ...currentProduct.product, version: "0.4.4" },
         surfaces: {
           cli: { ...currentProduct.surfaces.cli, version: "0.4.4" },
-          daemon: { ...currentProduct.surfaces.daemon, version: "0.4.4" },
-          mcp: { ...currentProduct.surfaces.mcp, version: "0.4.4" }
+          daemon: { ...currentProduct.surfaces.daemon, version: "0.4.4" }
         },
         schemas: { ...currentProduct.schemas, contractsPackageVersion: "0.4.4" }
       } as any)

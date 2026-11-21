@@ -1,0 +1,434 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archcontext.dev/schemas/runtime/refactor-scan-v2.schema.json",
+  "title": "RefactorScanV2",
+  "description": "v2 Stage 5 deterministic refactor radar output for `archctx scan --json` (#643).",
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "scope",
+    "headSha",
+    "snapshotDigest",
+    "coverage",
+    "findings",
+    "suppressed"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "archcontext.refactor-scan/v2"
+    },
+    "scope": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "const": "repository"
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "kind",
+            "nodeId"
+          ],
+          "properties": {
+            "kind": {
+              "const": "node"
+            },
+            "nodeId": {
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "kind",
+            "paths"
+          ],
+          "properties": {
+            "kind": {
+              "const": "paths"
+            },
+            "paths": {
+              "uniqueItems": true,
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "not": {
+                  "anyOf": [
+                    {
+                      "pattern": "^/"
+                    },
+                    {
+                      "pattern": "\\\\"
+                    },
+                    {
+                      "pattern": "(^|/)\\.\\.(/|$)"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "headSha": {
+      "pattern": "^[a-f0-9]{40}$",
+      "type": "string"
+    },
+    "snapshotDigest": {
+      "pattern": "^sha256:[a-f0-9]{64}$",
+      "type": "string"
+    },
+    "importNodeLimit": {
+      "minimum": 1,
+      "type": "integer"
+    },
+    "coverage": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "imports",
+        "gitHistory",
+        "reasonCodes"
+      ],
+      "properties": {
+        "imports": {
+          "type": "string",
+          "enum": [
+            "complete",
+            "partial",
+            "unavailable"
+          ]
+        },
+        "gitHistory": {
+          "type": "string",
+          "enum": [
+            "complete",
+            "shallow",
+            "unavailable"
+          ]
+        },
+        "reasonCodes": {
+          "uniqueItems": true,
+          "type": "array",
+          "items": {
+            "minLength": 1,
+            "maxLength": 1024,
+            "type": "string"
+          }
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "recommendationId",
+          "fingerprint",
+          "detector",
+          "severity",
+          "blocking",
+          "capabilityId",
+          "affectedNodeIds",
+          "affectedPaths",
+          "killList",
+          "metrics",
+          "evidence"
+        ],
+        "properties": {
+          "recommendationId": {
+            "pattern": "^recommendation\\.[a-f0-9]{16}$",
+            "type": "string"
+          },
+          "fingerprint": {
+            "pattern": "^sha256:[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "detector": {
+            "type": "string",
+            "enum": [
+              "file-cycle",
+              "component-cycle",
+              "god-file",
+              "low-cohesion-god-file",
+              "entrypoint-bypass",
+              "undeclared-dependency",
+              "purity-violation",
+              "dead-public-export",
+              "unstable-dependency",
+              "shotgun-surgery-hotspot",
+              "co-change-coupling"
+            ]
+          },
+          "severity": {
+            "enum": [
+              "notice",
+              "warning",
+              "error",
+              "critical"
+            ]
+          },
+          "blocking": {
+            "type": "boolean"
+          },
+          "capabilityId": {
+            "minLength": 1,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "affectedNodeIds": {
+            "uniqueItems": true,
+            "type": "array",
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "affectedPaths": {
+            "uniqueItems": true,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "not": {
+                "anyOf": [
+                  {
+                    "pattern": "^/"
+                  },
+                  {
+                    "pattern": "\\\\"
+                  },
+                  {
+                    "pattern": "(^|/)\\.\\.(/|$)"
+                  }
+                ]
+              }
+            }
+          },
+          "killList": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "kind",
+                    "target",
+                    "required"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "const": "path"
+                    },
+                    "target": {
+                      "type": "string",
+                      "minLength": 1,
+                      "not": {
+                        "anyOf": [
+                          {
+                            "pattern": "^/"
+                          },
+                          {
+                            "pattern": "\\\\"
+                          },
+                          {
+                            "pattern": "(^|/)\\.\\.(/|$)"
+                          }
+                        ]
+                      }
+                    },
+                    "required": {
+                      "type": "boolean"
+                    }
+                  }
+                },
+                {
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "kind",
+                    "target",
+                    "required"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "const": "relation"
+                    },
+                    "target": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "required": {
+                      "type": "boolean"
+                    }
+                  }
+                },
+                {
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "kind",
+                    "target",
+                    "required"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "const": "symbol"
+                    },
+                    "target": {
+                      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^#\\s\\\\\\u0000-\\u001f\\u007f]+#[^\\s\\u0000-\\u001f\\u007f]+$",
+                      "type": "string"
+                    },
+                    "required": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "metrics": {
+            "type": "object",
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "boolean"
+                }
+              ]
+            }
+          },
+          "evidence": {
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "summary"
+            ],
+            "properties": {
+              "summary": {
+                "minLength": 1,
+                "maxLength": 1024,
+                "type": "string"
+              },
+              "coChangeSupport": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "coChangeCoverageOk": {
+                "type": "boolean"
+              },
+              "thinDirectionEdgeCount": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "sccSize": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "instabilitySource": {
+                "minimum": 0,
+                "maximum": 1,
+                "type": "number"
+              },
+              "instabilityTarget": {
+                "minimum": 0,
+                "maximum": 1,
+                "type": "number"
+              },
+              "testCallerCoverage": {
+                "minimum": 0,
+                "maximum": 1,
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "lcomScore": {
+                "minimum": 0,
+                "type": "number"
+              },
+              "splitClusterCount": {
+                "minimum": 0,
+                "type": "integer"
+              }
+            }
+          }
+        }
+      }
+    },
+    "suppressed": {
+      "type": "array",
+      "items": {
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "recommendationId",
+          "detector",
+          "decisionStatus",
+          "reason"
+        ],
+        "properties": {
+          "recommendationId": {
+            "pattern": "^recommendation\\.[a-f0-9]{16}$",
+            "type": "string"
+          },
+          "detector": {
+            "type": "string",
+            "enum": [
+              "file-cycle",
+              "component-cycle",
+              "god-file",
+              "low-cohesion-god-file",
+              "entrypoint-bypass",
+              "undeclared-dependency",
+              "purity-violation",
+              "dead-public-export",
+              "unstable-dependency",
+              "shotgun-surgery-hotspot",
+              "co-change-coupling"
+            ]
+          },
+          "decisionStatus": {
+            "type": "string",
+            "enum": [
+              "deferred",
+              "rejected",
+              "waived",
+              "resolved"
+            ]
+          },
+          "reason": {
+            "minLength": 1,
+            "maxLength": 1024,
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

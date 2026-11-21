@@ -1,53 +1,78 @@
-export const ARCHCONTEXT_PRODUCT_NAME = "archctx";
-export const ARCHCONTEXT_PRODUCT_VERSION = "0.17.1";
-export const ARCHCONTEXT_PACKAGE_MANAGER = "bun@1.4.4";
-export const ARCHCONTEXT_NODE_RANGE = ">=22.22 <26";
-export const LOCAL_RUNTIME_RPC_SCHEMA_VERSION = "archcontext.runtime-rpc/v2";
-export const ARCHCONTEXT_SCHEMA_SET_VERSION = "2026-07-11.explorer-view-v2";
+import {
+  Const,
+  RawEnum,
+  Ref,
+  SchemaDocument,
+  SemverSchema,
+  StrictObject,
+  Type,
+  type Static
+} from "./schema-kit";
 
-export interface ProductVersionManifest {
-  schemaVersion: "archcontext.product-version-manifest/v1";
-  product: {
-    name: typeof ARCHCONTEXT_PRODUCT_NAME;
-    version: typeof ARCHCONTEXT_PRODUCT_VERSION;
-    distribution: "one-package";
-  };
-  packageManager: typeof ARCHCONTEXT_PACKAGE_MANAGER;
-  engines: {
-    node: typeof ARCHCONTEXT_NODE_RANGE;
-  };
-  surfaces: {
-    cli: ProductSurfaceVersion;
-    daemon: ProductSurfaceVersion & {
-      rpcSchemaVersion: typeof LOCAL_RUNTIME_RPC_SCHEMA_VERSION;
-    };
-    mcp: ProductSurfaceVersion & {
-      transport: "stdio";
-    };
-  };
-  schemas: {
-    schemaSetVersion: typeof ARCHCONTEXT_SCHEMA_SET_VERSION;
-    contractsPackageVersion: typeof ARCHCONTEXT_PRODUCT_VERSION;
-  };
-  runtime: {
-    localRpc: {
-      schemaVersion: typeof LOCAL_RUNTIME_RPC_SCHEMA_VERSION;
-      protocol: "http-loopback";
-    };
-    sqliteMigrations: string;
-    codeGraph: {
-      packageName: "@colbymchenry/codegraph";
-      requiredVersion: "1.6.4";
-      adapter: "codegraph-cli";
-    };
-  };
-}
+export const ARCHCONTEXT_PRODUCT_NAME = "archctx" as const;
+export const ARCHCONTEXT_PRODUCT_VERSION = "0.17.1" as const;
+export const ARCHCONTEXT_PACKAGE_MANAGER = "bun@1.4.4" as const;
+export const ARCHCONTEXT_NODE_RANGE = ">=22.22 <26" as const;
+export const LOCAL_RUNTIME_RPC_SCHEMA_VERSION = "archcontext.runtime-rpc/v2" as const;
+export const ARCHCONTEXT_SCHEMA_SET_VERSION = "2026-07-11.explorer-view-v2" as const;
 
-interface ProductSurfaceVersion {
-  packageName: string;
-  version: typeof ARCHCONTEXT_PRODUCT_VERSION;
-  entrypoint: string;
-}
+const SurfaceBodySchema = StrictObject({
+  packageName: Type.String({ minLength: 1 }),
+  version: Ref<string>("#/$defs/semver"),
+  entrypoint: Type.String({ minLength: 1 })
+});
+
+export type ProductSurfaceVersion = Static<typeof SurfaceBodySchema>;
+
+export const ProductVersionManifestBodySchema = StrictObject({
+  schemaVersion: Const("archcontext.product-version-manifest/v1"),
+  product: StrictObject({
+    name: Const(ARCHCONTEXT_PRODUCT_NAME),
+    version: Ref<string>("#/$defs/semver"),
+    distribution: RawEnum(["one-package"] as const)
+  }),
+  packageManager: Type.String({ minLength: 1 }),
+  engines: StrictObject({
+    node: Const(ARCHCONTEXT_NODE_RANGE)
+  }),
+  surfaces: StrictObject({
+    cli: Ref<ProductSurfaceVersion>("#/$defs/surface"),
+    daemon: StrictObject({
+      packageName: Type.String({ minLength: 1 }),
+      version: Ref<string>("#/$defs/semver"),
+      entrypoint: Type.String({ minLength: 1 }),
+      rpcSchemaVersion: Const(LOCAL_RUNTIME_RPC_SCHEMA_VERSION)
+    })
+  }),
+  schemas: StrictObject({
+    schemaSetVersion: Type.String({ minLength: 1 }),
+    contractsPackageVersion: Ref<string>("#/$defs/semver")
+  }),
+  runtime: StrictObject({
+    localRpc: StrictObject({
+      schemaVersion: Const(LOCAL_RUNTIME_RPC_SCHEMA_VERSION),
+      protocol: RawEnum(["http-loopback"] as const)
+    }),
+    sqliteMigrations: Type.String({ minLength: 1 }),
+    codeGraph: StrictObject({
+      packageName: Const("@colbymchenry/codegraph"),
+      requiredVersion: Type.String({ minLength: 1 }),
+      adapter: RawEnum(["codegraph-cli"] as const)
+    })
+  })
+});
+
+export const ProductVersionManifestSchema = SchemaDocument({
+  $id: "https://archcontext.dev/schemas/runtime/product-version-manifest.schema.json",
+  title: "ProductVersionManifest",
+  schema: ProductVersionManifestBodySchema,
+  $defs: {
+    semver: SemverSchema,
+    surface: SurfaceBodySchema
+  }
+});
+
+export type ProductVersionManifest = Static<typeof ProductVersionManifestSchema>;
 
 export function productVersionManifest(): ProductVersionManifest {
   return {
@@ -72,17 +97,11 @@ export function productVersionManifest(): ProductVersionManifest {
         version: ARCHCONTEXT_PRODUCT_VERSION,
         entrypoint: "archctx daemon start",
         rpcSchemaVersion: LOCAL_RUNTIME_RPC_SCHEMA_VERSION
-      },
-      mcp: {
-        packageName: "@archcontext/surfaces",
-        version: ARCHCONTEXT_PRODUCT_VERSION,
-        entrypoint: "archctx mcp",
-        transport: "stdio"
       }
     },
     schemas: {
       schemaSetVersion: ARCHCONTEXT_SCHEMA_SET_VERSION,
-      contractsPackageVersion: ARCHCONTEXT_PRODUCT_VERSION,
+      contractsPackageVersion: ARCHCONTEXT_PRODUCT_VERSION
     },
     runtime: {
       localRpc: {

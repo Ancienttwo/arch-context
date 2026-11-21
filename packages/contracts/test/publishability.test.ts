@@ -39,6 +39,7 @@ describe("@archcontext/contracts source package", () => {
       expect(stage.packageJson.private).toBe(false);
       expect(stage.packageJson.version).toBe(sourceManifest.version);
       expect(stage.packageJson.publishConfig.access).toBe("public");
+      expect(stage.packageJson.dependencies).toEqual(sourceManifest.dependencies);
       const raw = execFileSync("npm", ["pack", "--dry-run", "--json"], {
         cwd: stage.workspace,
         encoding: "utf8"

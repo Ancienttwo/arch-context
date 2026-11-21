@@ -1,3 +1,17 @@
+import {
+  Const,
+  CountSchema,
+  OneOf,
+  PositiveIntSchema,
+  RawEnum,
+  Ref,
+  RepoPathSchema,
+  SchemaDocument,
+  StrictObject,
+  Type,
+  type Static
+} from "./schema-kit";
+
 /**
  * `archctx docs anchors` (#298): a read-only signal for stale citations in human-owned text. It
  * reads the human-owned regions of module documents and node prose (`summary`,
@@ -16,70 +30,111 @@ export type DocsAnchorUncheckedReasonCode = (typeof DOCS_ANCHOR_UNCHECKED_REASON
 export const DOCS_ANCHOR_CODEGRAPH_UNAVAILABLE_REASON_CODES = ["index-missing", "index-open-failed"] as const;
 export type DocsAnchorCodeGraphUnavailableReasonCode = (typeof DOCS_ANCHOR_CODEGRAPH_UNAVAILABLE_REASON_CODES)[number];
 
-/** Where the citation is written: a human-owned document line, or a field of the node. */
-export type DocsAnchorOriginV1 =
-  | { kind: "document"; path: string; line: number }
-  | { kind: "node-summary" }
-  | { kind: "node-responsibility"; index: number };
+const DocsAnchorOriginBodySchema = OneOf([
+  StrictObject({
+    kind: Const("document"),
+    path: Ref<string>("#/$defs/repoPath"),
+    line: Ref<number>("#/$defs/line")
+  }),
+  StrictObject({ kind: Const("node-summary") }),
+  StrictObject({ kind: Const("node-responsibility"), index: Type.Integer({ minimum: 0 }) })
+]);
+export type DocsAnchorOriginV1 = Static<typeof DocsAnchorOriginBodySchema>;
 
-export interface DocsAnchorCitationV1 {
+const DocsAnchorCitationBodySchema = StrictObject({
   /** The inline code span as written, without the backticks. */
-  text: string;
+  text: Type.String({ minLength: 1 }),
   /** The cited path as written. */
-  path?: string;
+  path: Type.Optional(Type.String({ minLength: 1 })),
   /** The Git-visible file or directory the path resolved to, when it differs from `path`. */
-  resolvedPath?: string;
-  line?: number;
-  endLine?: number;
-  symbol?: string;
-}
+  resolvedPath: Type.Optional(Ref<string>("#/$defs/repoPath")),
+  line: Type.Optional(Ref<number>("#/$defs/line")),
+  endLine: Type.Optional(Ref<number>("#/$defs/line")),
+  symbol: Type.Optional(Type.String({ minLength: 1 }))
+});
+export type DocsAnchorCitationV1 = Static<typeof DocsAnchorCitationBodySchema>;
 
-export interface DocsAnchorFindingV1 {
-  kind: DocsAnchorFindingKind;
-  origin: DocsAnchorOriginV1;
-  citation: DocsAnchorCitationV1;
+const DocsAnchorFindingBodySchema = StrictObject({
+  kind: RawEnum(DOCS_ANCHOR_FINDING_KINDS),
+  origin: Ref<DocsAnchorOriginV1>("#/$defs/origin"),
+  citation: Ref<DocsAnchorCitationV1>("#/$defs/citation"),
   /** `line-out-of-range` only: the current line count of the cited file. */
-  lineCount?: number;
+  lineCount: Type.Optional(Ref<number>("#/$defs/count")),
   /** `line-moved` only: the current start lines of the cited symbol, sorted. */
-  currentLines?: number[];
-}
+  currentLines: Type.Optional(
+    Type.Array(Ref<number>("#/$defs/line"), { minItems: 1, uniqueItems: true })
+  )
+});
+export type DocsAnchorFindingV1 = Static<typeof DocsAnchorFindingBodySchema>;
 
-export interface DocsAnchorUncheckedV1 {
-  reasonCode: DocsAnchorUncheckedReasonCode;
-  origin: DocsAnchorOriginV1;
-  citation: DocsAnchorCitationV1;
-}
+const DocsAnchorUncheckedBodySchema = StrictObject({
+  reasonCode: RawEnum(DOCS_ANCHOR_UNCHECKED_REASON_CODES),
+  origin: Ref<DocsAnchorOriginV1>("#/$defs/origin"),
+  citation: Ref<DocsAnchorCitationV1>("#/$defs/citation")
+});
+export type DocsAnchorUncheckedV1 = Static<typeof DocsAnchorUncheckedBodySchema>;
 
-export interface DocsAnchorsNodeV1 {
-  nodeId: string;
+export const DocsAnchorsCodeGraphSchema = OneOf([
+  StrictObject({ availability: Const("ready") }),
+  StrictObject({
+    availability: Const("unavailable"),
+    reasonCode: RawEnum(DOCS_ANCHOR_CODEGRAPH_UNAVAILABLE_REASON_CODES)
+  })
+]);
+
+export const DocsAnchorsNodeSchema = StrictObject({
+  nodeId: Type.String({ minLength: 1 }),
   /** The node's module document, when the active layout has one and it exists. */
-  documentPath?: string;
-  citationCount: number;
-  findings: DocsAnchorFindingV1[];
-  unchecked: DocsAnchorUncheckedV1[];
-}
+  documentPath: Type.Optional(Ref<string>("#/$defs/repoPath")),
+  citationCount: Type.Integer({ minimum: 1 }),
+  findings: Type.Array(Ref<DocsAnchorFindingV1>("#/$defs/finding")),
+  unchecked: Type.Array(Ref<DocsAnchorUncheckedV1>("#/$defs/unchecked"))
+});
 
-export type DocsAnchorsCodeGraphV1 =
-  | { availability: "ready" }
-  | { availability: "unavailable"; reasonCode: DocsAnchorCodeGraphUnavailableReasonCode };
-
-export interface DocsAnchorsReportV1 {
-  schemaVersion: typeof DOCS_ANCHORS_REPORT_SCHEMA_VERSION;
-  profile: "default" | "repo-harness/v1";
-  codeGraph: DocsAnchorsCodeGraphV1;
-  summary: {
+export const DocsAnchorsReportBodySchema = StrictObject({
+  schemaVersion: Const(DOCS_ANCHORS_REPORT_SCHEMA_VERSION),
+  profile: RawEnum(["default", "repo-harness/v1"] as const),
+  codeGraph: DocsAnchorsCodeGraphSchema,
+  summary: StrictObject({
     /** Model nodes whose prose and module document were read. */
-    nodes: number;
+    nodes: Ref<number>("#/$defs/count"),
     /** Module documents read. */
-    documents: number;
-    citations: number;
-    findings: number;
-    unchecked: number;
-    byKind: Record<DocsAnchorFindingKind, number>;
-  };
+    documents: Ref<number>("#/$defs/count"),
+    citations: Ref<number>("#/$defs/count"),
+    findings: Ref<number>("#/$defs/count"),
+    unchecked: Ref<number>("#/$defs/count"),
+    byKind: StrictObject({
+      "line-moved": Ref<number>("#/$defs/count"),
+      "line-out-of-range": Ref<number>("#/$defs/count"),
+      "missing-path": Ref<number>("#/$defs/count"),
+      "missing-symbol": Ref<number>("#/$defs/count"),
+      "unknown-selector": Ref<number>("#/$defs/count")
+    })
+  }),
   /** Nodes with at least one citation, sorted by `nodeId`. */
-  nodes: DocsAnchorsNodeV1[];
-}
+  nodes: Type.Array(DocsAnchorsNodeSchema)
+});
+
+export const DocsAnchorsReportSchema = SchemaDocument({
+  $id: "https://archcontext.dev/schemas/runtime/docs-anchors.schema.json",
+  title: "DocsAnchorsReportV1",
+  description: "Read-only result of `archctx docs anchors`: stale citations in human-owned module document regions and node prose. A signal, not a gate.",
+  schema: DocsAnchorsReportBodySchema,
+  $defs: {
+    count: CountSchema,
+    line: PositiveIntSchema,
+    repoPath: RepoPathSchema,
+    origin: DocsAnchorOriginBodySchema,
+    citation: DocsAnchorCitationBodySchema,
+    finding: DocsAnchorFindingBodySchema,
+    unchecked: DocsAnchorUncheckedBodySchema
+  }
+});
+
+/** Where the citation is written: a human-owned document line, or a field of the node. */
+export type DocsAnchorsNodeV1 = Static<typeof DocsAnchorsNodeSchema>;
+export type DocsAnchorsCodeGraphV1 = Static<typeof DocsAnchorsCodeGraphSchema>;
+export type DocsAnchorsReportV1 = Static<typeof DocsAnchorsReportSchema>;
 
 export function docsAnchorsReportIssues(report: DocsAnchorsReportV1): string[] {
   const issues: string[] = [];

@@ -42,7 +42,8 @@ export function buildPublicContractsReleaseManifest(sourceManifest, packageName 
     license: sourceManifest.license,
     files: CONTRACTS_PUBLIC_FILES,
     publishConfig: { access: "public" },
-    exports: CONTRACTS_PUBLIC_EXPORTS
+    exports: CONTRACTS_PUBLIC_EXPORTS,
+    ...(sourceManifest.dependencies ? { dependencies: { ...sourceManifest.dependencies } } : {})
   };
 }
 
@@ -72,5 +73,8 @@ export function publicContractsReleaseManifestIssues(sourceManifest, packageJson
     issues.push("public contracts exports must expose root and schemas");
   }
   if (packageJson.publishConfig?.access !== "public") issues.push("public contracts package must declare public access");
+  if (JSON.stringify(packageJson.dependencies ?? null) !== JSON.stringify(sourceManifest.dependencies ?? null)) {
+    issues.push("public contracts dependencies must match source manifest");
+  }
   return issues;
 }

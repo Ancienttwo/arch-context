@@ -3,8 +3,8 @@
   "$id": "https://archctx.repoharness.com/schemas/repo/refactor-decision.schema.json",
   "title": "RefactorDecision",
   "description": "The latest human decision for one refactor recommendation generation, stored at .archcontext/refactor-decisions/<recommendationId>.json (ADR-0046). Identity that needs the core hashers (recommendationId from fingerprint and regressesFrom, the namespace-scoped subject selector) is checked by the runtime reader.",
-  "type": "object",
   "additionalProperties": false,
+  "type": "object",
   "required": [
     "schemaVersion",
     "namespace",
@@ -29,16 +29,16 @@
       "const": "archcontext.refactor-decision/v1"
     },
     "namespace": {
-      "type": "string",
-      "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9][a-z0-9-]*)+$"
+      "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9][a-z0-9-]*)+$",
+      "type": "string"
     },
     "recommendationId": {
-      "type": "string",
-      "pattern": "^recommendation\\.[a-f0-9]{16}$"
+      "pattern": "^recommendation\\.[a-f0-9]{16}$",
+      "type": "string"
     },
     "fingerprint": {
-      "type": "string",
-      "pattern": "^sha256:[a-f0-9]{64}$"
+      "pattern": "^sha256:[a-f0-9]{64}$",
+      "type": "string"
     },
     "fingerprintSchemaVersion": {
       "const": "archcontext.recommendation-fingerprint/v3"
@@ -64,14 +64,25 @@
             "ownership-ambiguous",
             "residual-cycle",
             "undeclared-footprint",
-            "unowned-paths"
+            "unowned-paths",
+            "file-cycle",
+            "component-cycle",
+            "god-file",
+            "low-cohesion-god-file",
+            "entrypoint-bypass",
+            "undeclared-dependency",
+            "purity-violation",
+            "dead-public-export",
+            "unstable-dependency",
+            "shotgun-surgery-hotspot",
+            "co-change-coupling"
           ]
         }
       ]
     },
     "subject": {
-      "type": "object",
       "additionalProperties": false,
+      "type": "object",
       "required": [
         "selectorKind",
         "stableKey",
@@ -86,29 +97,29 @@
           ]
         },
         "stableKey": {
-          "type": "string",
           "minLength": 1,
           "maxLength": 512,
-          "pattern": "^\\S(?:[^\\u0000-\\u001f\\u007f]*\\S)?$"
+          "pattern": "^\\S(?:[^\\u0000-\\u001f\\u007f]*\\S)?$",
+          "type": "string"
         },
         "subjectSelectorId": {
-          "type": "string",
-          "pattern": "^subject\\.(node|repository)\\.[a-f0-9]{16}$"
+          "pattern": "^subject\\.(node|repository)\\.[a-f0-9]{16}$",
+          "type": "string"
         }
       }
     },
     "affectedNodeIds": {
-      "type": "array",
-      "maxItems": 32,
       "uniqueItems": true,
+      "maxItems": 32,
+      "type": "array",
       "items": {
-        "type": "string",
-        "minLength": 1
+        "minLength": 1,
+        "type": "string"
       }
     },
     "affectedNodeCount": {
-      "type": "integer",
-      "minimum": 0
+      "minimum": 0,
+      "type": "integer"
     },
     "regressesFrom": {
       "anyOf": [
@@ -116,8 +127,8 @@
           "type": "null"
         },
         {
-          "type": "string",
-          "pattern": "^recommendation\\.[a-f0-9]{16}$"
+          "pattern": "^recommendation\\.[a-f0-9]{16}$",
+          "type": "string"
         }
       ]
     },
@@ -133,9 +144,9 @@
       ]
     },
     "observationScopeDigest": {
-      "type": "string",
       "pattern": "^sha256:[a-f0-9]{64}$",
-      "description": "Scope of the measured observation metrics. Absent for repository baselines."
+      "description": "Scope of the measured observation metrics. Absent for repository baselines.",
+      "type": "string"
     },
     "observationMetrics": {
       "anyOf": [
@@ -158,14 +169,14 @@
       ]
     },
     "reason": {
-      "type": "string",
       "minLength": 1,
       "maxLength": 1024,
-      "pattern": "^\\S(?:[^\\u0000-\\u001f\\u007f]*\\S)?$"
+      "pattern": "^\\S(?:[^\\u0000-\\u001f\\u007f]*\\S)?$",
+      "type": "string"
     },
     "actor": {
-      "type": "object",
       "additionalProperties": false,
+      "type": "object",
       "required": [
         "kind",
         "id"
@@ -185,20 +196,20 @@
           ]
         },
         "id": {
-          "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^\\S(?:[^\\u0000-\\u001f\\u007f]*\\S)?$"
+          "pattern": "^\\S(?:[^\\u0000-\\u001f\\u007f]*\\S)?$",
+          "type": "string"
         }
       }
     },
     "decidedAt": {
-      "type": "string",
-      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?(Z|[+-]\\d{2}:\\d{2})$"
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?(Z|[+-]\\d{2}:\\d{2})$",
+      "type": "string"
     },
     "provenance": {
-      "type": "object",
       "additionalProperties": false,
+      "type": "object",
       "required": [
         "headSha",
         "assessmentDigest",
@@ -206,18 +217,30 @@
       ],
       "properties": {
         "headSha": {
-          "type": "string",
-          "pattern": "^[a-f0-9]{40}$"
+          "pattern": "^[a-f0-9]{40}$",
+          "type": "string"
         },
         "assessmentDigest": {
-          "type": "string",
-          "pattern": "^sha256:[a-f0-9]{64}$"
+          "pattern": "^sha256:[a-f0-9]{64}$",
+          "type": "string"
         },
         "baselineSnapshotDigest": {
-          "type": "string",
-          "pattern": "^sha256:[a-f0-9]{64}$"
+          "pattern": "^sha256:[a-f0-9]{64}$",
+          "type": "string"
         }
       }
+    },
+    "snapshotDigest": {
+      "pattern": "^sha256:[a-f0-9]{64}$",
+      "type": "string"
+    },
+    "evidenceDigest": {
+      "pattern": "^sha256:[a-f0-9]{64}$",
+      "type": "string"
+    },
+    "resolutionDigest": {
+      "pattern": "^sha256:[a-f0-9]{64}$",
+      "type": "string"
     }
   }
 }

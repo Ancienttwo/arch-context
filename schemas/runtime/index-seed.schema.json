@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archcontext.dev/schemas/runtime/index-seed.schema.json",
+  "title": "IndexSeedResultV1",
+  "description": "Result of `archctx index seed` (#641): refreshes or hardlink-seeds private `.codegraph` storage separately from documentation projection.",
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "mode",
+    "worktreeRole",
+    "seededFromBase",
+    "hardlinkedFiles",
+    "copiedFiles",
+    "elapsedMs"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "archcontext.index-seed/v1"
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "primary-refresh",
+        "worktree-seed",
+        "already-present"
+      ]
+    },
+    "worktreeRole": {
+      "type": "string",
+      "enum": [
+        "primary",
+        "linked"
+      ]
+    },
+    "seededFromBase": {
+      "type": "boolean"
+    },
+    "hardlinkedFiles": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "copiedFiles": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "elapsedMs": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "indexDigest": {
+      "pattern": "^sha256:[a-f0-9]{64}$",
+      "type": "string"
+    }
+  }
+}

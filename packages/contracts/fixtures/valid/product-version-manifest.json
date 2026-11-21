@@ -20,12 +20,6 @@
       "version": "0.17.1",
       "entrypoint": "archctx daemon start",
       "rpcSchemaVersion": "archcontext.runtime-rpc/v2"
-    },
-    "mcp": {
-      "packageName": "@archcontext/surfaces",
-      "version": "0.17.1",
-      "entrypoint": "archctx mcp",
-      "transport": "stdio"
     }
   },
   "schemas": {

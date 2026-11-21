@@ -1,3 +1,16 @@
+import {
+  Const,
+  CountSchema,
+  NonEmptyStringSchema,
+  PositiveIntSchema,
+  RawEnum,
+  SchemaDocument,
+  StrictObject,
+  Type,
+  UniqueStringArray,
+  type Static
+} from "./schema-kit";
+
 export interface ArchitectureSinkSelectorV2 {
   id: string;
   path: string;
@@ -174,3 +187,90 @@ export interface ReviewPolicyV1 {
   /** `default` when the policy file is missing or invalid in any way: every category blocks. */
   source: "policy-file" | "default";
 }
+
+export const DependencyConstraintEvaluationBodySchema = StrictObject(
+  {
+    schemaVersion: Const("archcontext.dependency-constraint-evaluation/v1"),
+    status: RawEnum(DEPENDENCY_CONSTRAINT_STATUSES),
+    coverage: RawEnum(["complete", "partial", "unknown"] as const, {
+      description: "`complete` only when an index attested to the evaluated worktree and was not truncated."
+    }),
+    reasonCodes: UniqueStringArray(RawEnum(DEPENDENCY_CONSTRAINT_REASON_CODES), {
+      description: "Why a result is not a complete observation, sorted."
+    }),
+    constraintIds: Type.Array(NonEmptyStringSchema, {
+      description: "The constraints this evaluation covered, in declaration order."
+    }),
+    importEdgeCount: Type.Integer({
+      minimum: 0,
+      description: "Import observations the evaluation read; zero when the index did not attest to this tree."
+    }),
+    unresolvedImports: Type.Array(
+      StrictObject({
+        from: NonEmptyStringSchema,
+        specifier: NonEmptyStringSchema
+      }),
+      {
+        description: "Repository-local specifiers from constrained files that resolved to no file."
+      }
+    ),
+    violations: Type.Array(
+      StrictObject({
+        constraintId: NonEmptyStringSchema,
+        fromPath: NonEmptyStringSchema,
+        toPath: NonEmptyStringSchema,
+        fromNode: NonEmptyStringSchema,
+        toNode: NonEmptyStringSchema,
+        fromLayer: Type.Optional(NonEmptyStringSchema),
+        toLayer: Type.Optional(NonEmptyStringSchema),
+        severity: RawEnum(["error", "warning"] as const)
+      }),
+      {
+        description: "One record per (constraint, from path, to path), sorted by those keys."
+      }
+    ),
+    layerEdges: Type.Optional(
+      Type.Array(
+        StrictObject({
+          constraintId: NonEmptyStringSchema,
+          fromLayer: NonEmptyStringSchema,
+          toLayer: NonEmptyStringSchema,
+          imports: PositiveIntSchema
+        }),
+        {
+          description:
+            "Resolved imports between two layers of one `layer-direction` constraint. An import counts only when every owner of each endpoint carries one shared layer listed in the rule. Present only with a `layer-direction` constraint, `status` `pass` or `violated`, and `coverage` `complete`; otherwise absent. When present it may be an empty list, and it is sorted by `(constraintId, fromLayer, toLayer)`."
+        }
+      )
+    ),
+    warnings: Type.Array(NonEmptyStringSchema, {
+      description:
+        "Declaration-reader warnings, such as an unsupported rule. Every unevaluated constraint type produces one, because a validated constraint is not proof that its rule was evaluated."
+    })
+  },
+  {
+    allOf: [
+      {
+        description: "The layer edges are an observation, so they exist only for a settled verdict over complete coverage.",
+        if: { required: ["layerEdges"] },
+        then: {
+          properties: {
+            status: { enum: ["pass", "violated"] },
+            coverage: { const: "complete" }
+          }
+        }
+      }
+    ]
+  }
+);
+
+export const DependencyConstraintEvaluationSchema = SchemaDocument({
+  $id: "https://archcontext.dev/schemas/runtime/dependency-constraint-evaluation.schema.json",
+  title: "DependencyConstraintEvaluationV1",
+  description:
+    "The data of `archctx constraints check`: a read-only evaluation of the model's dependency constraints against observed import edges. `warnings` is added by the constraints-check command from the declaration reader, so it is not part of the evaluator's own type. Without code facts that attest to the measured tree, the evaluation still answers, but `coverage` is not `complete` and the import observations are dropped rather than reported as facts about some other tree.",
+  schema: DependencyConstraintEvaluationBodySchema
+});
+
+export type DependencyConstraintEvaluationReportV1 = Static<typeof DependencyConstraintEvaluationSchema>;
+
