@@ -20,15 +20,46 @@ import {
   type ArchitectureEventV1,
   type Json,
   type ModelValidationResult,
-  type ModelStorePort
+  type ModelStorePort,
+  type validateJsonSchema
 } from "@archcontext/contracts";
 import { assertAllowedArchContextPath, evaluateChangeSetPaths, type ArchContextPathScope } from "@archcontext/core/policy-engine";
 import { descriptorRelativeWrite } from "./descriptor-relative-write";
-import { MANIFEST_UPDATE_PATH, assertManifestUpdateOperation, renderManifestFieldsUpdate, type ManifestUpdateFields } from "./manifest-update";
+import { MANIFEST_UPDATE_OPERATION_SCHEMA, MANIFEST_UPDATE_PATH, assertManifestUpdateOperation, renderManifestFieldsUpdate, type ManifestUpdateFields } from "./manifest-update";
 export { MANIFEST_UPDATE_PATH, MANIFEST_UPDATE_OPERATION_SCHEMA, type ManifestUpdateFields } from "./manifest-update";
 
-import { assertAdrReferenceOperation, renderAdrReferenceUpdate, type AdrReferenceReplacement } from "./adr-reference-update";
+import { ADR_REFERENCE_OPERATION_SCHEMA, assertAdrReferenceOperation, renderAdrReferenceUpdate, type AdrReferenceReplacement } from "./adr-reference-update";
 export { ADR_REFERENCE_OPERATION_SCHEMA, assertAdrReferenceOperation, type AdrReferenceReplacement } from "./adr-reference-update";
+
+type JsonSchema = Parameters<typeof validateJsonSchema>[0];
+const nonEmptyTextSchema: JsonSchema = { type: "string", minLength: 1 };
+const planEntityOperationSchema: JsonSchema = {
+  type: "object",
+  required: ["op", "expectedHash"],
+  additionalProperties: false,
+  properties: {
+    op: { enum: ["create_entity", "update_entity_fields", "delete_entity", "write_policy", "write_waiver", "render_projection", "render_agent_context"] },
+    path: nonEmptyTextSchema,
+    entityId: nonEmptyTextSchema,
+    expectedHash: nonEmptyTextSchema,
+    body: { type: "string" },
+    projectionFiles: {
+      type: "array",
+      items: {
+        type: "object",
+        required: ["path", "expectedHash", "body"],
+        additionalProperties: false,
+        properties: { path: nonEmptyTextSchema, expectedHash: nonEmptyTextSchema, body: { type: "string" } }
+      }
+    }
+  }
+};
+
+/** Schema for `archctx plan --operations-file` operations array. */
+export const PLAN_OPERATIONS_SCHEMA: JsonSchema = {
+  type: "array",
+  items: { oneOf: [planEntityOperationSchema, MANIFEST_UPDATE_OPERATION_SCHEMA, ADR_REFERENCE_OPERATION_SCHEMA] }
+};
 
 export type ChangeSetStatus = "proposed" | "approved" | "applied" | "rolled-back" | "rejected";
 export type ChangeOperationKind =

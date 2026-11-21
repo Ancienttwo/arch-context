@@ -5,9 +5,8 @@ import { join, resolve } from "node:path";
 import { toEnvelope, digestJson, validateJsonSchema, type Json } from "@archcontext/contracts";
 import { initializeArchContextModel, YamlModelStore } from "../../../local-runtime/model-store-yaml/src/index";
 import { SqliteLocalStore, committedChangeSetFileOperation } from "../../../local-runtime/local-store-sqlite/src/index";
-import { ChangeSetEngine, MANIFEST_UPDATE_OPERATION_SCHEMA, MANIFEST_UPDATE_PATH, planManifestFieldsOperation, type ChangeOperation } from "../src/index";
+import { ChangeSetEngine, MANIFEST_UPDATE_OPERATION_SCHEMA, MANIFEST_UPDATE_PATH, PLAN_OPERATIONS_SCHEMA, planManifestFieldsOperation, type ChangeOperation } from "../src/index";
 import { renderManifestFieldsUpdate } from "../src/manifest-update";
-import { MCP_TOOL_INPUT_SCHEMAS } from "../../../surfaces/mcp-local/src/tool-schemas";
 
 const roots: string[] = [];
 const stores: SqliteLocalStore[] = [];
@@ -139,13 +138,12 @@ test("manifest YAML edit preserves comments and unrelated settings and rejects a
   ]) expect(() => renderManifestFieldsUpdate(bad, { "content.decisions": "docs/adr" })).toThrow();
 });
 
-test("manifest operation schema is shared by MCP and the checked runtime schema projection", async () => {
+test("manifest operation schema is shared by ChangeSet plan schema and the checked runtime schema projection", async () => {
   const { operation } = await fixture();
   const runtime = JSON.parse(readFileSync(resolve(import.meta.dir, "../../../../schemas/runtime/changeset.schema.json"), "utf8"));
   expect(runtime.properties.operations.items.oneOf[1]).toEqual(MANIFEST_UPDATE_OPERATION_SCHEMA);
-  const schema = MCP_TOOL_INPUT_SCHEMAS.archcontext_plan_update;
-  expect(validateJsonSchema(schema, { root: "/repo", id: "changeset.manifest", operations: [operation] } as unknown as Json).valid).toBe(true);
-  for (const patch of invalid) expect(validateJsonSchema(schema, { root: "/repo", id: "changeset.manifest", operations: [{ ...operation, ...patch }] } as unknown as Json).valid).toBe(false);
+  expect(validateJsonSchema(PLAN_OPERATIONS_SCHEMA, [operation] as unknown as Json).valid).toBe(true);
+  for (const patch of invalid) expect(validateJsonSchema(PLAN_OPERATIONS_SCHEMA, [{ ...operation, ...patch }] as unknown as Json).valid).toBe(false);
 });
 
 test("ordered layers are planned and applied through the manifest ChangeSet without an ADR directory", async () => {

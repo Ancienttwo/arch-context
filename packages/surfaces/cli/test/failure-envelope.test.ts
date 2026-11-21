@@ -1,7 +1,6 @@
 import { expect, test } from "bun:test";
 import { GitVisibleFilesUnavailableError } from "@archcontext/local-runtime/git-adapter";
 import { RuntimeRpcTransportError, type RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-rpc-client";
-import { McpLocalServer } from "@archcontext/surfaces/mcp-local";
 import { runCli } from "../src/main";
 
 const sentinel = "/private/customer/root provider body Authorization=secret-sentinel";
@@ -24,13 +23,6 @@ test("selected CLI commands make unknown exceptions safe and explicitly unclassi
   }
 });
 
-test("selected MCP tools preserve honest unknown failures instead of guessing runtime outage", async () => {
-  const server = new McpLocalServer(runtimeThrowing(new Error(sentinel)));
-  for (const name of ["archcontext_complete_task", "archcontext_practice_checkpoint"]) {
-    assertUnknown((await server.callTool(name, { root: "/unused" })).content);
-  }
-});
-
 test("typed Git refusal keeps its producer metadata without leaking its private root/cause", async () => {
   const result = await runCli("complete", [], "/unused", { runtimeClient: runtimeThrowing(new GitVisibleFilesUnavailableError(sentinel, sentinel)) });
   expect(result).toMatchObject({ ok: false, error: { code: "AC_REPO_NOT_FOUND", reasonCode: "git-worktree-required", action: "open-correct-repository", details: {} } });
@@ -47,13 +39,13 @@ test("selected RPC timeout and abort codes survive adaptation and never trigger 
   for (const code of ["RPC_TIMEOUT", "RPC_ABORTED"] as const) {
     let calls = 0;
     const runtime = { completeTask: async () => { calls++; throw new RuntimeRpcTransportError(code, "completeTask", 50, 51); } } as unknown as RuntimeDaemonClient;
-    const result = await new McpLocalServer(runtime).callTool("archcontext_complete_task", { root: "/unused" });
-    expect(result.content).toMatchObject({ ok: false, error: { code, retryable: false, details: { method: "completeTask", mutationOutcome: "unknown" } } });
+    const result = await runCli("complete", [], "/unused", { runtimeClient: runtime });
+    expect(result).toMatchObject({ ok: false, error: { code, retryable: false, details: { method: "completeTask", mutationOutcome: "unknown" } } });
     expect(calls).toBe(1);
   }
 });
 
-test("all registered producer reasons survive selected CLI and MCP adapters", async () => {
+test("all registered producer reasons survive selected CLI adapters", async () => {
   const { FAILURE_POLICIES, knownFailure, failureEnvelope, failureIssues } = await import("@archcontext/contracts");
   for (const [reason, policy] of Object.entries(FAILURE_POLICIES)) {
     const facts: Record<string, any> = {
@@ -98,10 +90,6 @@ test("all registered producer reasons survive selected CLI and MCP adapters", as
       expect(error).toEqual(failure);
       expect(failureIssues(error)).toEqual([]);
     }
-    for (const name of ["archcontext_complete_task", "archcontext_practice_checkpoint"]) {
-      const mcp = await new McpLocalServer(runtime).callTool(name, { root: "/unused" });
-      expect((mcp.content as any).error).toEqual(failure);
-    }
   }
 });
 
@@ -111,9 +99,6 @@ test("returned failures cannot leak raw diagnostics in unknown fields or request
   const cli = await runCli("complete", [], "/unused", { runtimeClient: runtime });
   expect(cli).toMatchObject({ requestId: "complete", error: { details: { omittedCount: 2 } } });
   expect(JSON.stringify(cli)).not.toContain(sentinel);
-  const mcp = await new McpLocalServer(runtime).callTool("archcontext_complete_task", { root: "/unused" });
-  expect(JSON.stringify(mcp)).not.toContain(sentinel);
-  expect(mcp.content).toMatchObject({ requestId: "complete_task", error: { reasonCode: "changed-path-invalid" } });
 });
 
 test("real CLI process rejects unsafe input without starting runtime or writing state", async () => {
@@ -134,22 +119,20 @@ test("real CLI process rejects unsafe input without starting runtime or writing 
   } finally { rmSync(state, { recursive: true, force: true }); }
 });
 
-test("invalid typed transport metadata cannot escape selected CLI or MCP safety boundaries", async () => {
+test("invalid typed transport metadata cannot escape selected CLI safety boundaries", async () => {
   const error = new RuntimeRpcTransportError("RPC_TIMEOUT", "completeTask", 5, 6);
   Object.defineProperty(error, "code", { get() { throw new Error(sentinel); } });
   const runtime = runtimeThrowing(error);
-  for (const result of [await runCli("complete", [], "/unused", { runtimeClient: runtime }), (await new McpLocalServer(runtime).callTool("archcontext_complete_task", { root: "/unused" })).content]) {
-    expect(result).toMatchObject({ ok: false, error: { code: "AC_UNCLASSIFIED_FAILURE", reasonCode: "failure-unclassified", details: { stage: "failure-metadata" } } });
-    expect(JSON.stringify(result)).not.toContain(sentinel);
-  }
+  const result = await runCli("complete", [], "/unused", { runtimeClient: runtime });
+  expect(result).toMatchObject({ ok: false, error: { code: "AC_UNCLASSIFIED_FAILURE", reasonCode: "failure-unclassified", details: { stage: "failure-metadata" } } });
+  expect(JSON.stringify(result)).not.toContain(sentinel);
 });
 
-test("malformed producer details are refused across selected CLI and MCP instead of losing bindings", async () => {
+test("malformed producer details are refused across selected CLI instead of losing bindings", async () => {
   for (const details of [null, 42, "unsafe", [{ receipt: "essential-binding" }], { summary: { receipt: "essential-binding" } }, { summary: [{ applyId: "apply.123" }] }, { omittedCount: { receipt: "essential-binding" } }]) {
     const runtime = { completeTask: async () => ({ ok: false, error: { code: "AC_PRECONDITION_FAILED", reasonCode: "projection-manifest-invalid", details } }) } as unknown as RuntimeDaemonClient;
-    for (const result of [await runCli("complete", [], "/unused", { runtimeClient: runtime }), (await new McpLocalServer(runtime).callTool("archcontext_complete_task", { root: "/unused" })).content]) {
-      expect(result).toMatchObject({ ok: false, error: { code: "AC_UNCLASSIFIED_FAILURE", reasonCode: "failure-unclassified", details: { stage: "failure-metadata" } } });
-    }
+    const result = await runCli("complete", [], "/unused", { runtimeClient: runtime });
+    expect(result).toMatchObject({ ok: false, error: { code: "AC_UNCLASSIFIED_FAILURE", reasonCode: "failure-unclassified", details: { stage: "failure-metadata" } } });
   }
 });
 
@@ -222,30 +205,6 @@ test("health timeout retains metadata through real selected CLI processes withou
   } finally { await fixture.close(); }
 }, 45_000);
 
-test("health timeout survives the actual CLI stdio MCP resolver without state writes or competing daemon", async () => {
-  const fixture = await busyHealthFixture();
-  const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
-  const { StdioClientTransport } = await import("@modelcontextprotocol/sdk/client/stdio.js");
-  const { join } = await import("node:path");
-  const transport = new StdioClientTransport({ command: process.execPath, args: [join(import.meta.dir, "../src/main.ts"), "mcp"], cwd: fixture.root,
-    env: Object.fromEntries(Object.entries(fixture.env).filter((entry): entry is [string,string] => entry[1] !== undefined)), stderr: "pipe" });
-  const client = new Client({ name: "d6-health-process", version: "1" });
-  try {
-    await client.connect(transport);
-    for (const name of ["archcontext_complete_task", "archcontext_practice_checkpoint"]) {
-      const beforeCalls = fixture.requests.length;
-      const result = await client.callTool({ name, arguments: { root: fixture.root, taskSessionId: "task_d6" } });
-      expect(result.isError).toBe(true);
-      const content = result.content as Array<{ type: string; text: string }>;
-      assertHealthTimeout(JSON.parse(content[0]!.text));
-      // Existing discovery + existing resolver probe; no mutation or additional retry.
-      expect(fixture.requests.slice(beforeCalls)).toEqual(["GET /health", "GET /health"]);
-      fixture.assertUnchanged();
-    }
-    expect(await client.ping()).toEqual({});
-  } finally { await client.close(); await fixture.close(); }
-}, 45_000);
-
 test("P2 mutated typed failures and changing returned metadata stay private across selected surfaces", async () => {
   const { FailureError, knownFailure, failureIssues } = await import("@archcontext/contracts");
   let hooks = 0;
@@ -265,14 +224,13 @@ test("P2 mutated typed failures and changing returned metadata stay private acro
     })
   ];
   for (const makeCase of cases) {
-    for (const [surface, command, args] of [["cli", "complete", []], ["cli", "review", []], ["cli", "practices", ["checkpoint"]], ["mcp", "archcontext_complete_task", []], ["mcp", "archcontext_practice_checkpoint", []]] as const) {
+    for (const [command, args] of [["complete", []], ["review", []], ["practices", ["checkpoint"]]] as const) {
       hooks = 0;
       const { error, returned } = makeCase();
       let calls = 0;
       const operation = async () => { calls++; if (returned) return { ok: false, error }; throw error; };
       const runtime = { completeTask: operation, practiceCheckpoint: operation } as unknown as RuntimeDaemonClient;
-      const value = surface === "cli" ? await runCli(command, [...args], "/unused", { runtimeClient: runtime })
-        : (await new McpLocalServer(runtime).callTool(command, { root: "/unused" })).content;
+      const value = await runCli(command, [...args], "/unused", { runtimeClient: runtime });
       expect(value).toMatchObject({ ok: false, error: { code: "AC_UNCLASSIFIED_FAILURE", action: "inspect-diagnostics", retryable: false } });
       expect(JSON.stringify(value)).not.toContain(sentinel);
       expect(failureIssues((value as any).error)).toEqual([]);
@@ -295,7 +253,7 @@ test("P2 registered producer and transport metadata reject accessors and inherit
     [() => new RuntimeRpcTransportError("RPC_ABORTED", "practiceCheckpoint", 5, 6), ["code", "method", "timeoutMs", "elapsedMs"]]
   ];
   for (const [makeError, keys] of cases) for (const key of keys) for (const inherited of [false, true]) {
-    for (const [surface, command, args] of [["cli", "complete", []], ["cli", "review", []], ["cli", "practices", ["checkpoint"]], ["mcp", "archcontext_complete_task", []], ["mcp", "archcontext_practice_checkpoint", []]] as const) {
+    for (const [command, args] of [["complete", []], ["review", []], ["practices", ["checkpoint"]]] as const) {
       const error = makeError();
       const original = Object.getOwnPropertyDescriptor(error, key)!.value;
       let reads = 0;
@@ -303,8 +261,7 @@ test("P2 registered producer and transport metadata reject accessors and inherit
       Object.defineProperty(target, key, { get() { reads++; return original; } });
       if (inherited) { Reflect.deleteProperty(error, key); Object.setPrototypeOf(error, target); }
       const runtime = runtimeThrowing(error);
-      const value = surface === "cli" ? await runCli(command, [...args], "/unused", { runtimeClient: runtime })
-        : (await new McpLocalServer(runtime).callTool(command, { root: "/unused" })).content;
+      const value = await runCli(command, [...args], "/unused", { runtimeClient: runtime });
       expect(value).toMatchObject({ ok: false, error: { code: "AC_UNCLASSIFIED_FAILURE", details: { stage: "failure-metadata" } } });
       expect(JSON.stringify(value)).not.toContain(sentinel);
       expect(failureIssues((value as any).error)).toEqual([]);
@@ -394,17 +351,17 @@ test("CLI docs keeps typed failures across its inner command catch", async () =>
   expect(failureIssues((result as any).error)).toEqual([]);
 });
 
-test("MCP apply preserves complete typed unresolved recovery authority", async () => {
+test("CLI apply preserves complete typed unresolved recovery authority", async () => {
   const { failureIssues } = await import("@archcontext/contracts");
   const { ChangeSetRecoveryUnresolvedError } = await import("../../../local-runtime/runtime-daemon/src/changeset-recovery-error");
   const journals = [{ journalId: "journal." + "a".repeat(300), changeSetId: "changeset." + "b".repeat(300), root: "/" + "r".repeat(9000), reason: "incomplete rollback" }];
   const failure = new ChangeSetRecoveryUnresolvedError(journals);
   let calls = 0;
   const runtime = { applyUpdate: async () => { calls++; throw failure; } } as unknown as RuntimeDaemonClient;
-  const result = await new McpLocalServer(runtime).callTool("archcontext_apply_update", { root: "/unused", id: "changeset.next", expectedWorktreeDigest: "sha256:" + "c".repeat(64), approved: true });
+  const result = await runCli("apply", ["--id", "changeset.next", "--approved", "--expected-worktree-digest", "sha256:" + "c".repeat(64)], "/unused", { runtimeClient: runtime });
   expect(calls).toBe(1);
-  expect((result.content as any).error).toEqual(failure.failure);
-  expect(failureIssues((result.content as any).error)).toEqual([]);
-  expect((result.content as any).error.details.unresolvedJournals).toEqual(journals);
+  expect((result as any).error).toEqual(failure.failure);
+  expect(failureIssues((result as any).error)).toEqual([]);
+  expect((result as any).error.details.unresolvedJournals).toEqual(journals);
   expect(failure.unresolvedJournals).toBe(journals);
 });

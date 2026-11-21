@@ -8,7 +8,6 @@
       "jobs": ["verify-platform"],
       "owners": [
         "scripts/platform-ipc-permission-readback.mjs",
-        "packages/cloud/hardening/**",
         "packages/core/changeset-engine/**",
         "packages/local-runtime/codegraph-adapter/**",
         "packages/local-runtime/control-file-security/**",
@@ -47,8 +46,6 @@
         "packages/surfaces/cli/bin/**",
         "packages/surfaces/cli/src/main.ts",
         "packages/surfaces/cli/test/bundle-entry.test.ts",
-        "packages/surfaces/mcp-local/src/**",
-        "packages/surfaces/mcp-local/test/mcp-wire.test.ts",
         "packages/contracts/test/publishability.test.ts",
         "tests/ownership-change-acceptance-recovery.test.ts"
       ]
@@ -88,7 +85,6 @@
     ".ai/**",
     ".archcontext/**",
     ".claude/**",
-    "deploy/**",
     "docs/**",
     "plans/**",
     "schemas/**",

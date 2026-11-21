@@ -1,4 +1,3 @@
-import { McpLocalServer } from "@archcontext/surfaces/mcp-local";
 import { describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync as nodeRmSync, writeFileSync, type RmDirOptions } from "node:fs";
 import { createServer as createHttpServer, type ServerResponse } from "node:http";
@@ -1701,9 +1700,6 @@ describe("archctx CLI", () => {
       expect((forgedPractice as any).error.details).toEqual({});
       expect((forgedPractice as any).error.message).not.toContain("--practice-violations");
 
-      const config = await runTestCli("config", [], root);
-      expect((config.data as any).generic.transport).toBe("stdio");
-
       writeFileSync(join(root, "package.json"), JSON.stringify({ engines: { node: ">=22.22 <26" } }), "utf8");
       const install = await runTestCli("install", ["--host", "codex"], root);
       expect((install.data as any).marker).toContain("archcontext_prepare_task");
@@ -1747,8 +1743,6 @@ describe("archctx CLI", () => {
       expect((paths.data as any).localStorePath).toContain("runtime.sqlite");
       expect((paths.data as any).localStorePath.startsWith(root)).toBe(false);
       expect((paths.data as any).npmGlobalInstallState).toBe("forbidden");
-      const privacyAudit = await runTestCli("privacy-audit", [], root);
-      expect((privacyAudit.data as any).dependencyAudit.ok).toBe(true);
     } finally {
       removeTempRoot(root);
     }
@@ -3700,42 +3694,6 @@ describe("archctx CLI", () => {
     }
   }, DAEMON_TEST_TIMEOUT_MS);
 
-  test("CLI renders MCP install, status, and remove host configuration", async () => {
-    const root = mkdtempSync(join(tmpdir(), "archctx-cli-mcp-host-"));
-    try {
-      const install = await runCli("mcp", ["install", "--host", "codex"], root);
-      expect(install.ok).toBe(true);
-      expect((install.data as any).host).toBe("codex");
-      expect((install.data as any).config.mcpServers.archcontext).toEqual({
-        command: "archctx",
-        args: ["mcp"]
-      });
-      expect((install.data as any).marker).toContain("archcontext_prepare_task");
-
-      const status = await runCli("mcp", ["status", "--host", "claude"], root);
-      expect(status.ok).toBe(true);
-      expect((status.data as any).host).toBe("claude");
-      expect((status.data as any).installed).toBe("config-ready");
-      expect((status.data as any).transport).toBe("stdio");
-
-      const remove = await runCli("mcp", [
-        "remove",
-        "--host",
-        "generic",
-        "--content",
-        "before\n<!-- BEGIN ARCHCONTEXT generic -->\nUse archcontext_prepare_task before coding.\n<!-- END ARCHCONTEXT generic -->\nafter"
-      ], root);
-      expect(remove.ok).toBe(true);
-      expect((remove.data as any).removeConfig.remove).toBe(true);
-      expect((remove.data as any).markerRemovedFrom).toBe("before\nafter");
-
-      const invalid = await runCli("mcp", ["install", "--host", "unknown"], root);
-      expect(invalid.ok).toBe(false);
-    } finally {
-      removeTempRoot(root);
-    }
-  });
-
   test("CLI paths and doctor expose structured legacy local store migration status", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-legacy-status-"));
     writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
@@ -4528,51 +4486,6 @@ describe("archctx CLI", () => {
       }
       const daemonStatus = await runCliProcess(root, "daemon", "status");
       expect(daemonStatus.data.running).toBe(true);
-    } finally {
-      await stopDaemonAndWait(root);
-      removeTempRoot(root);
-    }
-  }, DAEMON_TEST_TIMEOUT_MS);
-
-  test("MCP stdio runtime tool call auto-starts the background daemon", async () => {
-    const root = gitTempRoot("archctx-cli-mcp-autostart-");
-    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
-    const connectionPath = testRuntimePaths(root).daemonConnectionPath;
-    const lockPath = testRuntimePaths(root).daemonLockPath;
-    try {
-      const init = await runCliProcess(root, "init", "--name", "MCP Auto Start App");
-      expect(init.ok).toBe(true);
-
-      const stopped = await runCliProcess(root, "daemon", "stop");
-      expect(stopped.ok).toBe(true);
-      await expectFileRemoved(connectionPath);
-      await expectFileRemoved(lockPath);
-
-      const mcp = await runCliMcpProcess(root, {
-        jsonrpc: "2.0",
-        id: 1,
-        method: "tools/call",
-        params: {
-          name: "archcontext_practices",
-          arguments: {
-            root,
-            action: "validate",
-            strict: true,
-            maxBytes: 12_288
-          }
-        }
-      });
-      expect(mcp.jsonrpc).toBe("2.0");
-      expect(mcp.id).toBe(1);
-      expect(JSON.parse(mcp.result.content[0].text).ok).toBe(true);
-      expect(JSON.parse(mcp.result.content[0].text).data.valid).toBe(true);
-
-      const daemonStatus = await runCliProcess(root, "daemon", "status");
-      expect(daemonStatus.ok).toBe(true);
-      expect(daemonStatus.data.running).toBe(true);
-      expect(daemonStatus.data.rpcVersionCompatible).toBe(true);
-      expect(existsSync(connectionPath)).toBe(true);
-      expect(existsSync(lockPath)).toBe(true);
     } finally {
       await stopDaemonAndWait(root);
       removeTempRoot(root);
@@ -5747,24 +5660,15 @@ describe("archctx CLI", () => {
     }
   }, DAEMON_TEST_TIMEOUT_MS);
 
-  test("CLI exports and imports interop projections without overwriting Native model", async () => {
+  test("CLI exports Mermaid projection without overwriting Native model", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-"));
     try {
       writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
       initializeArchContextModel(root, "CLI Export App");
-      const likec4 = await runTestCli("export", ["likec4"], root);
-      expect(likec4.ok).toBe(true);
-      expect((likec4.data as any).format).toBe("likec4");
-      const imported = await runTestCli("import", ["likec4", "--content", (likec4.data as any).files[0].content], root);
-      expect(imported.ok).toBe(true);
-      expect((imported.data as any).mode).toBe("initialization-only");
-      const structurizr = await runTestCli("export", ["structurizr"], root);
-      expect((structurizr.data as any).files[0].path).toContain("structurizr");
       const mermaid = await runTestCli("export", ["mermaid"], root);
+      expect(mermaid.ok).toBe(true);
+      expect((mermaid.data as any).format).toBe("mermaid");
       expect((mermaid.data as any).files[0].path).toContain("architecture.mmd");
-      const tunnel = await runTestCli("tunnel", [], root);
-      expect((tunnel.data as any).bindHost).toBe("127.0.0.1");
-      expect((tunnel.data as any).writes).toContain("disabled-by-default");
     } finally {
       removeTempRoot(root);
     }
@@ -6689,7 +6593,7 @@ describe("archctx CLI", () => {
 
   // The complete real-CodeGraph fixture + approval/recovery path measured 130s locally.
   // Keep the existing Windows allowance for this scenario on every platform.
-  test("projection CLI and MCP share RPC results and MCP writes require explicit snapshot-bound approval", async () => {
+  test("projection CLI and RPC share results and approved RPC writes require explicit snapshot-bound approval", async () => {
     const { root, protocolRequest, acceptedChange } = await runAdoptedHookAdaptersScenario({ codeGraphReady: true });
     const daemon = await createStartedDaemon({
       localStorePath: testRuntimePaths(root).localStorePath,
@@ -6703,17 +6607,14 @@ describe("archctx CLI", () => {
     });
     try {
       const client = new RuntimeRpcClient(await rpc.start());
-      const mcp = new McpLocalServer(client);
       const cli = (action: string, request: unknown, flags: string[] = []) => runCli("projection", [action, "--request-json", JSON.stringify(request), ...flags], root, { runtimeClient: client });
-      const call = async (action: string, request: unknown, approved?: unknown, atRoot = root) =>
-        (await mcp.callTool("archcontext_projection", { root: atRoot, action, request, ...(approved === undefined ? {} : { approved }) })).content as any;
+      const call = (action: string, request: unknown, approved = false, atRoot = root): Promise<any> =>
+        client.mcpProjection(atRoot, { action, request } as any, approved);
       const request: ProjectionRequestV1 = { ...protocolRequest, mode: "apply", acceptedChange, requestId: "projection_request.mcp_parity" };
       const check = { ...request, mode: "check" };
       expect(await call("run", check)).toEqual(await cli("run", check));
       expect(await call("readback", request)).toEqual(await cli("readback", request));
-      for (const approved of [undefined, false, "true"]) {
-        expect(await call("run", request, approved)).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
-      }
+      expect(await call("run", request, false)).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
       expect(await cli("approve", request, ["--approved"])).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID" } });
       const malformed = { ...request, mode: "arbitrary-write" };
       expect(await call("run", malformed, true)).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID" } });
@@ -7113,19 +7014,6 @@ async function runCliProcessRaw(root: string, ...args: string[]): Promise<{ stdo
     env: testStateEnv(root)
   });
   return collectProcess(child);
-}
-
-async function runCliMcpProcess(root: string, message: unknown): Promise<any> {
-  const child = spawn(process.execPath, [CLI_ENTRY, "mcp"], {
-    cwd: root,
-    env: testStateEnv(root),
-    stdio: ["pipe", "pipe", "pipe"]
-  });
-  const result = collectProcess(child);
-  child.stdin.end(`${JSON.stringify(message)}\n`);
-  const { stdout, stderr, code } = await result;
-  if (code !== 0) throw new Error(`archctx mcp failed (${code}): ${stderr || stdout}`);
-  return JSON.parse(stdout.trim().split("\n").filter(Boolean).at(-1) ?? "");
 }
 
 async function stopDaemonAndWait(root: string): Promise<void> {

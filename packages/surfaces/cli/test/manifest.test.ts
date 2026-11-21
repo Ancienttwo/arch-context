@@ -10,7 +10,6 @@ import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { SqliteLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { ArchctxRuntimeRpcServer, RuntimeRpcClient, createStartedDaemon, type RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-daemon";
-import { McpLocalServer } from "@archcontext/surfaces/mcp-local";
 import { runCli } from "../src/main";
 
 async function fixture() {
@@ -63,28 +62,5 @@ test("manifest CLI plans over RPC without writes and applies once through daemon
     expect(committed).toHaveLength(1);
     expect(committed[0].files).toEqual([{ path: ".archcontext/manifest.yaml", operation: "write", hash: digestJson({ body: after }) }]);
     expect((await cli("apply", [...flags, "--approved"])).ok).toBe(false);
-  } finally { await f.close(); }
-}, 30_000);
-
-test("manifest MCP applies only with explicit approval and the preview worktree digest over RPC", async () => {
-  const f = await fixture();
-  try {
-    const mcp = new McpLocalServer(f.client);
-    const operation = planManifestFieldsOperation(f.root, { "content.decisions": "docs/adr" });
-    const planned = await mcp.callTool("archcontext_plan_update", { root: f.root, id: "changeset.manifest-mcp", operations: [operation] });
-    const envelope = planned.content as any;
-    expect(envelope.ok, JSON.stringify(envelope)).toBe(true);
-    const data = envelope.data;
-    expect(data.preview.allowed).toBe(true);
-    const input = { root: f.root, id: data.draft.id, expectedWorktreeDigest: data.draft.base.worktreeDigest };
-    expect((await mcp.callTool("archcontext_apply_update", input)).content).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
-    expect((await mcp.callTool("archcontext_apply_update", { ...input, approved: false })).content).toMatchObject({ ok: false, error: { code: "AC_USER_CONFIRMATION_REQUIRED" } });
-    expect(readFileSync(f.path, "utf8")).toBe(f.before);
-    const applied = await mcp.callTool("archcontext_apply_update", { ...input, approved: true });
-    expect((applied.content as any).ok, JSON.stringify(applied)).toBe(true);
-    const replay = (await mcp.callTool("archcontext_apply_update", { ...input, approved: true })).content as any;
-    expect(replay.ok).toBe(false);
-    expect(JSON.stringify(replay)).toContain("Worktree digest changed before apply");
-    expect(readFileSync(f.path, "utf8")).toBe(f.before.replace('decisions: ".archcontext/decisions"', 'decisions: "docs/adr"'));
   } finally { await f.close(); }
 }, 30_000);

@@ -49,19 +49,7 @@
       "@archcontext/local-runtime/test/codegraph-factories": ["./packages/local-runtime/codegraph-adapter/test/factories.ts"],
       "@archcontext/local-runtime/test/local-store-factories": ["./packages/local-runtime/local-store-sqlite/test/factories.ts"],
       "@archcontext/surfaces": ["./packages/surfaces/src/index.ts"],
-      "@archcontext/surfaces/adapter-likec4": ["./packages/surfaces/adapter-likec4/src/index.ts"],
-      "@archcontext/surfaces/adapter-structurizr": ["./packages/surfaces/adapter-structurizr/src/index.ts"],
-      "@archcontext/surfaces/chatgpt-ui": ["./packages/surfaces/chatgpt-ui/src/index.ts"],
-      "@archcontext/surfaces/cli": ["./packages/surfaces/cli/src/main.ts"],
-      "@archcontext/surfaces/mcp-local": ["./packages/surfaces/mcp-local/src/index.ts"],
-      "@archcontext/surfaces/renderer": ["./packages/surfaces/renderer/src/index.ts"],
-      "@archcontext/cloud": ["./packages/cloud/src/index.ts"],
-      "@archcontext/cloud/cloud-db": ["./packages/cloud/cloud-db/src/index.ts"],
-      "@archcontext/cloud/control-plane": ["./packages/cloud/control-plane/src/index.ts"],
-      "@archcontext/cloud/control-plane-client": ["./packages/cloud/control-plane-client/src/index.ts"],
-      "@archcontext/cloud/hardening": ["./packages/cloud/hardening/src/index.ts"],
-      "@archcontext/cloud/mcp-cloud-metadata": ["./packages/cloud/mcp-cloud-metadata/src/index.ts"],
-      "@archcontext/cloud/notifications": ["./packages/cloud/notifications/src/index.ts"]
+      "@archcontext/surfaces/cli": ["./packages/surfaces/cli/src/main.ts"]
     },
     "strict": true,
     "target": "ES2024",
@@ -71,8 +59,6 @@
     ]
   },
   "include": [
-    "deploy/**/*.mjs",
-    "deploy/**/*.ts",
     "packages/**/*.ts",
     "scripts/**/*.mjs",
     "scripts/**/*.ts"

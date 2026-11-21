@@ -82,15 +82,14 @@ test("ADR unknown target fails model validation and generic operations cannot wr
   }
 });
 
-test("ADR schema is shared with MCP and proposal parser, without arbitrary-body escape", async () => {
-  const { ADR_REFERENCE_OPERATION_SCHEMA } = await import("../src/index");
-  const { MCP_TOOL_INPUT_SCHEMAS } = await import("../../../surfaces/mcp-local/src/tool-schemas");
+test("ADR schema is shared with ChangeSet plan schema and proposal parser, without arbitrary-body escape", async () => {
+  const { ADR_REFERENCE_OPERATION_SCHEMA, PLAN_OPERATIONS_SCHEMA } = await import("../src/index");
   const { validateJsonSchema } = await import("@archcontext/contracts");
   const { parseModelProposal } = await import("../../../../scripts/apply-model-proposal");
-  const { root, operation } = await fixture();
+  const { operation } = await fixture();
   const runtime = await Bun.file(join(import.meta.dir, "../../../../schemas/runtime/changeset.schema.json")).json();
   expect(runtime.properties.operations.items.oneOf[2]).toEqual(ADR_REFERENCE_OPERATION_SCHEMA);
-  expect(validateJsonSchema(MCP_TOOL_INPUT_SCHEMAS.archcontext_plan_update, { root, id: "changeset.adr", operations: [operation] } as any).valid).toBe(true);
+  expect(validateJsonSchema(PLAN_OPERATIONS_SCHEMA, [operation] as any).valid).toBe(true);
   const proposal = { schemaVersion: "archcontext.model-proposal/v1", changeSetId: "changeset.adr", taskSessionId: "task.adr", operations: [operation] };
   expect(JSON.stringify(parseModelProposal(proposal).operations)).toBe(JSON.stringify([operation]));
   expect(() => parseModelProposal({ ...proposal, operations: [{ ...operation, body: "arbitrary" }] })).toThrow();

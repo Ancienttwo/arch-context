@@ -1,5 +1,13 @@
-export * from "../adapter-likec4/src/index";
-export * from "../adapter-structurizr/src/index";
-export * from "../chatgpt-ui/src/index";
-export * from "../mcp-local/src/index";
-export * from "../renderer/src/index";
+export {
+  CLI_COMMAND_FLAGS,
+  doctorManifest,
+  resolveCommandExitCode,
+  runCapabilitiesCommand,
+  runCli
+} from "../cli/src/main";
+export {
+  diagnostics,
+  installMarker,
+  secureDefaults,
+  uninstallMarker
+} from "../cli/src/local-hardening";

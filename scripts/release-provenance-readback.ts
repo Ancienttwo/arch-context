@@ -13,8 +13,7 @@ const WORKSPACE_PACKAGE_PATHS = [
   "packages/contracts/package.json",
   "packages/core/package.json",
   "packages/local-runtime/package.json",
-  "packages/surfaces/package.json",
-  "packages/cloud/package.json"
+  "packages/surfaces/package.json"
 ] as const;
 
 if (import.meta.main) {

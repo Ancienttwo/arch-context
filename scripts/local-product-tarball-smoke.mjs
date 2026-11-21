@@ -105,16 +105,6 @@ try {
   const prepared = await runArchctx(archctxBin, ["prepare", "--task", "inspect tarball smoke", "--max-items", "2"], { cwd: repo, env });
   assert(prepared.ok === true, "prepare must succeed through installed daemon");
 
-  const mcp = await runArchctxMcp(archctxBin, {
-    jsonrpc: "2.0",
-    id: 1,
-    method: "tools/list"
-  }, { cwd: repo, env });
-  assert(mcp.jsonrpc === "2.0", "MCP must return JSON-RPC");
-  assert(mcp.id === 1, "MCP must preserve request id");
-  const toolNames = (mcp.result?.tools ?? []).map((tool) => tool.name);
-  assert(toolNames.includes("archcontext_prepare_task"), "MCP must expose archcontext_prepare_task");
-
   const stopped = await runArchctx(archctxBin, ["daemon", "stop"], { cwd: repo, env });
   assert(stopped.ok === true, "daemon stop must succeed from installed tarball");
   const pathsBeforeUpgrade = await runArchctx(archctxBin, ["paths"], { cwd: repo, env });
@@ -157,10 +147,6 @@ try {
         started: true,
         protocol: started.data?.protocol,
         loopbackOnly: String(started.data?.url ?? "").startsWith("http://127.0.0.1:")
-      },
-      mcp: {
-        transport: "stdio",
-        tools: toolNames
       },
       codeGraph: {
         dependency: rootManifest.dependencies?.["@colbymchenry/codegraph"],
@@ -373,15 +359,6 @@ function createGitFixture() {
 
 function runArchctx(bin, commandArgs, options) {
   return run(bin, commandArgs, options).then(({ stdout }) => JSON.parse(stdout));
-}
-
-async function runArchctxMcp(bin, message, options) {
-  const result = await run(bin, ["mcp"], {
-    ...options,
-    stdin: `${JSON.stringify(message)}\n`
-  });
-  const line = result.stdout.trim().split("\n").filter(Boolean).at(-1);
-  return JSON.parse(line ?? "");
 }
 
 function runSync(command, commandArgs, options) {

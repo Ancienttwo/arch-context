@@ -253,10 +253,6 @@ async function runFirstExperience(
       }
     });
 
-    const mcpStatus = await runArchctx(repo, "mcp", "status", "--host", "codex");
-    expect(mcpStatus.ok).toBe(true);
-    expect(mcpStatus.data.config.mcpServers.archcontext).toEqual({ command: "archctx", args: ["mcp"] });
-
     const init = await runArchctx(repo, "init", "--name", input.productName);
     expect(init.ok).toBe(true);
     expect(existsSync(join(repo, ".archcontext", "model"))).toBe(true);

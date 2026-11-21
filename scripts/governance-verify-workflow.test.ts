@@ -132,7 +132,7 @@ describe("governance verify workflow", () => {
     expect(post.needs).toEqual(["verify-linux-pre", "verify-linux-shards"]);
     const bind = 'test "$(git rev-parse HEAD)" = "$GITHUB_SHA"\necho "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"\n';
     const runs = (job: any) => job.steps.filter((step: any) => step.run).map((step: any) => step.run);
-    expect(runs(pre)).toEqual(["bun install --frozen-lockfile", "node scripts/local-no-cloud-e2e.mjs > local-no-cloud-network-readback.json",
+    expect(runs(pre)).toEqual(["bun install --frozen-lockfile",
       "node scripts/platform-ipc-permission-readback.mjs > platform-ipc-permission-readback.json", "bun run verify:pre", "bun run verify:ci plan", bind]);
     expect(runs(shards)).toEqual(["bun install --frozen-lockfile", "bun run verify:ci shard", bind]);
     expect(runs(post)).toEqual(["bun install --frozen-lockfile", "bun run verify:ci coverage", "bun run verify:post", bind]);
@@ -143,7 +143,6 @@ describe("governance verify workflow", () => {
       for (const gate of gates) expect(job.steps.find((step: any) => step.name === gate).if).toBeUndefined();
       expect(job.steps.at(-1)).toMatchObject({ name: "Bind verified checkout", id: "verified_checkout", run: bind });
     }
-    expect(pre.steps.find((step: any) => step.name === "Upload network isolation readback").with.name).toBe("local-no-cloud-network-linux-node-22");
     expect(post.outputs.checkout_sha).toBe("${{ steps.verified_checkout.outputs.sha }}");
     const gov = workflow.jobs["governance-verify"];
     expect(gov.env.VERIFY_PREREQUISITE_RESULT).toBe("${{ needs.verify-linux-post.result }}");

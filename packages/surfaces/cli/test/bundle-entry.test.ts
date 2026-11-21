@@ -148,7 +148,7 @@ describe("Node engine range at the bundled entry (#322)", () => {
       const stub = join(stubDir, "node-26.mjs");
       writeFileSync(stub, 'Object.defineProperty(process.versions, "node", { value: "26.10.0" });\n', "utf8");
       const nodeArgs = ["--import", pathToFileURL(stub).href];
-      for (const args of [["validate"], ["capabilities", "--json"], ["daemon", "start"], ["daemon", "start", "--foreground", "--port", "0"], ["mcp"], ["docs", "--help"]]) {
+      for (const args of [["validate"], ["capabilities", "--json"], ["daemon", "start"], ["daemon", "start", "--foreground", "--port", "0"], ["docs", "--help"]]) {
         const result = await runBundle(cwd, args, { env, nodeArgs, allowFailure: true, expectExitCode: 1 });
         expect(result, args.join(" ")).toMatchObject({
           ok: false,

@@ -1804,13 +1804,12 @@ describe("contract utilities", () => {
     const coreManifest = readJson("packages/core/package.json") as any;
     const runtimeManifest = readJson("packages/local-runtime/package.json") as any;
     const surfacesManifest = readJson("packages/surfaces/package.json") as any;
-    const cloudManifest = readJson("packages/cloud/package.json") as any;
     const staticCatalogManifest = readJson("packages/core/practice-catalog/assets/catalog.yaml") as any;
 
     expect(validateJsonSchema(schema as any, manifest as unknown as Json).valid).toBe(true);
     expect(manifest.product.version).toBe(ARCHCONTEXT_PRODUCT_VERSION);
-    expect([rootManifest, contractManifest, coreManifest, runtimeManifest, surfacesManifest, cloudManifest]
-      .map((candidate) => candidate.version)).toEqual(Array(6).fill(ARCHCONTEXT_PRODUCT_VERSION));
+    expect([rootManifest, contractManifest, coreManifest, runtimeManifest, surfacesManifest]
+      .map((candidate) => candidate.version)).toEqual(Array(5).fill(ARCHCONTEXT_PRODUCT_VERSION));
     expect(manifest.packageManager).toBe(ARCHCONTEXT_PACKAGE_MANAGER);
     expect(manifest.schemas.schemaSetVersion).toBe(ARCHCONTEXT_SCHEMA_SET_VERSION);
     expect(manifest.schemas.contractsPackageVersion).toBe(contractManifest.version);

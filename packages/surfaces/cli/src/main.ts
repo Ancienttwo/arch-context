@@ -14,22 +14,19 @@ import { dirname, join, parse, posix, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { FailureError, NativeContextError, toEnvelope, ARCHCONTEXT_NODE_RANGE, ARCHCONTEXT_PRODUCT_VERSION, ARCHITECTURE_MAJOR_CHANGE_REASON_CODES, CALLER_PROVIDED_ATTESTATION_FIELDS, EXPLORER_VIEW_IDS, REFACTOR_REQUEST_SCHEMA_VERSION, archctxCapabilities, digestJson, errorEnvelope, failureEnvelope, knownFailure, normalizeFailureResult, unclassifiedFailure, isRepoRelativePosixPath, nodeVersionSatisfiesRange, okEnvelope, productVersionManifest, refactorRequestInvariantIssues, refactorVerificationRequestInvariantIssues, validateJsonSchema } from "@archcontext/contracts";
 import type { AcceptedArchitectureChangeReferenceV1, AgentJobV1, ArchctxCapabilitiesV1, ArchitectureMajorChangeReasonCode, ExplorerProjectionQueryV2, FailureEnvelope, Json, JsonEnvelope, RefactorRequestV1, RefactorVerificationRequestV1 } from "@archcontext/contracts";
-import { assertPathHasNoSymlinkSegments, planManifestFieldsOperation, type ChangeOperation } from "@archcontext/core/changeset-engine";
+import { assertPathHasNoSymlinkSegments, planManifestFieldsOperation, PLAN_OPERATIONS_SCHEMA, type ChangeOperation } from "@archcontext/core/changeset-engine";
 import { assertAllowedArchContextPath } from "@archcontext/core/policy-engine";
 import { computeWorktreeDigest, manifestDecisionDiagnostics, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { DEFAULT_AGENT_ORCHESTRATION_POLICY, DEFAULT_AGENT_QUEUE_MAX_QUEUED_JOBS, DEFAULT_AGENT_QUEUE_MAX_RUNNING_JOBS_PER_REPOSITORY } from "@archcontext/core/agent-orchestrator";
 import type { ArchitectureAuditRunV1 } from "@archcontext/core/architecture-ledger";
-import { dependencyAudit, diagnostics, installMarker, secretScan, uninstallMarker } from "@archcontext/cloud/hardening";
+import { diagnostics, installMarker, uninstallMarker } from "./local-hardening";
 import { completeRuntimeStateRecovery, defaultArchContextStateRoot, defaultLocalStorePath, inspectLegacyLocalStoreMigration, LOCAL_STORE_WRITER_OWNED_ERROR, inspectRuntimeStateRecovery, migrateLegacyLocalStoreIfNeeded, recoverRuntimeStateTarget, runtimeStatePaths, runtimeStateRecoveryWorktreeDigest } from "@archcontext/local-runtime/local-store-sqlite";
 import { GitVisibleFilesUnavailableError, findRepositoryRoot, readHeadSha, listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { listWorkspaceStateDirs } from "@archcontext/local-runtime/runtime-state-paths";
 import { ArchctxRuntimeRpcServer, runDocsAnchorsCommand, runProjectionCheckInvocation, runProjectionFreshnessCommand, runProjectionSliceCommand, runProjectionSnapshotCommand, AUDIT_APPROVE_GH_TOKEN_ENV, AUDIT_RUN_DEFAULT_TIMEOUT_MS, auditConsentRequiredEnvelope, grantAuditConsent, readAuditConsent, revokeAuditConsent, RUNTIME_RPC_VERSION, runtimeRpcDaemonIdentity, type RuntimeRpcConnection, createRuntimeRpcClientFromConnectionFile, createRuntimeRpcClientFromWorkspaceStateDir, createStartedDaemon, createStartedProductionDaemon, defaultDaemonConnectionPath, defaultDaemonLockPath, listDaemonControlStates, liveDaemonLockOwnerPid, readRuntimeRpcConnectionFile, recoverStaleDaemonControlFiles, runtimeRpcCompatibilityIssue, type RuntimeRpcCompatibilityIssue, type RuntimeDaemonClient, type RuntimeDocsProjectionInput, type RuntimeProjectionInvocation, type RuntimeAgentContextProjectionInput, type RuntimeAgentJobEnqueueGitInput, type RuntimeAuditRunInput, type RuntimeRecommendationInput, type RuntimeDeps, runFlowSelectorCheckCommand, runStateMachineCheckCommand, CapabilityDependenciesError, readCapabilityDependencies, createCommandProjectionPublisher, createGhProjectionPublisher, createNoneProjectionPublisher, runProjectionPublishCommand, runProjectionPublishFollow, runProjectionPublishStatusCommand, runProjectionVerifyPrCommand, type ProjectionPublisherPort } from "@archcontext/local-runtime/runtime-daemon";
 import { inspectRepositoryCodeFacts } from "@archcontext/local-runtime/codegraph-adapter";
 import { RuntimeRpcTransportError, RuntimeRpcClient } from "@archcontext/local-runtime/runtime-rpc-client";
-import { exportLikeC4Model, importLikeC4InitialModel } from "@archcontext/surfaces/adapter-likec4";
-import { exportStructurizrWorkspace, importStructurizrInitialModel } from "@archcontext/surfaces/adapter-structurizr";
-import { MCP_PLAN_OPERATIONS_SCHEMA, runStdioMcpLoop } from "@archcontext/surfaces/mcp-local";
-import { REPO_HARNESS_PROJECTION_PROFILE, exportMermaidModel, loadNativeModelFromArchContext, resolveArchitectureOwnerForPath, resolveArchitectureOwnersForPaths, type ArchitectureProjectionProfile, type ResolveArchitectureOwnerResult } from "@archcontext/surfaces/renderer";
+import { REPO_HARNESS_PROJECTION_PROFILE, exportMermaidModel, loadNativeModelFromArchContext, resolveArchitectureOwnerForPath, resolveArchitectureOwnersForPaths, type ArchitectureProjectionProfile, type ResolveArchitectureOwnerResult } from "@archcontext/core/projection-engine";
 import nodeSchema from "../../../../schemas/repo/architecture-node.schema.json";
 
 const [, , command, ...args] = process.argv;
@@ -123,7 +120,6 @@ export const CLI_COMMAND_FLAGS: Readonly<Record<string, CliFlagSpec & { subcomma
   "book": { value: ["--depth", "--from", "--id", "--max-bytes", "--max-items", "--query", "--since", "--task", "--to"], boolean: ["--explain", "--open"] },
   "checkpoint": { value: ["--changed-path"], boolean: [] },
   "complete": { value: ["--head-sha", "--posture", "--task", "--task-session-id"], boolean: [] },
-  "config": { value: [], boolean: [] },
   "constraints": { value: [], boolean: [] },
   "context": { value: ["--max-symbols", "--name", "--task"], boolean: ["--landscape"] },
   "deps": { value: ["--edge-limit", "--from", "--import-node-limit", "--into"], boolean: [] },
@@ -153,7 +149,6 @@ export const CLI_COMMAND_FLAGS: Readonly<Record<string, CliFlagSpec & { subcomma
     }
   },
   "hooks": { value: ["--host"], boolean: ["--generated-projection"] },
-  "import": { value: ["--content"], boolean: [] },
   "init": { value: ["--name"], boolean: [] },
   "install": { value: ["--host"], boolean: [] },
   "investigate": { value: ["--analysis-kind", "--base-ref", "--coalesce-key", "--code-facts-digest", "--context-max-items", "--cooldown-ms", "--debounce-until", "--event", "--max-attempts", "--max-queued-jobs", "--priority", "--provider", "--ref", "--risk", "--runner-port", "--source", "--task-session-id", "--uncertainty"], boolean: ["--generated-projection", "--no-generated-projection-guard"] },
@@ -186,7 +181,6 @@ export const CLI_COMMAND_FLAGS: Readonly<Record<string, CliFlagSpec & { subcomma
     }
   },
   "manifest": { value: ["--decisions", "--id", "--layers"], boolean: [] },
-  "mcp": { value: ["--content", "--host"], boolean: [] },
   "paths": { value: [], boolean: [] },
   "plan": { value: ["--body", "--body-file", "--expected-hash", "--id", "--op", "--operations-file", "--path"], boolean: [] },
   "practices": {
@@ -203,7 +197,6 @@ export const CLI_COMMAND_FLAGS: Readonly<Record<string, CliFlagSpec & { subcomma
     }
   },
   "prepare": { value: ["--max-bytes", "--max-items", "--task", "--task-session-id"], boolean: [] },
-  "privacy-audit": { value: [], boolean: [] },
   "projection": {
     value: ["--request-json"],
     boolean: [],
@@ -248,7 +241,6 @@ export const CLI_COMMAND_FLAGS: Readonly<Record<string, CliFlagSpec & { subcomma
   "state-machines": { value: [], boolean: [] },
   "status": { value: [], boolean: [] },
   "sync": { value: ["--changed"], boolean: [] },
-  "tunnel": { value: [], boolean: ["--revoke"] },
   "uninstall": { value: ["--content", "--host"], boolean: [] },
   "update": { value: [], boolean: ["--check"] },
   "validate": { value: [], boolean: [] },
@@ -455,22 +447,6 @@ function refactorScanScopeFlags(args: string[], raw: string | undefined): Refact
     throw new RefactorFlagError("refactor scan --path requires a repo-relative file path");
   }
   return { kind: "paths", paths: [...new Set(paths.map((path) => posix.normalize(path).replace(/\/$/, "")))].sort() };
-}
-
-async function* stdinLines(): AsyncIterable<string> {
-  let buffer = "";
-  for await (const chunk of process.stdin) {
-    buffer += Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
-    let newline = buffer.indexOf("\n");
-    while (newline !== -1) {
-      const line = buffer.slice(0, newline).trim();
-      buffer = buffer.slice(newline + 1);
-      if (line) yield line;
-      newline = buffer.indexOf("\n");
-    }
-  }
-  const trailing = buffer.trim();
-  if (trailing) yield trailing;
 }
 
 export interface CliRuntimeDeps extends RuntimeDeps {
@@ -768,19 +744,6 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
       const operation = planManifestFieldsOperation(root, { ...(decisions === undefined ? {} : { "content.decisions": decisions }), ...(layers === undefined ? {} : { "model.layers": layers }) });
       return (await runtime()).planUpdate(root, { id, operations: [operation] });
     }
-    case "config":
-      return {
-        schemaVersion: "archcontext.envelope/v1",
-        ok: true,
-        requestId: "config",
-        data: {
-          codex: agentHostConfig("codex"),
-          claude: agentHostConfig("claude"),
-          generic: agentHostConfig("generic")
-        }
-      };
-    case "mcp":
-      return runMcpCommand(args);
     case "install":
       return {
         schemaVersion: "archcontext.envelope/v1",
@@ -805,48 +768,13 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
     }
     case "paths":
       return { schemaVersion: "archcontext.envelope/v1", ok: true, requestId: "paths", data: runtimePathsReport(cwd) };
-    case "privacy-audit":
-      return {
-        schemaVersion: "archcontext.envelope/v1",
-        ok: true,
-        requestId: "privacy-audit",
-        data: { dependencyAudit: dependencyAudit(cwd), secretScan: secretScan(cwd) }
-      };
     case "export": {
       const format = args[0] ?? readFlag(args, "--format") ?? "mermaid";
       const model = loadNativeModelFromArchContext(cwd);
-      const result =
-        format === "likec4" ? exportLikeC4Model(model) :
-        format === "structurizr" ? exportStructurizrWorkspace(model) :
-        format === "mermaid" ? exportMermaidModel(model) :
-        undefined;
-      if (!result) return errorEnvelope("export", "AC_SCHEMA_INVALID", "export requires likec4, structurizr, or mermaid");
+      const result = format === "mermaid" ? exportMermaidModel(model) : undefined;
+      if (!result) return errorEnvelope("export", "AC_SCHEMA_INVALID", "export requires native or mermaid");
       return { schemaVersion: "archcontext.envelope/v1", ok: true, requestId: "export", data: result as any };
     }
-    case "import": {
-      const format = args[0] ?? readFlag(args, "--format");
-      const content = readFlag(args, "--content");
-      if (!format || !content) return errorEnvelope("import", "AC_SCHEMA_INVALID", "import requires likec4|structurizr and --content");
-      const result =
-        format === "likec4" ? importLikeC4InitialModel(content) :
-        format === "structurizr" ? importStructurizrInitialModel(content) :
-        undefined;
-      if (!result) return errorEnvelope("import", "AC_SCHEMA_INVALID", "import requires likec4 or structurizr");
-      return { schemaVersion: "archcontext.envelope/v1", ok: true, requestId: "import", data: { ...result, mode: "initialization-only" } as any };
-    }
-    case "tunnel":
-      return {
-        schemaVersion: "archcontext.envelope/v1",
-        ok: true,
-        requestId: "tunnel",
-        data: {
-          command: "archctx mcp",
-          bindHost: "127.0.0.1",
-          scopes: ["context:read", "changeset:preview"],
-          writes: "disabled-by-default-local-confirmation-required",
-          revocation: "archctx tunnel --revoke"
-        }
-      };
     case "debt":
       return runDebtCommand(args, cwd);
     case "deps":
@@ -879,7 +807,7 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         ok: true,
         requestId: "help",
         data: {
-          commands: ["capabilities", "projection", "init", "sync", "validate", "context", "status", "daemon", "state", "repo", "landscape", "ledger", "book", "recommendations", "refactor", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "investigate", "agents", "jobs", "audit", "plan", "apply", "hash", "review", "complete", "manifest", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "resolve", "impact", "verify", "history", "tunnel", "flows", "state-machines", "deps", "constraints", "debt"],
+          commands: ["capabilities", "projection", "init", "sync", "validate", "context", "status", "daemon", "state", "repo", "landscape", "ledger", "book", "recommendations", "refactor", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "investigate", "agents", "jobs", "audit", "plan", "apply", "hash", "review", "complete", "manifest", "install", "uninstall", "doctor", "update", "paths", "export", "resolve", "impact", "verify", "history", "flows", "state-machines", "deps", "constraints", "debt"],
           examples: CLI_HELP_EXAMPLES
         }
       };
@@ -2670,50 +2598,6 @@ async function runAgentsCommand(args: string[], cwd: string, daemon: RuntimeDaem
   return errorEnvelope("agents", "AC_SCHEMA_INVALID", "agents requires status|budget");
 }
 
-function runMcpCommand(args: string[]) {
-  const subcommand = args[0] ?? "serve";
-  if (subcommand === "serve" || subcommand === "start") {
-    return okEnvelope("mcp", {
-      command: "archctx mcp",
-      stdout: "protocol-only",
-      logs: "stderr"
-    } as any);
-  }
-  if (!["install", "status", "remove"].includes(subcommand)) {
-    return errorEnvelope("mcp", "AC_SCHEMA_INVALID", "mcp requires install|status|remove");
-  }
-  const host = readAgentHost(args);
-  if (!host) return errorEnvelope("mcp", "AC_SCHEMA_INVALID", "--host must be codex, claude, or generic");
-  if (subcommand === "install") {
-    return okEnvelope("mcp.install", {
-      host,
-      installed: true,
-      writes: "manual-host-config",
-      serverName: "archcontext",
-      config: agentHostConfig(host),
-      marker: installMarker(host)
-    } as any);
-  }
-  if (subcommand === "status") {
-    return okEnvelope("mcp.status", {
-      host,
-      installed: "config-ready",
-      serverName: "archcontext",
-      config: agentHostConfig(host),
-      command: "archctx mcp",
-      transport: "stdio"
-    } as any);
-  }
-  return okEnvelope("mcp.remove", {
-    host,
-    installed: false,
-    writes: "manual-host-config",
-    serverName: "archcontext",
-    removeConfig: agentHostRemoveConfig(host),
-    markerRemovedFrom: uninstallMarker(readFlag(args, "--content") ?? "", host)
-  } as any);
-}
-
 function hookAdapterContract(host: AgentHost) {
   return {
     schemaVersion: HOOK_ADAPTER_SCHEMA_VERSION,
@@ -2928,17 +2812,6 @@ function readRuntimeAgentJobStatuses(args: string[], requestId: string):
 function readAgentHost(args: string[]): AgentHost | undefined {
   const host = readFlag(args, "--host") ?? "generic";
   return host === "codex" || host === "claude" || host === "generic" ? host : undefined;
-}
-
-function agentHostConfig(host: AgentHost) {
-  const server = { command: "archctx", args: ["mcp"] };
-  if (host === "generic") return { command: "archctx", args: ["mcp"], transport: "stdio" };
-  return { mcpServers: { archcontext: server } };
-}
-
-function agentHostRemoveConfig(host: AgentHost) {
-  if (host === "generic") return { command: null, args: [], transport: "stdio", remove: true };
-  return { mcpServers: { archcontext: null } };
 }
 
 function auditConsentGrantedForDoctor(root: string): boolean {
@@ -3983,7 +3856,7 @@ export function resolveCommandExitCode(result: { ok?: boolean; data?: unknown })
   return 1;
 }
 
-const CLI_HELP_EXAMPLES = ["archctx verify --base origin/main --json", "archctx impact --batch-file paths.json --json", "archctx impact --base HEAD~1 --head HEAD --json", "archctx init --name MyApp", "archctx projection run --request-json '{...}'", "archctx projection snapshot --json", "archctx projection freshness --json", "archctx projection publish --json", "archctx projection publish --publisher none --json", "archctx projection publish --follow --interval 300", "archctx projection publish-status --json", "archctx projection verify-pr --base origin/main --json", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body '<complete YAML>'", "archctx plan --id changeset.<id> --op delete_entity --path .archcontext/model/flows/<flow>.yaml --expected-hash sha256:<64-hex>", "archctx hash --path .archcontext/model/nodes/<node>.yaml", "archctx plan --id changeset.<id> --operations-file <operations.json>", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body-file <entity.yaml>", "archctx apply --id changeset.<id> --approved --expected-worktree-digest <draft.base.worktreeDigest>", "archctx state recover --from-git", "archctx ledger migrate --from-yaml --dry-run", "archctx ledger promote --mode authoritative --preflight --rollback-plan", "archctx book recommendations --open --explain", "archctx recommendations accept --id recommendation.<id> --reason 'Accepted after local readback.'", "archctx recommendations metrics", "archctx recommendations list --status rejected", "archctx refactor scan --json", "archctx refactor verify --request-json '{...}' --json", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --changed-path src/app.ts", "archctx practices checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx audit consent", "archctx audit consent --revoke", "archctx audit run --reason 'quarterly architecture audit'", "archctx audit run --no-wait", "archctx audit list --status pending", "archctx audit show audit_run.<id>", "archctx audit approve audit_run.<id>", "archctx audit approve audit_run.<id> --confirm-public-repo public:<host>/<owner>/<repo>:<baseSha>:<runId>", "archctx audit approve audit_run.<id> --resume", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx daemon start", "archctx explore start --foreground", "archctx docs anchors --json", "archctx export native --worktree --json", "archctx export native --ref HEAD --profile repo-harness/v1 --json", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx resolve --path packages/core/projection-engine/src/index.ts", "archctx tunnel", "archctx refactor scan --import-node-limit 100000 --json", "archctx resolve --paths-from changed-paths.txt", "archctx flows check --json", "archctx state-machines check --json", "archctx recommendations defer --id recommendation.<id> --import-node-limit 100000 --reason 'Scanned with the same limit.'", "archctx deps --json", "archctx deps --into capability.<id> --json"];
+const CLI_HELP_EXAMPLES = ["archctx verify --base origin/main --json", "archctx impact --batch-file paths.json --json", "archctx impact --base HEAD~1 --head HEAD --json", "archctx init --name MyApp", "archctx projection run --request-json '{...}'", "archctx projection snapshot --json", "archctx projection freshness --json", "archctx projection publish --json", "archctx projection publish --publisher none --json", "archctx projection publish --follow --interval 300", "archctx projection publish-status --json", "archctx projection verify-pr --base origin/main --json", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body '<complete YAML>'", "archctx plan --id changeset.<id> --op delete_entity --path .archcontext/model/flows/<flow>.yaml --expected-hash sha256:<64-hex>", "archctx hash --path .archcontext/model/nodes/<node>.yaml", "archctx plan --id changeset.<id> --operations-file <operations.json>", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body-file <entity.yaml>", "archctx apply --id changeset.<id> --approved --expected-worktree-digest <draft.base.worktreeDigest>", "archctx state recover --from-git", "archctx ledger migrate --from-yaml --dry-run", "archctx ledger promote --mode authoritative --preflight --rollback-plan", "archctx book recommendations --open --explain", "archctx recommendations accept --id recommendation.<id> --reason 'Accepted after local readback.'", "archctx recommendations metrics", "archctx recommendations list --status rejected", "archctx refactor scan --json", "archctx refactor verify --request-json '{...}' --json", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --changed-path src/app.ts", "archctx practices checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx audit consent", "archctx audit consent --revoke", "archctx audit run --reason 'quarterly architecture audit'", "archctx audit run --no-wait", "archctx audit list --status pending", "archctx audit show audit_run.<id>", "archctx audit approve audit_run.<id>", "archctx audit approve audit_run.<id> --confirm-public-repo public:<host>/<owner>/<repo>:<baseSha>:<runId>", "archctx audit approve audit_run.<id> --resume", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx daemon start", "archctx explore start --foreground", "archctx docs anchors --json", "archctx export native --worktree --json", "archctx export native --ref HEAD --profile repo-harness/v1 --json", "archctx resolve --path packages/core/projection-engine/src/index.ts", "archctx refactor scan --import-node-limit 100000 --json", "archctx resolve --paths-from changed-paths.txt", "archctx flows check --json", "archctx state-machines check --json", "archctx recommendations defer --id recommendation.<id> --import-node-limit 100000 --reason 'Scanned with the same limit.'", "archctx deps --json", "archctx deps --into capability.<id> --json"];
 
 const CLI_RESOLVE_HELP = {
   command: "archctx resolve (--path <repo-relative path> | --paths-from <file> | --paths-from -)",
@@ -4240,7 +4113,7 @@ async function readCliPlanOperations(args: string[], cwd: string, deps: CliRunti
     } catch (error) {
       return `plan --operations-file ${file} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`;
     }
-    const validation = validateJsonSchema(MCP_PLAN_OPERATIONS_SCHEMA, parsed);
+    const validation = validateJsonSchema(PLAN_OPERATIONS_SCHEMA, parsed);
     if (!validation.valid) return `plan --operations-file ${file} is not a valid operations array: ${validation.issues.map((issue) => `${issue.path} ${issue.message}`).join("; ")}`;
     return parsed as unknown as ChangeOperation[];
   }
@@ -4399,13 +4272,6 @@ if (import.meta.main) {
     } else {
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     }
-  } else if (command === "mcp" && args.length === 0) {
-    await runStdioMcpLoop(
-      stdinLines(),
-      (line) => process.stdout.write(`${line}\n`),
-      (line) => process.stderr.write(`${line}\n`),
-      { runtimeResolver: (root, options) => createOrStartRuntimeRpcClient(root, options?.preserveHealthFailure) }
-    );
   } else if (command === "projection" && args[0] === "publish" && args.includes("--follow") && preflightCliArguments(command, args) === undefined) {
     process.exitCode = await runProjectionPublishFollowEntry(args.slice(1), process.cwd());
   } else if (command === "daemon" && args[0] === "start" && args.includes("--foreground") && preflightCliArguments(command, args) === undefined) {
