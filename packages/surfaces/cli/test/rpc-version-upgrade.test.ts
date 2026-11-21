@@ -9,7 +9,6 @@ import { defaultDaemonConnectionPath, defaultDaemonLockPath, readRuntimeRpcConne
 import { isProcessAlive } from "@archcontext/local-runtime/process-liveness";
 import { createCommittedGitRepo } from "../../../local-runtime/local-store-sqlite/test/git-fixtures";
 import { removeTempPath, waitUntil } from "../../../local-runtime/runtime-daemon/test/runtime-test-fixtures";
-import { runFastHookEnqueue } from "../src/hook-fast";
 import { runCli } from "../src/main";
 
 const V1 = "archcontext.runtime-rpc/v1";
@@ -43,12 +42,6 @@ test("v2 CLI diagnoses a frozen-v1 peer, preserves discovery files, and refuses 
     expect(readRuntimeRpcConnection(root)).toBeUndefined();
     const status = await runCli("daemon", ["status"], root);
     expect(status.data).toMatchObject({ rpcVersionCompatible: false, versionUnsupported: { reason: "rpc-version-mismatch", received: V1, command: "archctx daemon upgrade" } });
-    const hook = await runFastHookEnqueue(["hook", "enqueue"], root);
-    expect(hook.handled).toBe(true);
-    expect(hook.envelope).toMatchObject({ ok: true, data: { schemaVersion: "archcontext.hook-enqueue-fail-open/v1", failOpen: true, reasonCode: "runtime-unavailable" } });
-    expect((hook.envelope as any).data.message).toContain("archctx daemon upgrade");
-    expect((hook.envelope as any).data.message).toContain(V1);
-    expect((hook.envelope as any).data.message).toContain(V2);
     expect(readFileSync(connectionPath)).toEqual(connectionBytes);
     expect(readFileSync(lockPath)).toEqual(lockBytes);
     expect(existsSync(requestsPath)).toBe(false);

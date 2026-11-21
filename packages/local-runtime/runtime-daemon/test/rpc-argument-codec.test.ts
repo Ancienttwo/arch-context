@@ -168,24 +168,22 @@ describe("RPC method table: invalid positional input is a structured AC_SCHEMA_I
     { method: "init", params: [42, "x"], expectSubstring: "init root must be a string" },
     { method: "init", params: ["/root", 42], expectSubstring: "init productName must be a string" },
     // required string + required string
-    { method: "auditShow", params: ["/root", 42], expectSubstring: "auditShow runId must be a string" },
-    { method: "auditShow", params: ["/root"], expectSubstring: "auditShow runId must be a string" },
+    { method: "readResource", params: ["/root", 42], expectSubstring: "readResource uri must be a string" },
+    { method: "readResource", params: ["/root"], expectSubstring: "readResource uri must be a string" },
     // required string + optional string[]
     { method: "sync", params: ["/root", "not-an-array"], expectSubstring: "sync changedPaths must be an array of strings" },
     { method: "sync", params: ["/root", [1, 2]], expectSubstring: "sync changedPaths must be an array of strings" },
     // required string + optional number
     { method: "context", params: ["/root", "task", "12"], expectSubstring: "context maxSymbols must be a number" },
     { method: "contextLandscape", params: [42], expectSubstring: "contextLandscape task must be a string" },
-    // required string + required object: wrong type, malformed (array), and missing — every
-    // required-object slot is fully strict now, so any of the 61 methods works; jobsClaim and
-    // checkpoint are picked for variety.
+    // required string + required object: wrong type, malformed (array), and missing
     { method: "practiceCheckpoint", params: ["/root", "not-an-object"], expectSubstring: "practiceCheckpoint input must be an object" },
     { method: "practiceCheckpoint", params: ["/root", ["array", "not", "object"]], expectSubstring: "practiceCheckpoint input must be an object" },
     { method: "practiceCheckpoint", params: ["/root"], expectSubstring: "practiceCheckpoint input must be an object" },
     { method: "practiceCheckpoint", params: ["/root", null], expectSubstring: "practiceCheckpoint input must be an object" },
-    { method: "jobsClaim", params: ["/root", 42], expectSubstring: "jobsClaim input must be an object" },
+    { method: "projection", params: ["/root", 42], expectSubstring: "projection input must be an object" },
     // required string + optional object: present but malformed (not simply omitted)
-    { method: "jobsEnqueueGitHook", params: ["/root", "bad"], expectSubstring: "jobsEnqueueGitHook input must be an object" },
+    { method: "refactorScan", params: ["/root", "bad"], expectSubstring: "refactorScan input must be an object" },
     { method: "ledgerProject", params: ["/root", 7], expectSubstring: "ledgerProject input must be an object" },
     // required string + required object + required boolean
     { method: "mcpProjection", params: ["/root", { action: "run", request: {} }, "true"], expectSubstring: "mcpProjection approved must be a boolean" },
@@ -295,13 +293,6 @@ describe("RPC method table: well-formed objects still reach the handler's own va
     const result = await client.applyUpdate(root, { id: "changeset.missing", approved: "true", expectedWorktreeDigest: "sha256:" + "0".repeat(64) } as never);
     expect(result.ok).toBe(false);
     expect(result.error?.code).toBe("AC_SCHEMA_INVALID");
-  });
-
-  test("jobsClaim with an object missing workerId still answers AC_SCHEMA_INVALID from the handler itself", async () => {
-    const result = await client.jobsClaim(root, {} as never);
-    expect(result.ok).toBe(false);
-    expect(result.error?.code).toBe("AC_SCHEMA_INVALID");
-    expect(result.error).toMatchObject({reasonCode: "jobs-input-invalid", details: {field: "workerId"}});
   });
 
   test("projection with an object missing action still answers a structured error from the handler itself", async () => {

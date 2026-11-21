@@ -55,7 +55,7 @@ test("all original partial public wrappers safely classify unexpected entry fail
   const cases: Array<[string,unknown[]]> = [
     ["acceptCommittedChange",["/unused",{}]], ["ledgerProject",["/unused",{}]], ["ledgerMigrate",["/unused",{}]],
     ["ledgerRollback",["/unused",{}]], ["ledgerRebuild",["/unused",{}]], ["recommendations",["/unused",{}]],
-    ["refactorRecord",["/unused",{}]], ["refactorVerify",["/unused",{}]], ["auditApprove",["/unused",{}]],
+    ["refactorRecord",["/unused",{}]], ["refactorVerify",["/unused",{}]], ["book",["/unused",{}]],
     ["docs",["/unused",{}]], ["applyUpdate",["/unused",{}]], ["planPracticeWaiver",["/unused",{}]],
     ["docsProjection",["/unused",{}]], ["agentContextProjection",["/unused",{}]], ["projection",["/unused",{}]],
     ["mcpProjection",["/unused",{},true]], ["inspectProjectionApplyReceipt",["/unused",digest]],

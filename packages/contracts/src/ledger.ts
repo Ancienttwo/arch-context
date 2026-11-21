@@ -18,10 +18,7 @@ export const RECOMMENDATION_SCHEMA_VERSION = "archcontext.recommendation/v2" as 
 export const RECOMMENDATION_V3_SCHEMA_VERSION = "archcontext.recommendation/v3" as const;
 export const RECOMMENDATION_FEEDBACK_SCHEMA_VERSION = "archcontext.recommendation-feedback/v1" as const;
 export const AGENT_JOB_SCHEMA_VERSION = "archcontext.agent-job/v1" as const;
-export const INVESTIGATION_REPORT_SCHEMA_VERSION = "archcontext.investigation-report/v1" as const;
 export const ARCHITECTURE_SUBJECT_SELECTOR_SCHEMA_VERSION = "archcontext.architecture-subject-selector/v1" as const;
-export const ARCHITECTURE_CANDIDATE_DELTA_SCHEMA_VERSION = "archcontext.architecture-candidate-delta/v1" as const;
-export const ARCHITECTURE_CANDIDATE_DELTA_POLICY_SCHEMA_VERSION = "archcontext.architecture-candidate-delta-policy/v1" as const;
 export const PROJECTION_TARGET_SCHEMA_VERSION = "archcontext.projection-target/v1" as const;
 
 export const RECOMMENDATION_CATEGORIES = ["practice", "refactor_proposal", "structural_observation"] as const;
@@ -71,76 +68,6 @@ export type ArchitectureSubjectSelectorKind =
   | "api"
   | "datastore"
   | "external-contract";
-export type ArchitectureCodeChangeKind = "added" | "removed" | "moved" | "renamed" | "materially_changed";
-export type ArchitectureDeltaRawFactKind = "git-path-change" | "codegraph-symbol" | "codegraph-relation";
-export type ArchitectureDeltaInterpretationKind =
-  | "code-subject-added"
-  | "code-subject-removed"
-  | "code-subject-moved"
-  | "code-subject-renamed"
-  | "code-subject-materially-changed";
-export type ArchitectureDeclaredTargetKind = "entity" | "relation" | "constraint";
-export type ArchitectureCandidateChangeTargetKind = "node" | "relation" | "constraint" | "owner" | "lifecycle" | "migration-state";
-export type ArchitectureCandidateStateDimension = "target-state" | "migration-state";
-export type ArchitectureDeltaMappingMatchReason =
-  | "declared-path-exact"
-  | "declared-path-prefix"
-  | "declared-name-match"
-  | "declared-relation-endpoints"
-  | "declared-constraint-subject";
-export type ArchitectureDeltaMappingAmbiguityReason =
-  | "declared-graph-unavailable"
-  | "no-declared-target"
-  | "multiple-declared-targets"
-  | "relation-endpoint-unmapped";
-export type ArchitectureCandidateChangeKind =
-  | "node-added"
-  | "node-removed"
-  | "node-moved"
-  | "node-renamed"
-  | "node-materially-changed"
-  | "relation-added"
-  | "relation-removed"
-  | "relation-moved"
-  | "relation-renamed"
-  | "relation-materially-changed"
-  | "constraint-added"
-  | "constraint-removed"
-  | "constraint-moved"
-  | "constraint-renamed"
-  | "constraint-materially-changed"
-  | "owner-added"
-  | "owner-removed"
-  | "owner-moved"
-  | "owner-renamed"
-  | "owner-materially-changed"
-  | "lifecycle-added"
-  | "lifecycle-removed"
-  | "lifecycle-moved"
-  | "lifecycle-renamed"
-  | "lifecycle-materially-changed"
-  | "migration-state-added"
-  | "migration-state-removed"
-  | "migration-state-moved"
-  | "migration-state-renamed"
-  | "migration-state-materially-changed";
-export type ArchitectureCandidateDeltaPolicyAction =
-  | "auto-accept"
-  | "require-checkpoint"
-  | "require-proof"
-  | "require-human-approval";
-export type ArchitectureCandidateDeltaPolicyReasonCode =
-  | "high-confidence-complete-evidence"
-  | "medium-confidence"
-  | "low-confidence"
-  | "partial-evidence"
-  | "missing-evidence"
-  | "mapping-ambiguity"
-  | "migration-state-progress"
-  | "target-state-removal"
-  | "relation-removal"
-  | "constraint-relaxation"
-  | "owner-authority-change";
 export type ProjectionTargetType =
   | "architecture-index"
   | "entity-summary"
@@ -267,7 +194,7 @@ export interface EvidenceBindingV1 {
   bindingId: string;
   evidenceId: string;
   target: {
-    kind: "entity" | "relation" | "constraint" | "recommendation" | "practice" | "event" | "snapshot" | "subject" | "candidate-delta";
+    kind: "entity" | "relation" | "constraint" | "recommendation" | "practice" | "event" | "snapshot" | "subject";
     id: string;
   };
   bindingReason: "direct-selector" | "predicate-subject" | "change-cursor" | "human-attestation" | "deterministic-check" | "subagent-proposal";
@@ -407,187 +334,6 @@ export interface ArchitectureSubjectSelectorV1 {
   };
   externalId?: string;
   digest: string;
-  extensions?: Record<string, Json>;
-}
-
-export interface ArchitectureDeltaRawFactV1 {
-  factId: string;
-  kind: ArchitectureDeltaRawFactKind;
-  subjectSelectorId: string;
-  source: "git" | "codegraph";
-  summary: string;
-  evidenceIds: string[];
-  digest: string;
-  extensions?: Record<string, Json>;
-}
-
-export interface ArchitectureDeltaChangedSubjectV1 {
-  subjectSelectorId: string;
-  changeKind: ArchitectureCodeChangeKind;
-  previousSelectorId?: string;
-  rawFactIds: string[];
-  evidenceIds: string[];
-  digest: string;
-}
-
-export interface ArchitectureDeltaInterpretationV1 {
-  interpretationId: string;
-  kind: ArchitectureDeltaInterpretationKind;
-  subjectSelectorId: string;
-  evidenceIds: string[];
-  confidence: "low" | "medium" | "high";
-  coverage: EvidenceCoverageLevelV2;
-  heuristic: true;
-  summary: string;
-  digest: string;
-  extensions?: Record<string, Json>;
-}
-
-export interface ArchitectureDeltaDeclaredSubjectMappingV1 {
-  mappingId: string;
-  subjectSelectorId: string;
-  target: {
-    kind: ArchitectureDeclaredTargetKind;
-    id: string;
-  };
-  matchReason: ArchitectureDeltaMappingMatchReason;
-  confidence: "low" | "medium" | "high";
-  evidenceIds: string[];
-  digest: string;
-  extensions?: Record<string, Json>;
-}
-
-export interface ArchitectureDeltaMappingCandidateV1 {
-  target: {
-    kind: ArchitectureDeclaredTargetKind;
-    id: string;
-  };
-  matchReason: ArchitectureDeltaMappingMatchReason;
-  confidence: "low" | "medium" | "high";
-}
-
-export interface ArchitectureDeltaMappingAmbiguityV1 {
-  ambiguityId: string;
-  subjectSelectorId: string;
-  reasonCode: ArchitectureDeltaMappingAmbiguityReason;
-  candidateTargets: ArchitectureDeltaMappingCandidateV1[];
-  evidenceIds: string[];
-  summary: string;
-  digest: string;
-  extensions?: Record<string, Json>;
-}
-
-export interface ArchitectureCandidateChangeV1 {
-  candidateChangeId: string;
-  kind: ArchitectureCandidateChangeKind;
-  target: {
-    kind: ArchitectureCandidateChangeTargetKind;
-    id: string;
-    parentId?: string;
-  };
-  stateDimension: ArchitectureCandidateStateDimension;
-  changeKind: ArchitectureCodeChangeKind;
-  subjectSelectorIds: string[];
-  mappingIds: string[];
-  ambiguityIds: string[];
-  evidenceIds: string[];
-  confidence: "low" | "medium" | "high";
-  heuristic: true;
-  summary: string;
-  digest: string;
-  extensions?: Record<string, Json>;
-}
-
-export interface ArchitectureCandidateDeltaV1 {
-  schemaVersion: typeof ARCHITECTURE_CANDIDATE_DELTA_SCHEMA_VERSION;
-  deltaId: string;
-  repository: ArchitectureRepositoryIdentityV1;
-  worktree: ArchitectureWorktreeIdentityV1;
-  changeCursor: {
-    source: "git";
-    changeSource: "commit" | "staged" | "worktree";
-    baseSha?: string;
-    headSha: string;
-    pathCount: number;
-    metadataDigest: string;
-    codeFactsDigest: string;
-  };
-  subjectSelectors: ArchitectureSubjectSelectorV1[];
-  changedSubjects: ArchitectureDeltaChangedSubjectV1[];
-  rawFacts: ArchitectureDeltaRawFactV1[];
-  interpretations: ArchitectureDeltaInterpretationV1[];
-  declaredSubjectMappings: ArchitectureDeltaDeclaredSubjectMappingV1[];
-  mappingAmbiguities: ArchitectureDeltaMappingAmbiguityV1[];
-  candidateChanges: ArchitectureCandidateChangeV1[];
-  evidenceItems: EvidenceItemV2[];
-  evidenceBindings: EvidenceBindingV1[];
-  summary: {
-    added: number;
-    removed: number;
-    moved: number;
-    renamed: number;
-    materiallyChanged: number;
-    unresolved: number;
-    mapped: number;
-    ambiguous: number;
-    candidateChanges: number;
-    targetStateChanges: number;
-    migrationStateProgress: number;
-    mappingCoverage: {
-      totalChangedSubjects: number;
-      mappedSubjects: number;
-      unresolvedSubjects: number;
-      ambiguousSubjects: number;
-      coveragePercent: number;
-    };
-    unresolvedSubjects: {
-      total: number;
-      byReason: Record<ArchitectureDeltaMappingAmbiguityReason, number>;
-      subjectSelectorIds: string[];
-    };
-    evidenceStrengthDistribution: Record<EvidenceStrengthV2, number>;
-  };
-  deltaDigest: string;
-  extensions?: Record<string, Json>;
-}
-
-export interface ArchitectureCandidateDeltaPolicyDecisionV1 {
-  decisionId: string;
-  candidateChangeId: string;
-  target: {
-    kind: ArchitectureCandidateChangeTargetKind;
-    id: string;
-    parentId?: string;
-  };
-  stateDimension: ArchitectureCandidateStateDimension;
-  changeKind: ArchitectureCodeChangeKind;
-  confidence: "low" | "medium" | "high";
-  action: ArchitectureCandidateDeltaPolicyAction;
-  reasonCodes: ArchitectureCandidateDeltaPolicyReasonCode[];
-  evidenceIds: string[];
-  digest: string;
-  extensions?: Record<string, Json>;
-}
-
-export interface ArchitectureCandidateDeltaPolicyEvaluationV1 {
-  schemaVersion: typeof ARCHITECTURE_CANDIDATE_DELTA_POLICY_SCHEMA_VERSION;
-  evaluationId: string;
-  deltaId: string;
-  repository: ArchitectureRepositoryIdentityV1;
-  worktree: ArchitectureWorktreeIdentityV1;
-  deltaDigest: string;
-  policyVersion: string;
-  evaluatedAt: string;
-  decisions: ArchitectureCandidateDeltaPolicyDecisionV1[];
-  summary: {
-    candidateChanges: number;
-    autoAccept: number;
-    requireCheckpoint: number;
-    requireProof: number;
-    requireHumanApproval: number;
-    mappingAmbiguities: number;
-  };
-  evaluationDigest: string;
   extensions?: Record<string, Json>;
 }
 
@@ -807,27 +553,6 @@ export interface AgentJobV1 {
   extensions?: Record<string, Json>;
 }
 
-export interface InvestigationReportV1 {
-  schemaVersion: typeof INVESTIGATION_REPORT_SCHEMA_VERSION;
-  reportId: string;
-  jobId: string;
-  status: "succeeded" | "failed" | "partial";
-  findings: {
-    findingId: string;
-    hypothesis: string;
-    evidenceBindingIds: string[];
-    unknowns: string[];
-    falsifier: string;
-    proposedDelta: ArchitectureCandidateChangeV1;
-    proposedDeltaDigest: string;
-    confidence: "low" | "medium" | "high";
-  }[];
-  outputDigest: string;
-  createdAt: string;
-  directMutationAllowed: false;
-  extensions?: Record<string, Json>;
-}
-
 export const LEDGER_AUTHORITY_MATRIX: Record<ArchitectureFactAuthority, {
   writer: string;
   canonicalIdRule: string;
@@ -872,26 +597,5 @@ export function architectureSnapshotDigest(snapshot: ArchitectureSnapshotV2): st
 
 export function architectureSubjectSelectorDigest(selector: ArchitectureSubjectSelectorV1): string {
   const { digest: _digest, extensions: _extensions, ...hashable } = selector;
-  return digestJson(hashable as unknown as Json);
-}
-
-export function architectureCandidateDeltaDigest(delta: ArchitectureCandidateDeltaV1): string {
-  const { deltaDigest: _deltaDigest, extensions: _extensions, ...hashable } = delta;
-  return digestJson(hashable as unknown as Json);
-}
-
-export function architectureCandidateDeltaPolicyDecisionDigest(decision: ArchitectureCandidateDeltaPolicyDecisionV1): string {
-  const { digest: _digest, extensions: _extensions, ...hashable } = decision;
-  return digestJson(hashable as unknown as Json);
-}
-
-export function architectureCandidateDeltaPolicyEvaluationDigest(evaluation: ArchitectureCandidateDeltaPolicyEvaluationV1): string {
-  const {
-    evaluationId: _evaluationId,
-    evaluatedAt: _evaluatedAt,
-    evaluationDigest: _evaluationDigest,
-    extensions: _extensions,
-    ...hashable
-  } = evaluation;
   return digestJson(hashable as unknown as Json);
 }

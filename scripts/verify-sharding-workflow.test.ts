@@ -584,10 +584,10 @@ const PLATFORM_SUITES = [
   "packages/core/changeset-engine", "packages/local-runtime/codegraph-adapter",
   "packages/local-runtime/control-file-security", "packages/local-runtime/descriptor-write", "packages/local-runtime/git-adapter", "packages/local-runtime/local-store-sqlite",
   "packages/local-runtime/runtime-state-paths", "packages/local-runtime/model-store-yaml/test/native-context.test.ts",
-  ...["daemon-control-acl", "egress-admission", "investigation-transport", "projection-writer", "rpc-argument-codec", "rpc-client",
+  ...["daemon-control-acl", "egress-admission", "projection-writer", "rpc-argument-codec", "rpc-client",
     "rpc-contract-boundary", "rpc-methods", "rpc-prepare-session", "rpc-server", "rpc-v2-failure-compat", "rpc-version"]
     .map(name => `packages/local-runtime/runtime-daemon/test/${name}.test.ts`),
-  ...["hook-helper-parity", "hook-state-paths", "rpc-version-upgrade"].map(name => `packages/surfaces/cli/test/${name}.test.ts`)
+  ...["rpc-version-upgrade"].map(name => `packages/surfaces/cli/test/${name}.test.ts`)
 ];
 const NODE_COMPAT_SUITES = ["packages/surfaces/cli/test/bundle-entry.test.ts",
   "tests/ownership-change-acceptance-recovery.test.ts", "packages/contracts/test/publishability.test.ts"];

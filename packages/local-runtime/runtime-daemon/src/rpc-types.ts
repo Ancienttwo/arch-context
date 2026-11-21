@@ -1,15 +1,11 @@
-import type { AgentInvestigationRunMetadata, InvestigationReportProposalPlan } from "@archcontext/core/agent-orchestrator";
 import type { ChangeOperation } from "@archcontext/core/changeset-engine";
 import type { ArchitectureProjectionProfile } from "@archcontext/core/projection-engine";
 import type { RecommendationFeedbackAction, RecommendationFeedbackSource, RecommendationStatus } from "@archcontext/core/recommendation-engine";
 import type { CompleteTaskInput } from "@archcontext/core/review-engine";
 import type {
   AcceptedArchitectureChangeReferenceV1,
-  AgentJobV1,
   ArchitectureActorKind,
   ExternalDocumentationProvider,
-  InvestigationContextRisk,
-  InvestigationContextUncertainty,
   PracticeCheckpointEvent,
   ProjectionApplyRecoveryIntentV1,
   ProjectionApplyReceiptV1,
@@ -111,93 +107,6 @@ export interface RuntimeApplyUpdateInput {
   expectedWorktreeDigest: string;
   worktreeDigestProfile?: RuntimeWorktreeDigestProfile;
   projectionApplyReceipt?: ProjectionApplyReceiptV1;
-}
-
-export interface RuntimeAgentJobEnqueueGitInput {
-  source?: GitChangeSource;
-  ref?: string;
-  baseRef?: string;
-  event?: string;
-  taskSessionId?: string;
-  analysisKind?: string;
-  risk?: InvestigationContextRisk;
-  uncertainty?: InvestigationContextUncertainty;
-  policyRequestedInvestigation?: boolean;
-  coalesceKey?: string;
-  contextMaxItems?: number;
-  cooldownMs?: number;
-  debounceUntil?: string;
-  maxAttempts?: number;
-  priority?: number;
-  maxQueuedJobs?: number;
-  runnerPort?: AgentJobV1["runnerPort"];
-  codeFactsDigest?: string;
-  generatedProjection?: boolean;
-  skipGeneratedProjection?: boolean;
-}
-
-export interface RuntimeAgentJobClaimRpcInput {
-  workerId: string;
-  leaseMs?: number;
-  now?: string;
-  maxRunningJobs?: number;
-}
-
-export interface RuntimeAgentJobCompleteRpcInput {
-  jobId: string;
-  status: Extract<AgentJobV1["status"], "succeeded" | "failed">;
-  workerId?: string;
-  outputDigest?: string;
-  runMetadata?: AgentInvestigationRunMetadata;
-  proposalPlan?: InvestigationReportProposalPlan;
-  error?: string;
-  now?: string;
-}
-
-export interface RuntimeAgentJobRetryRpcInput {
-  jobId: string;
-  reason?: string;
-  now?: string;
-}
-
-export interface RuntimeAgentJobCancelRpcInput {
-  jobId: string;
-  status?: Extract<AgentJobV1["status"], "cancelled" | "superseded" | "expired">;
-  reason?: string;
-  supersededByJobId?: string;
-  now?: string;
-}
-
-export interface RuntimeAuditRunInput {
-  taskSessionId?: string;
-  reason?: string;
-  risk?: InvestigationContextRisk;
-  uncertainty?: InvestigationContextUncertainty;
-  contextMaxItems?: number;
-  modelId?: string;
-  timeoutMs?: number;
-  /**
-   * Defaults to false: `auditRun` enqueues and claims its job synchronously, then drives the
-   * (multi-minute, real-claude-subprocess) investigation to completion in a detached background
-   * task and returns `{status: "started", jobId}` immediately, so the RPC call itself never has to
-   * stay open longer than a real HTTP client's default timeout. Pass `wait: true` to keep the
-   * original fully-synchronous contract (the call does not resolve until the run reaches a
-   * terminal "pending"/"failed" status) — used by callers that already run in a context with no
-   * such timeout (tests, scripts that intentionally want to block).
-   */
-  wait?: boolean;
-}
-
-export interface RuntimeAuditApproveInput {
-  runId: string;
-  /**
-   * Required once, verbatim, when the run's repository resolves to non-private visibility.
-   * Expected shape: `public:<host>/<owner>/<repo>:<baseSha>:<runId>` (see `auditApprove`'s confirmation
-   * gate) — a re-run instruction, not a secret, so it is safe to print in error messages.
-   */
-  confirmPublicToken?: string;
-  /** Required to continue a run left in "issuing" status by a prior crashed/partial approve call. */
-  resume?: boolean;
 }
 
 export interface RuntimeBookInput {

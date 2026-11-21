@@ -109,7 +109,7 @@ describe("runtime RPC client transport", () => {
       expect((shortTimeout as RuntimeRpcTransportError).method).toBe("runtimeStatus");
 
       // Delayed headers on a long-running method stay inside its own, explicitly longer deadline.
-      expect((await strict.auditRun(tmpdir())).ok).toBe(true);
+      expect((await strict.refactorScan(tmpdir())).ok).toBe(true);
       expect((await strict.health() as any).ok).toBe(true);
 
       // A response that starts but never finishes still fails on the deadline.

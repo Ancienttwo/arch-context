@@ -5,8 +5,6 @@ import { publicFailureEnvelope, publicOperationErrorEnvelope, publicOperationFai
 import { ArchitectureDebtReadError, readCompleteTaskArchitectureDebt, selectedProducerFailureEnvelope } from "./architecture-debt";
 import type { RuntimePracticeCheckpointInput, RuntimePracticeWaiverInput, RuntimeLedgerProjectInput, RuntimeAcceptCommittedChangeInput, RuntimeLedgerRebuildInput, RuntimeLedgerMigrateInput, RuntimeLedgerRollbackInput, RuntimeCompleteTaskInput, RuntimePlanUpdateInput, RuntimeApplyUpdateInput } from "./rpc-types";
 export type { RuntimePracticeCheckpointInput, RuntimePracticeWaiverInput, RuntimeLedgerProjectInput, RuntimeAcceptCommittedChangeInput, RuntimeLedgerRebuildInput, RuntimeLedgerMigrateInput, RuntimeLedgerRollbackInput, RuntimeCompleteTaskInput, RuntimeWorktreeDigestProfile, RuntimePlanUpdateInput, RuntimeApplyUpdateInput } from "./rpc-types";
-import { AgentJobService, runtimeAgentJobId, runtimeInvestigationRisk, runtimeInvestigationUncertainty, validateRuntimeAgentProposalPlan, type RuntimeAgentJobEnqueueGitInput, type RuntimeAgentJobClaimRpcInput, type RuntimeAgentJobCompleteRpcInput, type RuntimeAgentJobRetryRpcInput, type RuntimeAgentJobCancelRpcInput } from "./agent-jobs";
-export type { RuntimeAgentJobEnqueueGitInput, RuntimeAgentJobClaimRpcInput, RuntimeAgentJobCompleteRpcInput, RuntimeAgentJobRetryRpcInput, RuntimeAgentJobCancelRpcInput } from "./agent-jobs";
 import { ExternalDocumentationService, type RuntimeDocsInput } from "./external-documentation";
 import { PracticeCheckpointService } from "./practice-checkpoint";
 export type { RuntimeDocsInput, RuntimeResourceReadResult } from "./external-documentation";
@@ -18,8 +16,6 @@ export type { RuntimeArchitectureLedgerRolloutMode, RuntimeArchitectureLedgerRea
 import { ArchitectureBookService, type RuntimeBookInput } from "./architecture-book";
 import { LandscapeService } from "./landscape";
 export type { RuntimeBookInput } from "./architecture-book";
-import { AuditService, AUDIT_APPROVE_GH_TOKEN_ENV, type RuntimeAuditRunInput, type RuntimeAuditApproveInput } from "./audit";
-export { AUDIT_RUN_DEFAULT_TIMEOUT_MS, AUDIT_APPROVE_GH_TOKEN_ENV, type RuntimeAuditRunInput, type RuntimeAuditApproveInput } from "./audit";
 import { ProjectionApplyService } from "./projection-apply";
 import { architectureHistoryRenderInput, committedArchitectureDocsProfile, ignoredArchitectureModelPaths, runArchitectureDocsProjectionCommand, runAgentContextProjectionCommand, runProjectionProtocolCommand, validateProjectionInvocation, validateDocsProjectionInput, validateAgentContextProjectionInput, type RuntimeDocsProjectionInput, type RuntimeAgentContextProjectionInput, type RuntimeProjectionInvocation, type ProjectionServiceHost } from "./projection-service";
 import { readCurrentBranch } from "./projection-inputs";
@@ -60,7 +56,6 @@ import {
   compareArchitectureLedgerStateToYaml,
   planYamlToArchitectureLedgerImport,
   projectArchitectureLedgerStateToYamlFiles,
-  type ArchitectureAuditRunV1,
   type ArchitectureLedgerAppendInput,
   type ArchitectureLedgerAppendResult,
   type ArchitectureLedgerScope,
@@ -69,7 +64,6 @@ import {
 import { type RegisteredRefactorAssessmentV1 } from "./refactor-recording";
 import { evaluateReviewDependencyConstraints, refactorWorktreeDigests } from "./refactor-scan";
 import { type RuntimeRefactorVerifyInput } from "./refactor-verify";
-import { type CommandInvestigationRunnerTransport } from "@archcontext/core/agent-orchestrator";
 import { loadPracticeCatalog, type PracticeCatalogCommandInput } from "@archcontext/core/practice-catalog";
 import { evaluatePracticeEnforcement, loadPracticeEnforcementPolicy, loadPracticeWaiverOwnerRegistry, loadPracticeWaivers, shouldEvaluatePracticeEnforcement } from "@archcontext/core/practice-engine";
 import { reconcileArchitectureLedgerDrift } from "@archcontext/core/reconcile-engine";
@@ -79,18 +73,12 @@ import { CodeGraphAdapter, CodeGraphSdkProvider, ProjectionCodeFactsUnavailableE
 import { CONTEXT7_ENABLED_ENV, CONTEXT7_MODE_ENV, Context7ExternalDocumentationAdapter } from "@archcontext/local-runtime/context7-adapter";
 import { defaultJiebaSearchTokenizer } from "@archcontext/local-runtime/search-tokenizer";
 import { compileTaskContext, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
-import { assertNoCallerProvidedAttestationFields, digestJson, errorEnvelope, failureEnvelope, knownFailure, okEnvelope, type AgentJobV1, type CodeFactsPort, type CodeFactsSnapshot, type ExplorerDeltaQueryV2, type ExplorerProjectionQueryV2, type ExplorerServiceContract, type ExternalDocumentationPort, type Json, type JsonEnvelope, type ModelStorePort, type ModelValidationResult, type PracticeCheckpointSnapshotV1, type RepositorySnapshot, type WorkspaceRef } from "@archcontext/contracts";
+import { assertNoCallerProvidedAttestationFields, digestJson, errorEnvelope, failureEnvelope, knownFailure, okEnvelope, type CodeFactsPort, type CodeFactsSnapshot, type ExplorerDeltaQueryV2, type ExplorerProjectionQueryV2, type ExplorerServiceContract, type ExternalDocumentationPort, type Json, type JsonEnvelope, type ModelStorePort, type ModelValidationResult, type PracticeCheckpointSnapshotV1, type RepositorySnapshot, type WorkspaceRef } from "@archcontext/contracts";
 import { type ProjectionRequestV1, type ProjectionApplyRecoveryIntentV1 } from "@archcontext/contracts";
 import { findRepositoryRoot, listGitVisibleFiles, readHeadSha } from "@archcontext/local-runtime/git-adapter";
-import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeAgentJobQueueScope, type RuntimeLocalStore, type UnresolvedChangeSetJournal } from "@archcontext/local-runtime/local-store-sqlite";
+import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeLocalStore, type UnresolvedChangeSetJournal } from "@archcontext/local-runtime/local-store-sqlite";
 import { ArchContextInitRefusedError, extractSchemaVersion, initializeArchContextModel, listModelFiles, orderModelFiles, planGeneratedProjection, rebuildGeneratedProjection, validateModelFiles, YamlModelStore, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
-import { createNodeInvestigationTransport } from "./investigation-transport";
-import { auditConsentRequiredEnvelope, readAuditConsent } from "./audit-consent";
 import { localEgressStatus } from "./egress";
-import {
-  createNodeGithubIssueExecutor,
-  type GithubIssueExecutorPort
-} from "./github-issue-executor";
 
 export interface RuntimeStatus {
   running: boolean;
@@ -111,25 +99,12 @@ export interface RuntimeStatus {
 export interface RepositorySession {
   workspace: WorkspaceRef;
   snapshot: RepositorySnapshot;
-  /** Storage ids recorded when the session opened; the idle check reads queue stats by these alone. */
-  queueScope: RuntimeAgentJobQueueScope;
   codeFactsDigest?: string;
   modelDigest?: string;
   startedAt: string;
 }
 
 export type { RuntimeRefactorVerifyInput } from "./refactor-verify";
-export {
-  AUDIT_CONSENT_GRANT_COMMAND,
-  AUDIT_CONSENT_REQUIRED_REASON_CODE,
-  AUDIT_EGRESS_POLICY,
-  auditConsentRequiredEnvelope,
-  grantAuditConsent,
-  readAuditConsent,
-  revokeAuditConsent,
-  type AuditConsentRecordV1,
-  type AuditConsentStatus
-} from "./audit-consent";
 
 export interface RuntimeDeps {
   codeFacts?: CodeFactsPort;
@@ -142,8 +117,6 @@ export interface RuntimeDeps {
   localStorePath?: string;
   clock?: () => string;
   maxRepoSessions?: number;
-  investigationTransport?: CommandInvestigationRunnerTransport;
-  githubIssueExecutor?: GithubIssueExecutorPort;
 }
 
 export interface ProductionRuntimeOptions {
@@ -264,14 +237,10 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   private readonly externalDocumentation: ExternalDocumentationPort;
   private readonly externalDocumentationInjected: boolean;
   private readonly architectureLedger: RuntimeArchitectureLedgerModes;
-  private readonly investigationTransport: CommandInvestigationRunnerTransport;
-  private readonly githubIssueExecutor: GithubIssueExecutorPort;
   private readonly clock: () => string;
   private readonly ledgerAdmin: LedgerAdminService;
   private readonly recommendationsService: RecommendationsService;
   private readonly architectureBook: ArchitectureBookService;
-  private readonly agentJobs: AgentJobService;
-  private readonly auditService: AuditService;
   private readonly projectionApplies: ProjectionApplyService;
   private readonly maxRepoSessions: number;
   private readonly composition: RuntimeCompositionReport;
@@ -284,10 +253,6 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
    * `planUpdate` itself (RPC, MCP, CLI) never marks: every operation it receives is caller-authored.
    */
   private readonly projectionPlannedDrafts = new WeakSet<ChangeSetDraft>();
-  // Tracks the AbortController for every audit job's in-flight (foreground or detached
-  // background) investigation, keyed by jobId, so `stop()` can abort real `claude` subprocesses
-  // rather than leaving them running orphaned past the daemon's own lifetime.
-  private readonly auditRunAbortControllers = new Map<string, AbortController>();
   private readonly landscapes: LandscapeService;
   private readonly explorerServer: ExplorerServerService;
   private readonly explorerProjections: ExplorerProjectionService;
@@ -334,8 +299,6 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
         }
       }
     });
-    this.investigationTransport = deps.investigationTransport ?? createNodeInvestigationTransport();
-    this.githubIssueExecutor = deps.githubIssueExecutor ?? createNodeGithubIssueExecutor();
     this.clock = deps.clock ?? runtimeDefaultClock(options.compositionMode ?? "embedded");
     this.explorerServer = new ExplorerServerService({
       assertRunning: () => this.assertRunning(),
@@ -399,32 +362,6 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
       architectureLedgerGitScope: (root) => this.architectureLedgerGitScope(root),
       architectureLedgerReadback: (root) => this.architectureLedgerReadback(root),
       localStore: this.localStore
-    });
-    this.agentJobs = new AgentJobService({
-      abortOwnedAudit: (jobId) => this.auditRunAbortControllers.get(jobId)?.abort(),
-      assertRunning: () => this.assertRunning(),
-      openSession: (root) => this.openSession(root),
-      architectureLedgerScope: (root) => this.architectureLedgerScope(root),
-      clock: this.clock,
-      localStore: this.localStore
-    });
-    this.auditService = new AuditService({
-      assertRunning: () => this.assertRunning(),
-      openSession: (root) => this.openSession(root),
-      withWriter: (run) => this.withWriter(run),
-      architectureLedgerScope: (root) => this.architectureLedgerScope(root),
-      localStore: this.localStore,
-      modelStore: this.modelStore,
-      clock: this.clock,
-      investigationTransport: this.investigationTransport,
-      githubIssueExecutor: this.githubIssueExecutor,
-      auditRunAbortControllers: this.auditRunAbortControllers,
-      jobsComplete: (root, input) => this.jobsComplete(root, input),
-      appendArchitectureEventsWithFeed: (root, input) => this.appendArchitectureEventsWithFeed(root, input),
-      jobId: runtimeAgentJobId,
-      risk: runtimeInvestigationRisk,
-      uncertainty: runtimeInvestigationUncertainty,
-      validateProposal: validateRuntimeAgentProposalPlan
     });
     this.projectionApplies = new ProjectionApplyService({
       assertRunning: () => this.assertRunning(),
@@ -515,19 +452,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   }
 
   private stopAfterExplorerClosed(): void {
-    // Abort every in-flight audit investigation: this reliably kills its real `claude` subprocess
-    // via the transport's signal handling (child.kill("SIGKILL") on the 'abort' event), so nothing
-    // is ever left running orphaned past this daemon's lifetime — that guarantee holds
-    // unconditionally. What is best-effort, not guaranteed: runAndCompleteAuditJob's own
-    // subsequent failed-run bookkeeping (jobsComplete + appendAuditRunToArchitectureLedger) races
-    // against `this.running` flipping false and `this.localStore.close()` a few lines below, both
-    // of which happen synchronously right after this loop while the aborted investigation's
-    // rejection is still propagating through several microtask hops. If that bookkeeping loses the
-    // race, the job simply stays "running" in the queue with a lease that will expire on its own
-    // (recoverable via the existing claim/dead-letter path) rather than a clean "failed" run
-    // record — never a crash or a silently corrupted state, just a missed observability record.
     try {
-      for (const controller of this.auditRunAbortControllers.values()) controller.abort();
       this.sessions.clear();
       this.practiceCheckpoints.clear();
       this.explorerProjections.clearDeferredChangeFeedFailures();
@@ -559,54 +484,26 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     } catch (error) { throw publicOperationFailure(error); }
   }
 
-  async egressReport(root: string) {
+  async egressReport(_root: string) {
     try {
-    const repositoryRoot = runtimeStatePaths(root).repositoryRoot;
-    const workspace = { root: repositoryRoot, repositoryId: repositoryFingerprint(repositoryRoot), headSha: readHeadSha(repositoryRoot) };
     const documentation = await this.externalDocumentation.health();
     return {
       ...localEgressStatus({
         ...process.env,
         [CONTEXT7_ENABLED_ENV]: documentation.enabled ? "1" : "0",
         [CONTEXT7_MODE_ENV]: documentation.mode
-      }, {
-        auditEnabled: await this.auditService.auditGithubIssuesEnabled(workspace),
-        auditUserConsent: readAuditConsent(repositoryRoot).granted,
-        githubIssuesTokenEnv: AUDIT_APPROVE_GH_TOKEN_ENV
-      }),
+      }, {}),
       source: "daemon" as const
     };
     } catch (error) { throw publicOperationFailure(error); }
   }
 
-  /**
-   * Whether the daemon currently has real background work that must not be interrupted: a
-   * queued or running `runtime_job_queue` entry in any currently open repository session's
-   * scope, or an audit investigation this daemon is actively driving
-   * (`auditRunAbortControllers`). Used by `ArchctxRuntimeRpcServer`'s idle-exit timer to decide
-   * whether it is safe to shut the process down even when no RPC request happens to be in
-   * flight at the moment the timer fires — `auditRun`'s synchronous claim already marks its job
-   * "running" in the queue for the investigation's entire multi-minute lifetime, independent of
-   * whether the RPC call that started it is still open (see `auditRun`). Scoped to sessions this
-   * daemon currently has open rather than every scope ever persisted to the local store: the
-   * daemon only drives work for repositories it has a live session for, so this is the most
-   * direct existing signal without scanning storage for repositories nothing is tracking.
-   *
-   * Never reads the worktree itself (#322): queue stats come from the storage ids recorded when
-   * the session opened, so an idle check costs one store query per session instead of a full
-   * worktree digest walk. A session whose root no longer exists is closed here and counts as idle:
-   * nothing can drive work for a deleted worktree, and keeping it would hold the daemon forever.
-   */
   async hasActiveBackgroundWork(): Promise<boolean> {
     try {
-    if (this.auditRunAbortControllers.size > 0) return true;
     for (const [repositoryId, session] of this.sessions) {
       if (!existsSync(session.workspace.root)) {
         this.sessions.delete(repositoryId);
-        continue;
       }
-      const stats = await this.localStore.queueStatsRuntimeAgentJobs(session.queueScope);
-      if (stats.queuedDepth > 0 || stats.runningDepth > 0) return true;
     }
     return false;
     } catch (error) { throw publicOperationFailure(error); }
@@ -690,50 +587,6 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
 
   async practiceCheckpoint(root: string, input: RuntimePracticeCheckpointInput): Promise<JsonEnvelope> {
     return this.practiceCheckpoints.practiceCheckpoint(root, input);
-  }
-
-  async jobsEnqueueGitHook(root: string, input: RuntimeAgentJobEnqueueGitInput = {}): Promise<JsonEnvelope> {
-    return this.agentJobs.jobsEnqueueGitHook(root, input);
-  }
-
-  async jobsList(root: string, input: { statuses?: AgentJobV1["status"][] } = {}): Promise<JsonEnvelope> {
-    return this.agentJobs.jobsList(root, input);
-  }
-
-  async jobsStats(root: string, input: { now?: string } = {}): Promise<JsonEnvelope> {
-    return this.agentJobs.jobsStats(root, input);
-  }
-
-  async jobsClaim(root: string, input: RuntimeAgentJobClaimRpcInput): Promise<JsonEnvelope> {
-    return this.agentJobs.jobsClaim(root, input);
-  }
-
-  async jobsComplete(root: string, input: RuntimeAgentJobCompleteRpcInput): Promise<JsonEnvelope> {
-    return this.agentJobs.jobsComplete(root, input);
-  }
-
-  async jobsRetry(root: string, input: RuntimeAgentJobRetryRpcInput): Promise<JsonEnvelope> {
-    return this.agentJobs.jobsRetry(root, input);
-  }
-
-  async jobsCancel(root: string, input: RuntimeAgentJobCancelRpcInput): Promise<JsonEnvelope> {
-    return this.agentJobs.jobsCancel(root, input);
-  }
-
-  async auditRun(root: string, input: RuntimeAuditRunInput = {}): Promise<JsonEnvelope> {
-    return this.auditService.auditRun(root, input);
-  }
-
-  async auditList(root: string, input: { statuses?: ArchitectureAuditRunV1["status"][] } = {}): Promise<JsonEnvelope> {
-    return this.auditService.auditList(root, input);
-  }
-
-  async auditShow(root: string, runId: string): Promise<JsonEnvelope> {
-    return this.auditService.auditShow(root, runId);
-  }
-
-  async auditApprove(root: string, input: RuntimeAuditApproveInput): Promise<JsonEnvelope> {
-    return this.auditService.auditApprove(root, input);
   }
 
   practices(root: string, input: PracticeCatalogCommandInput): JsonEnvelope {
@@ -1266,7 +1119,6 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     const session: RepositorySession = {
       workspace,
       snapshot,
-      queueScope: runtimeAgentJobQueueScope(binding.root),
       modelDigest: validation?.modelDigest,
       startedAt: this.clock()
     };
@@ -1291,7 +1143,6 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
           headSha: record.headSha,
           worktreeDigest: record.worktreeDigest
         },
-        queueScope: runtimeAgentJobQueueScope(record.root),
         startedAt: record.updatedAt
       });
       this.evictOldSessions();
@@ -1375,14 +1226,6 @@ function codeFactsDigest(snapshot: CodeFactsSnapshot): string {
     schemaDigest: snapshot.schemaDigest,
     workspaceDigest: snapshot.workspaceDigest
   } as unknown as Json);
-}
-
-function runtimeAgentJobQueueScope(root: string): RuntimeAgentJobQueueScope {
-  const paths = runtimeStatePaths(root);
-  return {
-    repository: { storageRepositoryId: paths.storageRepositoryId },
-    worktree: { storageWorkspaceId: paths.storageWorkspaceId }
-  };
 }
 
 function architectureLedgerScopeForWorkspace(workspace: WorkspaceRef): ArchitectureLedgerScope {
@@ -1584,9 +1427,7 @@ function blockedProductionInjections(deps: RuntimeDeps): string[] {
     "localStore",
     "changeSetEngine",
     "externalDocumentation",
-    "clock",
-    "investigationTransport",
-    "githubIssueExecutor"
+    "clock"
   ].filter((key) => key in deps);
 }
 

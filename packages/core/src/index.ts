@@ -1,5 +1,4 @@
 export * from "../application/src/index";
-export * from "../agent-orchestrator/src/index";
 export * from "../architecture-delta/src/index";
 export * from "../architecture-ledger/src/index";
 export * from "../architecture-domain/src/index";

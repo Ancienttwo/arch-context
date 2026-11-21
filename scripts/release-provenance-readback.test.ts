@@ -5,7 +5,7 @@ import {
   inspectReleaseProvenanceReadback
 } from "./release-provenance-readback";
 
-const HELP_COMMANDS = ["ledger", "book", "recommendations", "investigate", "agents", "jobs"];
+const HELP_COMMANDS = ["ledger", "book", "recommendations"];
 const RELEASE_VERSION = productVersionManifest().product.version;
 
 describe("release provenance readback", () => {
@@ -37,7 +37,7 @@ describe("release provenance readback", () => {
     input.publishedHelp = {
       command: "npx -y archctx@latest help",
       ok: true,
-      commands: HELP_COMMANDS.filter((command) => command !== "jobs")
+      commands: HELP_COMMANDS.filter((command) => command !== "recommendations")
     };
     const recording = buildReleaseProvenanceReadback(input);
 

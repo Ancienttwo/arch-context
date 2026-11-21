@@ -2,7 +2,6 @@ import { expect, test } from "bun:test";
 import { failureIssues } from "@archcontext/contracts";
 import { ExternalDocumentationService } from "../src/external-documentation";
 import { LandscapeService } from "../src/landscape";
-import { auditConsentRequiredEnvelope } from "../src/audit-consent";
 import { readCapabilityDependencies, CapabilityDependenciesError } from "../src/capability-dependencies";
 const sentinel = "/private/customer Authorization=private-body";
 
@@ -37,10 +36,7 @@ test("C1 ordinary unknown rejection is safe at the operation boundary", async ()
   expect(JSON.stringify(result)).not.toContain(sentinel);
 });
 
-test("C1 consent and dependency refusals use source-owned reasons and original codes", () => {
-  const consent=auditConsentRequiredEnvelope("audit.run", "not-granted");
-  expect(consent.error?.reasonCode).toBe("audit-user-consent-required");
-  expect(consent.error?.details).toEqual({consentReason:"not-granted"}); expect(failureIssues(consent.error)).toEqual([]);
+test("C1 dependency refusal uses source-owned reasons and original codes", () => {
   try {readCapabilityDependencies("/unused", {importNodeLimit:0});throw new Error("unexpected success");}
   catch(error) { expect(error).toBeInstanceOf(CapabilityDependenciesError);expect((error as any).code).toBe("AC_SCHEMA_INVALID"); expect((error as any).reasonCode).toBe("deps-input-invalid"); }
 });

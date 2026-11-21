@@ -575,33 +575,6 @@ test("client disconnect during upload releases the RPC body buffers and in-fligh
     }
   }, 60_000);
 
-test("idle RPC server does not exit while an audit investigation abort controller is active", async () => {
-    const root = tempRepo();
-    const daemon = await createStartedTestDaemon();
-    // Simulates `auditRun`'s tracked background investigation without driving a real one: this
-    // exercises the RPC server's idle check against `ArchctxDaemon.hasActiveBackgroundWork`
-    // in isolation from the audit subsystem itself.
-    (daemon as unknown as { auditRunAbortControllers: Map<string, AbortController> })
-      .auditRunAbortControllers.set("agent_job.idle-test", new AbortController());
-    const exitCodes: number[] = [];
-    const rpc = new ArchctxRuntimeRpcServer(daemon, {
-      root,
-      port: 0,
-      token: "idle-busy-audit-token",
-      idleTimeoutMs: 150,
-      exit: (code) => { exitCodes.push(code); }
-    });
-    try {
-      const connection = await rpc.start();
-      await sleep(450);
-      expect(exitCodes).toEqual([]);
-      expect(existsSync(connection.connectionPath)).toBe(true);
-    } finally {
-      await rpc.stop().catch(() => undefined);
-      removeTempRepo(root);
-    }
-  }, 10_000);
-
 test("idle timeout of 0 disables idle exit", async () => {
     const root = tempRepo();
     const daemon = await createStartedTestDaemon();

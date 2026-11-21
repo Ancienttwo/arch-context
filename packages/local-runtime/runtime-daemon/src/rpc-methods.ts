@@ -1,6 +1,5 @@
-import type { AgentJobV1, ExplorerDeltaQueryV2, ExplorerProjectionQueryV2, JsonEnvelope, ProjectionApplyRecoveryIntentV1, ProjectionRequestV1 } from "@archcontext/contracts";
-import type { ArchitectureAuditRunV1 } from "@archcontext/core/architecture-ledger";
-import type { ExplorerServerOptions, RuntimeAcceptCommittedChangeInput, RuntimeAgentContextProjectionInput, RuntimeAgentJobCancelRpcInput, RuntimeAgentJobClaimRpcInput, RuntimeAgentJobCompleteRpcInput, RuntimeAgentJobEnqueueGitInput, RuntimeAgentJobRetryRpcInput, RuntimeApplyUpdateInput, RuntimeAuditApproveInput, RuntimeAuditRunInput, RuntimeBookInput, RuntimePracticeCheckpointInput, RuntimeCompleteTaskInput, RuntimeDocsInput, RuntimeDocsProjectionInput, RuntimeLedgerMigrateInput, RuntimeLedgerProjectInput, RuntimeLedgerRebuildInput, RuntimeLedgerRollbackInput, RuntimePlanUpdateInput, RuntimePracticeWaiverInput, RuntimeProjectionInvocation, RuntimeRecommendationInput, RuntimeRefactorRecordInput, RuntimeRefactorScanInput, RuntimeRefactorVerifyInput } from "./rpc-types";
+import type { ExplorerDeltaQueryV2, ExplorerProjectionQueryV2, JsonEnvelope, ProjectionApplyRecoveryIntentV1, ProjectionRequestV1 } from "@archcontext/contracts";
+import type { ExplorerServerOptions, RuntimeAcceptCommittedChangeInput, RuntimeAgentContextProjectionInput, RuntimeApplyUpdateInput, RuntimeBookInput, RuntimePracticeCheckpointInput, RuntimeCompleteTaskInput, RuntimeDocsInput, RuntimeDocsProjectionInput, RuntimeLedgerMigrateInput, RuntimeLedgerProjectInput, RuntimeLedgerRebuildInput, RuntimeLedgerRollbackInput, RuntimePlanUpdateInput, RuntimePracticeWaiverInput, RuntimeProjectionInvocation, RuntimeRecommendationInput, RuntimeRefactorRecordInput, RuntimeRefactorScanInput, RuntimeRefactorVerifyInput } from "./rpc-types";
 import type { PracticeCatalogCommandInput } from "@archcontext/core/practice-catalog";
 import { rpcInputInvalid, rpcOptionalNumber, rpcOptionalObject, rpcOptionalString, rpcOptionalStringArray, rpcRequiredBoolean, rpcRequiredObject, rpcRequiredString } from "./rpc-argument-codec";
 
@@ -93,50 +92,6 @@ export const RUNTIME_RPC_METHODS = {
   practiceCheckpoint: envelopeMethod("practiceCheckpoint", "long", (root: string, input: RuntimePracticeCheckpointInput) => [root, input] as const, (params) => rpcArgs(
     rpcRequiredString(params, 0, "practiceCheckpoint", "root"),
     rpcRequiredObject<RuntimePracticeCheckpointInput>(params, 1, "practiceCheckpoint", "input")
-  )),
-  jobsEnqueueGitHook: envelopeMethod("jobsEnqueueGitHook", "normal", (root: string, input: RuntimeAgentJobEnqueueGitInput = {}) => [root, input] as const, (params) => rpcArgs(
-    rpcRequiredString(params, 0, "jobsEnqueueGitHook", "root"),
-    rpcOptionalObject<RuntimeAgentJobEnqueueGitInput>(params, 1, "jobsEnqueueGitHook", "input")
-  )),
-  jobsList: envelopeMethod("jobsList", "short", (root: string, input: { statuses?: AgentJobV1["status"][] } = {}) => [root, input] as const, (params) => rpcArgs(
-    rpcRequiredString(params, 0, "jobsList", "root"),
-    rpcOptionalObject<{ statuses?: AgentJobV1["status"][] }>(params, 1, "jobsList", "input")
-  )),
-  jobsStats: envelopeMethod("jobsStats", "short", (root: string, input: { now?: string } = {}) => [root, input] as const, (params) => rpcArgs(
-    rpcRequiredString(params, 0, "jobsStats", "root"),
-    rpcOptionalObject<{ now?: string }>(params, 1, "jobsStats", "input")
-  )),
-  jobsClaim: envelopeMethod("jobsClaim", "normal", (root: string, input: RuntimeAgentJobClaimRpcInput) => [root, input] as const, (params) => rpcArgs(
-    rpcRequiredString(params, 0, "jobsClaim", "root"),
-    rpcRequiredObject<RuntimeAgentJobClaimRpcInput>(params, 1, "jobsClaim", "input")
-  )),
-  jobsComplete: envelopeMethod("jobsComplete", "normal", (root: string, input: RuntimeAgentJobCompleteRpcInput) => [root, input] as const, (params) => rpcArgs(
-    rpcRequiredString(params, 0, "jobsComplete", "root"),
-    rpcRequiredObject<RuntimeAgentJobCompleteRpcInput>(params, 1, "jobsComplete", "input")
-  )),
-  jobsRetry: envelopeMethod("jobsRetry", "normal", (root: string, input: RuntimeAgentJobRetryRpcInput) => [root, input] as const, (params) => rpcArgs(
-    rpcRequiredString(params, 0, "jobsRetry", "root"),
-    rpcRequiredObject<RuntimeAgentJobRetryRpcInput>(params, 1, "jobsRetry", "input")
-  )),
-  jobsCancel: envelopeMethod("jobsCancel", "normal", (root: string, input: RuntimeAgentJobCancelRpcInput) => [root, input] as const, (params) => rpcArgs(
-    rpcRequiredString(params, 0, "jobsCancel", "root"),
-    rpcRequiredObject<RuntimeAgentJobCancelRpcInput>(params, 1, "jobsCancel", "input")
-  )),
-  auditRun: envelopeMethod("auditRun", "long", (root: string, input: RuntimeAuditRunInput = {}) => [root, input] as const, (params) => rpcArgs(
-    rpcRequiredString(params, 0, "auditRun", "root"),
-    rpcOptionalObject<RuntimeAuditRunInput>(params, 1, "auditRun", "input")
-  )),
-  auditList: envelopeMethod("auditList", "normal", (root: string, input: { statuses?: ArchitectureAuditRunV1["status"][] } = {}) => [root, input] as const, (params) => rpcArgs(
-    rpcRequiredString(params, 0, "auditList", "root"),
-    rpcOptionalObject<{ statuses?: ArchitectureAuditRunV1["status"][] }>(params, 1, "auditList", "input")
-  )),
-  auditShow: envelopeMethod("auditShow", "normal", (root: string, runId: string) => [root, runId] as const, (params) => rpcArgs(
-    rpcRequiredString(params, 0, "auditShow", "root"),
-    rpcRequiredString(params, 1, "auditShow", "runId")
-  )),
-  auditApprove: envelopeMethod("auditApprove", "long", (root: string, input: RuntimeAuditApproveInput) => [root, input] as const, (params) => rpcArgs(
-    rpcRequiredString(params, 0, "auditApprove", "root"),
-    rpcRequiredObject<RuntimeAuditApproveInput>(params, 1, "auditApprove", "input")
   )),
   docsProjection: envelopeMethod("docsProjection", "long", (root: string, input: RuntimeDocsProjectionInput) => [root, input] as const, (params) => rpcArgs(
     rpcRequiredString(params, 0, "docsProjection", "root"),

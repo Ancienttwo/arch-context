@@ -159,7 +159,7 @@ export function buildReleaseProvenanceReadback(input: {
     publishedHelpSucceeded: input.publishedHelp.ok === true,
     sourceHelpMatchesPublishedHelp: arraysEqual(sourceCommands, publishedCommands),
     officialSmokeHelpCountMatchesSource: Number(officialSmoke.helpCommandCount) === sourceCommands.length,
-    sourceIncludesLedgerBetaCommands: ["ledger", "book", "recommendations", "investigate", "agents", "jobs"].every((command) => sourceCommands.includes(command)),
+    sourceIncludesLedgerBetaCommands: ["ledger", "book", "recommendations"].every((command) => sourceCommands.includes(command)),
     quickstartDocumentsNpmAndCheckoutPaths: input.docs.quickstart.includes("npm install -g archctx@latest")
       && input.docs.quickstart.includes("bun install")
       && input.docs.quickstart.includes("Checkout development path"),

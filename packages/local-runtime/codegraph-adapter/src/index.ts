@@ -1,7 +1,6 @@
 import { REQUIRED_CODEGRAPH_PACKAGE, REQUIRED_CODEGRAPH_VERSION } from "./read-session";
-import { buildArchitectureCandidateDelta, type ArchitectureDeltaDeclaredGraph, type ArchitectureDeltaGitChangeMetadata } from "@archcontext/core/architecture-delta";
 import { repoScopedArchitectureId, type CrossRepoRelation } from "@archcontext/core/architecture-domain";
-import { CODE_FACTS_ISSUE_MESSAGES, FailureError, digestJson, type ArchitectureCandidateDeltaV1, type ArchitectureRepositoryIdentityV1, type ArchitectureWorktreeIdentityV1, type CodeFactsPort, type CodeFactsSnapshot, type NormalizedCodeContext, type NormalizedEdge, type NormalizedSymbol, type ObservedEvidence, type SourceSelector, type SymbolQuery, type WorkspaceRef } from "@archcontext/contracts";
+import { CODE_FACTS_ISSUE_MESSAGES, FailureError, digestJson, type CodeFactsPort, type CodeFactsSnapshot, type NormalizedCodeContext, type NormalizedEdge, type NormalizedSymbol, type ObservedEvidence, type SourceSelector, type SymbolQuery, type WorkspaceRef } from "@archcontext/contracts";
 import { disableCodeGraphTelemetryByDefault } from "./cli-invocation";
 import type { CodeGraphProvider } from "./sdk-provider";
 import { normalizeChangedPaths, uniqueStrings } from "./import-population";
@@ -171,40 +170,6 @@ export class CodeGraphAdapter implements CodeFactsPort {
     });
   }
 
-  async analyzeChangedSubjects(input: {
-    workspace: WorkspaceRef;
-    repository: ArchitectureRepositoryIdentityV1;
-    worktree: ArchitectureWorktreeIdentityV1;
-    git: ArchitectureDeltaGitChangeMetadata;
-    declaredGraph?: ArchitectureDeltaDeclaredGraph;
-    maxSymbols?: number;
-    createdAt?: string;
-  }): Promise<ArchitectureCandidateDeltaV1> {
-    this.assertCompatible();
-    const changedPaths = normalizeChangedPaths(input.git.paths.flatMap((change) => [change.path, change.previousPath ?? ""]));
-    await this.sync({ workspace: input.workspace, changedPaths });
-    const codeContext = await this.buildTaskContext({
-      workspace: input.workspace,
-      task: architectureDeltaTask(input.git),
-      maxSymbols: input.maxSymbols ?? Math.max(8, changedPaths.length * 4),
-      includeSource: false,
-      changedPaths
-    });
-    return buildArchitectureCandidateDelta({
-      repository: input.repository,
-      worktree: input.worktree,
-      git: input.git,
-      codeContext,
-      declaredGraph: input.declaredGraph,
-      codeFactsDigest: codeContext.digest,
-      createdAt: input.createdAt,
-      provenance: {
-        producer: "codegraph-adapter",
-        command: "CodeGraphAdapter.analyzeChangedSubjects"
-      }
-    });
-  }
-
   async findSymbols(query: SymbolQuery, workspace: WorkspaceRef): Promise<NormalizedSymbol[]> {
     this.assertCompatible();
     return this.provider.findSymbols(this.readTarget(workspace), query);
@@ -360,12 +325,4 @@ export function assertNoCodeGraphInternalPathAccess(path: string): void {
   if (path.includes(".codegraph/") || path.endsWith(".codegraph") || path.includes("codegraph.sqlite")) {
     throw new Error("ArchContext must not read CodeGraph internal storage");
   }
-}
-
-function architectureDeltaTask(git: ArchitectureDeltaGitChangeMetadata): string {
-  return uniqueStrings([
-    "architecture delta",
-    git.source,
-    ...git.paths.flatMap((change) => [change.path, change.previousPath ?? ""])
-  ].filter(Boolean)).join(" ");
 }

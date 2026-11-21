@@ -4,20 +4,11 @@ import { darwinSqliteLibrary } from "./bun-darwin-sqlite.ts";
 import { spawn } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { runFastHookEnqueue } from "../src/hook-fast.ts";
 
 const binDir = dirname(fileURLToPath(import.meta.url));
 const entry = resolve(binDir, "../src/main.ts");
 // The CLI process loads the same SQLite library through a preload of the same module.
 const runtimeArgs = darwinSqliteLibrary === undefined ? [] : ["--preload", resolve(binDir, "bun-darwin-sqlite.ts")];
-
-if (process.argv[2] === "hook" && (process.argv[3] ?? "enqueue") === "enqueue") {
-  const result = await runFastHookEnqueue(process.argv.slice(2), process.cwd());
-  if (result.handled) {
-    process.stdout.write(`${JSON.stringify(result.envelope, null, 2)}\n`);
-    process.exit(0);
-  }
-}
 
 const child = spawn(process.execPath, [...runtimeArgs, entry, ...process.argv.slice(2)], {
   stdio: "inherit",

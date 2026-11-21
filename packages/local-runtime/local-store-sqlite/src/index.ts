@@ -1,5 +1,4 @@
 import { FailureError, type ArchitectureDebtReportV1 } from "@archcontext/contracts";
-import { AGENT_JOB_STATE_TRANSITIONS } from "@archcontext/core/agent-orchestrator";
 import { readPrivateControlFile } from "@archcontext/local-runtime/control-file-security";
 import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { isProcessAlive } from "../../process-liveness/src/index";
@@ -7768,6 +7767,21 @@ function requireRuntimeAgentJobInScope(db: SqliteDatabase, scope: ArchitectureLe
   const record = runtimeAgentJobInScope(db, scope, jobId);
   if (!record) throw new Error(`runtime-agent-job-not-found-in-scope: ${jobId}`);
   return record;
+}
+
+// Local transition table kept only until Stage 3 deletes SQLite agent_jobs storage.
+export const AGENT_JOB_STATE_TRANSITIONS: Record<AgentJobV1["status"], AgentJobV1["status"][]> = {
+  queued: ["running", "cancelled", "superseded", "expired"],
+  running: ["succeeded", "failed", "cancelled", "expired"],
+  succeeded: [],
+  failed: ["queued"],
+  cancelled: [],
+  superseded: [],
+  expired: []
+};
+
+export function canTransitionAgentJobStatus(from: AgentJobV1["status"], to: AgentJobV1["status"]): boolean {
+  return AGENT_JOB_STATE_TRANSITIONS[from].includes(to);
 }
 
 /** Statuses whose `AGENT_JOB_STATE_TRANSITIONS` entry lists `to`. */

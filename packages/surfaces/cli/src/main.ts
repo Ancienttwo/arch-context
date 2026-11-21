@@ -6,24 +6,21 @@ import { runNativeContextCommand } from "./native-context";
 import { runRefImpactCommand } from "./ref-impact";
 import { runArchitectureHistoryCommand } from "./architecture-history";
 import { runConstraintCheckCommand, runRuntimeVerifyCommand } from "@archcontext/local-runtime/runtime-daemon";
-import { isArchContextGeneratedProjectionPath } from "@archcontext/local-runtime/projection-paths";
 import { localEgressStatus } from "@archcontext/local-runtime/egress";
 import { spawn, spawnSync } from "node:child_process";
 import { accessSync, closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, parse, posix, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { FailureError, NativeContextError, toEnvelope, ARCHCONTEXT_NODE_RANGE, ARCHCONTEXT_PRODUCT_VERSION, ARCHITECTURE_MAJOR_CHANGE_REASON_CODES, CALLER_PROVIDED_ATTESTATION_FIELDS, EXPLORER_VIEW_IDS, REFACTOR_REQUEST_SCHEMA_VERSION, archctxCapabilities, digestJson, errorEnvelope, failureEnvelope, knownFailure, normalizeFailureResult, unclassifiedFailure, isRepoRelativePosixPath, nodeVersionSatisfiesRange, okEnvelope, productVersionManifest, refactorRequestInvariantIssues, refactorVerificationRequestInvariantIssues, validateJsonSchema } from "@archcontext/contracts";
-import type { AcceptedArchitectureChangeReferenceV1, AgentJobV1, ArchctxCapabilitiesV1, ArchitectureMajorChangeReasonCode, ExplorerProjectionQueryV2, FailureEnvelope, Json, JsonEnvelope, RefactorRequestV1, RefactorVerificationRequestV1 } from "@archcontext/contracts";
+import type { AcceptedArchitectureChangeReferenceV1, ArchctxCapabilitiesV1, ArchitectureMajorChangeReasonCode, ExplorerProjectionQueryV2, FailureEnvelope, Json, JsonEnvelope, RefactorRequestV1, RefactorVerificationRequestV1 } from "@archcontext/contracts";
 import { assertPathHasNoSymlinkSegments, planManifestFieldsOperation, PLAN_OPERATIONS_SCHEMA, type ChangeOperation } from "@archcontext/core/changeset-engine";
 import { assertAllowedArchContextPath } from "@archcontext/core/policy-engine";
 import { computeWorktreeDigest, manifestDecisionDiagnostics, repositoryFingerprint, resolveArchitectureOwnerForPath, resolveArchitectureOwnersForPaths, type ResolveArchitectureOwnerResult } from "@archcontext/core/architecture-domain";
-import { DEFAULT_AGENT_ORCHESTRATION_POLICY, DEFAULT_AGENT_QUEUE_MAX_QUEUED_JOBS, DEFAULT_AGENT_QUEUE_MAX_RUNNING_JOBS_PER_REPOSITORY } from "@archcontext/core/agent-orchestrator";
-import type { ArchitectureAuditRunV1 } from "@archcontext/core/architecture-ledger";
 import { diagnostics, installMarker, uninstallMarker } from "./local-hardening";
 import { completeRuntimeStateRecovery, defaultArchContextStateRoot, defaultLocalStorePath, inspectLegacyLocalStoreMigration, LOCAL_STORE_WRITER_OWNED_ERROR, inspectRuntimeStateRecovery, migrateLegacyLocalStoreIfNeeded, recoverRuntimeStateTarget, runtimeStatePaths, runtimeStateRecoveryWorktreeDigest } from "@archcontext/local-runtime/local-store-sqlite";
 import { GitVisibleFilesUnavailableError, findRepositoryRoot, readHeadSha, listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { listWorkspaceStateDirs } from "@archcontext/local-runtime/runtime-state-paths";
-import { ArchctxRuntimeRpcServer, runDocsAnchorsCommand, runProjectionCheckInvocation, runProjectionFreshnessCommand, runProjectionSliceCommand, runProjectionSnapshotCommand, AUDIT_APPROVE_GH_TOKEN_ENV, AUDIT_RUN_DEFAULT_TIMEOUT_MS, auditConsentRequiredEnvelope, grantAuditConsent, readAuditConsent, revokeAuditConsent, RUNTIME_RPC_VERSION, runtimeRpcDaemonIdentity, type RuntimeRpcConnection, createRuntimeRpcClientFromConnectionFile, createRuntimeRpcClientFromWorkspaceStateDir, createStartedDaemon, createStartedProductionDaemon, defaultDaemonConnectionPath, defaultDaemonLockPath, listDaemonControlStates, liveDaemonLockOwnerPid, readRuntimeRpcConnectionFile, recoverStaleDaemonControlFiles, runtimeRpcCompatibilityIssue, type RuntimeRpcCompatibilityIssue, type RuntimeDaemonClient, type RuntimeDocsProjectionInput, type RuntimeProjectionInvocation, type RuntimeAgentContextProjectionInput, type RuntimeAgentJobEnqueueGitInput, type RuntimeAuditRunInput, type RuntimeRecommendationInput, type RuntimeDeps, runFlowSelectorCheckCommand, runStateMachineCheckCommand, CapabilityDependenciesError, readCapabilityDependencies, createCommandProjectionPublisher, createGhProjectionPublisher, createNoneProjectionPublisher, runProjectionPublishCommand, runProjectionPublishFollow, runProjectionPublishStatusCommand, runProjectionVerifyPrCommand, type ProjectionPublisherPort } from "@archcontext/local-runtime/runtime-daemon";
+import { ArchctxRuntimeRpcServer, runDocsAnchorsCommand, runProjectionCheckInvocation, runProjectionFreshnessCommand, runProjectionSliceCommand, runProjectionSnapshotCommand, RUNTIME_RPC_VERSION, runtimeRpcDaemonIdentity, type RuntimeRpcConnection, createRuntimeRpcClientFromConnectionFile, createRuntimeRpcClientFromWorkspaceStateDir, createStartedDaemon, createStartedProductionDaemon, defaultDaemonConnectionPath, defaultDaemonLockPath, listDaemonControlStates, liveDaemonLockOwnerPid, readRuntimeRpcConnectionFile, recoverStaleDaemonControlFiles, runtimeRpcCompatibilityIssue, type RuntimeRpcCompatibilityIssue, type RuntimeDaemonClient, type RuntimeDocsProjectionInput, type RuntimeProjectionInvocation, type RuntimeAgentContextProjectionInput, type RuntimeRecommendationInput, type RuntimeDeps, runFlowSelectorCheckCommand, runStateMachineCheckCommand, CapabilityDependenciesError, readCapabilityDependencies, createCommandProjectionPublisher, createGhProjectionPublisher, createNoneProjectionPublisher, runProjectionPublishCommand, runProjectionPublishFollow, runProjectionPublishStatusCommand, runProjectionVerifyPrCommand, type ProjectionPublisherPort } from "@archcontext/local-runtime/runtime-daemon";
 import { inspectRepositoryCodeFacts } from "@archcontext/local-runtime/codegraph-adapter";
 import { RuntimeRpcTransportError, RuntimeRpcClient } from "@archcontext/local-runtime/runtime-rpc-client";
 import { REPO_HARNESS_PROJECTION_PROFILE, exportMermaidModel, loadNativeModelFromArchContext, type ArchitectureProjectionProfile } from "@archcontext/core/projection-engine";
@@ -51,9 +48,6 @@ const HOOK_ADAPTER_SCHEMA_VERSION = "archcontext.hook-adapter/v1";
 const HOOK_LOG_SCHEMA_VERSION = "archcontext.hook-log/v1";
 const HOOK_ADAPTER_NAME = "repo-harness-hook";
 const HOOK_CHECKPOINT_TIMEOUT_MS = 5_000;
-const HOOK_ENQUEUE_TIMEOUT_MS = 5_000;
-const RUNTIME_AGENT_JOB_STATUSES = ["queued", "running", "succeeded", "failed", "cancelled", "superseded", "expired"] as const;
-type RuntimeAgentJobStatus = AgentJobV1["status"];
 
 class RuntimeVersionUnsupportedError extends Error {
   constructor(readonly issue: RuntimeRpcCompatibilityIssue) {
@@ -66,24 +60,8 @@ class RefactorFlagError extends Error {}
 /** A CLI argument error. The process entry reports it as AC_SCHEMA_INVALID, not as a runtime outage. */
 class CliUsageError extends Error {}
 
-const AUDIT_RUN_STATUSES = ["pending", "issuing", "issued", "failed"] as const;
-
-/**
- * Flags `audit run` and `audit approve` accept beyond `--help`/`-h` (checked separately) and
- * approve's own positional `<run-id>`. `--format` and `--json` are global rendering flags every
- * command's `args` may carry (`--format` is read once at the very top of this file; `--json` is
- * accepted CLI-wide as a JSON-output hint), so they're allowed here too even though neither
- * subcommand's own input builder reads them.
- *
- * The `if (import.meta.main)` entry block is the last statement of this file (#297), so these and
- * every other top-level constant are set before a command runs. See the comment on that block.
- */
-const AUDIT_GLOBAL_VALUE_FLAGS = ["--format"] as const;
-const AUDIT_GLOBAL_BOOLEAN_FLAGS = ["--json"] as const;
-const AUDIT_RUN_VALUE_FLAGS = ["--task-session-id", "--reason", "--risk", "--uncertainty", "--context-max-items", "--model-id", "--timeout-ms", ...AUDIT_GLOBAL_VALUE_FLAGS];
-const AUDIT_RUN_BOOLEAN_FLAGS = ["--no-wait", ...AUDIT_GLOBAL_BOOLEAN_FLAGS];
-const AUDIT_APPROVE_VALUE_FLAGS = ["--run-id", "--confirm-public-repo", ...AUDIT_GLOBAL_VALUE_FLAGS];
-const AUDIT_APPROVE_BOOLEAN_FLAGS = ["--resume", ...AUDIT_GLOBAL_BOOLEAN_FLAGS];
+const GLOBAL_VALUE_FLAGS = ["--format"] as const;
+const GLOBAL_BOOLEAN_FLAGS = ["--json"] as const;
 
 /** `projection publish|publish-status|verify-pr` flags (#379); the writer CLI handlers scan against these. */
 const PROJECTION_PUBLISH_VALUE_FLAGS = ["--base", "--base-sha", "--branch", "--interval", "--publisher", "--publisher-command", "--remote"] as const;
@@ -108,14 +86,6 @@ interface CliFlagSpec {
 export const CLI_COMMAND_FLAGS: Readonly<Record<string, CliFlagSpec & { subcommands?: Readonly<Record<string, CliFlagSpec>> }>> = {
   "debt": { value: ["--changed-path", "--base"], boolean: ["--complete"] },
   "agent-context": { value: ["--expected-worktree-digest", "--id", "--task-session-id"], boolean: ["--approved"] },
-  "agents": {
-    value: [],
-    boolean: [],
-    subcommands: {
-      status: { value: ["--now", "--status"], boolean: [] },
-      budget: { value: ["--now"], boolean: [] }
-    }
-  },
   "apply": { value: ["--expected-worktree-digest", "--id"], boolean: ["--approved"] },
   "book": { value: ["--depth", "--from", "--id", "--max-bytes", "--max-items", "--query", "--since", "--task", "--to"], boolean: ["--explain", "--open"] },
   "checkpoint": { value: ["--changed-path"], boolean: [] },
@@ -144,25 +114,12 @@ export const CLI_COMMAND_FLAGS: Readonly<Record<string, CliFlagSpec & { subcomma
     value: [],
     boolean: [],
     subcommands: {
-      checkpoint: { value: ["--changed-path", "--event"], boolean: [] },
-      enqueue: { value: ["--analysis-kind", "--base-ref", "--changed", "--coalesce-key", "--code-facts-digest", "--debounce-until", "--event", "--max-attempts", "--max-queued-jobs", "--path", "--priority", "--ref", "--risk", "--runner-port", "--source", "--uncertainty"], boolean: ["--generated-projection", "--no-generated-projection-guard", "--policy-requested"] }
+      checkpoint: { value: ["--changed-path", "--event"], boolean: [] }
     }
   },
   "hooks": { value: ["--host"], boolean: ["--generated-projection"] },
   "init": { value: ["--name"], boolean: [] },
   "install": { value: ["--host"], boolean: [] },
-  "investigate": { value: ["--analysis-kind", "--base-ref", "--coalesce-key", "--code-facts-digest", "--context-max-items", "--cooldown-ms", "--debounce-until", "--event", "--max-attempts", "--max-queued-jobs", "--priority", "--provider", "--ref", "--risk", "--runner-port", "--source", "--task-session-id", "--uncertainty"], boolean: ["--generated-projection", "--no-generated-projection-guard"] },
-  "jobs": {
-    value: [],
-    boolean: [],
-    subcommands: {
-      list: { value: ["--status"], boolean: [] },
-      stats: { value: ["--now"], boolean: [] },
-      show: { value: ["--job-id", "--status"], boolean: [] },
-      cancel: { value: ["--job-id", "--reason", "--status", "--superseded-by-job-id"], boolean: [] },
-      retry: { value: ["--job-id", "--reason"], boolean: [] }
-    }
-  },
   "landscape": { value: [], boolean: [] },
   "ledger": {
     value: [],
@@ -246,17 +203,6 @@ export const CLI_COMMAND_FLAGS: Readonly<Record<string, CliFlagSpec & { subcomma
   "validate": { value: [], boolean: [] },
   // `runCli` runs its own stricter check after this one: at most one `--json`, nothing else.
   "capabilities": { value: [], boolean: [] },
-  "audit": {
-    value: [],
-    boolean: [],
-    subcommands: {
-      run: { value: AUDIT_RUN_VALUE_FLAGS, boolean: AUDIT_RUN_BOOLEAN_FLAGS },
-      approve: { value: AUDIT_APPROVE_VALUE_FLAGS, boolean: AUDIT_APPROVE_BOOLEAN_FLAGS },
-      list: { value: ["--status"], boolean: [] },
-      show: { value: ["--run-id"], boolean: [] },
-      consent: { value: [], boolean: ["--revoke"] }
-    }
-  },
   "daemon": {
     value: [],
     boolean: [],
@@ -317,8 +263,8 @@ function preflightCliArguments(command: string, args: string[]): JsonEnvelope | 
   }
   const subcommand = args[0] !== undefined && !isCliFlagToken(args[0]) ? args[0] : undefined;
   const flags = (subcommand === undefined ? undefined : spec.subcommands?.[subcommand]) ?? spec;
-  const valueFlags = [...flags.value, ...AUDIT_GLOBAL_VALUE_FLAGS];
-  const booleanFlags = [...flags.boolean, ...AUDIT_GLOBAL_BOOLEAN_FLAGS];
+  const valueFlags = [...flags.value, ...GLOBAL_VALUE_FLAGS];
+  const booleanFlags = [...flags.boolean, ...GLOBAL_BOOLEAN_FLAGS];
   const name = flags === spec ? command : `${command} ${subcommand}`;
   const requestId = flags === spec ? command : `${command}.${subcommand}`;
   for (let index = 0; index < args.length; index += 1) {
@@ -680,22 +626,9 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
     case "checkpoint":
       return runCheckpointCommand(args, cwd);
     case "hook":
-      return runHookCommand(args, cwd, runtime);
+      return runHookCommand(args, cwd);
     case "hooks":
       return runHooksCommand(args);
-    case "investigate":
-      return runInvestigateCommand(args, cwd, await runtime());
-    case "agents":
-      return runAgentsCommand(args, cwd, await runtime());
-    case "jobs":
-      return runJobsCommand(args, cwd, await runtime());
-    case "audit":
-      // User-level consent is written by the CLI only (never MCP/RPC) and needs no daemon.
-      if (args[0] === "consent") return runAuditConsentCommand(args, cwd);
-      // Lazy runtime (like "hook" below): eagerly `await runtime()` here would start/connect to
-      // archctxd — writing runtime.sqlite, locks, and archctxd.json — before runAuditCommand gets a
-      // chance to refuse a disabled capability or missing consent with zero side effects (#182).
-      return runAuditCommand(args, cwd, runtime);
     case "review":
     case "complete": {
       const result = await (await runtime()).completeTask(cwd, {
@@ -807,7 +740,7 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         ok: true,
         requestId: "help",
         data: {
-          commands: ["capabilities", "projection", "init", "sync", "validate", "context", "status", "daemon", "state", "repo", "landscape", "ledger", "book", "recommendations", "refactor", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "investigate", "agents", "jobs", "audit", "plan", "apply", "hash", "review", "complete", "manifest", "install", "uninstall", "doctor", "update", "paths", "export", "resolve", "impact", "verify", "history", "flows", "state-machines", "deps", "constraints", "debt"],
+          commands: ["capabilities", "projection", "init", "sync", "validate", "context", "status", "daemon", "state", "repo", "landscape", "ledger", "book", "recommendations", "refactor", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "plan", "apply", "hash", "review", "complete", "manifest", "install", "uninstall", "doctor", "update", "paths", "export", "resolve", "impact", "verify", "history", "flows", "state-machines", "deps", "constraints", "debt"],
           examples: CLI_HELP_EXAMPLES
         }
       };
@@ -960,88 +893,12 @@ function cliHelpEnvelope(command: string, args: string[]): JsonEnvelope {
         "--help, -h": "Show help without starting, stopping or reading a daemon."
       }
     } as unknown as Json);
-  case "audit":
-    return auditHelpEnvelope(subcommand);
   }
   return okEnvelope("help", {
     command: `archctx ${command}`,
     description: `archctx ${command} has no dedicated help text. --help never runs it or starts the local runtime; run archctx help for every command.`,
     examples: CLI_HELP_EXAMPLES.filter((example) => example === `archctx ${command}` || example.startsWith(`archctx ${command} `))
   });
-}
-
-function auditHelpEnvelope(subcommand: string | undefined): JsonEnvelope {
-  if (subcommand === "list") {
-    return okEnvelope("audit.list", {
-      schemaVersion: "archcontext.audit-list-help/v1",
-      usage: "archctx audit list [--status <status>[,<status>...]]",
-      description: "List architecture audit runs, most recent first.",
-      options: {
-        "--status <status>": `Filter by run status; repeatable or comma-separated (${AUDIT_RUN_STATUSES.join("|")}).`,
-        "--help, -h": "Show help without listing anything."
-      }
-    } as unknown as Json);
-  }
-  if (subcommand === "show") {
-    return okEnvelope("audit.show", {
-      schemaVersion: "archcontext.audit-show-help/v1",
-      usage: "archctx audit show <run-id>",
-      description: "Show one audit run's detail, including its drafted GitHub issues.",
-      options: {
-        "<run-id>": "The audit run to show; may also be passed as --run-id <id>.",
-        "--help, -h": "Show help without reading anything."
-      }
-    } as unknown as Json);
-  }
-  if (subcommand === "approve") {
-    return okEnvelope("audit.approve", {
-      schemaVersion: "archcontext.audit-approve-help/v1",
-      usage: "archctx audit approve <run-id> [--confirm-public-repo <token>] [--resume]",
-      description: "Approve a pending audit run and publish its drafted GitHub issues. Requires audit.githubIssues.enabled in .archcontext/manifest.yaml and archctx audit consent.",
-      options: {
-        "<run-id>": "The audit run to approve; may also be passed as --run-id <id>.",
-        "--confirm-public-repo <token>": "Required once, verbatim, when the run's repository resolves to non-private visibility.",
-        "--resume": "Continue a run left in \"issuing\" status by a prior crashed/partial approve call.",
-        "--help, -h": "Show help without approving or publishing anything."
-      }
-    } as unknown as Json);
-  }
-  if (subcommand === "consent") {
-    return okEnvelope("audit.consent", {
-      schemaVersion: "archcontext.audit-consent-help/v1",
-      usage: ["archctx audit consent", "archctx audit consent --revoke"],
-      description: "Grant (or revoke) user-level consent, stored in the user state directory, for archctx audit run/approve in this repository. The repository manifest only declares the capability."
-    } as unknown as Json);
-  }
-  if (subcommand === "run") {
-    return okEnvelope("audit.run", {
-      schemaVersion: "archcontext.audit-run-help/v1",
-      usage: "archctx audit run [--reason <text>] [--task-session-id <id>] [--risk <level>] [--uncertainty <level>] [--context-max-items <n>] [--model-id <id>] [--timeout-ms <ms>] [--no-wait]",
-      description: "Start an architecture audit run. Requires audit.githubIssues.enabled in .archcontext/manifest.yaml and archctx audit consent.",
-      options: {
-        "--reason <text>": "Human-readable reason recorded with the run.",
-        "--task-session-id <id>": "Correlate this run with an existing task session.",
-        "--risk <level>": "Investigation risk hint passed to the daemon.",
-        "--uncertainty <level>": "Investigation uncertainty hint passed to the daemon.",
-        "--context-max-items <n>": "Cap on context items gathered for the run.",
-        "--model-id <id>": "Override the model used for the run.",
-        "--timeout-ms <ms>": `How long the CLI polls \`archctx audit list\` before returning (default: ${AUDIT_RUN_DEFAULT_TIMEOUT_MS}ms); ignored with --no-wait.`,
-        "--no-wait": "Return immediately after the daemon accepts the run instead of polling audit list.",
-        "--help, -h": "Show help without starting an audit run."
-      }
-    } as unknown as Json);
-  }
-  return okEnvelope("audit", {
-    schemaVersion: "archcontext.audit-help/v1",
-    usage: [
-      "archctx audit run [options]",
-      "archctx audit approve <run-id> [options]",
-      "archctx audit list [--status <status>[,<status>...]]",
-      "archctx audit show <run-id>",
-      "archctx audit consent [--revoke]"
-    ],
-    description: "Manage architecture audit runs. Run `archctx audit <subcommand> --help` for a subcommand's own options."
-  } as unknown as Json);
 }
 
 async function runRuntimeStateCommand(
@@ -2046,11 +1903,10 @@ async function runPracticeCheckpointCommand(args: string[], cwd: string, daemon:
   return { ...result, requestId: "practices.checkpoint" };
 }
 
-async function runHookCommand(args: string[], cwd: string, runtime: () => Promise<RuntimeDaemonClient>) {
-  const subcommand = args[0] ?? "enqueue";
+async function runHookCommand(args: string[], cwd: string) {
+  const subcommand = args[0] ?? "checkpoint";
   if (subcommand === "checkpoint") return runHookCheckpointCommand(args.slice(1), cwd);
-  if (subcommand === "enqueue") return runHookEnqueueCommand(args.slice(1), cwd, runtime);
-  return errorEnvelope("hook", "AC_SCHEMA_INVALID", "hook requires enqueue|checkpoint");
+  return errorEnvelope("hook", "AC_SCHEMA_INVALID", "hook requires checkpoint");
 }
 
 function runHookCheckpointCommand(checkpointArgs: string[], cwd: string) {
@@ -2084,104 +1940,6 @@ function runHookCheckpointCommand(checkpointArgs: string[], cwd: string) {
   } as unknown as Json);
 }
 
-async function runHookEnqueueCommand(enqueueArgs: string[], cwd: string, runtime: () => Promise<RuntimeDaemonClient>) {
-  const started = Date.now();
-  const event = readFlag(enqueueArgs, "--event") ?? "post-edit";
-  const changedPaths = [...readRepeatedFlag(enqueueArgs, "--path"), ...readRepeatedFlag(enqueueArgs, "--changed")];
-  const sourceResult = readHookGitChangeSource(enqueueArgs, event);
-  if (!sourceResult.ok) return sourceResult.envelope;
-  const maxAttemptsResult = readOptionalPositiveIntegerFlag(enqueueArgs, "--max-attempts", "hook.enqueue");
-  if (!maxAttemptsResult.ok) return maxAttemptsResult.envelope;
-  const maxQueuedJobsResult = readOptionalPositiveIntegerFlag(enqueueArgs, "--max-queued-jobs", "hook.enqueue");
-  if (!maxQueuedJobsResult.ok) return maxQueuedJobsResult.envelope;
-  const priorityResult = readOptionalIntegerFlag(enqueueArgs, "--priority", "hook.enqueue");
-  if (!priorityResult.ok) return priorityResult.envelope;
-  const generatedProjection = enqueueArgs.includes("--generated-projection");
-  if (shouldSkipGeneratedProjectionHook(enqueueArgs, changedPaths)) {
-    return okEnvelope("hook.enqueue", {
-      schemaVersion: "archcontext.hook-enqueue-skipped/v1",
-      accepted: false,
-      enqueued: false,
-      skipped: true,
-      failOpen: false,
-      reasonCode: "archcontext-generated-projection",
-      event,
-      source: sourceResult.source,
-      pathCount: changedPaths.length,
-      egress: "none",
-      network: "forbidden",
-      hookLog: hookLogRecord({
-        event,
-        changedPaths,
-        reasonCode: "archcontext-generated-projection",
-        elapsedMs: Date.now() - started,
-        failOpen: false
-      })
-    } as Json);
-  }
-
-  const input: RuntimeAgentJobEnqueueGitInput = {
-    source: sourceResult.source,
-    event,
-    analysisKind: readFlag(enqueueArgs, "--analysis-kind") ?? "architecture-delta",
-    ...(readFlag(enqueueArgs, "--risk") === undefined ? {} : { risk: readFlag(enqueueArgs, "--risk")! as any }),
-    ...(readFlag(enqueueArgs, "--uncertainty") === undefined ? {} : { uncertainty: readFlag(enqueueArgs, "--uncertainty")! as any }),
-    ...(enqueueArgs.includes("--policy-requested") ? { policyRequestedInvestigation: true } : {}),
-    ...(readFlag(enqueueArgs, "--ref") === undefined ? {} : { ref: readFlag(enqueueArgs, "--ref")! }),
-    ...(readFlag(enqueueArgs, "--base-ref") === undefined ? {} : { baseRef: readFlag(enqueueArgs, "--base-ref")! }),
-    ...(readFlag(enqueueArgs, "--coalesce-key") === undefined ? {} : { coalesceKey: readFlag(enqueueArgs, "--coalesce-key")! }),
-    ...(readFlag(enqueueArgs, "--debounce-until") === undefined ? {} : { debounceUntil: readFlag(enqueueArgs, "--debounce-until")! }),
-    ...(maxAttemptsResult.value === undefined ? {} : { maxAttempts: maxAttemptsResult.value }),
-    ...(maxQueuedJobsResult.value === undefined ? {} : { maxQueuedJobs: maxQueuedJobsResult.value }),
-    ...(priorityResult.value === undefined ? {} : { priority: priorityResult.value }),
-    ...(readFlag(enqueueArgs, "--runner-port") === undefined ? {} : { runnerPort: readFlag(enqueueArgs, "--runner-port")! as any }),
-    ...(readFlag(enqueueArgs, "--code-facts-digest") === undefined ? {} : { codeFactsDigest: readFlag(enqueueArgs, "--code-facts-digest")! }),
-    generatedProjection,
-    skipGeneratedProjection: !enqueueArgs.includes("--no-generated-projection-guard")
-  };
-
-  try {
-    const result = await (await runtime()).jobsEnqueueGitHook(cwd, input);
-    if (!result.ok || typeof result.data !== "object" || result.data === null) return result;
-    const data = result.data as Record<string, Json>;
-    return {
-      ...result,
-      requestId: "hook.enqueue",
-      data: {
-        ...data,
-        hookLog: hookLogRecord({
-          event,
-          changedPaths,
-          reasonCode: hookEnqueueReasonCode(data),
-          elapsedMs: Date.now() - started,
-          failOpen: false
-        })
-      } as Json
-    };
-  } catch (error) {
-    return okEnvelope("hook.enqueue", {
-      schemaVersion: "archcontext.hook-enqueue-fail-open/v1",
-      accepted: false,
-      enqueued: false,
-      failOpen: true,
-      reasonCode: "runtime-unavailable",
-      event,
-      source: sourceResult.source,
-      pathCount: changedPaths.length,
-      egress: "none",
-      network: "forbidden",
-      hookLog: hookLogRecord({
-        event,
-        changedPaths,
-        reasonCode: "runtime-unavailable",
-        elapsedMs: Date.now() - started,
-        failOpen: true
-      }),
-      message: error instanceof Error ? error.message : String(error)
-    } as Json);
-  }
-}
-
 function runHooksCommand(args: string[]) {
   const subcommand = args[0] ?? "status";
   if (!["install", "status", "remove", "uninstall", "doctor"].includes(subcommand)) {
@@ -2212,10 +1970,9 @@ function runHooksCommand(args: string[]) {
       installed: "config-ready",
       writes: "manual-host-config",
       checks: [
-        { id: "entrypoint", status: "pass", command: "archctx hook enqueue" },
-        { id: "fail-open", status: "pass", schemaVersion: "archcontext.hook-enqueue-fail-open/v1" },
-        { id: "egress", status: "pass", egress: "none", network: "forbidden" },
-        { id: "recursion-guard", status: "pass", generatedProjectionFlag: "--generated-projection" }
+        { id: "entrypoint", status: "pass", command: "archctx hook checkpoint" },
+        { id: "fail-open", status: "pass", schemaVersion: "archcontext.hook-checkpoint-fail-open/v1" },
+        { id: "egress", status: "pass", egress: "none", network: "forbidden" }
       ]
     } as any);
   }
@@ -2225,377 +1982,6 @@ function runHooksCommand(args: string[]) {
     writes: "manual-host-config",
     removeConfig: hookHostRemoveConfig(host)
   } as any);
-}
-
-async function runJobsCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient) {
-  const subcommand = args[0] ?? "list";
-  if (subcommand === "list") {
-    const statusResult = readRuntimeAgentJobStatuses(args, "jobs.list");
-    if (!statusResult.ok) return statusResult.envelope;
-    return daemon.jobsList(cwd, { ...(statusResult.statuses.length === 0 ? {} : { statuses: statusResult.statuses }) });
-  }
-  if (subcommand === "stats") {
-    return daemon.jobsStats(cwd, { ...(readFlag(args, "--now") === undefined ? {} : { now: readFlag(args, "--now")! }) });
-  }
-  if (subcommand === "show") {
-    const jobId = readFlag(args, "--job-id") ?? args[1];
-    if (!jobId) return errorEnvelope("jobs.show", "AC_SCHEMA_INVALID", "jobs show requires <job-id> or --job-id");
-    const statusResult = readRuntimeAgentJobStatuses(args, "jobs.show");
-    if (!statusResult.ok) return statusResult.envelope;
-    const list = await daemon.jobsList(cwd, { ...(statusResult.statuses.length === 0 ? {} : { statuses: statusResult.statuses }) });
-    if (!list.ok || typeof list.data !== "object" || list.data === null) return list;
-    const jobs = Array.isArray((list.data as any).jobs) ? (list.data as any).jobs : [];
-    const job = jobs.find((record: any) => record?.job?.jobId === jobId);
-    if (!job) return errorEnvelope("jobs.show", "AC_SCHEMA_INVALID", `runtime agent job not found: ${jobId}`);
-    return okEnvelope("jobs.show", { job, found: true } as unknown as Json);
-  }
-  if (subcommand === "cancel") {
-    const jobId = readFlag(args, "--job-id") ?? args[1];
-    if (!jobId) return errorEnvelope("jobs.cancel", "AC_SCHEMA_INVALID", "jobs cancel requires <job-id> or --job-id");
-    const status = readFlag(args, "--status");
-    if (status !== undefined && !["cancelled", "superseded", "expired"].includes(status)) {
-      return errorEnvelope("jobs.cancel", "AC_SCHEMA_INVALID", "jobs cancel --status must be cancelled, superseded, or expired");
-    }
-    return daemon.jobsCancel(cwd, {
-      jobId,
-      ...(status === undefined ? {} : { status: status as Extract<RuntimeAgentJobStatus, "cancelled" | "superseded" | "expired"> }),
-      ...(readFlag(args, "--reason") === undefined ? {} : { reason: readFlag(args, "--reason")! }),
-      ...(readFlag(args, "--superseded-by-job-id") === undefined ? {} : { supersededByJobId: readFlag(args, "--superseded-by-job-id")! })
-    });
-  }
-  if (subcommand === "retry") {
-    const jobId = readFlag(args, "--job-id") ?? args[1];
-    if (!jobId) return errorEnvelope("jobs.retry", "AC_SCHEMA_INVALID", "jobs retry requires <job-id> or --job-id");
-    return daemon.jobsRetry(cwd, {
-      jobId,
-      ...(readFlag(args, "--reason") === undefined ? {} : { reason: readFlag(args, "--reason")! })
-    });
-  }
-  return errorEnvelope("jobs", "AC_SCHEMA_INVALID", "jobs requires list|stats|show|cancel|retry");
-}
-
-type AuditRunStatus = ArchitectureAuditRunV1["status"];
-
-function readAuditRunStatuses(args: string[], requestId: string):
-  | { ok: true; statuses: AuditRunStatus[] }
-  | { ok: false; envelope: ReturnType<typeof errorEnvelope> } {
-  const statuses = readRepeatedFlag(args, "--status")
-    .flatMap((value) => value.split(","))
-    .map((value) => value.trim())
-    .filter(Boolean);
-  const invalid = statuses.find((status) => !(AUDIT_RUN_STATUSES as readonly string[]).includes(status));
-  if (invalid) {
-    return { ok: false, envelope: errorEnvelope(requestId, "AC_SCHEMA_INVALID", `unknown audit run status: ${invalid}`) };
-  }
-  return { ok: true, statuses: statuses as AuditRunStatus[] };
-}
-
-function auditManifestGateRoot(cwd: string): string {
-  try {
-    return findRepositoryRoot(cwd);
-  } catch {
-    // No Git repository found from cwd; keep this gate's pre-existing fail-closed behavior by
-    // falling back to cwd itself (manifest lookup below then fails closed to disabled).
-    return cwd;
-  }
-}
-
-function auditGithubIssuesEnabled(cwd: string): boolean {
-  const manifestPath = resolve(auditManifestGateRoot(cwd), ".archcontext/manifest.yaml");
-  if (!existsSync(manifestPath)) return false;
-  let raw: string;
-  try {
-    raw = readFileSync(manifestPath, "utf8");
-  } catch {
-    return false;
-  }
-  let inAudit = false;
-  let inGithubIssues = false;
-  for (const rawLine of raw.split("\n")) {
-    const trimmed = rawLine.trim();
-    if (trimmed.length === 0 || trimmed.startsWith("#")) continue;
-    const indent = rawLine.length - rawLine.trimStart().length;
-    if (indent === 0) {
-      inAudit = trimmed === "audit:";
-      inGithubIssues = false;
-      continue;
-    }
-    if (indent === 2 && inAudit) {
-      inGithubIssues = trimmed === "githubIssues:";
-      continue;
-    }
-    if (indent === 4 && inAudit && inGithubIssues && trimmed === "enabled: true") {
-      return true;
-    }
-  }
-  return false;
-}
-
-/**
- * `archctx audit consent [--revoke]`: records (or removes) the user-level consent, outside the
- * repository, that `audit run` / `audit approve` require in addition to the repository manifest's
- * `audit.githubIssues.enabled` capability flag (issue #161).
- */
-function runAuditConsentCommand(args: string[], cwd: string) {
-  // args[0] is "consent". Parse strictly: anything unrecognized must never be read as a grant.
-  const rest = args.slice(1);
-  if (rest.length > 1 || (rest.length === 1 && rest[0] !== "--revoke")) {
-    return errorEnvelope("audit.consent", "AC_SCHEMA_INVALID", `audit consent accepts no arguments (grant), --revoke, or --help; got: ${rest.join(" ")}`);
-  }
-  const root = auditManifestGateRoot(cwd);
-  if (rest[0] === "--revoke") {
-    const revoked = revokeAuditConsent(root);
-    return okEnvelope("audit.consent", { schemaVersion: "archcontext.audit-consent-result/v1", status: "revoked", ...revoked } as unknown as Json);
-  }
-  const granted = grantAuditConsent(root);
-  return okEnvelope("audit.consent", {
-    schemaVersion: "archcontext.audit-consent-result/v1",
-    status: "granted",
-    path: granted.path,
-    record: granted.record,
-    egress: "archctx audit run in this repository may send repository content read by the `claude` runner to its configured model provider; archctx audit approve additionally requires its own GitHub PAT and confirmation gates",
-    revokeCommand: "archctx audit consent --revoke"
-  } as unknown as Json);
-}
-
-async function runAuditCommand(args: string[], cwd: string, runtime: () => Promise<RuntimeDaemonClient>) {
-  const subcommand = args[0] ?? "run";
-  if (subcommand === "list") {
-    const statusResult = readAuditRunStatuses(args, "audit.list");
-    if (!statusResult.ok) return statusResult.envelope;
-    return (await runtime()).auditList(cwd, { ...(statusResult.statuses.length === 0 ? {} : { statuses: statusResult.statuses }) });
-  }
-  if (subcommand === "show") {
-    const runId = readFlag(args, "--run-id") ?? args[1];
-    if (!runId) return errorEnvelope("audit.show", "AC_SCHEMA_INVALID", "audit show requires <run-id> or --run-id");
-    const result = await (await runtime()).auditShow(cwd, runId);
-    if (!result.ok) return result;
-    return { ...result, data: auditShowDataWithFiledSummary(result.data) };
-  }
-  if (subcommand === "approve") {
-    const runId = readFlag(args, "--run-id") ?? args[1];
-    if (!runId) return errorEnvelope("audit.approve", "AC_SCHEMA_INVALID", "audit approve requires <run-id> or --run-id");
-    if (!auditGithubIssuesEnabled(cwd)) {
-      return errorEnvelope(
-        "audit.approve",
-        "AC_CAPABILITY_UNSUPPORTED",
-        "archctx audit approve is disabled; set audit.githubIssues.enabled: true in .archcontext/manifest.yaml to enable it"
-      );
-    }
-    const approveConsent = readAuditConsent(auditManifestGateRoot(cwd));
-    if (!approveConsent.granted) return auditConsentRequiredEnvelope("audit.approve", approveConsent.reason);
-    const confirmPublicToken = readFlag(args, "--confirm-public-repo");
-    const daemon = await runtime();
-    const result = await daemon.auditApprove(cwd, {
-      runId,
-      ...(confirmPublicToken === undefined ? {} : { confirmPublicToken }),
-      ...(args.includes("--resume") ? { resume: true } : {})
-    });
-    // CLI is a pure trigger here (no gh, no PAT, no body files): the daemon already composed the
-    // full copy-pasteable rerun command into error.message, this just surfaces it as a warning
-    // alongside the normal envelope rather than requiring the caller to dig it out of JSON.
-    if (!result.ok && result.error?.code === "AC_USER_CONFIRMATION_REQUIRED") {
-      process.stderr.write(`warning: ${result.error.message}\n`);
-    }
-    return { ...result, requestId: "audit.approve" };
-  }
-  if (subcommand !== "run") {
-    return errorEnvelope("audit", "AC_SCHEMA_INVALID", "audit requires run|list|show|approve|consent");
-  }
-  if (!auditGithubIssuesEnabled(cwd)) {
-    return errorEnvelope(
-      "audit.run",
-      "AC_CAPABILITY_UNSUPPORTED",
-      "archctx audit run is disabled; set audit.githubIssues.enabled: true in .archcontext/manifest.yaml to enable it"
-    );
-  }
-  const runConsent = readAuditConsent(auditManifestGateRoot(cwd));
-  if (!runConsent.granted) return auditConsentRequiredEnvelope("audit.run", runConsent.reason);
-  const contextMaxItemsResult = readOptionalPositiveIntegerFlag(args, "--context-max-items", "audit.run");
-  if (!contextMaxItemsResult.ok) return contextMaxItemsResult.envelope;
-  const timeoutMsResult = readOptionalPositiveIntegerFlag(args, "--timeout-ms", "audit.run");
-  if (!timeoutMsResult.ok) return timeoutMsResult.envelope;
-  const input: RuntimeAuditRunInput = {
-    ...(readFlag(args, "--task-session-id") === undefined ? {} : { taskSessionId: readFlag(args, "--task-session-id")! }),
-    ...(readFlag(args, "--reason") === undefined ? {} : { reason: readFlag(args, "--reason")! }),
-    ...(readFlag(args, "--risk") === undefined ? {} : { risk: readFlag(args, "--risk")! as any }),
-    ...(readFlag(args, "--uncertainty") === undefined ? {} : { uncertainty: readFlag(args, "--uncertainty")! as any }),
-    ...(contextMaxItemsResult.value === undefined ? {} : { contextMaxItems: contextMaxItemsResult.value }),
-    ...(readFlag(args, "--model-id") === undefined ? {} : { modelId: readFlag(args, "--model-id")! }),
-    ...(timeoutMsResult.value === undefined ? {} : { timeoutMs: timeoutMsResult.value })
-  };
-  const daemon = await runtime();
-  const started = await daemon.auditRun(cwd, input);
-  if (!started.ok) return { ...started, requestId: "audit.run" };
-  const startedData = started.data as { status?: string; jobId?: string } | undefined;
-  // The daemon defaults to async ("started" + jobId, driven to completion in the background) so
-  // this RPC call itself never has to stay open for the run's full 10-25 minute duration. Anything
-  // other than "started" (a `--no-wait` request, or a daemon that already returned a terminal
-  // status directly) is already final — nothing to poll for.
-  if (args.includes("--no-wait") || startedData?.status !== "started" || !startedData.jobId) {
-    return { ...started, requestId: "audit.run" };
-  }
-  const jobId = startedData.jobId;
-  const pollTimeoutMs = timeoutMsResult.value ?? AUDIT_RUN_DEFAULT_TIMEOUT_MS;
-  const deadline = Date.now() + pollTimeoutMs;
-  // How often this poll loop re-checks `audit list` while waiting for a "started" run to reach a
-  // terminal status. Scoped to this function (not module-level) so it can never be reached through
-  // a module-evaluation-order path that hasn't finished initializing it yet.
-  const pollIntervalMs = 5_000;
-  process.stderr.write(`archctx audit run: ${jobId} started, polling \`archctx audit list\` every ${Math.round(pollIntervalMs / 1000)}s (pass --no-wait to return immediately instead)...\n`);
-  // Check before sleeping (so an already-finished run — or a tiny --timeout-ms in tests — is
-  // reported without an unnecessary trailing wait), then sleep only if the deadline hasn't
-  // already passed, so this always makes at least one `audit list` attempt.
-  for (;;) {
-    const list = await daemon.auditList(cwd, {});
-    if (list.ok) {
-      const runs = (list.data as { runs?: { runId: string; jobId: string; status: AuditRunStatus; reportId: string; issueDraftDigests?: string[] }[] } | undefined)?.runs ?? [];
-      const match = runs.find((run) => run.jobId === jobId);
-      if (match && (match.status === "pending" || match.status === "failed")) {
-        return okEnvelope("audit.run", {
-          schemaVersion: "archcontext.audit-run-result/v1",
-          runId: match.runId,
-          status: match.status,
-          jobId: match.jobId,
-          reportId: match.reportId,
-          pendingDraftCount: match.status === "pending" ? (match.issueDraftDigests?.length ?? 0) : 0
-        } as unknown as Json);
-      }
-    }
-    if (Date.now() >= deadline) break;
-    const elapsedSeconds = Math.round((Date.now() - (deadline - pollTimeoutMs)) / 1000);
-    process.stderr.write(`archctx audit run: ${jobId} is still running (${elapsedSeconds}s elapsed)...\n`);
-    await sleep(pollIntervalMs);
-  }
-  // A poll timeout is not a run failure: the daemon may well still be driving the investigation to
-  // completion in the background past this CLI call's own patience budget.
-  return errorEnvelope(
-    "audit.run",
-    "AC_PRECONDITION_FAILED",
-    `archctx audit run: job ${jobId} has not reached a terminal status after ${Math.round(pollTimeoutMs / 1000)}s; this is not a failure, the daemon may still be running it — check later with: archctx audit list`
-  );
-}
-
-/**
- * Presentation-only reshaping of `audit.show`'s already-fetched data (the same kind of shaping
- * `paginate` does for `prepare`), not a new read or decision: joins each returned draft against
- * `run.issuedIssues` by `draftDigest` so a human can see which drafts are already filed without
- * cross-referencing two arrays by hand, and adds a `filed: "N/M"` summary.
- */
-function auditShowDataWithFiledSummary(data: unknown): Json {
-  const record = (data ?? {}) as {
-    run?: { issueDraftDigests?: string[]; issuedIssues?: { draftDigest?: string; number: number; url: string }[] };
-    githubIssueDrafts?: { draftDigest?: string }[];
-  };
-  const total = record.githubIssueDrafts?.length ?? record.run?.issueDraftDigests?.length ?? 0;
-  const issuedByDraftDigest = new Map(
-    (record.run?.issuedIssues ?? [])
-      .filter((issue): issue is { draftDigest: string; number: number; url: string } => typeof issue.draftDigest === "string")
-      .map((issue) => [issue.draftDigest, { number: issue.number, url: issue.url }])
-  );
-  const githubIssueDrafts = (record.githubIssueDrafts ?? []).map((draft) => {
-    const issued = typeof draft.draftDigest === "string" ? issuedByDraftDigest.get(draft.draftDigest) : undefined;
-    return issued ? { ...draft, issued } : draft;
-  });
-  const issuedCount = githubIssueDrafts.filter((draft) => "issued" in draft).length;
-  return { ...record, githubIssueDrafts, filed: `${issuedCount}/${total}` } as unknown as Json;
-}
-
-async function runInvestigateCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient) {
-  const sourceResult = readCliGitChangeSource(args, "investigate", "worktree");
-  if (!sourceResult.ok) return sourceResult.envelope;
-  const runnerPortResult = readAgentRunnerPort(args, "investigate");
-  if (!runnerPortResult.ok) return runnerPortResult.envelope;
-  const maxAttemptsResult = readOptionalPositiveIntegerFlag(args, "--max-attempts", "investigate");
-  if (!maxAttemptsResult.ok) return maxAttemptsResult.envelope;
-  const maxQueuedJobsResult = readOptionalPositiveIntegerFlag(args, "--max-queued-jobs", "investigate");
-  if (!maxQueuedJobsResult.ok) return maxQueuedJobsResult.envelope;
-  const contextMaxItemsResult = readOptionalPositiveIntegerFlag(args, "--context-max-items", "investigate");
-  if (!contextMaxItemsResult.ok) return contextMaxItemsResult.envelope;
-  const priorityResult = readOptionalIntegerFlag(args, "--priority", "investigate");
-  if (!priorityResult.ok) return priorityResult.envelope;
-  const cooldownMsResult = readOptionalNonNegativeIntegerFlag(args, "--cooldown-ms", "investigate");
-  if (!cooldownMsResult.ok) return cooldownMsResult.envelope;
-
-  const event = readFlag(args, "--event") ?? "manual";
-  const input: RuntimeAgentJobEnqueueGitInput = {
-    source: sourceResult.source,
-    event,
-    analysisKind: readFlag(args, "--analysis-kind") ?? "architecture-delta",
-    ...(readFlag(args, "--risk") === undefined ? {} : { risk: readFlag(args, "--risk")! as any }),
-    ...(readFlag(args, "--uncertainty") === undefined ? {} : { uncertainty: readFlag(args, "--uncertainty")! as any }),
-    policyRequestedInvestigation: true,
-    ...(readFlag(args, "--task-session-id") === undefined ? {} : { taskSessionId: readFlag(args, "--task-session-id")! }),
-    ...(readFlag(args, "--ref") === undefined ? {} : { ref: readFlag(args, "--ref")! }),
-    ...(readFlag(args, "--base-ref") === undefined ? {} : { baseRef: readFlag(args, "--base-ref")! }),
-    ...(readFlag(args, "--coalesce-key") === undefined ? {} : { coalesceKey: readFlag(args, "--coalesce-key")! }),
-    ...(readFlag(args, "--debounce-until") === undefined ? {} : { debounceUntil: readFlag(args, "--debounce-until")! }),
-    ...(maxAttemptsResult.value === undefined ? {} : { maxAttempts: maxAttemptsResult.value }),
-    ...(maxQueuedJobsResult.value === undefined ? {} : { maxQueuedJobs: maxQueuedJobsResult.value }),
-    ...(contextMaxItemsResult.value === undefined ? {} : { contextMaxItems: contextMaxItemsResult.value }),
-    ...(cooldownMsResult.value === undefined ? {} : { cooldownMs: cooldownMsResult.value }),
-    ...(priorityResult.value === undefined ? {} : { priority: priorityResult.value }),
-    ...(runnerPortResult.runnerPort === undefined ? {} : { runnerPort: runnerPortResult.runnerPort }),
-    ...(readFlag(args, "--code-facts-digest") === undefined ? {} : { codeFactsDigest: readFlag(args, "--code-facts-digest")! }),
-    generatedProjection: args.includes("--generated-projection"),
-    skipGeneratedProjection: !args.includes("--no-generated-projection-guard")
-  };
-  const result = await daemon.jobsEnqueueGitHook(cwd, input);
-  if (!result.ok || typeof result.data !== "object" || result.data === null) return { ...result, requestId: "investigate" };
-  return {
-    ...result,
-    requestId: "investigate",
-    data: {
-      schemaVersion: "archcontext.investigate-enqueue/v1",
-      ...(result.data as Record<string, Json>),
-      runnerPort: input.runnerPort ?? "codex",
-      analysisKind: input.analysisKind,
-      source: input.source,
-      event
-    } as unknown as Json
-  };
-}
-
-async function runAgentsCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient) {
-  const subcommand = args[0] ?? "status";
-  if (subcommand === "status") {
-    const statusResult = readRuntimeAgentJobStatuses(args, "agents.status");
-    if (!statusResult.ok) return statusResult.envelope;
-    const statuses = statusResult.statuses.length === 0 ? ["queued", "running"] as RuntimeAgentJobStatus[] : statusResult.statuses;
-    const stats = await daemon.jobsStats(cwd, { ...(readFlag(args, "--now") === undefined ? {} : { now: readFlag(args, "--now")! }) });
-    if (!stats.ok) return { ...stats, requestId: "agents.status" };
-    const list = await daemon.jobsList(cwd, { statuses });
-    if (!list.ok || typeof list.data !== "object" || list.data === null) return { ...list, requestId: "agents.status" };
-    const jobs = Array.isArray((list.data as any).jobs) ? (list.data as any).jobs : [];
-    return okEnvelope("agents.status", {
-      schemaVersion: "archcontext.agent-status/v1",
-      statuses,
-      stats: stats.data as Json,
-      jobs,
-      count: jobs.length
-    } as unknown as Json);
-  }
-  if (subcommand === "budget") {
-    const stats = await daemon.jobsStats(cwd, { ...(readFlag(args, "--now") === undefined ? {} : { now: readFlag(args, "--now")! }) });
-    if (!stats.ok) return { ...stats, requestId: "agents.budget" };
-    return okEnvelope("agents.budget", {
-      schemaVersion: "archcontext.agent-budget/v1",
-      spawnPolicy: {
-        maxRunsPerTask: DEFAULT_AGENT_ORCHESTRATION_POLICY.maxRunsPerTask,
-        maxRunsPerRepositoryPerDay: 4,
-        maxRunsPerDay: DEFAULT_AGENT_ORCHESTRATION_POLICY.maxRunsPerDay,
-        maxAutomaticRunsForLowRisk: DEFAULT_AGENT_ORCHESTRATION_POLICY.maxAutomaticRunsForLowRisk,
-        adapterEnabledByRuntimeEnqueue: true
-      },
-      queuePolicy: {
-        maxQueuedJobs: DEFAULT_AGENT_QUEUE_MAX_QUEUED_JOBS,
-        maxRunningJobsPerRepository: DEFAULT_AGENT_QUEUE_MAX_RUNNING_JOBS_PER_REPOSITORY
-      },
-      stats: stats.data as Json,
-      authority: "local-runtime-daemon"
-    } as unknown as Json);
-  }
-  return errorEnvelope("agents", "AC_SCHEMA_INVALID", "agents requires status|budget");
 }
 
 function hookAdapterContract(host: AgentHost) {
@@ -2608,8 +1994,8 @@ function hookAdapterContract(host: AgentHost) {
     repoLocalRuntime: "not-vendored",
     entrypoint: {
       command: "archctx",
-      args: ["hook", "enqueue"],
-      timeoutMs: HOOK_ENQUEUE_TIMEOUT_MS,
+      args: ["hook", "checkpoint"],
+      timeoutMs: HOOK_CHECKPOINT_TIMEOUT_MS,
       failOpen: true,
       egress: "none",
       network: "forbidden"
@@ -2623,20 +2009,7 @@ function hookAdapterContract(host: AgentHost) {
       network: "forbidden"
     },
     readInput: { eventFlag: "--event", changedPathFlag: "--changed-path" },
-    acceptedInput: {
-      eventFlag: "--event",
-      changedPathFlags: ["--path", "--changed"],
-      sourceFlag: "--source",
-      generatedProjectionFlag: "--generated-projection",
-      toolCallIdFlag: "--tool-call-id",
-      taskSessionIdFlag: "--task-session-id"
-    },
     output: {
-      successRequestId: "hook.enqueue",
-      queueRequestId: "jobs.enqueueGitHook",
-      successData: "runtime-agent-job-record",
-      skipSchemaVersion: "archcontext.hook-enqueue-skipped/v1",
-      failOpenSchemaVersion: "archcontext.hook-enqueue-fail-open/v1",
       checkpointSchemaVersion: "archcontext.hook-debt-checkpoint/v1",
       checkpointFailOpenSchemaVersion: "archcontext.hook-checkpoint-fail-open/v1"
     },
@@ -2655,16 +2028,15 @@ function hookHostConfigExample(host: AgentHost) {
     writes: "manual-host-config",
     adapter: {
       command: HOOK_ADAPTER_NAME,
-      args: ["archcontext-enqueue"],
+      args: ["archcontext-checkpoint"],
       invokes: {
         command: "archctx",
-        args: ["hook", "enqueue", "--event", "post-edit"]
+        args: ["hook", "checkpoint", "--event", "post-edit"]
       }
     },
     eventMap: {
-      postEdit: "archctx hook enqueue --event post-edit --path <changed-path>",
-      postWrite: "archctx hook enqueue --event post-write --path <changed-path>",
-      generatedProjection: "archctx hook enqueue --event post-write --generated-projection --path .archcontext/generated/<file>"
+      postEdit: "archctx hook checkpoint --event post-edit --changed-path <changed-path>",
+      postWrite: "archctx hook checkpoint --event post-write --changed-path <changed-path>"
     },
     centralFirst: true,
     repoHookSourceRequired: false
@@ -2676,7 +2048,7 @@ function hookHostRemoveConfig(host: AgentHost) {
     host,
     configPath: host === "codex" ? "~/.codex/hooks.json" : host === "claude" ? "~/.claude/settings.json" : "agent-host-config",
     removeAdapter: HOOK_ADAPTER_NAME,
-    removeEntrypoint: "archctx hook enqueue",
+    removeEntrypoint: "archctx hook checkpoint",
     readEntrypoint: "archctx hook checkpoint",
     repoHookSourceRequired: false
   };
@@ -2698,53 +2070,6 @@ function hookLogRecord(input: { event: string; changedPaths: string[]; reasonCod
   } satisfies import("@archcontext/contracts").ArchitectureDebtHookLogV1;
 }
 
-function readHookGitChangeSource(args: string[], event: string):
-  | { ok: true; source: NonNullable<RuntimeAgentJobEnqueueGitInput["source"]> }
-  | { ok: false; envelope: ReturnType<typeof errorEnvelope> } {
-  const requested = readFlag(args, "--source") ?? defaultHookGitChangeSource(event);
-  if (requested === "worktree" || requested === "staged" || requested === "commit") {
-    return { ok: true, source: requested };
-  }
-  return {
-    ok: false,
-    envelope: errorEnvelope("hook.enqueue", "AC_SCHEMA_INVALID", "hook enqueue --source must be worktree, staged, or commit")
-  };
-}
-
-function readCliGitChangeSource(args: string[], requestId: string, defaultSource: NonNullable<RuntimeAgentJobEnqueueGitInput["source"]>):
-  | { ok: true; source: NonNullable<RuntimeAgentJobEnqueueGitInput["source"]> }
-  | { ok: false; envelope: ReturnType<typeof errorEnvelope> } {
-  const requested = readFlag(args, "--source") ?? defaultSource;
-  if (requested === "worktree" || requested === "staged" || requested === "commit") {
-    return { ok: true, source: requested };
-  }
-  return {
-    ok: false,
-    envelope: errorEnvelope(requestId, "AC_SCHEMA_INVALID", `${requestId} --source must be worktree, staged, or commit`)
-  };
-}
-
-function readAgentRunnerPort(args: string[], requestId: string):
-  | { ok: true; runnerPort?: AgentJobV1["runnerPort"] }
-  | { ok: false; envelope: ReturnType<typeof errorEnvelope> } {
-  const raw = readFlag(args, "--runner-port") ?? readFlag(args, "--provider");
-  if (raw === undefined) return { ok: true };
-  const normalized = raw === "claude" ? "claude-code" : raw;
-  if (normalized === "codex" || normalized === "claude-code" || normalized === "fake-provider") {
-    return { ok: true, runnerPort: normalized };
-  }
-  return {
-    ok: false,
-    envelope: errorEnvelope(requestId, "AC_SCHEMA_INVALID", `${requestId} --runner-port must be codex, claude-code, claude, or fake-provider`)
-  };
-}
-
-function defaultHookGitChangeSource(event: string): NonNullable<RuntimeAgentJobEnqueueGitInput["source"]> {
-  if (event === "post-commit") return "commit";
-  if (event === "pre-commit") return "staged";
-  return "worktree";
-}
-
 function readOptionalPositiveIntegerFlag(args: string[], flag: string, requestId: string):
   | { ok: true; value?: number }
   | { ok: false; envelope: ReturnType<typeof errorEnvelope> } {
@@ -2753,18 +2078,6 @@ function readOptionalPositiveIntegerFlag(args: string[], flag: string, requestId
   const value = Number(raw);
   if (!Number.isInteger(value) || value < 1) {
     return { ok: false, envelope: errorEnvelope(requestId, "AC_SCHEMA_INVALID", `${flag} must be a positive integer`) };
-  }
-  return { ok: true, value };
-}
-
-function readOptionalIntegerFlag(args: string[], flag: string, requestId: string):
-  | { ok: true; value?: number }
-  | { ok: false; envelope: ReturnType<typeof errorEnvelope> } {
-  const raw = readFlag(args, flag);
-  if (raw === undefined) return { ok: true };
-  const value = Number(raw);
-  if (!Number.isInteger(value)) {
-    return { ok: false, envelope: errorEnvelope(requestId, "AC_SCHEMA_INVALID", `${flag} must be an integer`) };
   }
   return { ok: true, value };
 }
@@ -2781,45 +2094,9 @@ function readOptionalNonNegativeIntegerFlag(args: string[], flag: string, reques
   return { ok: true, value };
 }
 
-function shouldSkipGeneratedProjectionHook(args: string[], changedPaths: string[]): boolean {
-  if (args.includes("--no-generated-projection-guard")) return false;
-  if (args.includes("--generated-projection")) return true;
-  return changedPaths.length > 0 && changedPaths.every(isArchContextGeneratedProjectionPath);
-}
-
-function hookEnqueueReasonCode(data: Record<string, Json>): string {
-  if (data.reasonCode !== undefined) return String(data.reasonCode);
-  if (data.skipped === true) return "skipped";
-  if (data.deduplicated === true) return "deduplicated";
-  if (data.enqueued === true) return "enqueued";
-  return "unknown";
-}
-
-function readRuntimeAgentJobStatuses(args: string[], requestId: string):
-  | { ok: true; statuses: RuntimeAgentJobStatus[] }
-  | { ok: false; envelope: ReturnType<typeof errorEnvelope> } {
-  const statuses = readRepeatedFlag(args, "--status")
-    .flatMap((value) => value.split(","))
-    .map((value) => value.trim())
-    .filter(Boolean);
-  const invalid = statuses.find((status) => !(RUNTIME_AGENT_JOB_STATUSES as readonly string[]).includes(status));
-  if (invalid) {
-    return { ok: false, envelope: errorEnvelope(requestId, "AC_SCHEMA_INVALID", `unknown runtime agent job status: ${invalid}`) };
-  }
-  return { ok: true, statuses: statuses as RuntimeAgentJobStatus[] };
-}
-
 function readAgentHost(args: string[]): AgentHost | undefined {
   const host = readFlag(args, "--host") ?? "generic";
   return host === "codex" || host === "claude" || host === "generic" ? host : undefined;
-}
-
-function auditConsentGrantedForDoctor(root: string): boolean {
-  try {
-    return readAuditConsent(root).granted;
-  } catch {
-    return false;
-  }
 }
 
 async function doctorReport(cwd: string, args: string[] = []) {
@@ -2831,11 +2108,7 @@ async function doctorReport(cwd: string, args: string[] = []) {
   const permissions = doctorPermissions(cwd);
   // Informational: one read-only session on the index (ADR-0058), never part of `ok`.
   const codeFacts = inspectRepositoryCodeFacts(("root" in git && git.root) || cwd);
-  const auditRoot = auditManifestGateRoot(cwd);
   const hardening = diagnostics(localEgressStatus(process.env, {
-    auditEnabled: auditGithubIssuesEnabled(cwd),
-    auditUserConsent: auditConsentGrantedForDoctor(auditRoot),
-    githubIssuesTokenEnv: AUDIT_APPROVE_GH_TOKEN_ENV,
     updateCheckRequested: args.includes("--check-updates") || process.env[UPDATE_CHECK_ENV] === "1"
   }));
   const daemonEgress = "health" in daemon ? daemon.health?.egress : undefined;
@@ -3856,7 +3129,7 @@ export function resolveCommandExitCode(result: { ok?: boolean; data?: unknown })
   return 1;
 }
 
-const CLI_HELP_EXAMPLES = ["archctx verify --base origin/main --json", "archctx impact --batch-file paths.json --json", "archctx impact --base HEAD~1 --head HEAD --json", "archctx init --name MyApp", "archctx projection run --request-json '{...}'", "archctx projection snapshot --json", "archctx projection freshness --json", "archctx projection publish --json", "archctx projection publish --publisher none --json", "archctx projection publish --follow --interval 300", "archctx projection publish-status --json", "archctx projection verify-pr --base origin/main --json", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body '<complete YAML>'", "archctx plan --id changeset.<id> --op delete_entity --path .archcontext/model/flows/<flow>.yaml --expected-hash sha256:<64-hex>", "archctx hash --path .archcontext/model/nodes/<node>.yaml", "archctx plan --id changeset.<id> --operations-file <operations.json>", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body-file <entity.yaml>", "archctx apply --id changeset.<id> --approved --expected-worktree-digest <draft.base.worktreeDigest>", "archctx state recover --from-git", "archctx ledger migrate --from-yaml --dry-run", "archctx ledger promote --mode authoritative --preflight --rollback-plan", "archctx book recommendations --open --explain", "archctx recommendations accept --id recommendation.<id> --reason 'Accepted after local readback.'", "archctx recommendations metrics", "archctx recommendations list --status rejected", "archctx refactor scan --json", "archctx refactor verify --request-json '{...}' --json", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --changed-path src/app.ts", "archctx practices checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx audit consent", "archctx audit consent --revoke", "archctx audit run --reason 'quarterly architecture audit'", "archctx audit run --no-wait", "archctx audit list --status pending", "archctx audit show audit_run.<id>", "archctx audit approve audit_run.<id>", "archctx audit approve audit_run.<id> --confirm-public-repo public:<host>/<owner>/<repo>:<baseSha>:<runId>", "archctx audit approve audit_run.<id> --resume", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx daemon start", "archctx explore start --foreground", "archctx docs anchors --json", "archctx export native --worktree --json", "archctx export native --ref HEAD --profile repo-harness/v1 --json", "archctx resolve --path packages/core/projection-engine/src/index.ts", "archctx refactor scan --import-node-limit 100000 --json", "archctx resolve --paths-from changed-paths.txt", "archctx flows check --json", "archctx state-machines check --json", "archctx recommendations defer --id recommendation.<id> --import-node-limit 100000 --reason 'Scanned with the same limit.'", "archctx deps --json", "archctx deps --into capability.<id> --json"];
+const CLI_HELP_EXAMPLES = ["archctx verify --base origin/main --json", "archctx impact --batch-file paths.json --json", "archctx impact --base HEAD~1 --head HEAD --json", "archctx init --name MyApp", "archctx projection run --request-json '{...}'", "archctx projection snapshot --json", "archctx projection freshness --json", "archctx projection publish --json", "archctx projection publish --publisher none --json", "archctx projection publish --follow --interval 300", "archctx projection publish-status --json", "archctx projection verify-pr --base origin/main --json", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body '<complete YAML>'", "archctx plan --id changeset.<id> --op delete_entity --path .archcontext/model/flows/<flow>.yaml --expected-hash sha256:<64-hex>", "archctx hash --path .archcontext/model/nodes/<node>.yaml", "archctx plan --id changeset.<id> --operations-file <operations.json>", "archctx plan --id changeset.<id> --op update_entity_fields --path .archcontext/model/nodes/<node>.yaml --expected-hash sha256:<64-hex> --body-file <entity.yaml>", "archctx apply --id changeset.<id> --approved --expected-worktree-digest <draft.base.worktreeDigest>", "archctx state recover --from-git", "archctx ledger migrate --from-yaml --dry-run", "archctx ledger promote --mode authoritative --preflight --rollback-plan", "archctx book recommendations --open --explain", "archctx recommendations accept --id recommendation.<id> --reason 'Accepted after local readback.'", "archctx recommendations metrics", "archctx recommendations list --status rejected", "archctx refactor scan --json", "archctx refactor verify --request-json '{...}' --json", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --changed-path src/app.ts", "archctx practices checkpoint --task-session-id task_cli", "archctx hook checkpoint --event post-edit --changed-path src/app.ts", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx daemon start", "archctx explore start --foreground", "archctx docs anchors --json", "archctx export native --worktree --json", "archctx export native --ref HEAD --profile repo-harness/v1 --json", "archctx resolve --path packages/core/projection-engine/src/index.ts", "archctx refactor scan --import-node-limit 100000 --json", "archctx resolve --paths-from changed-paths.txt", "archctx flows check --json", "archctx state-machines check --json", "archctx recommendations defer --id recommendation.<id> --import-node-limit 100000 --reason 'Scanned with the same limit.'", "archctx deps --json", "archctx deps --into capability.<id> --json"];
 
 const CLI_RESOLVE_HELP = {
   command: "archctx resolve (--path <repo-relative path> | --paths-from <file> | --paths-from -)",
