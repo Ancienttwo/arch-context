@@ -57,7 +57,9 @@ const KEPT_CLEANUP: Record<CodeGraphKeptPathV1["kind"], string> = {
   "unreferenced-snapshot": "current.json does not name this snapshot and it is older than ten minutes. Delete it by hand.",
   "snapshot-not-removed": "This refresh did not publish this snapshot and it is no longer the file the refresh wrote. Check it, then delete it by hand.",
   "stale-refresh-lock": "The refresh that held this lock is gone. Delete the lock by hand so a later refresh can publish.",
-  "unproven-pointer": "archctx cannot prove it wrote this current.json. Delete it by hand so a later refresh can publish."
+  "refresh-lock-not-removed": "This refresh could not remove its refresh.lock because it is no longer the lock this refresh created or could not be unlinked. Check it, then delete it by hand so a later refresh can publish.",
+  "unproven-pointer": "archctx cannot prove it wrote this current.json. Delete it by hand so a later refresh can publish.",
+  "pointer-temp-not-removed": "This refresh did not publish this temporary pointer file and could not remove it. Check it, then delete it by hand."
 };
 /** A seed's private staging folder in the worktree root; the owner pid is part of the name. */
 const STAGING_NAME = /^\.codegraph-seed-(\d+)-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -372,19 +374,22 @@ function processAlive(pid: number): boolean {
  * are recorded right after each child exits. `remove` unlinks only entries whose identity still
  * matches and removes the folder with `rmdir`; when any entry does not match, nothing is removed.
  */
-class StagingRun {
+export class StagingRun {
   readonly #entries = new Map<string, string>();
   #folder: string | undefined;
 
-  constructor(private readonly staging: string) {}
+  constructor(
+    private readonly staging: string,
+    private readonly identityOf: (path: string) => string | undefined = creationIdentity
+  ) {}
 
   ownFolder(): boolean {
-    this.#folder = creationIdentity(this.staging);
+    this.#folder = this.identityOf(this.staging);
     return this.#folder !== undefined;
   }
 
   created(entry: string): void {
-    const identity = creationIdentity(join(this.staging, entry));
+    const identity = this.identityOf(join(this.staging, entry));
     if (identity === undefined) throw new Error("created entry is gone");
     this.#entries.set(entry, identity);
   }
@@ -392,7 +397,7 @@ class StagingRun {
   childExited(): void {
     for (const entry of STAGING_ENTRIES) {
       if (this.#entries.has(entry)) continue;
-      const identity = creationIdentity(join(this.staging, entry));
+      const identity = this.identityOf(join(this.staging, entry));
       if (identity !== undefined) this.#entries.set(entry, identity);
     }
   }
@@ -400,11 +405,13 @@ class StagingRun {
   remove(): boolean {
     let entries: string[];
     try {
-      if (creationIdentity(this.staging) !== this.#folder || !lstatSync(this.staging).isDirectory()) return false;
+      if (!lstatSync(this.staging).isDirectory()) return false;
+      if (this.#folder === undefined || this.identityOf(this.staging) !== this.#folder) return false;
       entries = readdirSync(this.staging);
       for (const entry of entries) {
         const path = join(this.staging, entry);
-        if (!lstatSync(path).isFile() || this.#entries.get(entry) !== creationIdentity(path)) return false;
+        const recorded = this.#entries.get(entry);
+        if (recorded === undefined || !lstatSync(path).isFile() || this.identityOf(path) !== recorded) return false;
       }
     } catch (error) {
       return errorCode(error) === "ENOENT";
@@ -431,13 +438,11 @@ function creationIdentity(path: string): string | undefined {
 
 /**
  * The record that `current.json` is the file archctx wrote: an empty file
- * `records/current.json@<identity>`, created exclusively after each publish and never deleted, so
- * one accumulates per publish. Only a `current.json` whose identity has a record is replaced; a
- * restored or re-created one has none.
+ * `records/current.json@<identity>`, created exclusively from the temporary pointer file's
+ * identity before publishing it via rename, and never deleted, so one accumulates per publish.
+ * Only a `current.json` whose identity has a record is replaced; a restored or re-created one has none.
  */
-function recordPointer(baseDir: string, current: string): void {
-  const identity = creationIdentity(current);
-  if (identity === undefined) throw new Error("published pointer is gone");
+function recordPointerIdentity(baseDir: string, identity: string): void {
   const records = join(baseDir, "records");
   mkdirSync(records, { recursive: true });
   try { closeSync(openSync(join(records, `current.json@${identity}`), "wx")); }
@@ -453,7 +458,7 @@ function pointerProven(baseDir: string, current: string): boolean {
 function removeCreatedFile(path: string, identity: string | undefined): boolean {
   if (identity === undefined || creationIdentity(path) !== identity) return pathState(path) === "absent";
   try { unlinkSync(path); return true; }
-  catch { return false; }
+  catch (error) { return errorCode(error) === "ENOENT"; }
 }
 
 function pathState(path: string): "absent" | "present" | "unreadable" {
@@ -524,10 +529,14 @@ function refreshCodeGraphBaseUnchecked(root: string, options: CodeGraphBaseRefre
   const headAtStart = head(root);
   if (headAtStart === undefined) return "skipped-unborn";
   const baseDir = codeGraphBaseDirectory(dirs.commonDir);
-  const published = readBasePointer(baseDir);
-  if (published?.headSha === headAtStart && existsFile(join(baseDir, published.snapshot))) return "current";
-
   const report = options.report ?? (() => undefined);
+  const published = readBasePointer(baseDir);
+  if (published?.headSha === headAtStart && existsFile(join(baseDir, published.snapshot))) {
+    reportStaleRefreshLock(join(baseDir, "refresh.lock"), report);
+    reportUnreferencedSnapshots(baseDir, published.snapshot, now(), report);
+    return "current";
+  }
+
   mkdirSync(baseDir, { recursive: true });
   const lock = join(baseDir, "refresh.lock");
   const acquired = acquirePidLock(lock, report);
@@ -570,8 +579,7 @@ function refreshCodeGraphBaseUnchecked(root: string, options: CodeGraphBaseRefre
         snapshot,
         createdAt: new Date(now()).toISOString()
       };
-      writeFileAtomically(current, `${JSON.stringify(pointer, null, 2)}\n`);
-      recordPointer(baseDir, current);
+      publishBasePointer(baseDir, current, `${JSON.stringify(pointer, null, 2)}\n`, report);
     } catch (error) {
       if (readBasePointer(baseDir)?.snapshot !== snapshot) discard();
       throw error;
@@ -581,7 +589,7 @@ function refreshCodeGraphBaseUnchecked(root: string, options: CodeGraphBaseRefre
     reportUnreferencedSnapshots(baseDir, snapshot, now(), report);
     return "published";
   } finally {
-    releasePidLock(lock, acquired.identity);
+    releasePidLock(lock, acquired.identity, report);
   }
 }
 
@@ -619,21 +627,49 @@ function acquirePidLock(path: string, report: (kept: CodeGraphKeptPathV1) => voi
   }
 }
 
-/** Removes the lock only while it is still the file this refresh created. */
-function releasePidLock(path: string, identity: string | undefined): void {
-  removeCreatedFile(path, identity);
+/**
+ * Reports a present `refresh.lock` whose holder is not alive (dead or malformed pid). Used on the
+ * `"current"` fast path where no lock is acquired; a live lock or an absent file is ignored.
+ */
+function reportStaleRefreshLock(path: string, report: (kept: CodeGraphKeptPathV1) => void): void {
+  if (pathState(path) !== "absent" && !pidLockLive(path) && pathState(path) !== "absent") {
+    report({ path, kind: "stale-refresh-lock", cleanup: KEPT_CLEANUP["stale-refresh-lock"] });
+  }
 }
 
-function writeFileAtomically(path: string, content: string): void {
+/** Removes the lock only while it is still the file this refresh created; reports it otherwise. */
+function releasePidLock(path: string, identity: string | undefined, report: (kept: CodeGraphKeptPathV1) => void): void {
+  if (!removeCreatedFile(path, identity)) {
+    report({ path, kind: "refresh-lock-not-removed", cleanup: KEPT_CLEANUP["refresh-lock-not-removed"] });
+  }
+}
+
+/**
+ * Writes `current.json` through a temporary file, records its creation identity before publishing
+ * it via rename (so a crash right after rename never strands future refreshes at `skipped-unproven`),
+ * and reports the temporary path if cleanup after an error cannot remove it.
+ */
+export function publishBasePointer(
+  baseDir: string,
+  path: string,
+  content: string,
+  report: (kept: CodeGraphKeptPathV1) => void,
+  beforeRename?: (temp: string) => void
+): void {
   const temp = `${path}.${randomUUID()}.tmp`;
   const fd = openSync(temp, "wx");
   const identity = creationIdentity(temp);
   try {
     try { writeSync(fd, content); }
     finally { closeSync(fd); }
+    if (identity === undefined) throw new Error("pointer temp has no creation identity");
+    recordPointerIdentity(baseDir, identity);
+    beforeRename?.(temp);
     renameSync(temp, path);
   } catch (error) {
-    removeCreatedFile(temp, identity);
+    if (!removeCreatedFile(temp, identity)) {
+      report({ path: temp, kind: "pointer-temp-not-removed", cleanup: KEPT_CLEANUP["pointer-temp-not-removed"] });
+    }
     throw error;
   }
 }

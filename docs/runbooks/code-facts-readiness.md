@@ -81,7 +81,9 @@ refreshes it, and its result reports `codeGraphBase`: `published`, `current`, `s
 `refresh.lock`; delete it by hand to let a refresh publish), `not-primary` or `failed`. A refresh
 never fails the sync. `codeGraphKept` lists each path archctx left for hand cleanup, with its kind
 (`abandoned-staging`, `staging-not-removed`, `unreferenced-snapshot`, `snapshot-not-removed`,
-`stale-refresh-lock`, `unproven-pointer`) and a cleanup hint.
+`stale-refresh-lock`, `refresh-lock-not-removed`, `unproven-pointer`, `pointer-temp-not-removed`)
+and a cleanup hint. Stale refresh locks and old unreferenced snapshots are also reported when the
+base is already `current`.
 
 The snapshot is `VACUUM INTO` on a read-only handle (the ADR-0058 exception). It is published only
 when no provider build ran during it and neither the index revision nor `HEAD` moved; otherwise it

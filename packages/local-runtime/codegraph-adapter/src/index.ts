@@ -84,17 +84,18 @@ export {
   type CodeGraphSymbolReaderResult
 } from "./selector-index";
 
-/** One worktree's last verified index: the identity of its database then, and its snapshot. */
+/** One worktree's last verified index: the identity of its database then, its workspace, and its snapshot. */
 interface VerifiedCodeFacts {
   identity: string;
   snapshot: CodeFactsSnapshot;
+  workspace: WorkspaceRef;
 }
 
 export class CodeGraphAdapter implements CodeFactsPort {
   /** Per worktree root; a read is served only for a root listed here, at the identity listed. */
   readonly #verified = new Map<string, VerifiedCodeFacts>();
-  /** The most recent successful sync, for `resolveEvidence`, which reads no index. */
-  #latest?: CodeFactsSnapshot;
+  /** The most recently verified root, for `resolveEvidence` when called without an explicit workspace. */
+  #latestRoot?: string;
 
   constructor(private readonly provider: CodeGraphProvider) {
     disableCodeGraphTelemetryByDefault();
@@ -118,11 +119,13 @@ export class CodeGraphAdapter implements CodeFactsPort {
     const verified = this.#verified.get(root);
     if (!verified && options.syncOnMiss) return this.sync({ workspace });
     this.#verified.delete(root);
+    this.#latestRoot = undefined;
     this.provider.assertReady?.(root);
     const identity = this.provider.indexIdentity(root);
     if (identity === undefined) throw codeFactsNotReady();
     const snapshot = verified?.snapshot ?? this.snapshotOf(root, []);
-    this.#verified.set(root, { identity, snapshot });
+    this.#verified.set(root, { identity, snapshot, workspace });
+    this.#latestRoot = root;
     return snapshot;
   }
 
@@ -134,12 +137,14 @@ export class CodeGraphAdapter implements CodeFactsPort {
     this.assertCompatible();
     const root = input.workspace.root;
     this.#verified.delete(root);
-    this.#latest = undefined;
+    this.#latestRoot = undefined;
     const report = await this.provider.indexAll(root);
     const snapshot = this.snapshotOf(root, input.changedPaths ?? [], report ?? undefined);
     const identity = this.provider.indexIdentity(root);
-    if (identity !== undefined) this.#verified.set(root, { identity, snapshot });
-    this.#latest = snapshot;
+    if (identity !== undefined) {
+      this.#verified.set(root, { identity, snapshot, workspace: input.workspace });
+      this.#latestRoot = root;
+    }
     return snapshot;
   }
 
@@ -214,18 +219,19 @@ export class CodeGraphAdapter implements CodeFactsPort {
     return { root: workspace.root, identity: verified.identity };
   }
 
-  async resolveEvidence(selectors: SourceSelector[]): Promise<ObservedEvidence[]> {
-    const snapshot = this.#latest;
-    if (!snapshot) throw new Error("CodeGraph snapshot unavailable; call ensureReady first");
+  async resolveEvidence(selectors: SourceSelector[], workspace?: WorkspaceRef): Promise<ObservedEvidence[]> {
+    const root = workspace?.root ?? this.#latestRoot;
+    const verified = root === undefined ? undefined : this.#verified.get(root);
+    if (!verified) throw new Error("CodeGraph snapshot unavailable; call ensureReady first");
     return selectors.map((selector, index) => ({
       id: `evidence_${index + 1}`,
       selector,
       summary: `Resolved ${selector.symbolId ?? selector.path} via CodeGraph adapter`,
       confidence: "observed",
       snapshot: {
-        repositoryId: "unknown",
-        headSha: "unknown",
-        worktreeDigest: snapshot.workspaceDigest
+        repositoryId: verified.workspace.repositoryId,
+        headSha: verified.workspace.headSha,
+        worktreeDigest: verified.snapshot.workspaceDigest
       }
     }));
   }
