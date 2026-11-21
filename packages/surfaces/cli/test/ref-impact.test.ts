@@ -6,13 +6,97 @@ import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { runRefImpactCommand } from "../src/ref-impact";
 import { runCli } from "../src/main";
-import { type RefImpactV1 } from "@archcontext/contracts";
+import { REF_IMPACT_BATCH_REQUEST_SCHEMA_VERSION, REF_IMPACT_LIMITS, failureIssues, type RefImpactV1 } from "@archcontext/contracts";
+import { publishedSchemaIssues } from "../../../contracts/test/published-schemas";
 import { createNativeFixture, commitFixture, fixtureGit, writeFixtureFile } from "../../../local-runtime/model-store-yaml/test/fixtures/native-context/fixture";
 import { packagedCodeGraphCliInvocation } from "../../../local-runtime/codegraph-adapter/src/index";
 import { gitCommandsOutsideCodeFactsRead, gitSpy } from "../../../local-runtime/codegraph-adapter/test/git-spy";
 
+test("impact batch matches paths-from in request order and fails closed on malformed input", async () => {
+  const fixture = createNativeFixture();
+  try {
+    const items = [
+      { id: "pr-20", paths: ["src/worker.ts", "docs/architecture/manual.md", "src/worker.ts"] },
+      { id: "pr-3", paths: [] },
+      { id: "pr-12", paths: ["src/unrelated.ts", "removed.ts"] }
+    ];
+    const request = { schemaVersion: REF_IMPACT_BATCH_REQUEST_SCHEMA_VERSION, items };
+    expect(publishedSchemaIssues("runtime/ref-impact-batch-request.schema.json", request)).toEqual([]);
+    writeFixtureFile(fixture.root, "batch.json", JSON.stringify(request));
+    const args = ["--batch-file", "batch.json", "--json"];
+    const result = await runCli("impact", args, fixture.root);
+    expect(result).toMatchObject({ schemaVersion: "archcontext.envelope/v1", ok: true });
+    expect(publishedSchemaIssues("runtime/ref-impact-batch.schema.json", result.data)).toEqual([]);
+    const expected = [];
+    for (const { id, paths } of items) {
+      writeFixtureFile(fixture.root, "paths.txt", paths.join("\n"));
+      const single = await runCli("impact", ["--paths-from", "paths.txt", "--json"], fixture.root);
+      expect(single.ok).toBe(true);
+      expect(publishedSchemaIssues("runtime/ref-impact.schema.json", single.data)).toEqual([]);
+      expected.push({ id, impact: single.data });
+    }
+    expect(result.data).toEqual({ schemaVersion: "archcontext.ref-impact-batch/v1", items: expected });
+    expect(expected[0]!.impact).toMatchObject({
+      base: null, head: { source: "worktree", headSha: fixture.commit },
+      touchedFlowSteps: { status: "unknown" },
+      dependents: [{ nodeId: "interface.demo.resource", touchedNodeId: "component.demo.worker" }]
+    });
+    expect(existsSync(join(fixture.root, ".codegraph"))).toBe(false);
+
+    for (const [body, category] of [
+      ["{ invalid", "impact-batch-json-invalid"],
+      [JSON.stringify({ ...request, items: [...items, { id: "bad", paths: ["../outside"] }] }), "impact-batch-request-invalid"],
+      [JSON.stringify({ ...request, schemaVersion: "unknown" }), "impact-batch-request-invalid"]
+    ]) {
+      writeFixtureFile(fixture.root, "batch.json", body!);
+      const failed = await runCli("impact", args, fixture.root);
+      expect(failed).toMatchObject({ schemaVersion: "archcontext.envelope/v1", ok: false, requestId: "impact", error: {
+        code: "AC_SCHEMA_INVALID", reasonCode: "native-context-arguments-invalid", details: { category }
+      }});
+      expect(failed.data).toBeUndefined();
+      expect(failureIssues("error" in failed ? failed.error : undefined)).toEqual([]);
+    }
+  } finally { fixture.cleanup(); }
+});
+
 // The dev launcher, so the CLI process loads the same SQLite library as the test process (#574).
 const CLI_LAUNCHER = fileURLToPath(new URL("../bin/archctx", import.meta.url));
+
+test("impact batch keeps a later small result when two valid reports exceed the wire budget", () => {
+  const fixture = createNativeFixture();
+  try {
+    const paths = (prefix: string) => Array.from({ length: 1000 }, (_, index) =>
+      `${prefix}/${"é".repeat(1030)}/${index}.txt`);
+    const items = [
+      { id: "first", paths: paths("first") },
+      { id: "too-large-together", paths: paths("second") },
+      { id: "small", paths: ["src/worker.ts"] }
+    ];
+    const invoke = (...args: string[]) => execFileSync(process.execPath, [CLI_LAUNCHER, "impact", ...args, "--json"], {
+      cwd: fixture.root, encoding: "utf8", maxBuffer: REF_IMPACT_LIMITS.responseBytes, timeout: 30_000
+    });
+    const singles = items.map(({ id, paths }) => {
+      writeFixtureFile(fixture.root, "paths.txt", paths.join("\n"));
+      const output = invoke("--paths-from", "paths.txt");
+      const envelope = JSON.parse(output);
+      expect(envelope.ok).toBe(true);
+      return { id, impact: envelope.data, bytes: Buffer.byteLength(output) };
+    });
+    expect(singles[0]!.bytes + singles[1]!.bytes).toBeGreaterThan(REF_IMPACT_LIMITS.responseBytes);
+    writeFixtureFile(fixture.root, "batch.json", JSON.stringify({ schemaVersion: REF_IMPACT_BATCH_REQUEST_SCHEMA_VERSION, items }));
+    const output = invoke("--batch-file", "batch.json");
+    expect(Buffer.byteLength(output)).toBeLessThanOrEqual(REF_IMPACT_LIMITS.responseBytes);
+    const batch = JSON.parse(output);
+    expect(batch.ok).toBe(true);
+    expect(batch.data.items).toEqual([
+      { id: "first", impact: singles[0]!.impact },
+      { id: "too-large-together", status: "unavailable", reasonCode: "batch-response-bytes" },
+      { id: "small", impact: singles[2]!.impact }
+    ]);
+    expect(publishedSchemaIssues("runtime/ref-impact-batch.schema.json", batch.data)).toEqual([]);
+    expect(existsSync(join(fixture.root, ".codegraph"))).toBe(false);
+  } finally { fixture.cleanup(); }
+}, 60_000);
 
 /** ADR-0058 Decision 4: a read may add SQLite's shared-memory file and an empty WAL, nothing else. */
 function indexBytes(root: string): Record<string, string> {

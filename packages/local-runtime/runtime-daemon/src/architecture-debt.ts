@@ -1,14 +1,14 @@
 import {
   ARCHITECTURE_DEBT_CHECKS, architectureDebtReportIssues, FailureError, failureEnvelope, knownFailure, normalizeFailureResult, isRepoRelativePosixPath, okEnvelope,
   type ArchContextErrorCode, type StrictFailure,
-  type ArchitectureDebtReportV1, type Json, type JsonEnvelope, type PracticeEnforcementEvaluationV1
+  type ArchitectureDebtReportV1, type Json, type JsonEnvelope, type PracticeEnforcementEvaluationV1, type StateMachineV1
 } from "@archcontext/contracts";
 import { resolveOwnership } from "@archcontext/core/module-statistics";
 import { ancestorChain, loadNativeModelFromArchContext, nativeNodeSource, type NativeModel } from "@archcontext/core/projection-engine";
 import { evaluateArchitectureDebt, type ArchitectureDebtEvidence } from "@archcontext/core/review-engine";
 import { checkStateMachines, loadStateMachinesFromArchContext } from "@archcontext/core/state-machine-engine";
 import { findRepositoryRoot, listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
-import { assertRepositoryCodeFactsReady, codeGraphIndexAvailable, type RepositoryCodeFactsInspectionOptions } from "@archcontext/local-runtime/codegraph-adapter";
+import { assertRepositoryCodeFactsReady, codeGraphIndexAvailable, type RepositoryCodeFactsInspectionOptions, type CodeGraphSymbolReaderResult } from "@archcontext/local-runtime/codegraph-adapter";
 import { selectedProducerFailure, selectedProducerFailureEnvelope } from "./producer-failure";
 export { selectedProducerFailure, selectedProducerFailureEnvelope } from "./producer-failure";
 import { readArchitectureDebtCodeFacts } from "./architecture-debt-code-facts";
@@ -20,14 +20,23 @@ import { join } from "node:path";
 
 export interface ArchitectureDebtReadInput { changedPaths?: string[] }
 
+interface ArchitectureDebtReadInputs {
+  model(): NativeModel;
+  files(): string[];
+  docs(): JsonEnvelope;
+  machines(): readonly StateMachineV1[];
+  symbols: CodeGraphSymbolReaderResult;
+  assertCodeFactsCompatible(): void;
+}
+
 /**
  * Edit-time debt (#328's measured >3s falsifier): ownership, human citation and state machine anchor checks only.
  * This function does not open a runtime session, sync CodeGraph, render or write any state.
  * Unmeasured dependency/flow/practice checks remain explicit gaps, never a clean full verdict.
  */
-export function readArchitectureDebt(root: string, input: ArchitectureDebtReadInput = {}): ArchitectureDebtReportV1 {
+export function readArchitectureDebt(root: string, input: ArchitectureDebtReadInput = {}, inputs?: ArchitectureDebtReadInputs): ArchitectureDebtReportV1 {
   try {
-    const { evidence } = readArchitectureDebtEvidence(root, input);
+    const { evidence } = readArchitectureDebtEvidence(root, input, inputs);
     return checkedDebt({ ...evidence,
       unavailable: { dependencies: ["deferred-to-complete"], flows: ["deferred-to-complete"], practices: ["deferred-to-complete"] }
     });
@@ -59,15 +68,15 @@ function checkedDebt(evidence: ArchitectureDebtEvidence): ArchitectureDebtReport
   return report;
 }
 
-function readArchitectureDebtEvidence(root: string, input: ArchitectureDebtReadInput): { model: NativeModel; evidence: ArchitectureDebtEvidence } {
+function readArchitectureDebtEvidence(root: string, input: ArchitectureDebtReadInput, inputs?: ArchitectureDebtReadInputs): { model: NativeModel; evidence: ArchitectureDebtEvidence } {
   if (input.changedPaths !== undefined && (!Array.isArray(input.changedPaths) || input.changedPaths.some(path => typeof path !== "string"))) {
     throw new ArchitectureDebtReadError("AC_SCHEMA_INVALID", "changedPaths must be an array of paths", "changed-path-invalid");
   }
   const changedPaths = [...new Set(input.changedPaths ?? [])].sort();
   if (changedPaths.some(path => !isRepoRelativePosixPath(path))) throw new ArchitectureDebtReadError("AC_SCHEMA_INVALID", "changedPaths must contain repository-relative POSIX paths", "changed-path-invalid");
   if (!existsSync(join(root, ".archcontext/manifest.yaml"))) throw new ArchitectureDebtReadError("AC_MODEL_ADOPTION_REQUIRED", "Architecture debt requires an adopted architecture model", "model-missing");
-  const model = loadNativeModelFromArchContext(root);
-  const files = listGitVisibleFiles(root);
+  const model = inputs?.model() ?? loadNativeModelFromArchContext(root);
+  const files = inputs?.files() ?? listGitVisibleFiles(root);
   const visible = new Set(files);
   // Model/policy edits can change any capability's obligations. Source and human-doc edits stay scoped.
   const repository = changedPaths.length === 0 || changedPaths.some(path => path.startsWith(".archcontext/"));
@@ -93,7 +102,7 @@ function readArchitectureDebtEvidence(root: string, input: ArchitectureDebtReadI
   });
   // Ownership and citations use the same call-local model/file discovery. A new
   // invocation still reads both again, so edits and repairs are never cached.
-  const anchors = runDocsAnchorsCommand(root, {}, { model, files });
+  const anchors = inputs?.docs() ?? runDocsAnchorsCommand(root, {}, { model, files });
   if (!anchors.ok) {
     const normalized = normalizeFailureResult(anchors, "debt", "docs.anchors") as JsonEnvelope;
     const failure = normalized.error!;
@@ -101,7 +110,8 @@ function readArchitectureDebtEvidence(root: string, input: ArchitectureDebtReadI
   }
   return { model, evidence: {
     scope: { kind: repository ? "repository" : "changed-paths", changedPaths, capabilityIds },
-    ownership, anchors: anchors.data as unknown as DocsAnchorsReportV1, stateMachines: stateMachineEvidence(root, model, visible, repository ? undefined : changedPaths),
+    // SAFETY: The successful docs producer validated its report before wrapping it.
+    ownership, anchors: anchors.data as unknown as DocsAnchorsReportV1, stateMachines: stateMachineEvidence(root, model, visible, repository ? undefined : changedPaths, inputs),
     scopedNodeIds, capabilityByNodeId
   } };
 }
@@ -112,9 +122,9 @@ function readArchitectureDebtEvidence(root: string, input: ArchitectureDebtReadI
  * result depends only on the model, and a changed model file already widens the read to the
  * repository.
  */
-function stateMachineEvidence(root: string, model: NativeModel, files: ReadonlySet<string>, changedPaths: string[] | undefined): NonNullable<ArchitectureDebtEvidence["stateMachines"]> {
-  const machines = loadStateMachinesFromArchContext(root, model.nodes);
-  const anchors = stateMachineAnchors(root, machines, { files, ...(changedPaths === undefined ? {} : { paths: new Set(changedPaths) }) });
+function stateMachineEvidence(root: string, model: NativeModel, files: ReadonlySet<string>, changedPaths: string[] | undefined, inputs?: ArchitectureDebtReadInputs): NonNullable<ArchitectureDebtEvidence["stateMachines"]> {
+  const machines = inputs?.machines() ?? loadStateMachinesFromArchContext(root, model.nodes);
+  const anchors = stateMachineAnchors(root, machines, { files, symbols: inputs?.symbols, ...(changedPaths === undefined ? {} : { paths: new Set(changedPaths) }) });
   if (changedPaths === undefined) {
     return { machines: checkStateMachines(machines, { protection: false }).map((machine, index) => ({ ...machine, anchors: anchors[index]! })) };
   }
@@ -122,7 +132,7 @@ function stateMachineEvidence(root: string, model: NativeModel, files: ReadonlyS
     : [{ id: machine.id, capabilityId: machine.capabilityId, rules: [], breaks: [], anchors: anchors[index]! }]) };
 }
 
-export function runArchitectureDebtCommand(cwd: string, input: ArchitectureDebtReadInput & { complete?: boolean } = {}, codeFactsOptions: RepositoryCodeFactsInspectionOptions = {}): JsonEnvelope {
+export function runArchitectureDebtCommand(cwd: string, input: ArchitectureDebtReadInput & { complete?: boolean } = {}, codeFactsOptions: RepositoryCodeFactsInspectionOptions = {}, inputs?: ArchitectureDebtReadInputs): JsonEnvelope {
   let root: string;
   try { root = findRepositoryRoot(cwd); }
   catch { return failureEnvelope("debt", knownFailure("AC_REPO_NOT_FOUND", "git-worktree-required", { checks: ["ownership", "anchors"] })); }
@@ -133,8 +143,10 @@ export function runArchitectureDebtCommand(cwd: string, input: ArchitectureDebtR
     }
     // Checkpoint can report partial ownership/anchor debt without an index. A present but
     // incompatible index must be repaired, rather than treated as usable code facts.
-    if (codeGraphIndexAvailable(root)) assertRepositoryCodeFactsReady(root, codeFactsOptions);
-    return okEnvelope("debt", readArchitectureDebt(root, input) as unknown as Json);
+    if (inputs) inputs.assertCodeFactsCompatible();
+    else if (codeGraphIndexAvailable(root)) assertRepositoryCodeFactsReady(root, codeFactsOptions);
+    // SAFETY: Debt reports contain only JSON fields.
+    return okEnvelope("debt", readArchitectureDebt(root, input, inputs) as unknown as Json);
   }
   catch (error) { return selectedProducerFailureEnvelope("debt", error, "debt"); }
 }

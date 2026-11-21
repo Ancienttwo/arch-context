@@ -1,6 +1,7 @@
 import { FailureError, okEnvelope, type Json, type JsonEnvelope } from "@archcontext/contracts";
-import { architectureDocumentationSourceTreeDigest, checkArchitectureFlowSelectors, loadNativeModelFromArchContext } from "@archcontext/core/projection-engine";
+import { architectureDocumentationSourceTreeDigest, checkArchitectureFlowSelectors, loadNativeModelFromArchContext, type NativeModel } from "@archcontext/core/projection-engine";
 import { assertProjectionCodeFactsAvailable, loadCapabilityCodeGraphProjectionInputs, prepareProjectionCodeFacts, REQUIRED_CODEGRAPH_VERSION, seedProjectionCodeGraphIndex } from "@archcontext/local-runtime/codegraph-adapter";
+import type { CodeGraphReadSession } from "../../codegraph-adapter/src/read-session";
 import { withReadyCodeGraphIndex } from "../../codegraph-adapter/src/ready-index-read";
 import { findRepositoryRoot, listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { selectedProducerFailureEnvelope } from "./producer-failure";
@@ -13,14 +14,20 @@ import { selectedProducerFailureEnvelope } from "./producer-failure";
  * evidence through the same producer, but skips the import-graph query and every renderer.
  * `noSync` requires a ready existing index and reads it in-process and read-only (ADR-0058).
  */
-export function runFlowSelectorCheckCommand(cwd: string, options: { binary?: string; noSync?: boolean } = {}): JsonEnvelope {
+export function runFlowSelectorCheckCommand(cwd: string, options: { binary?: string; noSync?: boolean } = {}, inputs?: {
+  model: NativeModel;
+  files: readonly string[];
+  readySession(): CodeGraphReadSession;
+}): JsonEnvelope {
   try {
     let root: string;
     try { root = findRepositoryRoot(cwd); }
     catch { throw new FailureError("AC_REPO_NOT_FOUND", "git-worktree-required"); }
-    const model = loadNativeModelFromArchContext(root);
-    if (options.noSync) {
-      const selectorEvidence = withReadyCodeGraphIndex(root, graph => loadCapabilityCodeGraphProjectionInputs(root, model, {
+    const model = inputs?.model ?? loadNativeModelFromArchContext(root);
+    if (inputs || options.noSync) {
+      const selectorEvidence = inputs ? loadCapabilityCodeGraphProjectionInputs(root, model, {
+        sourceFiles: inputs.files, importGraphs: false, session: inputs.readySession()
+      }).selectorEvidence : withReadyCodeGraphIndex(root, graph => loadCapabilityCodeGraphProjectionInputs(root, model, {
         importGraphs: false,
         // The read session owns the handle, including the post-read revision check.
         selectorIndexFactory: () => ({

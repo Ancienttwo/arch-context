@@ -24,6 +24,7 @@ import { selectedProducerFailureEnvelope } from "./producer-failure";
 export interface DocsAnchorsReadInputs {
   readonly model: NativeModel;
   readonly files: readonly string[];
+  readonly symbols?: ReturnType<typeof openCodeGraphSymbolReader>;
 }
 
 /**
@@ -47,7 +48,7 @@ export function runDocsAnchorsCommand(cwd: string, options: { profile?: Architec
     const footprints = new Map(loadCapabilitySourceFootprints(root, model, files).map((footprint) => [footprint.nodeId, footprint.files]));
     const contents = fileContentReader(root);
     const tree = gitVisibleTree(root, files, contents);
-    opened = openCodeGraphSymbolReader(root);
+    opened = inputs?.symbols ?? openCodeGraphSymbolReader(root);
     const codeGraph: ProseAnchorCodeGraph = opened.availability === "ready"
       ? { availability: "ready", symbols: proseAnchorSymbols(opened.reader, files, contents) }
       : { availability: "unavailable", reasonCode: opened.reasonCode };

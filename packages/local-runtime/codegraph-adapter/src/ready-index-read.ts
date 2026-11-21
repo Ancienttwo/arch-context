@@ -1,8 +1,6 @@
 import { FailureError } from "@archcontext/contracts";
-import { constants, copyFileSync, lstatSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { isAbsolute, join, relative, sep } from "node:path";
-import { codeGraphIndexBuildInProgress, codeGraphIndexIdentity, measureCodeGraphIndexFreshness, pinnedCodeGraphProvider, withCodeGraphReadSession, type CodeGraphIndexHandle, type CodeGraphReadProvider, type CodeGraphReadSession } from "./read-session";
+import { pinnedCodeGraphProvider, withCodeGraphReadSession, type CodeGraphIndexHandle, type CodeGraphReadProvider, type CodeGraphReadSession } from "./read-session";
+import { withWorkspaceReadOnlyCodeGraph } from "./workspace-read-only";
 import {
   codeFactsUnavailableError,
   inspectRepositoryCodeFactsReadiness,
@@ -52,16 +50,16 @@ export function withReadyCodeGraphIndex<T>(root: string, read: (graph: CodeGraph
         case "index-open-failed":
           throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "index-open-failed");
         case "build-in-progress":
-          throw notReady(movingCodeFacts(provider.version));
+          throw codeFactsReadFailure(movingCodeFacts(provider.version));
         case "open": {
           // Compatibility gates the read; freshness is proven once, by the step after it.
           let readiness: { facts: RepositoryCodeFactsV1; retryable: boolean };
           try { readiness = openSessionCodeFacts(opened.session, "compatibility"); }
           catch { throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "index-open-failed"); }
-          if (readiness.facts.state !== "ready") throw notReady(readiness);
+          if (readiness.facts.state !== "ready") throw codeFactsReadFailure(readiness);
           const result = read(opened.session.graph);
           const after = codeFactsReadinessAfterRead(root, opened.session, provider);
-          if (after) throw notReady(after);
+          if (after) throw codeFactsReadFailure(after);
           return result;
         }
       }
@@ -73,62 +71,22 @@ export function withReadyCodeGraphIndex<T>(root: string, read: (graph: CodeGraph
   }
 }
 
-/**
- * SQLite's read-only SDK open can write WAL sidecars. Stage the index outside the worktree and
- * have the SDK read that copy while measuring freshness against the real checkout. The copy is
- * usable only while the original DB and WAL metadata stay stable and no provider build is live.
- */
+/** Certify an index snapshot without exposing the checkout to SDK sidecar writes. */
 export function assertReadyCodeGraphIndexWithoutWorktreeWrites(root: string): void {
-  let scratch: string | undefined;
   try {
-    const indexDir = join(root, ".codegraph");
-    const directory = lstatSync(indexDir, { throwIfNoEntry: false });
-    if (!directory) throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "index-missing");
-    if (!directory.isDirectory()) throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "index-open-failed");
-    const files = ["codegraph.db", "codegraph.db-wal"];
-    const state = () => files.map((name) => {
-      const stat = lstatSync(join(indexDir, name), { bigint: true, throwIfNoEntry: false });
-      if (!stat) return null;
-      if (!stat.isFile()) throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "index-open-failed");
-      return [stat.dev, stat.ino, stat.size, stat.mtimeNs, stat.ctimeNs].join(":");
+    withWorkspaceReadOnlyCodeGraph(root, (opened) => {
+      if (opened.state === "build-in-progress") throw codeFactsReadFailure(movingCodeFacts(pinnedCodeGraphProvider().version));
+      if (opened.state !== "open") throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", opened.state);
+      const readiness = openSessionCodeFacts(opened.session, "freshness");
+      if (readiness.facts.state !== "ready") throw codeFactsReadFailure(readiness);
     });
-    const original = state();
-    if (!original[0]) throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "index-missing");
-    if (!codeGraphIndexIdentity(root) || lstatSync(join(indexDir, "codegraph.db-journal"), { throwIfNoEntry: false })) {
-      throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "index-open-failed");
-    }
-    const provider = pinnedCodeGraphProvider();
-    const assertStable = () => {
-      if (codeGraphIndexBuildInProgress(root) || state().some((stamp, index) => stamp !== original[index])) {
-        throw notReady(movingCodeFacts(provider.version));
-      }
-    };
-    assertStable();
-    const tmp = realpathSync(tmpdir());
-    const tmpFromRoot = relative(realpathSync(root), tmp);
-    if (!isAbsolute(tmpFromRoot) && tmpFromRoot !== ".." && !tmpFromRoot.startsWith(`..${sep}`)) throw codeFactsUnavailableError();
-    scratch = mkdtempSync(join(tmp, "archctx-code-facts-"));
-    const copyDir = join(scratch, ".codegraph");
-    mkdirSync(copyDir);
-    for (const [index, name] of files.entries()) {
-      if (original[index] !== null) copyFileSync(join(indexDir, name), join(copyDir, name), constants.COPYFILE_FICLONE);
-    }
-    assertStable();
-    const readiness = withCodeGraphReadSession(scratch, (opened) => {
-      if (opened.state !== "open") throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "index-open-failed");
-      return openSessionCodeFacts(opened.session, "freshness", () => measureCodeGraphIndexFreshness(root, opened.session.graph, provider));
-    }, { provider });
-    assertStable();
-    if (readiness.facts.state !== "ready") throw notReady(readiness);
   } catch (error) {
     if (error instanceof FailureError) throw error;
     throw codeFactsUnavailableError();
-  } finally {
-    if (scratch) rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 }
 
-function notReady({ facts, retryable }: CodeFactsReadiness): FailureError {
+export function codeFactsReadFailure({ facts, retryable }: CodeFactsReadiness): FailureError {
   // An index that disappeared or stopped opening after the read is refused by its own reason.
   if (facts.state === "index-missing") return new FailureError("AC_CODE_FACTS_UNAVAILABLE", "index-missing");
   if (facts.state === "unavailable") return facts.reasonCode === "index-open-failed" ? new FailureError("AC_CODE_FACTS_UNAVAILABLE", "index-open-failed") : codeFactsUnavailableError();

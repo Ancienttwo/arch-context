@@ -209,12 +209,11 @@ function inspectRepositoryCodeFactsTier(root: string, tier: "compatibility" | "f
  */
 export function openSessionCodeFacts(
   session: CodeGraphReadSession,
-  tier: "compatibility" | "freshness",
-  measureFreshness = () => session.freshness()
+  tier: "compatibility" | "freshness"
 ): { facts: RepositoryCodeFactsV1; retryable: boolean } {
   const codeGraphVersion = session.version();
   const compatibility = session.compatibility();
-  const pendingChanges = tier === "freshness" ? measureFreshness() : undefined;
+  const pendingChanges = tier === "freshness" ? session.freshness() : undefined;
   // Facts read across a build or a sync are not one index state (design G4).
   if (!session.unchangedSinceOpen()) return movingCodeFacts(codeGraphVersion);
   return { facts: repositoryCodeFactsFromSession(session.root, codeGraphVersion, compatibility, pendingChanges), retryable: false };
@@ -231,7 +230,10 @@ export function movingCodeFacts(codeGraphVersion: string): { facts: RepositoryCo
  * index compatibility, so the gate reads no source file.
  */
 export function assertRepositoryCodeFactsReady(root: string, options: RepositoryCodeFactsInspectionOptions = {}): void {
-  const { facts, retryable } = inspectRepositoryCodeFactsTier(root, "compatibility", options);
+  assertCodeFactsCompatibility(inspectRepositoryCodeFactsTier(root, "compatibility", options));
+}
+
+export function assertCodeFactsCompatibility({ facts, retryable }: ReturnType<typeof openSessionCodeFacts>): void {
   if (facts.state === "index-missing") throw new ProjectionCodeFactsUnavailableError("index-missing");
   if (facts.state === "unavailable") {
     if (facts.reasonCode === "index-open-failed") throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "index-open-failed");

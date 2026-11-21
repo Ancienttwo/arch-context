@@ -393,9 +393,21 @@ function expandWorkspaceEntry(root: string, entry: string): string[] {
     .sort();
 }
 
-export function isTrackedWorktreeClean(root: string): boolean {
-  return gitSucceeds(root, ["diff", "--quiet", "--ignore-submodules=none", "--"])
-    && gitSucceeds(root, ["diff", "--cached", "--quiet", "--ignore-submodules=none", "--"]);
+export function isTrackedWorktreeClean(root: string, readOnly = false): boolean {
+  if (!readOnly) {
+    return gitSucceeds(root, ["diff", "--quiet", "--ignore-submodules=none", "--"])
+      && gitSucceeds(root, ["diff", "--cached", "--quiet", "--ignore-submodules=none", "--"]);
+  }
+  const env = localGitEnv();
+  const diff = ["--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "diff.autoRefreshIndex=false",
+    "diff", "--no-ext-diff", "--no-textconv", "--ignore-submodules=none"];
+  // With refresh disabled, --quiet can treat stat-only changes as dirty. A patch compares the
+  // Git-filtered file to its indexed blob without updating the index.
+  const unstaged = spawnSync("git", [...diff, "--patch", "--"], {
+    cwd: root, env, stdio: ["ignore", "pipe", "ignore"], maxBuffer: 1
+  });
+  return unstaged.status === 0 && unstaged.stdout.length === 0
+    && gitSucceeds(root, [...diff, "--cached", "--quiet", "--"], env);
 }
 
 /** Same counting rule as the projection engine's footprint scan: a trailing newline is a terminator, not a line. */
@@ -486,9 +498,10 @@ function runGit(root: string, args: string[]): string {
   });
 }
 
-function gitSucceeds(root: string, args: string[]): boolean {
+function gitSucceeds(root: string, args: string[], env?: NodeJS.ProcessEnv): boolean {
   const result = spawnSync("git", args, {
     cwd: root,
+    env,
     stdio: ["ignore", "ignore", "ignore"]
   });
   return result.status === 0;

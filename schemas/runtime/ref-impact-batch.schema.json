@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archcontext.dev/schemas/runtime/ref-impact-batch.schema.json",
+  "title": "RefImpactBatchV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "items"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.ref-impact-batch/v1" },
+    "items": {
+      "type": "array",
+      "description": "One impact or response-limit status per request item, in request order.",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "impact"],
+            "properties": {
+              "id": { "type": "string" },
+              "impact": { "$ref": "https://archctx.repoharness.com/schemas/runtime/ref-impact.schema.json" }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "status", "reasonCode"],
+            "properties": {
+              "id": { "type": "string" },
+              "status": { "const": "unavailable" },
+              "reasonCode": { "const": "batch-response-bytes" }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

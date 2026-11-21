@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadCapabilitySourceFootprintDigests, type NativeModel } from "@archcontext/core/projection-engine";
@@ -17,6 +17,7 @@ import {
   readWorktreeChangeMetadata,
   findRepositoryRoot,
   listGitVisibleFiles,
+  isTrackedWorktreeClean,
   ignoredRepositoryPaths,
   GitVisibleFilesUnavailableError,
   withDetachedGitWorktree
@@ -63,6 +64,42 @@ describe("@archcontext/local-runtime/git-adapter", () => {
       expect(gitOut(root, "config", "--local", "--get", "core.sparseCheckout")).toBe("true");
       expect(gitOut(root, "ls-files", "-t", "--", hidden)).toBe(`S ${hidden}`);
       expect(existsSync(join(root, hidden))).toBe(false);
+    } finally {
+      removeTempRoot(root);
+    }
+  });
+
+  test("read-only cleanliness honors a transforming Git filter without refreshing the index", () => {
+    const root = createGitFixture();
+    try {
+      const path = join(root, "tracked.txt");
+      const index = join(root, ".git", "index");
+      writeFileSync(join(root, ".gitattributes"), "tracked.txt filter=uppercase\n");
+      const clean = `node -e "process.stdin.on('data', data => process.stdout.write(data.toString().toUpperCase()))"`;
+      git(root, "config", "filter.uppercase.clean", clean);
+      git(root, "config", "filter.uppercase.required", "true");
+      git(root, "add", "--renormalize", "tracked.txt");
+      commitAll(root, "store normalized bytes");
+      expect(gitOut(root, "show", "HEAD:tracked.txt")).toBe("COMMITTED");
+      expect(readFileSync(path, "utf8").trim()).toBe("committed");
+      const snapshot = () => {
+        const stat = statSync(index, { bigint: true });
+        return [stat.ino, stat.mtimeNs, stat.ctimeNs, readFileSync(index)];
+      };
+      utimesSync(path, 1, 1);
+      const cleanIndex = snapshot();
+      expect(isTrackedWorktreeClean(root, true)).toBe(true);
+      expect(snapshot()).toEqual(cleanIndex);
+      expect(isTrackedWorktreeClean(root)).toBe(true);
+
+      writeFileSync(path, "changed\n");
+      const unstagedIndex = snapshot();
+      expect(isTrackedWorktreeClean(root, true)).toBe(false);
+      expect(snapshot()).toEqual(unstagedIndex);
+      git(root, "add", "tracked.txt");
+      const stagedIndex = snapshot();
+      expect(isTrackedWorktreeClean(root, true)).toBe(false);
+      expect(snapshot()).toEqual(stagedIndex);
     } finally {
       removeTempRoot(root);
     }

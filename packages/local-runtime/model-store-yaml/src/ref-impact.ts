@@ -1,4 +1,4 @@
-import { canonicalize, isRepoRelativePosixPath, nativeByteCompare, NativeContextError, type Json, type NativeContextModel, type NativeContextSnapshot, type NativeModelRecord, type RefImpactV1 } from "@archcontext/contracts";
+import { canonicalize, isRefImpactBatchRequest, isRepoRelativePosixPath, nativeByteCompare, NativeContextError, okEnvelope, REF_IMPACT_BATCH_SCHEMA_VERSION, type Json, type NativeContextModel, type NativeContextSnapshot, type NativeModelRecord, type RefImpactBatchV1, type RefImpactV1 } from "@archcontext/contracts";
 import { resolveArchitectureOwnersForPaths, type NativeNode, type ResolveArchitectureOwnerResult } from "@archcontext/core/projection-engine";
 import { decodeUtf8, readGitBlobTree, readGitBlobs, readNativeGitRoot, resolveNativeGitSnapshot, type GitBlobTreeEntry } from "../../git-adapter/src/blob-reader";
 import { exportNativeContext } from "./native-context";
@@ -222,14 +222,49 @@ export function computeRefImpact(input: { base?: ModelSnapshot; head: ModelSnaps
   };
 }
 
+function pathsOnlyImpact(head: ModelSnapshot, paths: string[], depth?: number): RefImpactV1 {
+  return computeRefImpact({ head, changes: paths.map(path => ({ path, added: null, deleted: null, hunks: [], reasonCode: "paths-only" })), depth });
+}
+
+export function readRefImpactBatch(start: string, request: unknown): RefImpactBatchV1 {
+  if (!isRefImpactBatchRequest(request)) return invalid("impact-batch-request-invalid");
+  // Reserve room for every ID before measuring impacts. A report that does not fit leaves its
+  // status in place and later, smaller reports can still be included.
+  const batch: RefImpactBatchV1 = {
+    schemaVersion: REF_IMPACT_BATCH_SCHEMA_VERSION,
+    items: request.items.map(({ id }) => ({ id, status: "unavailable", reasonCode: "batch-response-bytes" }))
+  };
+  let remaining = IMPACT_LIMITS.responseBytes - batchWireBytes(batch.items);
+  if (remaining < 0) {
+    throw new NativeContextError("native-context-limit-exceeded", { limit: "batch-response-bytes", maximum: IMPACT_LIMITS.responseBytes });
+  }
+  // Paths-only impact has no immutable ref or line ranges to match against a CodeGraph snapshot.
+  const head = exportNativeContext(start, { source: "worktree" });
+  for (const [index, { id, paths }] of request.items.entries()) {
+    const item = { id, impact: pathsOnlyImpact(head, unique(paths)) };
+    // Replacing one item leaves the surrounding envelope and separators the same.
+    const extra = batchWireBytes([item]) - batchWireBytes([batch.items[index]!]);
+    if (extra > remaining) continue;
+    batch.items[index] = item;
+    remaining -= extra;
+  }
+  return batch;
+}
+
+function batchWireBytes(items: RefImpactBatchV1["items"]): number {
+  const batch: RefImpactBatchV1 = { schemaVersion: REF_IMPACT_BATCH_SCHEMA_VERSION, items };
+  // SAFETY: The batch wire contract contains only JSON fields.
+  const envelope = okEnvelope("impact", batch as unknown as Json);
+  return Buffer.byteLength(JSON.stringify(envelope, null, 2)) + 1; // The CLI appends one newline.
+}
+
 export type RefImpactOptions = { base: string; head: string; depth?: number } | { paths: string[]; depth?: number };
 /** Read-only object reader: no checkout, index refresh, daemon, provider process or network. */
 export function readRefImpact(start: string, options: RefImpactOptions) {
   if ("paths" in options) {
     const paths = unique(options.paths);
     if (paths.some(path => !isRepoRelativePosixPath(path))) invalid("impact-path-invalid");
-    const head = exportNativeContext(start, { source: "worktree" });
-    return computeRefImpact({ head, changes: paths.map(path => ({ path, added: null, deleted: null, hunks: [], reasonCode: "paths-only" })), depth: options.depth });
+    return pathsOnlyImpact(exportNativeContext(start, { source: "worktree" }), paths, options.depth);
   }
   const root = readNativeGitRoot(start);
   const baseRef = resolveNativeGitSnapshot(root, options.base), headRef = resolveNativeGitSnapshot(root, options.head);

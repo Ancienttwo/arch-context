@@ -27,6 +27,8 @@ export type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, Ru
 export { runProjectionCheckInvocation, runProjectionFreshnessCommand, runProjectionSliceCommand, runProjectionSnapshotCommand } from "./projection-service";
 export { PROJECTION_PR_BODY_MARKER, PROJECTION_WRITER_DEFAULT_BASE, PROJECTION_WRITER_DEFAULT_REMOTE, createCommandProjectionPublisher, createGhProjectionPublisher, createNoneProjectionPublisher, projectionPublishBody, projectionPublishTitle, projectionWriterPaths, runProjectionPublishCommand, runProjectionPublishFollow, runProjectionPublishStatusCommand, runProjectionVerifyPrCommand, type ProjectionPublishOptions, type ProjectionPublisherExec, type ProjectionPublisherInput, type ProjectionPublisherPort, type ProjectionVerifyPrCheckPort, type ProjectionWriterApplyPort } from "./projection-writer";
 export { runDocsAnchorsCommand } from "./docs-anchors";
+export { runRuntimeVerifyCommand } from "./verify";
+import { modelValidationEnvelope } from "./verify";
 export { CapabilityDependenciesError, readCapabilityDependencies, type CapabilityDependenciesRequestV1, type CapabilityDependenciesResultV1 } from "./capability-dependencies";
 export { runConstraintCheckCommand } from "./constraints-check";
 export { runFlowSelectorCheckCommand } from "./flow-selector-check";
@@ -658,10 +660,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     const session = await this.openSession(root);
     const result = await this.readModelStore.validateModel(session.workspace);
     session.modelDigest = result.modelDigest;
-    if (result.allowedTargetErrors?.length) {
-      return publicFailureEnvelope("validate", "AC_SCHEMA_INVALID", "constraint-model-invalid", { issueCount: result.allowedTargetErrors.length });
-    }
-    return okEnvelope("validate", result as unknown as Json);
+    return modelValidationEnvelope(result);
   }
 
   async context(root: string, task: string, maxSymbols = 12): Promise<JsonEnvelope> {

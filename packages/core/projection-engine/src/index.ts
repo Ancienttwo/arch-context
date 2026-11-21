@@ -1117,14 +1117,14 @@ function assertArchitectureDocumentationProjectionProvenance(
 export function loadArchitectureDocumentationInputs(
   root: string,
   profile: ArchitectureProjectionProfile = "default",
-  options: { rebaselineSupersededManifest?: boolean } = {}
+  options: { rebaselineSupersededManifest?: boolean; model?: NativeModel } = {}
 ): {
   model: NativeModel;
   decisions: ArchitectureDecisionRecord[];
   existingFiles: ProjectionOwnedFile[];
   docsLanguage: ArchitectureDocsLanguage | undefined;
 } {
-  const model = loadNativeModelFromArchContext(root);
+  const model = options.model ?? loadNativeModelFromArchContext(root);
   const layout = resolveArchitectureDocumentationLayout({ nodes: model.nodes, relations: model.relations, profile });
   return {
     model,

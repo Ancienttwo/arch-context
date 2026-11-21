@@ -6,9 +6,9 @@ import type { CodeGraph } from "@colbymchenry/codegraph";
 
 /**
  * ADR-0058: every CodeGraph read goes through one in-process, read-only handle. A read starts no
- * CodeGraph command, runs no `git status` or `git diff`, never opens the index writable and never
- * copies it. SQLite may create the `-wal` and `-shm` sidecars of `.codegraph/codegraph.db`; nothing
- * else is written. Building the index stays with the CodeGraph CLI (`init`, `sync`).
+ * CodeGraph command, runs no `git status` or `git diff`, and never opens the index writable.
+ * SQLite may create the `-wal` and `-shm` sidecars beside the opened database. Building the index
+ * stays with the CodeGraph CLI (`init`, `sync`).
  */
 
 export const REQUIRED_CODEGRAPH_PACKAGE = "@colbymchenry/codegraph";
@@ -193,8 +193,8 @@ export interface CodeGraphReadSession {
   readonly graph: CodeGraphIndexHandle;
   version(): string;
   compatibility(): CodeGraphIndexCompatibilityV1;
-  /** Computed once per session; the session reads one worktree state. */
-  freshness(): CodeGraphIndexFreshnessV1;
+  /** Cached per session. Pass refresh when certifying the worktree again after a shared read. */
+  freshness(refresh?: boolean): CodeGraphIndexFreshnessV1;
   revision(): CodeGraphIndexRevisionV1;
   /**
    * Design G4: true when no provider build holds the writer lock now and the index revision equals
@@ -259,7 +259,12 @@ export function withCodeGraphReadSession<T>(root: string, read: (opened: CodeGra
   finally { if (opened.state === "open") opened.session.close(); }
 }
 
-function readSession(root: string, handle: { graph?: CodeGraphIndexHandle }, provider: CodeGraphReadProvider, atOpen: CodeGraphIndexRevisionV1): CodeGraphReadSession {
+/** The staged graph still attests to the original worktree and its original index identity. */
+export function isolatedCodeGraphReadSession(root: string, graph: CodeGraphIndexHandle, provider: CodeGraphReadProvider, indexIsCurrent: () => boolean): CodeGraphReadSession {
+  return readSession(root, { graph }, provider, revisionOf(graph), indexIsCurrent);
+}
+
+function readSession(root: string, handle: { graph?: CodeGraphIndexHandle }, provider: CodeGraphReadProvider, atOpen: CodeGraphIndexRevisionV1, indexIsCurrent?: () => boolean): CodeGraphReadSession {
   let freshness: CodeGraphIndexFreshnessV1 | undefined;
   const open = (): CodeGraphIndexHandle => {
     if (handle.graph === undefined) throw new Error("CodeGraph read session is closed");
@@ -275,7 +280,7 @@ function readSession(root: string, handle: { graph?: CodeGraphIndexHandle }, pro
       const lastIndexed = graph.getLastIndexedAt();
       return {
         version: provider.version,
-        projectPath: graph.getProjectRoot(),
+        projectPath: indexIsCurrent ? root : graph.getProjectRoot(),
         lastIndexed: lastIndexed === null ? null : new Date(lastIndexed).toISOString(),
         builtWithVersion: build.version,
         builtWithExtractionVersion: build.extractionVersion,
@@ -285,10 +290,13 @@ function readSession(root: string, handle: { graph?: CodeGraphIndexHandle }, pro
         pendingRefs: graph.getPendingReferenceCount()
       };
     },
-    freshness: () => freshness ??= measureCodeGraphIndexFreshness(root, open(), provider),
+    freshness: (refresh = false) => {
+      if (refresh || freshness === undefined) freshness = measureCodeGraphIndexFreshness(root, open(), provider);
+      return freshness;
+    },
     revision: () => revisionOf(open()),
     unchangedSinceOpen: () => {
-      if (codeGraphIndexBuildInProgress(root)) return false;
+      if (codeGraphIndexBuildInProgress(root) || (indexIsCurrent && !indexIsCurrent())) return false;
       const now = revisionOf(open());
       return now.lastIndexedAt === atOpen.lastIndexedAt && now.fileCount === atOpen.fileCount;
     },

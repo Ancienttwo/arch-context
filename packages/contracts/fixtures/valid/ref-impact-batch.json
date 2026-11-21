@@ -1,0 +1,78 @@
+{
+  "schemaVersion": "archcontext.ref-impact-batch/v1",
+  "items": [
+    {
+      "id": "pr-42",
+      "impact": {
+        "schemaVersion": "archcontext.ref-impact/v1",
+        "base": null,
+        "head": {
+          "source": "worktree",
+          "headSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "headTreeOid": "cccccccccccccccccccccccccccccccccccccccc",
+          "validation": "stable-read"
+        },
+        "depth": 1,
+        "changedPaths": [
+          {
+            "path": "src/new.ts",
+            "added": null,
+            "deleted": null,
+            "baseOwners": [],
+            "headOwners": [],
+            "owners": [],
+            "reasonCodes": [
+              "paths-only"
+            ]
+          }
+        ],
+        "unownedPaths": [
+          "src/new.ts"
+        ],
+        "touchedNodes": [],
+        "touchedFlowSteps": {
+          "status": "unknown",
+          "reasonCodes": [
+            "ref-code-facts-unavailable"
+          ],
+          "items": null
+        },
+        "dependents": [],
+        "dependencyCoverage": {
+          "status": "complete",
+          "graph": "head",
+          "pathSelection": "one-shortest-path-per-node-pair"
+        },
+        "modelDelta": {
+          "status": "unknown",
+          "reasonCode": "paths-only",
+          "changes": null,
+          "truncated": false
+        },
+        "limits": {
+          "changedPaths": 1000,
+          "nodes": 1000,
+          "relations": 5000,
+          "flowSteps": 2000,
+          "dependents": 5000,
+          "modelChanges": 5000,
+          "depth": 10,
+          "diffLines": 100000,
+          "diffWork": 2000000,
+          "diffBytes": 8388608,
+          "responseBytes": 8388608,
+          "codeFactFiles": 10000,
+          "codeFactBytes": 8388608
+        },
+        "truncated": {
+          "changedPaths": false,
+          "touchedNodes": false,
+          "relations": false,
+          "flowSteps": false,
+          "dependents": false,
+          "modelDelta": false
+        }
+      }
+    }
+  ]
+}

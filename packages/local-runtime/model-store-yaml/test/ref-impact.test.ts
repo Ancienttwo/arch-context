@@ -1,9 +1,31 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { rmSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { NativeContextModel, NativeContextSnapshot } from "@archcontext/contracts";
-import { computeRefImpact, countImpactLines, diffImpactLines, IMPACT_LIMITS, parseImpactHunks, parseImpactNumstat, readRefImpact, type RefImpactFacts } from "../src/ref-impact";
+import { REF_IMPACT_BATCH_REQUEST_SCHEMA_VERSION, type NativeContextModel, type NativeContextSnapshot } from "@archcontext/contracts";
+import * as nativeContext from "../src/native-context";
+import { computeRefImpact, countImpactLines, diffImpactLines, IMPACT_LIMITS, parseImpactHunks, parseImpactNumstat, readRefImpact, readRefImpactBatch, type RefImpactFacts } from "../src/ref-impact";
 import { createNativeFixture, commitFixture, fixtureGit, fixtureModel, writeFixtureFile, SELECTOR } from "./fixtures/native-context/fixture";
+
+test("batch impact loads the worktree once and validates all path sets before reading", () => {
+  const fixture = createNativeFixture();
+  const read = spyOn(nativeContext, "exportNativeContext");
+  try {
+    const request = { schemaVersion: REF_IMPACT_BATCH_REQUEST_SCHEMA_VERSION, items: [
+      { id: "a", paths: ["src/worker.ts"] }, { id: "b", paths: ["src/unrelated.ts"] }
+    ] };
+    expect(() => readRefImpactBatch(fixture.root, { ...request, items: [...request.items, { id: "c", paths: ["../bad"] }] })).toThrow();
+    expect(read).toHaveBeenCalledTimes(0);
+    const batch = readRefImpactBatch(fixture.root, request);
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(batch.items.map(item => "impact" in item ? item.impact.head.source : null)).toEqual(["worktree", "worktree"]);
+    const [first, second] = batch.items;
+    if (!first || !second || !("impact" in first) || !("impact" in second)) throw new Error("Expected both impacts");
+    expect(first.impact.head).toEqual(second.impact.head);
+  } finally {
+    read.mockRestore();
+    fixture.cleanup();
+  }
+});
 
 test("raw edit hunks identify separated changes and deletion coordinates", () => {
   expect(diffImpactLines(Buffer.from("a\nb\nc\nd\n"), Buffer.from("a\nB\nc\nD\n"))).toEqual({
