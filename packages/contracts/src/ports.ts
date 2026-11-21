@@ -37,7 +37,7 @@ export interface RepositorySnapshot {
  */
 export interface CodeGraphKeptPathV1 {
   path: string;
-  kind: "abandoned-staging" | "staging-not-removed" | "unreferenced-snapshot" | "snapshot-not-removed" | "stale-refresh-lock" | "unproven-pointer";
+  kind: "abandoned-staging" | "staging-not-removed" | "unreferenced-snapshot" | "snapshot-not-removed" | "stale-refresh-lock" | "refresh-lock-not-removed" | "unproven-pointer" | "pointer-temp-not-removed";
   cleanup: string;
 }
 
@@ -154,7 +154,11 @@ export interface CodeFactsPort {
    */
   buildTaskContext(input: { workspace: WorkspaceRef; task: string; maxSymbols: number; includeSource: boolean; changedPaths?: string[] }): Promise<NormalizedCodeContext>;
   findSymbols(query: SymbolQuery, workspace: WorkspaceRef): Promise<NormalizedSymbol[]>;
-  resolveEvidence(selectors: SourceSelector[]): Promise<ObservedEvidence[]>;
+  /**
+   * Resolves evidence against the verified snapshot of `workspace`, or the most recently verified
+   * workspace on this port when `workspace` is omitted.
+   */
+  resolveEvidence(selectors: SourceSelector[], workspace?: WorkspaceRef): Promise<ObservedEvidence[]>;
 }
 
 export interface LocalStorePort {

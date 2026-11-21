@@ -7,6 +7,7 @@ import { basename, dirname, join } from "node:path";
 import { FailureError, digestJson, type CodeGraphKeptPathV1, type Json } from "@archcontext/contracts";
 import { CODEGRAPH_TELEMETRY_ENV, CodeGraphAdapter, CodeGraphSdkProvider, MultiRepoCodeGraphAdapter, REQUIRED_CODEGRAPH_VERSION, codeGraphBaseDirectory, codeGraphCliInvocation, codeGraphRewritesGitignore, disableCodeGraphTelemetryByDefault, inspectRepositoryCodeFacts, openCodeGraphSymbolReader, packagedCodeGraphCliInvocation, pinnedCodeGraphProvider, prepareArchitectureDocumentationProjectionSnapshot, prepareProjectionCodeFacts, refreshCodeGraphBase, seedCodeGraphIndexFromBase, withCodeGraphReadSession, type CodeGraphReadProvider } from "../src/index";
 import * as readSessionModule from "../src/read-session";
+import { StagingRun, publishBasePointer } from "../src/index-base";
 import { CodeGraphProviderUnavailableError, codeGraphBundle } from "../src/read-session";
 import { fakeReadProvider, type FakeIndexFacts, type FakeReadProvider } from "./read-provider-fixture";
 import { MockCodeGraphProvider } from "./factories";
@@ -575,7 +576,34 @@ process.exit(2);
         await adapter.sync({ workspace: A });
         const afterSync = await refusal(read(adapter, A));
         return { ready, reading, afterSync, read: provider.targets };
-      }, { ready: ["AC_CODE_FACTS_NOT_READY", "code-facts-not-ready", true], reading: ["AC_CODE_FACTS_NOT_READY", "code-facts-not-ready", true], afterSync: ["AC_CODE_FACTS_NOT_READY", "code-facts-not-ready", true], read: [] }]
+      }, { ready: ["AC_CODE_FACTS_NOT_READY", "code-facts-not-ready", true], reading: ["AC_CODE_FACTS_NOT_READY", "code-facts-not-ready", true], afterSync: ["AC_CODE_FACTS_NOT_READY", "code-facts-not-ready", true], read: [] }],
+      ["cold read-only ensureReady binds resolveEvidence without starting a writable sync", async (adapter, provider) => {
+        const snapshotB = await adapter.ensureReady(B);
+        const evidence = await adapter.resolveEvidence([{ path: "src/a.ts" }]);
+        return {
+          synced: provider.indexedRoots,
+          readyChecks: provider.readyChecks,
+          snapshots: evidence.map((item) => item.snapshot),
+          matchesDigest: evidence[0]?.snapshot.worktreeDigest === snapshotB.workspaceDigest
+        };
+      }, { synced: [], readyChecks: [B.root], snapshots: [{ repositoryId: B.repositoryId, headSha: B.headSha, worktreeDigest: digestJson({ root: B.root, changedPaths: [] }) }], matchesDigest: true }],
+      ["sync(A) then read-only ensureReady(B) binds resolveEvidence to B and keeps explicit A lookup", async (adapter, provider) => {
+        const snapshotA = await adapter.sync({ workspace: A, changedPaths: ["src/a.ts"] });
+        const snapshotB = await adapter.ensureReady(B);
+        const latestEvidence = await adapter.resolveEvidence([{ path: "src/b.ts" }]);
+        const explicitA = await adapter.resolveEvidence([{ path: "src/a.ts" }], A);
+        provider.identities.set(B.root, undefined);
+        await adapter.ensureReady(B).catch(() => undefined);
+        const afterFailedB = await adapter.resolveEvidence([{ path: "src/b.ts" }]).then(() => "ok", (error: Error) => error.message);
+        const explicitAAfterFail = await adapter.resolveEvidence([{ path: "src/a.ts" }], A);
+        return {
+          synced: provider.indexedRoots,
+          latestIsB: latestEvidence[0]?.snapshot.worktreeDigest === snapshotB.workspaceDigest && latestEvidence[0]?.snapshot.headSha === B.headSha,
+          explicitIsA: explicitA[0]?.snapshot.worktreeDigest === snapshotA.workspaceDigest && explicitA[0]?.snapshot.headSha === A.headSha,
+          afterFailedB,
+          explicitAAfterFailIsA: explicitAAfterFail[0]?.snapshot.worktreeDigest === snapshotA.workspaceDigest
+        };
+      }, { synced: [A.root], latestIsB: true, explicitIsA: true, afterFailedB: "CodeGraph snapshot unavailable; call ensureReady first", explicitAAfterFailIsA: true }]
     ];
     for (const [label, run, expected] of cases) {
       const provider = new Provider();
@@ -1062,6 +1090,110 @@ describe("base index seed and refresh (#608)", () => {
       // Every file stays; only the old unreferenced snapshots of this version are reported.
       expect([first, second, third, otherOld, foreignName, foreignVersion].map(path => existsSync(path))).toEqual([true, true, true, true, true, true]);
       expect(kept.map(({ path, kind }) => [path, kind]).sort()).toEqual([first, otherOld].map(path => [path, "unreferenced-snapshot"]).sort());
+
+      // CG-610-N1: repeated syncs on the same HEAD (`current`) still report snapshots that aged past
+      // ten minutes and a stale refresh.lock, without reporting a live lock or the current snapshot.
+      const evenLater = later + 20 * 60_000;
+      const lock = join(repo.baseDir, "refresh.lock");
+      writeFileSync(lock, "999999999");
+      const keptCurrentStale: CodeGraphKeptPathV1[] = [];
+      expect(refreshCodeGraphBase(repo.primary, { provider: fakeReadProvider(repo.primary), snapshot: (_source, target) => writeFileSync(target, "snapshot"), report: (path) => keptCurrentStale.push(path), now: () => evenLater })).toBe("current");
+      expect(keptCurrentStale.map(({ path, kind }) => [path, kind]).sort()).toEqual([[first, "unreferenced-snapshot"], [second, "unreferenced-snapshot"], [otherOld, "unreferenced-snapshot"], [lock, "stale-refresh-lock"]].sort());
+
+      writeFileSync(lock, String(process.pid));
+      const keptCurrentLive: CodeGraphKeptPathV1[] = [];
+      expect(refreshCodeGraphBase(repo.primary, { provider: fakeReadProvider(repo.primary), snapshot: (_source, target) => writeFileSync(target, "snapshot"), report: (path) => keptCurrentLive.push(path), now: () => evenLater })).toBe("current");
+      expect(keptCurrentLive.map(({ path, kind }) => [path, kind]).sort()).toEqual([[first, "unreferenced-snapshot"], [second, "unreferenced-snapshot"], [otherOld, "unreferenced-snapshot"]].sort());
+    } finally {
+      repo.cleanup();
+    }
+  });
+
+  test("StagingRun.remove preserves unrecorded entries even when creationIdentity is undefined (CG-610-N3)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "archctx-staging-n3-"));
+    try {
+      const staging = join(dir, `.codegraph-seed-${process.pid}-${randomUUID()}`);
+      mkdirSync(staging);
+      writeFileSync(join(staging, ".gitignore"), "*\n");
+      const foreign = join(staging, "foreign.txt");
+      writeFileSync(foreign, "user data");
+      const run = new StagingRun(staging, (path) => path === foreign ? undefined : `id:${basename(path)}`);
+      expect(run.ownFolder()).toBe(true);
+      run.created(".gitignore");
+      expect(run.remove()).toBe(false);
+      expect(existsSync(staging)).toBe(true);
+      expect(readFileSync(foreign, "utf8")).toBe("user data");
+      expect(readFileSync(join(staging, ".gitignore"), "utf8")).toBe("*\n");
+
+      const unowned = new StagingRun(staging, () => undefined);
+      expect(unowned.ownFolder()).toBe(false);
+      expect(unowned.remove()).toBe(false);
+      expect(readFileSync(foreign, "utf8")).toBe("user data");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("pointer identity is recorded before rename (CG-610-10), and retained locks or pointer temps are reported (CG-610-N2)", () => {
+    const repo = baseIndexRepository("archctx-base-n2-10-");
+    try {
+      mkdirSync(repo.baseDir, { recursive: true });
+      const current = join(repo.baseDir, "current.json");
+      const snapshot = `base-${randomUUID()}.db`;
+      writeFileSync(join(repo.baseDir, snapshot), "snapshot");
+      const pointerJson = `${JSON.stringify({ schemaVersion: "archcontext.codegraph-base/v1", codeGraphVersion: REQUIRED_CODEGRAPH_VERSION, extractionVersion: 7, headSha: repo.git("rev-parse", "HEAD").trim(), snapshot, createdAt: new Date(0).toISOString() }, null, 2)}\n`;
+      const identityOf = (path: string) => { const stat = lstatSync(path, { bigint: true }); return `${stat.dev}-${stat.ino}-${stat.birthtimeNs}`; };
+
+      // CG-610-10: records/current.json@<identity> is created on the temp file before renameSync.
+      let tempIdentityBeforeRename = "";
+      let recordPresentBeforeRename = false;
+      let currentAbsentBeforeRename = false;
+      const keptPublish: CodeGraphKeptPathV1[] = [];
+      publishBasePointer(repo.baseDir, current, pointerJson, (item) => keptPublish.push(item), (temp) => {
+        tempIdentityBeforeRename = identityOf(temp);
+        recordPresentBeforeRename = existsSync(join(repo.baseDir, "records", `current.json@${tempIdentityBeforeRename}`));
+        currentAbsentBeforeRename = !existsSync(current);
+      });
+      expect([recordPresentBeforeRename, currentAbsentBeforeRename, identityOf(current), keptPublish]).toEqual([true, true, tempIdentityBeforeRename, []]);
+
+      // A later HEAD move recognizes the pre-rename record and publishes cleanly.
+      writeFileSync(join(repo.primary, "src/a.ts"), "export const moved = 1;\n");
+      repo.commit("move HEAD 1");
+      expect(refreshCodeGraphBase(repo.primary, { provider: fakeReadProvider(repo.primary), snapshot: (_src, target) => writeFileSync(target, "snapshot") })).toBe("published");
+
+      // CG-610-N2 (lock release): replacing refresh.lock during refresh leaves it untouched and reports refresh-lock-not-removed.
+      writeFileSync(join(repo.primary, "src/a.ts"), "export const moved = 2;\n");
+      repo.commit("move HEAD 2");
+      const lock = join(repo.baseDir, "refresh.lock");
+      const keptLock: CodeGraphKeptPathV1[] = [];
+      expect(refreshCodeGraphBase(repo.primary, {
+        provider: fakeReadProvider(repo.primary),
+        report: (item) => keptLock.push(item),
+        snapshot: (_src, target) => {
+          Bun.sleepSync(30);
+          rmSync(lock);
+          writeFileSync(lock, "replacement-lock");
+          writeFileSync(target, "snapshot");
+        }
+      })).toBe("published");
+      expect(readFileSync(lock, "utf8")).toBe("replacement-lock");
+      expect(keptLock.map(({ path, kind }) => [path, kind])).toEqual([[lock, "refresh-lock-not-removed"]]);
+      expect(keptLock[0]!.cleanup.length).toBeGreaterThan(0);
+      rmSync(lock);
+
+      // CG-610-N2 (pointer temp cleanup): replacing the temp file before an error leaves it untouched and reports pointer-temp-not-removed.
+      let retainedTemp = "";
+      const keptTemp: CodeGraphKeptPathV1[] = [];
+      expect(() => publishBasePointer(repo.baseDir, current, pointerJson, (item) => keptTemp.push(item), (temp) => {
+        retainedTemp = temp;
+        Bun.sleepSync(30);
+        rmSync(temp);
+        writeFileSync(temp, "replacement-temp");
+        throw new Error("simulated rename failure");
+      })).toThrow("simulated rename failure");
+      expect(readFileSync(retainedTemp, "utf8")).toBe("replacement-temp");
+      expect(keptTemp.map(({ path, kind }) => [path, kind])).toEqual([[retainedTemp, "pointer-temp-not-removed"]]);
+      expect(keptTemp[0]!.cleanup.length).toBeGreaterThan(0);
     } finally {
       repo.cleanup();
     }
