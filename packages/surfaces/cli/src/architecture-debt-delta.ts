@@ -6,10 +6,10 @@ import {
 import {
   readArchitectureDebt, readCompleteTaskArchitectureDebt, selectedProducerFailureEnvelope, unadoptedDebt
 } from "@archcontext/local-runtime/architecture-debt";
-import { REQUIRED_CODEGRAPH_VERSION, seedCodeGraphIndexFromBase } from "@archcontext/local-runtime/codegraph-adapter";
+import { REQUIRED_CODEGRAPH_VERSION, initCodeGraphIndex, seedCodeGraphIndexFromBase } from "@archcontext/local-runtime/codegraph-adapter";
 import { hasSkippedWorktreePaths, readGitBlobTree, readNativeGitRoot, resolveNativeGitSnapshot, withDetachedGitWorktree } from "@archcontext/local-runtime/git-adapter";
 import { runtimeStatePaths, SqliteLocalStore, type ArchitectureDebtBaseCacheKey } from "@archcontext/local-runtime/local-store-sqlite";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 type DebtMeasurementProfile = ArchitectureDebtBaseCacheKey["measurementProfile"];
@@ -68,16 +68,56 @@ function readDebtForDelta(root: string, profile: DebtMeasurementProfile): Archit
   return readArchitectureDebt(root);
 }
 
+const CODEGRAPH_MISSING_REASONS = new Set(["index-missing", "codegraph-unavailable"]);
+
+function hasCodeGraphMissingGap(report: ArchitectureDebtReportV1): boolean {
+  return report.checks.some(check => check.reasonCodes.some(reason => CODEGRAPH_MISSING_REASONS.has(reason)));
+}
+
+async function coldIndexDetachedWorktree(worktree: string, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted();
+  const indexDir = join(worktree, ".codegraph");
+  // Pre-seed a self-ignoring `.gitignore` before `codegraph init` so `.codegraph/.gitignore`
+  // never becomes Git-visible in repositories whose root `.gitignore` does not exclude `.codegraph/`.
+  if (!existsSync(indexDir)) {
+    mkdirSync(indexDir, { recursive: true });
+    writeFileSync(join(indexDir, ".gitignore"), "*\n", "utf8");
+  }
+  try {
+    await initCodeGraphIndex(worktree, { signal });
+  } catch {
+    if (signal?.aborted) signal.throwIfAborted();
+    // Discard any partial index inside this private detached worktree so the debt reader
+    // reports a clean missing-index coverage gap instead of a half-written database.
+    rmSync(indexDir, { recursive: true, force: true });
+  }
+}
+
 async function readBaseDebt(root: string, cachePath: string, key: ArchitectureDebtBaseCacheKey, signal?: AbortSignal): Promise<ArchitectureDebtReportV1> {
   const store = new SqliteLocalStore(cachePath);
   try {
     const cached = existsSync(cachePath) ? await store.readArchitectureDebtBase(key) : undefined;
     if (cached !== undefined) return cached;
     signal?.throwIfAborted();
-    const report = await withDetachedGitWorktree(root, key.baseSha, worktree => {
+    const report = await withDetachedGitWorktree(root, key.baseSha, async worktree => {
       signal?.throwIfAborted();
-      seedCodeGraphIndexFromBase(worktree);
-      return readDebtForDelta(worktree, key.measurementProfile);
+      if (!existsSync(join(worktree, ".archcontext/manifest.yaml"))) {
+        return readDebtForDelta(worktree, key.measurementProfile);
+      }
+      const seeded = seedCodeGraphIndexFromBase(worktree);
+      const indexReady = seeded === "seeded" || seeded === "present";
+      if (key.measurementProfile === "complete") {
+        if (!indexReady) await coldIndexDetachedWorktree(worktree, signal);
+        signal?.throwIfAborted();
+        return readDebtForDelta(worktree, "complete");
+      }
+      const editTime = readDebtForDelta(worktree, "edit-time");
+      if (!indexReady && hasCodeGraphMissingGap(editTime)) {
+        await coldIndexDetachedWorktree(worktree, signal);
+        signal?.throwIfAborted();
+        return readDebtForDelta(worktree, "edit-time");
+      }
+      return editTime;
     });
     signal?.throwIfAborted();
     // CodeGraph and other evidence can become available later. Cache only coverage gaps

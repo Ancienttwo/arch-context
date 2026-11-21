@@ -1,5 +1,5 @@
 import { assertLocalEgressAllowed, localEgressMode } from "@archcontext/local-runtime/egress-admission";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { accessSync, closeSync, constants as fsConstants, existsSync, openSync, readFileSync, readSync, realpathSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
@@ -28,6 +28,8 @@ export function disableCodeGraphTelemetryByDefault(env: MutableEnv = process.env
 
 /** Default bound on one `sync` of the index; the projection handshake passes its own. */
 export const CODEGRAPH_SYNC_TIMEOUT_MS = 30_000;
+/** Default bound on one cold `init` of a private detached worktree index. */
+export const CODEGRAPH_INIT_TIMEOUT_MS = 120_000;
 
 export interface CodeGraphCliInvocation {
   command: string;
@@ -208,4 +210,118 @@ export function syncCodeGraphIndex(workspaceRoot: string, options: { binary?: st
     };
     throw new Error(`CodeGraph sync failed: ${message}\nCodeGraph sync diagnostics: ${JSON.stringify(diagnostics)}`);
   }
+}
+
+/**
+ * Initializes and builds a fresh CodeGraph index in `workspaceRoot` using `codegraph init --yes`
+ * (ADR-0058 Decision 2). Runs asynchronously so `signal` or `timeoutMs` terminates the child and
+ * waits for process exit before settling, keeping temporary worktree cleanup safe on Windows.
+ * Forces `CODEGRAPH_FORCE_WATCH=1` (clearing `CODEGRAPH_NO_WATCH`) so CodeGraph's watch-fallback
+ * prompt never installs Git sync hooks into the repository's shared `.git/hooks`.
+ */
+export async function initCodeGraphIndex(
+  workspaceRoot: string,
+  options: { binary?: string; timeoutMs?: number; signal?: AbortSignal } = {}
+): Promise<void> {
+  options.signal?.throwIfAborted();
+  const invocation = codeGraphSyncInvocation(workspaceRoot, options.binary);
+  const timeout = options.timeoutMs ?? CODEGRAPH_INIT_TIMEOUT_MS;
+  disableCodeGraphTelemetryByDefault();
+  const env: NodeJS.ProcessEnv = {
+    ...codeGraphChildEnv(),
+    [CODEGRAPH_TELEMETRY_ENV]: CODEGRAPH_TELEMETRY_DISABLED_VALUE,
+    CODEGRAPH_NO_DOWNLOAD: "1",
+    CODEGRAPH_FORCE_WATCH: "1"
+  };
+  delete env.CODEGRAPH_NO_WATCH;
+  const startedAt = performance.now();
+  await new Promise<void>((resolvePromise, rejectPromise) => {
+    const child = spawn(invocation.command, [...invocation.argsPrefix, "init", workspaceRoot, "--yes"], {
+      cwd: workspaceRoot,
+      env,
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    let stderr = "";
+    let timedOut = false;
+    let aborted = false;
+    let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
+    const terminate = () => {
+      if (child.exitCode !== null || child.signalCode !== null) return;
+      try { child.kill("SIGTERM"); } catch { /* already gone */ }
+      if (process.platform !== "win32" && forceKillTimer === undefined) {
+        forceKillTimer = setTimeout(() => {
+          if (child.exitCode === null && child.signalCode === null) {
+            try { child.kill("SIGKILL"); } catch { /* already gone */ }
+          }
+        }, 2_000);
+        forceKillTimer.unref?.();
+      }
+    };
+    const onAbort = () => {
+      aborted = true;
+      terminate();
+    };
+    options.signal?.addEventListener("abort", onAbort, { once: true });
+    if (options.signal?.aborted) onAbort();
+    const timer = setTimeout(() => {
+      timedOut = true;
+      terminate();
+    }, timeout);
+    timer.unref?.();
+    child.stdout?.resume();
+    child.stderr?.setEncoding("utf8");
+    child.stderr?.on("data", (chunk: string) => {
+      if (stderr.length < 16_384) stderr += chunk;
+    });
+    const cleanup = () => {
+      clearTimeout(timer);
+      if (forceKillTimer !== undefined) clearTimeout(forceKillTimer);
+      options.signal?.removeEventListener("abort", onAbort);
+    };
+    let settled = false;
+    const finish = (err?: unknown) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (err === undefined) resolvePromise();
+      else rejectPromise(err);
+    };
+    child.once("error", (error) => {
+      if (aborted || options.signal?.aborted) {
+        finish(options.signal?.reason ?? error);
+        return;
+      }
+      const diagnostics = {
+        subcommand: "init",
+        deadlineMs: timeout,
+        elapsedMs: Math.round(performance.now() - startedAt),
+        code: (error as NodeJS.ErrnoException).code ?? null,
+        exitCode: null,
+        signal: null
+      };
+      finish(new Error(`CodeGraph init failed: ${error.message}\nCodeGraph init diagnostics: ${JSON.stringify(diagnostics)}`));
+    });
+    child.once("close", (exitCode, killSignal) => {
+      if (aborted || options.signal?.aborted) {
+        finish(options.signal?.reason ?? new Error("CodeGraph init aborted"));
+        return;
+      }
+      if (!timedOut && exitCode === 0) {
+        finish();
+        return;
+      }
+      const message = timedOut
+        ? `timed out after ${timeout}ms`
+        : stderr.trim() || `exited with code ${exitCode ?? "null"}`;
+      const diagnostics = {
+        subcommand: "init",
+        deadlineMs: timeout,
+        elapsedMs: Math.round(performance.now() - startedAt),
+        code: timedOut ? "ETIMEDOUT" : null,
+        exitCode,
+        signal: killSignal
+      };
+      finish(new Error(`CodeGraph init failed: ${message}\nCodeGraph init diagnostics: ${JSON.stringify(diagnostics)}`));
+    });
+  });
 }

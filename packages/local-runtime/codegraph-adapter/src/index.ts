@@ -22,10 +22,12 @@ export {
   type CodeGraphReadSessionOpenV1
 } from "./read-session";
 export {
+  CODEGRAPH_INIT_TIMEOUT_MS,
   CODEGRAPH_TELEMETRY_DISABLED_VALUE,
   CODEGRAPH_TELEMETRY_ENV,
   codeGraphCliInvocation,
   disableCodeGraphTelemetryByDefault,
+  initCodeGraphIndex,
   packagedCodeGraphCliInvocation,
   packagedCodeGraphRuntimeDigest,
   type CodeGraphCliInvocation
