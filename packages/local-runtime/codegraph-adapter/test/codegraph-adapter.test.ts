@@ -42,14 +42,14 @@ describe("@archcontext/local-runtime/codegraph-adapter multi-repo", () => {
     const invocation = packagedCodeGraphCliInvocation();
     expect(invocation.command).toBe(process.execPath);
     expect(invocation.argsPrefix[0]).toEndWith(join("node_modules", "@colbymchenry", "codegraph", "npm-shim.js"));
-    expect(REQUIRED_CODEGRAPH_VERSION).toBe("1.6.2");
+    expect(REQUIRED_CODEGRAPH_VERSION).toBe("1.6.4");
     const root = mkdtempSync(join(tmpdir(), "archctx-packaged-codegraph-runtime-"));
     try {
       const prepared = prepareProjectionCodeFacts(root, { nodes: [], relations: [] }, {
         sourceTreeDigest: `sha256:${"0".repeat(64)}`
       });
       expect(prepared.handshake).toMatchObject({
-        actualVersion: "1.6.2",
+        actualVersion: "1.6.4",
         availability: "unavailable",
         reasonCode: "index-missing"
       });
@@ -105,9 +105,9 @@ writeFileSync(${JSON.stringify(join(root, "synced"))}, "ok");
       });
       expect(prepared.importGraphs).toEqual([]);
       expect(prepared.handshake).toMatchObject({
-        actualVersion: "1.6.2",
+        actualVersion: "1.6.4",
         availability: "ready",
-        requiredVersion: "1.6.2"
+        requiredVersion: "1.6.4"
       });
       // `sync` is the only CodeGraph process the handshake starts.
       expect(cli.calls()).toEqual(["sync"]);

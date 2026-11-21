@@ -107,7 +107,7 @@ test("generated topology, layered and capability diagrams pass the syntax check"
       modelDigest: digest,
       rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION,
       layoutVersion: ARCHITECTURE_DOCS_LAYOUT_VERSION,
-      generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.2" }
+      generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.4" }
     }),
     sourceScaleSignals: [],
     importGraphs: [],
@@ -158,7 +158,7 @@ test("rendered flat, parallel and formerly colliding statechart IDs parse with p
   const digest = `sha256:${"7".repeat(64)}`;
   const plan = renderArchitectureDocumentationProjection({
     model, stateMachines, sourceDigest: digest,
-    provenance: architectureDocumentationProjectionProvenance({ sourceTreeDigest: digest, modelDigest: digest, rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION, layoutVersion: ARCHITECTURE_DOCS_LAYOUT_VERSION, generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.2" } }),
+    provenance: architectureDocumentationProjectionProvenance({ sourceTreeDigest: digest, modelDigest: digest, rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION, layoutVersion: ARCHITECTURE_DOCS_LAYOUT_VERSION, generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.4" } }),
     sourceScaleSignals: [], importGraphs: [], selectorEvidence: []
   });
   const capability = plan.files.find((file) => file.target.type === "entity-summary")!;

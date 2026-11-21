@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@archcontext/surfaces": "workspace:*",
-    "@colbymchenry/codegraph": "1.6.2"
+    "@colbymchenry/codegraph": "1.6.4"
   },
   "scripts": {
     "test": "bun test",

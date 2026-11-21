@@ -138,7 +138,7 @@ function render(input: RenderInput = {}): ArchitectureDocumentationProjectionPla
       modelDigest: digestJson(current as unknown as Json),
       rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION,
       layoutVersion: ARCHITECTURE_DOCS_LAYOUT_VERSION,
-      generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.2" }
+      generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.4" }
     }),
     sourceScaleSignals: declared.map((node) => ({
       nodeId: node.id,

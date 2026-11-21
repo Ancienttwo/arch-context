@@ -73,7 +73,7 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
     const reader = new SqliteLocalStore(path);
     const key: ArchitectureDebtBaseCacheKey = {
       repositoryId: "repo-a", baseSha: "a".repeat(40), archcontextTreeOid: "b".repeat(40),
-      codeGraphVersion: "1.6.2", engineVersion: "1", measurementProfile: "edit-time"
+      codeGraphVersion: "1.6.4", engineVersion: "1", measurementProfile: "edit-time"
     };
     const scope = { kind: "repository" as const, changedPaths: [], capabilityIds: [] };
     const editTime = evaluateArchitectureDebt({ scope, unavailable: { dependencies: ["deferred-to-complete"] } });

@@ -31,7 +31,7 @@ const provenance = architectureDocumentationProjectionProvenance({
   sourceTreeDigest: sourceDigest,
   modelDigest: sourceDigest,
   rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION, layoutVersion: ARCHITECTURE_DOCS_LAYOUT_VERSION,
-  generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.2" }
+  generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.4" }
 });
 
 const model: NativeModel = {
@@ -360,7 +360,7 @@ describe("entity-summary capability documentation projection", () => {
     const committed = JSON.parse(first.manifest.body);
     expect(Object.keys(committed)).toEqual(["schemaVersion", "rendererVersion", "profile", "layoutVersion", "generatedFrom", "semanticBaseline", "targets"]);
     expect(committed.schemaVersion).toBe("archcontext.architecture-docs-projection-manifest/v4");
-    expect(committed.generatedFrom).toEqual({ codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.2" });
+    expect(committed.generatedFrom).toEqual({ codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.6.4" });
     expect(Object.keys(committed.semanticBaseline)).toEqual(["modelDigest", "capabilities"]);
     for (const field of ["provenance", "sourceDigest", "projectionDigest", "receiptDigest", "targetCount", "fileCount", "projectionInputDigest", "sourceTreeDigest", "codeGraphDigest", "indexedWorktreeDigest", "sourceStamps", "scale", "sourceFootprintDigest"]) {
       expect(first.manifest.body).not.toContain(`"${field}"`);
