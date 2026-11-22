@@ -38,7 +38,8 @@ import {
   type ProjectionResultV3
 } from "@archcontext/contracts";
 import { publicOperationErrorEnvelope } from "./public-operation-failure";
-import { runProjectionCheckInvocation, runProjectionSnapshotCommand } from "./projection-service";
+import { runProjectionCheckInvocation } from "./projection-check";
+import { runProjectionSnapshotCommand } from "./projection-service";
 
 /**
  * Projection writer mode (issue #379, ADR-0048). `archctx projection publish` is a client of the

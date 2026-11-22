@@ -55,7 +55,7 @@ test("C1 preserves raw throw shape and typed attributes when a public operation 
 
 test("C1 hostile throws retain safe typed raw failures at the existing public boundaries", async () => {
   const {FailureError} = await import("@archcontext/contracts");
-  const {runProjectionCheckCommand} = await import("../src/projection-service");
+  const {runProjectionCheckCommand} = await import("../src/projection-check");
   const {exportNativeContext} = await import("@archcontext/local-runtime/model-store-yaml");
   const throwing = (key: string) => Object.defineProperty({},key,{get(){const p=Proxy.revocable({},{});p.revoke();throw p.proxy;}});
   for (const read of [()=>runProjectionCheckCommand(throwing("mode") as any,"."),()=>readCapabilityDependencies(".",throwing("importNodeLimit")),()=>exportNativeContext(".",throwing("source") as any)]) {

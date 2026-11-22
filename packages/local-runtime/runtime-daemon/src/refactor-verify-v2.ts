@@ -14,9 +14,8 @@ import { ancestorChain, bindRepository, type NativeNode } from "@archcontext/cor
 import { resolveOwnership } from "@archcontext/core/module-statistics";
 import { deriveObservationOutcomes, readSnapshotMetric, type RefactorResolutionMetric } from "@archcontext/core/refactor-assessment";
 import { verifySymbolKillList } from "@archcontext/local-runtime/codegraph-adapter";
-import { listGitVisibleFiles, readGitBlobTree, readHeadSha, resolveNativeGitSnapshot } from "@archcontext/local-runtime/git-adapter";
+import { listGitVisibleFiles, readCurrentBranch, readGitBlobTree, readHeadSha, resolveNativeGitSnapshot } from "@archcontext/local-runtime/git-adapter";
 import { runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
-import { readCurrentBranch } from "./projection-inputs";
 import { readRefactorDecisionSet } from "./refactor-decisions";
 import { measureRefactorSnapshot, refactorWorktreeDigests } from "./refactor-scan";
 

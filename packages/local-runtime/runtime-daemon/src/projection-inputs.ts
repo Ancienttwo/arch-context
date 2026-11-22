@@ -1,20 +1,7 @@
-import { execFileSync } from "node:child_process";
 import { canonicalRepositoryRoot } from "@archcontext/core/architecture-domain";
 import { digestJson, type ArchitectureDocumentationProjectionProvenanceV3, type Json, type ProjectionSnapshotV1 } from "@archcontext/contracts";
 import type { ArchitectureDocumentationProjectionRuntimeSnapshot } from "@archcontext/core/projection-engine";
-
-export function readCurrentBranch(root: string): string {
-  try {
-    const branch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
-      cwd: root,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"]
-    }).trim();
-    return branch === "HEAD" ? "detached" : branch;
-  } catch {
-    return "unknown";
-  }
-}
+export { readCurrentBranch } from "@archcontext/local-runtime/git-adapter";
 
 
 export function projectionWorkspaceId(root: string): string {

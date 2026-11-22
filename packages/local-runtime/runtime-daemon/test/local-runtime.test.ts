@@ -21,7 +21,9 @@ import { extractSchemaVersion, initializeArchContextModel, listModelFiles, planG
 import { ChangeSetEngine, type ApplyOptions, type ChangeSetDraft } from "@archcontext/core/changeset-engine";
 import { architectureDocumentationSourceDigest, architectureDocumentationProjectionWorktreeDigest, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, loadCapabilitySourceScaleSignals, loadNativeModelFromArchContext, projectionOwnedWriteBody, renderAgentContextProjection, renderArchitectureDocumentationProjection, type ArchitectureProjectionProfile } from "@archcontext/core/projection-engine";
 import * as projectionEngine from "@archcontext/core/projection-engine";
-import { architectureHistoryRenderInput, buildArchitectureDocsProjection, currentProjectionExpectedSnapshot, runArchitectureDocsProjectionCommand, runProjectionProtocolCommand } from "../src/projection-service";
+import { runArchitectureDocsProjectionCommand } from "../src/projection-adoption";
+import { runProjectionProtocolCommand } from "../src/projection-protocol";
+import { architectureHistoryRenderInput, buildArchitectureDocsProjection, currentProjectionExpectedSnapshot } from "../src/projection-service";
 import { assertProductionRuntimeDeps, createStartedProductionDaemon, createStartedDaemon, runtimeDefaultClock } from "../src/index";
 
 const PREVIOUS_ARCHCONTEXT_STATE_DIR = process.env.ARCHCONTEXT_STATE_DIR;

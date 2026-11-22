@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { parseJsonOrStableYaml } from "@archcontext/core/architecture-domain";
 import { stableYaml } from "@archcontext/contracts";
 import { YamlModelStore } from "../src/index";
-import { runProjectionCheckCommand } from "../../runtime-daemon/src/projection-service";
+import { runProjectionCheckCommand } from "../../runtime-daemon/src/projection-check";
 import { doctorManifest } from "../../../surfaces/cli/src/main";
 import { createNativeFixture, writeFixtureFile } from "./fixtures/native-context/fixture";
 

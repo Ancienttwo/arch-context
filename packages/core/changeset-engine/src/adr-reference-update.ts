@@ -1,8 +1,7 @@
 import { isAlias, isMap, isScalar, isSeq, parseDocument, visit } from "yaml";
 import { validateJsonSchema, type Json } from "@archcontext/contracts";
-import type { ChangeOperation } from "./index";
-
-export interface AdrReferenceReplacement { from: string; to: string }
+import type { AdrReferenceReplacement, ChangeOperation } from "./types";
+export type { AdrReferenceReplacement } from "./types";
 export const ADR_REFERENCE_OPERATION_SCHEMA: Parameters<typeof validateJsonSchema>[0] = {
   type: "object", additionalProperties: false, required: ["op", "path", "expectedHash", "references"],
   properties: {

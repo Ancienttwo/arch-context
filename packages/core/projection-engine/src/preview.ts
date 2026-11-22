@@ -4,7 +4,8 @@ import {
   type ProjectionFilePreviewV1,
   type ProjectionSliceCapabilityV1
 } from "@archcontext/contracts";
-import { matchesGlob, nativeNodeSource, renderProjectionEntrypoints, type NativeModel } from "./index";
+import { matchesGlob, nativeNodeSource, type NativeModel } from "@archcontext/core/architecture-domain";
+import { renderProjectionEntrypoints } from "./docs-sections";
 import { resolveArchitectureDocumentationLayout, type ArchitectureProjectionProfile } from "./layout";
 import { compileSemanticP1, renderSemanticFlowchartSource, semanticP1Scope } from "./semantic-diagrams";
 

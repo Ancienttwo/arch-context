@@ -1,12 +1,8 @@
 import {
-  ARCHITECTURE_MAJOR_CHANGE_REASON_CODES,
   REFACTOR_OBSERVATION_EVIDENCE_LIMIT,
-  REFACTOR_OBSERVATION_KINDS,
   REFACTOR_PROPOSAL_AUTHOR_KINDS,
   REFACTOR_PROPOSAL_AUTHOR_PAIRS,
   REFACTOR_PROPOSAL_AUTHOR_SOURCES,
-  REFACTOR_SCALES,
-  REFACTOR_SCALE_REASON_CODES,
   digestJson,
   type ArchitectureEventV1,
   type ArchitectureRepositoryIdentityV1,
@@ -16,13 +12,10 @@ import {
   type EvidenceLifecycleOperationV1,
   type EvidenceStateAtCursorV1,
   type Json,
-  type ModuleStatisticsSnapshotV1,
   type RecommendationAuthorV1,
   type RecommendationV3,
-  type RefactorAssessmentV1,
   type RefactorProposalAuthorKind,
-  type RefactorProposalAuthorSource,
-  type RefactorProposalV1
+  type RefactorProposalAuthorSource
 } from "@archcontext/contracts";
 import {
   ARCHITECTURE_EVIDENCE_LIFECYCLE_PAYLOAD_VERSION,
@@ -39,89 +32,12 @@ import {
   type RefactorRecommendationRunPlan
 } from "@archcontext/core/recommendation-engine";
 import { deriveObservationOutcomes } from "@archcontext/core/refactor-assessment";
+import type { RegisteredRefactorAssessmentV1 } from "./refactor-assessment-registry";
 import type { RefactorDecisionSetV1 } from "./refactor-decisions";
 
-/**
- * A scan holds its measured snapshot and assessment in memory only. The cap keeps the daemon
- * from turning into an unbounded parallel store of measurements the ledger never accepted; an
- * evicted digest fails closed at `refactor record` and the caller re-runs the scan.
- */
-export const REFACTOR_ASSESSMENT_REGISTRY_CAPACITY = 8;
-export const REFACTOR_CLASSIFIER_RULESET_SCHEMA_VERSION = "archcontext.refactor-classifier-ruleset/v1" as const;
+export * from "./refactor-assessment-registry";
+
 export const REFACTOR_SCAN_EVENT_TYPE = "architecture.refactor.scan" as const;
-
-export interface RegisteredRefactorAssessmentV1 {
-  snapshot: ModuleStatisticsSnapshotV1;
-  assessment: RefactorAssessmentV1;
-  /** The proposal returned by `assessRefactor`, carrying resolved `unresolvedTargets`. */
-  proposal?: RefactorProposalV1;
-  /**
-   * The manifest `product.id` the scan scoped its selectors by. Carried so a record or a decision
-   * re-plans the measured run under exactly the identity the scan previewed.
-   */
-  namespace: string;
-  headSha: string;
-  worktreeDigest: string;
-  decisionSnapshot?: {
-    digest: string;
-    structuralWorktreeDigest: string;
-    recommendationIds: ReadonlySet<string>;
-  };
-}
-
-/** Bounded LRU shared by explicit records and snapshot-backed decisions. In-process only. */
-export class RefactorAssessmentRegistry {
-  private readonly entries = new Map<string, RegisteredRefactorAssessmentV1>();
-
-  constructor(private readonly capacity: number = REFACTOR_ASSESSMENT_REGISTRY_CAPACITY) {}
-
-  register(entry: RegisteredRefactorAssessmentV1): string {
-    const key = entry.assessment.assessmentDigest;
-    this.entries.delete(key);
-    this.entries.set(key, entry);
-    while (this.entries.size > this.capacity) {
-      const oldest = this.entries.keys().next();
-      if (oldest.done) break;
-      this.entries.delete(oldest.value);
-    }
-    return key;
-  }
-
-  get(assessmentDigest: string): RegisteredRefactorAssessmentV1 | undefined {
-    const entry = this.entries.get(assessmentDigest);
-    if (!entry) return undefined;
-    this.entries.delete(assessmentDigest);
-    this.entries.set(assessmentDigest, entry);
-    return entry;
-  }
-
-  getBySnapshotDigest(snapshotDigest: string): RegisteredRefactorAssessmentV1 | undefined {
-    for (const [key, entry] of this.entries) {
-      if (entry.decisionSnapshot?.digest === snapshotDigest) return this.get(key);
-    }
-    return undefined;
-  }
-
-  get size(): number {
-    return this.entries.size;
-  }
-}
-
-/**
- * `RecommendationRunV1.catalogDigest` has no practice catalog to bind for a refactor run, so it
- * binds the classifier ruleset instead: the closed enums plus the engine version that decided the
- * scale. A run replayed under a changed ruleset is visibly a different run.
- */
-export function refactorClassifierRulesetDigest(engineVersion: string): string {
-  return digestJson({
-    schemaVersion: REFACTOR_CLASSIFIER_RULESET_SCHEMA_VERSION,
-    engineVersion,
-    scales: [...REFACTOR_SCALES],
-    scaleReasonCodes: [...REFACTOR_SCALE_REASON_CODES],
-    observationKinds: [...REFACTOR_OBSERVATION_KINDS],
-    majorChangeReasonCodes: [...ARCHITECTURE_MAJOR_CHANGE_REASON_CODES]
-  } as unknown as Json);
-}
 
 /**
  * The no-self-authored gate. `daemon`, `system`, `hook` and `migration` are ArchContext acting on
@@ -162,11 +78,6 @@ export interface RefactorRecordEventPlan {
   evidenceOperations: EvidenceLifecycleOperationV1[];
 }
 
-/**
- * Builds the single event that records one refactor scan. `operations` is empty by construction:
- * a scan observes the graph, it never mutates it, which is exactly why `ledger rebuild` replays
- * to the same `graphDigest` with or without this event.
- */
 export function buildRefactorRecordEvent(input: RefactorRecordEventInput): RefactorRecordEventPlan {
   if (input.decisions.namespace !== input.registered.namespace) {
     throw new Error(`AC_REFACTOR_STALE: product.id changed from ${input.registered.namespace} to ${input.decisions.namespace} since the scan; run refactor scan again`);
@@ -219,7 +130,6 @@ export function buildRefactorRecordEvent(input: RefactorRecordEventInput): Refac
   return { plan, event, evidenceOperations };
 }
 
-/** The persisted payload of a refactor recording event; `planRefactorRun` sizes exactly this. */
 function refactorRecordEventPayload(
   plan: RefactorRecommendationRunPlan,
   evidenceOperations: readonly EvidenceLifecycleOperationV1[],
@@ -234,12 +144,6 @@ function refactorRecordEventPayload(
   } as unknown as Json;
 }
 
-/**
- * The largest payload `buildRefactorRecordEvent` can persist for `plan` under any ledger evidence
- * state: every item and binding written as an `update`, the largest operation shape (a `create`
- * is the same op without `previousDigest`; an unchanged one is omitted). Sizing this instead of
- * the state at hand keeps a scan preview and the record it previews on the same evidence cut.
- */
 function worstCaseRecordEventPayload(plan: RefactorRecommendationRunPlan, assessmentDigest: string): Json {
   const operations: EvidenceLifecycleOperationV1[] = [
     ...plan.evidenceItems.map((item): EvidenceLifecycleOperationV1 => ({
@@ -262,11 +166,6 @@ function worstCaseRecordEventPayload(plan: RefactorRecommendationRunPlan, assess
 
 export const REFACTOR_RUN_PERSISTENCE_REASON_CODE = "refactor-run-exceeds-ledger-size-limit" as const;
 
-/**
- * Whether the planned run fits one ledger event. `measuredBytes` is the worst-case persisted size
- * of the recording event at the plan's evidence cut; when nothing fits, it is the size with every
- * evidence sample empty, the smallest event the run can have.
- */
 export interface RefactorRunRecordingV1 {
   recordable: boolean;
   reasonCode: typeof REFACTOR_RUN_PERSISTENCE_REASON_CODE | null;
@@ -274,12 +173,6 @@ export interface RefactorRunRecordingV1 {
   limitBytes: number;
 }
 
-/**
- * The run cannot be recorded in one ledger event even with every evidence sample empty: what is
- * left (the baseline snapshot, the records' ids, affected nodes and outcomes) is itself over the
- * ceiling. Typed so the record, the one-step decision and a candidate `show` all refuse the same
- * way; the read-only scan reports it as `recording.recordable: false` instead.
- */
 export class RefactorRunTooLargeError extends Error {
   readonly code = "AC_REFACTOR_RUN_TOO_LARGE" as const;
   readonly reasonCode = REFACTOR_RUN_PERSISTENCE_REASON_CODE;
@@ -294,22 +187,9 @@ export function refactorRunTooLargeMessage(recording: RefactorRunRecordingV1): s
   return `the refactor run event needs ${recording.measuredBytes} bytes with every evidence sample empty, over the ledger's ${recording.limitBytes}-byte persisted-JSON limit`;
 }
 
-/**
- * The one planning path a scan preview and a record share: the recommendation engine's plan with
- * every structural observation's acceptance test filled. A scan candidate therefore shows exactly
- * the `derivedOutcomes` its record will carry.
- *
- * Never throws for size: a run that no evidence cut can fit is returned at the empty cut with
- * `recording.recordable: false`, so a read-only scan still answers. `planRefactorRun` is the
- * recording entry point and refuses it.
- */
 export function planRefactorRunWithRecording(
   input: PlanRefactorRecommendationRunInput
 ): { plan: RefactorRecommendationRunPlan; recording: RefactorRunRecordingV1 } {
-  // The per-run evidence byte budget is whatever the ledger ceiling leaves after the rest of the
-  // run. Evidence is the only part that can be cut without changing a fact, so every sample is
-  // cut to one shared limit, largest first, until the worst-case event fits. The plan is a pure
-  // function of its input, so the same input always lands on the same limit.
   for (let limit = REFACTOR_OBSERVATION_EVIDENCE_LIMIT; ; limit -= 1) {
     const plan = withDerivedObservationOutcomes(planRefactorRecommendationRun({ ...input, evidenceSampleLimit: limit }));
     const measuredBytes = architectureLedgerPersistedJsonBytes(worstCaseRecordEventPayload(plan, input.assessment.assessmentDigest));
@@ -328,19 +208,12 @@ export function planRefactorRunWithRecording(
   }
 }
 
-/** The recording plan: `planRefactorRunWithRecording`, refusing a run no evidence cut can fit. */
 export function planRefactorRun(input: PlanRefactorRecommendationRunInput): RefactorRecommendationRunPlan {
   const { plan, recording } = planRefactorRunWithRecording(input);
   if (!recording.recordable) throw new RefactorRunTooLargeError(recording);
   return plan;
 }
 
-/**
- * The planner's priors, shared by the scan preview and the record (ADR-0046): every Git decision
- * with `git` authority, and every ledger record with `ledger` authority. A ledger record keeps its
- * own status; the planner gives a ledger human status no suppression authority, and within one
- * generation a Git decision outranks every ledger record of it.
- */
 export function previousRecommendationsFromAuthority(
   recommendations: readonly RecommendationLedgerRecordV1[],
   decisions: RefactorDecisionSetV1
@@ -367,7 +240,6 @@ export function previousRecommendationsFromAuthority(
   return [...fromLedger, ...fromGit];
 }
 
-/** Latest record per id in ledger order. An equal timestamp resolves to the later event. */
 export function latestRecommendationsById(recommendations: readonly RecommendationLedgerRecordV1[]): RecommendationLedgerRecordV1[] {
   const latest = new Map<string, RecommendationLedgerRecordV1>();
   for (const recommendation of recommendations) {
@@ -379,10 +251,6 @@ export function latestRecommendationsById(recommendations: readonly Recommendati
   );
 }
 
-/**
- * The decided measurement a structural observation carries. A record written before observation
- * payloads carried `metrics` has none, and is reported as `null` rather than filled in.
- */
 function observationMetricsOf(recommendation: RecommendationLedgerRecordV1): Record<string, number | null> | null {
   if (!("category" in recommendation) || recommendation.category !== "structural_observation") return null;
   const metrics = (recommendation.payload as { metrics?: unknown }).metrics;
@@ -391,12 +259,6 @@ function observationMetricsOf(recommendation: RecommendationLedgerRecordV1): Rec
     : null;
 }
 
-/**
- * Incremental, unlike the full-state reconcile the YAML import path uses: a scan adds evidence
- * and must never emit a `remove` for an item some other producer owns. Shared with `refactor
- * verify`, which appends against the same evidence state and must not `create` an id a prior
- * scan already made live — the ledger throws on that, it does not overwrite.
- */
 export function evidenceLifecycleOperations(
   previous: EvidenceStateAtCursorV1,
   items: readonly EvidenceItemV2[],
@@ -405,7 +267,6 @@ export function evidenceLifecycleOperations(
   const currentItems = new Map(previous.evidenceItems.map((item) => [item.evidenceId, item]));
   const currentBindings = new Map(previous.evidenceBindings.map((binding) => [binding.bindingId, binding]));
   const operations: EvidenceLifecycleOperationV1[] = [];
-  // Items first: a binding create requires its evidence item to already be live in this event.
   for (const item of [...items].sort((left, right) => left.evidenceId.localeCompare(right.evidenceId))) {
     const existing = currentItems.get(item.evidenceId);
     if (!existing) {
@@ -429,18 +290,6 @@ export function evidenceLifecycleOperations(
   return operations;
 }
 
-/**
- * Fills the acceptance test for every recorded structural observation.
- *
- * The recommendation engine records the observed fact and deliberately leaves `derivedOutcomes`
- * empty rather than fork a second kind-to-outcome definition; `refactor-assessment` owns that one.
- * Recording the fact without the test it closes on would make the record permanently
- * unverifiable — `refactor verify` would answer `not_improved` with `no-required-outcome` forever.
- *
- * Safe to fill after planning: `recommendationV3FingerprintInput` hashes only `kind` and
- * `affectedNodeIds` for this category, so the fingerprint, `recommendationId` and every dedup
- * decision above are untouched.
- */
 function withDerivedObservationOutcomes(plan: RefactorRecommendationRunPlan): RefactorRecommendationRunPlan {
   const recommendations = plan.recommendations.map((recommendation) => {
     if (recommendation.category !== "structural_observation") return recommendation;

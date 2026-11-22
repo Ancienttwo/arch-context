@@ -5,9 +5,7 @@ import {
   refactorAssessmentDigest,
   refactorAssessmentInvariantIssues,
   refactorRequestInvariantIssues,
-  type ArchitectureMajorChangeReasonCode,
   type DependencyConstraintV1,
-  type EvidenceCoverageLevelV2,
   type Json,
   type ModuleStatisticsSnapshotV1,
   type ModuleStatisticsV1,
@@ -16,20 +14,30 @@ import {
   type RefactorObservationKind,
   type RefactorObservationV1,
   type RefactorProposalV1,
-  type RefactorRequestV1,
-  type RefactorScale,
-  type RefactorScaleReasonCode
+  type RefactorRequestV1
 } from "@archcontext/contracts";
 import {
   bidirectionalModulePairs,
   moduleComponentId,
   residualModuleCycles,
-  resolveOwnership,
   type ModuleStructureV1
 } from "@archcontext/core/module-statistics";
-import { nodeSubtreeIds, type NativeModel } from "@archcontext/core/architecture-domain";
+import type { NativeModel } from "@archcontext/core/architecture-domain";
 import { ObservationEvidenceBuilder } from "./evidence";
-import { deriveTargetDelta, withUnresolvedTargets, type TargetDeltaDerivationV1 } from "./target-delta";
+import { withUnresolvedTargets } from "./target-delta";
+import {
+  REFACTOR_OBSERVATION_SEVERITY_METRICS,
+  buildConfidence,
+  classifyProposal,
+  compare,
+  derivePressure,
+  modelDigest,
+  observationOnly,
+  observationSeverityWorsened,
+  scopeObservations
+} from "./classification";
+
+export { REFACTOR_OBSERVATION_SEVERITY_METRICS, observationSeverityWorsened };
 
 export { deriveTargetDelta, withUnresolvedTargets, type TargetDeltaContextV1, type TargetDeltaDerivationV1 } from "./target-delta";
 export {
@@ -50,72 +58,6 @@ export { simulateRefactorPlan, type SimulateRefactorPlanInputV1 } from "./simula
 
 const DIGEST_PREFIX_LENGTH = "sha256:".length;
 const SIGNAL_ID_LENGTH = 16;
-
-/**
- * Pressure weights and thresholds are the pressure engine's own (high 25 / medium 15 / low 5,
- * capped at 100; `>= 60` high, `>= 30` medium). The engine itself is deliberately not called:
- * its observed predicates regex over file-path and symbol strings, and `multiple-lifecycle-owner`
- * folds the request's task text into an "observed" signal. RF2 admits nothing heuristic, so it
- * reuses the scoring and derives the signals from its own closed observation set instead.
- */
-const PRESSURE_WEIGHTS: Readonly<Record<RefactorObservationKind, number>> = {
-  cycle: 25,
-  "residual-cycle": 25,
-  "direction-violation": 25,
-  "entrypoint-bypass": 20,
-  "low-cohesion-god-file": 15,
-  "unstable-dependency": 15,
-  "co-change-coupling": 15,
-  "ownership-ambiguous": 15,
-  "unowned-paths": 15,
-  "evidence-gap": 5,
-  "undeclared-footprint": 5
-};
-
-/**
- * The `metrics` keys of each observation kind whose growth means the finding itself got worse.
- * A `rejected` or `waived` observation reopens only when one of them grows past the decided value.
- *
- * Left out on purpose: `ownedFileCount` measures module size, not how ambiguous the ownership is,
- * so `ownership-ambiguous` has no severity metric; `edgeLimit` is scan configuration; and
- * `evidence-gap` as a whole is a gap in the code facts, not a finding about the architecture, so
- * no change in coverage reopens a decision about it. `undeclared-footprint` carries no metric.
- *
- * A pair `cycle` gets worse only when its thin direction grows: that is the cut the decision was
- * about, and a module joining the surrounding component, or the thick direction growing, does not
- * make it harder. A `residual-cycle` is identified by its members, so only a new module edge inside
- * the same members makes it worse.
- */
-export const REFACTOR_OBSERVATION_SEVERITY_METRICS: Readonly<Record<RefactorObservationKind, readonly string[]>> = {
-  "co-change-coupling": ["coChangePairCount"],
-  cycle: ["thinDirectionEdgeCount"],
-  "residual-cycle": ["cycleEdgeCount"],
-  "direction-violation": ["directionViolationCount"],
-  "entrypoint-bypass": ["entrypointBypassCount"],
-  "evidence-gap": [],
-  "low-cohesion-god-file": ["flaggedFileCount"],
-  "ownership-ambiguous": [],
-  "undeclared-footprint": [],
-  "unowned-paths": ["unownedFileCount"],
-  "unstable-dependency": ["unstableDependencyCount"]
-};
-
-/**
- * Whether `current` is strictly worse than `decided` on a severity metric of `kind`. An equal or
- * lower value is not worse. A metric that either side does not carry as a number is not compared,
- * so a decided record that lacks it never reopens: nothing is inferred in its place.
- */
-export function observationSeverityWorsened(
-  kind: RefactorObservationKind,
-  decided: Readonly<Record<string, number | null>>,
-  current: Readonly<Record<string, number | null>>
-): boolean {
-  return REFACTOR_OBSERVATION_SEVERITY_METRICS[kind].some((metric) => {
-    const before = decided[metric];
-    const after = current[metric];
-    return typeof before === "number" && typeof after === "number" && after > before;
-  });
-}
 
 export interface RefactorAssessmentInputV1 {
   snapshot: ModuleStatisticsSnapshotV1;
@@ -392,289 +334,10 @@ export function buildObservations(
     }));
 }
 
-/**
- * Keeps the observations a scoped request is about: those whose `affectedNodeIds` intersect the
- * scope's nodes. A `node` scope includes its descendants; a `paths` scope is every owner of the given
- * tracked files under the snapshot's ownership rule (contested files count for each claimant).
- * Repository-wide observations name no node and drop out of a scoped request; the coverage they
- * describe stays visible in `codeFacts` and `confidence`.
- */
-function scopeObservations(
-  observations: RefactorObservationV1[],
-  scope: RefactorRequestV1["scope"],
-  model: NativeModel,
-  trackedFiles: readonly string[]
-): RefactorObservationV1[] {
-  if (scope.kind === "repository") return observations;
-  const scopeNodes = scope.kind === "node"
-    ? nodeSubtreeIds(model.nodes, scope.nodeId)
-    : new Set(resolveScopePaths(model, trackedFiles, scope.paths).owners);
-  return observations.filter((observation) => observation.affectedNodeIds.some((nodeId) => scopeNodes.has(nodeId)));
-}
-
-interface ProposalClassification {
-  scale: RefactorScale | null;
-  reasonCodes: RefactorScaleReasonCode[];
-  affectedNodeIds: string[];
-  majorChangeReasons: ArchitectureMajorChangeReasonCode[];
-  unresolvedTargets: string[];
-  unresolvedEvidence: string[];
-  coverage: EvidenceCoverageLevelV2;
-}
-
-function observationOnly(coverage: EvidenceCoverageLevelV2): ProposalClassification {
-  return {
-    scale: null,
-    reasonCodes: [],
-    affectedNodeIds: [],
-    majorChangeReasons: [],
-    unresolvedTargets: [],
-    unresolvedEvidence: coverage === "complete" ? [] : [`coverage:${coverage}`],
-    coverage
-  };
-}
-
-function classifyProposal(context: {
-  snapshot: ModuleStatisticsSnapshotV1;
-  model: NativeModel;
-  trackedFiles: readonly string[];
-  scope: RefactorRequestV1["scope"];
-  proposal: RefactorProposalV1;
-}): ProposalClassification {
-  const scopeOwnership = resolveScopePaths(context.model, context.trackedFiles, context.proposal.scopePaths);
-  const derivation = deriveTargetDelta(context.proposal.targetDelta, {
-    model: context.model,
-    snapshot: context.snapshot,
-    currentOwnerIds: scopeOwnership.owners
-  });
-  // Ancestors deliberately do not count: `resolveOwnership` already collapsed each file onto its
-  // deepest owner, so two distinct owners mean two declared responsibility surfaces are touched.
-  const affectedNodeIds = [...new Set([...scopeOwnership.owners, ...derivation.resolvedNodeIds])].sort();
-
-  const relevantNodeIds = new Set(affectedNodeIds);
-  if (context.scope.kind === "node") relevantNodeIds.add(context.scope.nodeId);
-  const modulesById = new Map(context.snapshot.modules.map((module) => [module.nodeId, module]));
-  const undeclared = [...relevantNodeIds].filter((id) => modulesById.get(id)?.footprintDeclared === false).sort();
-
-  const coverage = context.snapshot.codeFacts.coverage;
-  const codes = new Set<RefactorScaleReasonCode>(["caller-coverage-unknown"]);
-  if (scopeOwnership.unowned.length > 0) codes.add("unowned-paths");
-  if (undeclared.length > 0) codes.add("node-footprint-undeclared");
-  if (coverage === "unknown") codes.add("code-facts-missing");
-  // A partial read keeps the snapshot's own cause, so a configured limit never reads as a broken index.
-  if (coverage === "partial") {
-    const limited = context.snapshot.codeFacts.reasonCodes.includes("code-facts-import-limit");
-    codes.add(limited ? "code-facts-import-limit" : "code-facts-truncated");
-    if (limited && context.snapshot.codeFacts.truncated) codes.add("code-facts-truncated");
-  }
-  if (scopeOwnership.contested.length > 0) codes.add("ownership-ambiguous");
-  if (derivation.unresolvedTargets.length > 0) codes.add("target-unresolved");
-
-  const scale = selectScale({
-    unresolvedTargets: derivation.unresolvedTargets.length,
-    unowned: scopeOwnership.unowned.length,
-    undeclared: undeclared.length,
-    contested: scopeOwnership.contested.length,
-    coverage,
-    majorChangeReasons: derivation.reasons.length,
-    affectedNodeCount: affectedNodeIds.length
-  });
-  if (scale === "architecture") codes.add("major-change-detected");
-  if (scale === "cross_module") codes.add("multi-node-scope");
-  if (scale === "module") codes.add("single-node-scope");
-
-  return {
-    scale,
-    reasonCodes: [...codes].sort(),
-    affectedNodeIds,
-    majorChangeReasons: derivation.reasons,
-    unresolvedTargets: derivation.unresolvedTargets,
-    unresolvedEvidence: buildUnresolvedEvidence({
-      coverage,
-      scopeOwnership,
-      undeclared,
-      derivation,
-      affectedNodeIds,
-      modulesById
-    }),
-    coverage
-  };
-}
-
-/**
- * The fixed ladder, first match wins.
- *
- * `target-unresolved` leads because the frozen `refactorScanInvariantIssues` makes it absolute: a
- * non-empty `targetDelta.unresolvedTargets` requires `insufficient_evidence`, so a proposal that
- * both names an unresolvable target and touches an unowned path cannot be reported as
- * `model_adoption_required` without emitting an invalid pair. Below it, the model gate precedes
- * the evidence gate: `model_adoption_required` is fixable by a ChangeSet, while
- * `insufficient_evidence` may clear on the next index run.
- */
-function selectScale(gates: {
-  unresolvedTargets: number;
-  unowned: number;
-  undeclared: number;
-  contested: number;
-  coverage: EvidenceCoverageLevelV2;
-  majorChangeReasons: number;
-  affectedNodeCount: number;
-}): RefactorScale {
-  if (gates.unresolvedTargets > 0) return "insufficient_evidence";
-  if (gates.unowned > 0 || gates.undeclared > 0) return "model_adoption_required";
-  if (gates.coverage !== "complete" || gates.contested > 0) return "insufficient_evidence";
-  if (gates.majorChangeReasons > 0) return "architecture";
-  return gates.affectedNodeCount > 1 ? "cross_module" : "module";
-}
-
-interface ScopeOwnership {
-  owners: string[];
-  unowned: string[];
-  contested: string[];
-}
-
-/**
- * Resolves `scopePaths` through RF1b's ownership rule.
- *
- * `resolveArchitectureOwnerForPath` is deliberately not used: across different parent chains it
- * applies the ADR-0043 longest-literal-prefix tie-break for `archctx resolve`, while the snapshot
- * was measured with the structural rule that marks such claims contested. Forking the two would
- * let a proposal's owners disagree with the modules it was assessed against. On one parent chain
- * both call the same `deepestOnOneParentChain`.
- */
-function resolveScopePaths(model: NativeModel, trackedFiles: readonly string[], scopePaths: string[]): ScopeOwnership {
-  // `scopePaths` are tracked file paths (PRD RF2). Membership in the snapshot's own tracked-file
-  // set is the test: a glob, a directory, or a path the commit does not carry names no file the
-  // instrument observed, so it can never resolve to one deepest owner and fails the model gate.
-  // Both sides are already contract-constrained to repo-relative POSIX, so exact string equality
-  // is the comparison; a second path dialect here would fork the ownership rule.
-  const tracked = new Set(trackedFiles);
-  const filePaths = scopePaths.filter((path) => isFilePath(path) && tracked.has(path));
-  const unowned = scopePaths.filter((path) => !isFilePath(path) || !tracked.has(path));
-  const index = resolveOwnership(model.nodes, filePaths);
-  const owners = new Set<string>();
-  const contested: string[] = [];
-  for (const path of filePaths) {
-    const resolution = index.byPath.get(path);
-    if (!resolution || resolution.owners.length === 0) {
-      unowned.push(path);
-      continue;
-    }
-    for (const owner of resolution.owners) owners.add(owner);
-    if (resolution.ambiguous) contested.push(path);
-  }
-  return { owners: [...owners].sort(), unowned: unowned.sort(), contested: contested.sort() };
-}
-
-/** Defense in depth behind the tracked-file test: these shapes name a set, never one file. */
-function isFilePath(path: string): boolean {
-  return !/[*?[\]{}()!]/.test(path) && !path.endsWith("/");
-}
-
-function buildUnresolvedEvidence(context: {
-  coverage: EvidenceCoverageLevelV2;
-  scopeOwnership: ScopeOwnership;
-  undeclared: string[];
-  derivation: TargetDeltaDerivationV1;
-  affectedNodeIds: string[];
-  modulesById: Map<string, ModuleStatisticsV1>;
-}): string[] {
-  const evidence = new Set<string>();
-  if (context.coverage !== "complete") evidence.add(`coverage:${context.coverage}`);
-  for (const path of context.scopeOwnership.unowned) evidence.add(`unowned-path:${path}`);
-  for (const path of context.scopeOwnership.contested) evidence.add(`ownership-ambiguous:${path}`);
-  for (const nodeId of context.undeclared) evidence.add(`undeclared-footprint:${nodeId}`);
-  for (const entry of context.derivation.unresolvedTargets) evidence.add(`target-unresolved:${entry}`);
-  for (const nodeId of context.affectedNodeIds) {
-    const module = context.modulesById.get(nodeId);
-    if (!module) continue;
-    if (module.tests.callerCoverage === null) evidence.add(`caller-coverage:${nodeId}`);
-    if (module.tests.coverageStatus === "unknown") evidence.add(`tests:${nodeId}`);
-  }
-  // `benefitLedger.rollbackPoint` is agent prose; reading a non-empty string as an observed
-  // rollback would invent evidence the instrument never measured.
-  evidence.add("rollback:proposal");
-  return [...evidence].sort();
-}
-
-function buildConfidence(
-  snapshot: ModuleStatisticsSnapshotV1,
-  classification: ProposalClassification
-): RefactorAssessmentV1["confidence"] {
-  const modulesById = new Map(snapshot.modules.map((module) => [module.nodeId, module]));
-  const affected = classification.affectedNodeIds.map((id) => modulesById.get(id)).filter(isPresent);
-  const coverages = affected.map((module) => module.tests.callerCoverage);
-  const callerCoverage = affected.length > 0 && coverages.every(isNumber) ? Math.min(...coverages) : null;
-  const testsObserved = affected.length === 0 || affected.some((module) => module.tests.coverageStatus === "unknown")
-    ? null
-    : affected.reduce((total, module) => total + (module.tests.observedTestEdges ?? 0), 0) > 0;
-  const blocked = classification.scale === "insufficient_evidence" || classification.scale === "model_adoption_required";
-  const level = blocked || classification.coverage === "unknown"
-    ? "low"
-    : classification.coverage === "complete" && classification.unresolvedEvidence.length === 0
-      ? "high"
-      : "medium";
-  return {
-    level,
-    callerCoverage,
-    testsObserved,
-    // Rollback is never observed in v1: nothing in the snapshot records a revertable point.
-    rollbackObserved: null,
-    unresolvedEvidence: classification.unresolvedEvidence
-  };
-}
-
-/**
- * Cycle pressure counts each strongly connected component of the measured graph once, however
- * many pairs and residual cycles it splits into: the component is the structural problem, and one
- * weight per pair would score a dense component by its size.
- */
-function derivePressure(observations: RefactorObservationV1[], snapshot: ModuleStatisticsSnapshotV1): RefactorAssessmentV1["pressure"] {
-  const componentOf = new Map(snapshot.modules.map((module) => [module.nodeId, module.dependencyGraph?.stronglyConnectedComponentId ?? null]));
-  const components = new Set<string>();
-  let score = 0;
-  for (const observation of observations) {
-    if (observation.kind === "cycle" || observation.kind === "residual-cycle") {
-      const component = componentOf.get(observation.affectedNodeIds[0] ?? "") ?? observation.subjectSelectorId;
-      if (components.has(component)) continue;
-      components.add(component);
-    }
-    score += PRESSURE_WEIGHTS[observation.kind];
-  }
-  score = Math.min(100, score);
-  return {
-    level: score >= 60 ? "high" : score >= 30 ? "medium" : "low",
-    score,
-    signalIds: [...new Set(observations.flatMap((observation) => observation.signalIds))].sort()
-  };
-}
-
 /** The signal names the measured fact (kind, subject, metrics); its evidence sample is not part of it. */
 function signalIdFor(draft: ObservationDraft): string {
   // The signal names the measured fact: kind, subject, affected nodes and metrics.
   const { evidence: _evidence, ...fact } = draft;
   const digest = digestJson(fact as unknown as Json);
   return `signal.${draft.kind}.${digest.slice(DIGEST_PREFIX_LENGTH, DIGEST_PREFIX_LENGTH + SIGNAL_ID_LENGTH)}`;
-}
-
-/** Mirrors the snapshot builder's model digest; it is the only way to bind a model to a snapshot. */
-function modelDigest(model: NativeModel, constraints: DependencyConstraintV1[]): string {
-  return digestJson({
-    nodes: [...model.nodes].sort((left, right) => compare(left.id, right.id)),
-    relations: [...model.relations].sort((left, right) => compare(left.id, right.id)),
-    flows: [...(model.flows ?? [])].sort((left, right) => compare(left.id, right.id)),
-    ...(constraints.length === 0 ? {} : { constraints: [...constraints].sort((left, right) => compare(left.id, right.id)) })
-  } as unknown as Json);
-}
-
-function compare(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
-}
-
-function isNumber(value: number | null): value is number {
-  return value !== null;
-}
-
-function isPresent<T>(value: T | undefined): value is T {
-  return value !== undefined;
 }

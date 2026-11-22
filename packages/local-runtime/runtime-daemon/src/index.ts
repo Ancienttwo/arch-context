@@ -44,7 +44,7 @@ import {
 } from "@archcontext/local-runtime/codegraph-adapter";
 import { Context7ExternalDocumentationAdapter } from "@archcontext/local-runtime/context7-adapter";
 import { CONTEXT7_ENABLED_ENV, CONTEXT7_MODE_ENV } from "@archcontext/local-runtime/context7-adapter";
-import { findRepositoryRoot, listGitVisibleFiles, readHeadSha } from "@archcontext/local-runtime/git-adapter";
+import { findRepositoryRoot, listGitVisibleFiles, readCurrentBranch, readHeadSha } from "@archcontext/local-runtime/git-adapter";
 import { SqliteLocalStore, defaultLocalStorePath, runtimeStatePaths, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { ArchContextInitRefusedError, YamlModelStore, initializeArchContextModel, planGeneratedProjection, rebuildGeneratedProjection, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
 import { defaultJiebaSearchTokenizer } from "@archcontext/local-runtime/search-tokenizer";
@@ -58,20 +58,20 @@ import { ExplorerServerService, type ExplorerServerOptions } from "./explorer-se
 import { ExternalDocumentationService, type RuntimeDocsInput } from "./external-documentation";
 import { LandscapeService } from "./landscape";
 import { PracticeCheckpointService } from "./practice-checkpoint";
-import { readCurrentBranch } from "./projection-inputs";
+import { runArchitectureDocsProjectionCommand, type RuntimeDocsProjectionCommandOptions } from "./projection-adoption";
+import { runProjectionCheckInvocation, runProjectionFreshnessCommand, runSyncCheckCommand } from "./projection-check";
+import { runProjectionProtocolCommand } from "./projection-protocol";
 import {
   architectureHistoryRenderInput,
   committedArchitectureDocsProfile,
   ignoredArchitectureModelPaths,
   runAgentContextProjectionCommand,
-  runArchitectureDocsProjectionCommand,
-  runProjectionProtocolCommand,
-  runSyncCheckCommand,
+  runProjectionSliceCommand,
+  runProjectionSnapshotCommand,
   validateAgentContextProjectionInput,
   validateDocsProjectionInput,
   validateProjectionInvocation,
-  type ProjectionServiceHost,
-  type RuntimeDocsProjectionCommandOptions
+  type ProjectionServiceHost
 } from "./projection-service";
 import { publicFailureEnvelope, publicOperationFailure, publicOperationResult } from "./public-operation-failure";
 import { RecommendationsService, type RuntimeRecommendationInput, type RuntimeRefactorRecordInput, type RuntimeRefactorScanInput } from "./recommendations";
@@ -115,7 +115,8 @@ export type {
   RuntimeSyncOptions,
   RuntimeWorktreeDigestProfile
 } from "./runtime-types";
-export { runProjectionCheckInvocation, runProjectionFreshnessCommand, runProjectionSliceCommand, runProjectionSnapshotCommand, runSyncCheckCommand } from "./projection-service";
+export { runProjectionSliceCommand, runProjectionSnapshotCommand } from "./projection-service";
+export { runProjectionCheckInvocation, runProjectionFreshnessCommand, runSyncCheckCommand } from "./projection-check";
 export { PROJECTION_PR_BODY_MARKER, PROJECTION_WRITER_DEFAULT_BASE, PROJECTION_WRITER_DEFAULT_REMOTE, createCommandProjectionPublisher, createGhProjectionPublisher, createNoneProjectionPublisher, projectionPublishBody, projectionPublishTitle, projectionWriterPaths, runProjectionPublishCommand, runProjectionPublishFollow, runProjectionPublishStatusCommand, runProjectionVerifyPrCommand, type ProjectionPublishOptions, type ProjectionPublisherExec, type ProjectionPublisherInput, type ProjectionPublisherPort, type ProjectionVerifyPrCheckPort, type ProjectionWriterApplyPort } from "./projection-writer";
 export { runDocsAnchorsCommand } from "./docs-anchors";
 export { runRuntimeVerifyCommand } from "./verify";

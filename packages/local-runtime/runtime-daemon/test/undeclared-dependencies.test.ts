@@ -14,7 +14,9 @@ import { declareOptionalCodeFacts } from "@archcontext/local-runtime/test/codegr
 import { CapabilityDependenciesError, readCapabilityDependencies } from "../src/index";
 import { projectionWorkspaceId } from "../src/projection-inputs";
 import { projectionArchitectureDebt } from "../src/projection-architecture-debt";
-import { runProjectionCheckCommand, runProjectionProtocolCommand, type ProjectionServiceHost } from "../src/projection-service";
+import { runProjectionCheckCommand } from "../src/projection-check";
+import { runProjectionProtocolCommand } from "../src/projection-protocol";
+import { type ProjectionServiceHost } from "../src/projection-service";
 import { publishedSchemaIssues } from "../../../contracts/test/published-schemas";
 import { rmSync } from "./runtime-test-fixtures";
 

@@ -1,13 +1,18 @@
 import { execFile, execFileSync, spawnSync } from "node:child_process";
-import { existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, lstatSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { bindRepository, matchesGlob, type GitTrackedTreeEntry, type RepositoryBinding } from "@archcontext/core/architecture-domain";
-import { digestJson, FailureError, type Json } from "@archcontext/contracts";
-import { isGitRevisionArgument, localGitEnv, readGitBlobTree, readGitBlobs, readOnlyGit } from "./blob-reader";
+import { digestJson, type Json } from "@archcontext/contracts";
+import { isGitRevisionArgument, localGitEnv, readGitBlobTree, readGitBlobs } from "./blob-reader";
+import { GitVisibleFilesUnavailableError } from "./sparse-worktree";
+import type { GitChangeSource, GitPathChange, GitPathChangeStatus } from "./workspace-packages";
+
 export * from "./blob-reader";
 export * from "./co-change";
+export * from "./sparse-worktree";
+export * from "./workspace-packages";
 
 /** One `git cat-file --batch` carries every measured blob; a repository-sized tree needs the headroom. */
 const GIT_CAT_FILE_MAX_BYTES = 512 * 1024 * 1024;
@@ -69,21 +74,6 @@ export async function withDetachedGitWorktree<T>(root: string, commitSha: string
 }
 
 /**
- * Thrown when the Git-visible file universe cannot be listed: `root` is not a Git worktree, or
- * `git` cannot run. Projection footprints and worktree digests are defined over Git-visible files,
- * so there is no filesystem fallback that could silently pull ignored files back in. Surfaces map it
- * to `AC_REPO_NOT_FOUND` with reasonCode `git-worktree-required`.
- */
-export class GitVisibleFilesUnavailableError extends Error {
-  readonly code = "AC_REPO_NOT_FOUND" as const;
-  readonly reasonCode = "git-worktree-required" as const;
-  constructor(readonly root: string, cause: string) {
-    super(`Git-visible files require a Git worktree at ${root}: ${cause}`);
-    this.name = "GitVisibleFilesUnavailableError";
-  }
-}
-
-/**
  * The repository's Git-visible files: tracked plus untracked, non-ignored files
  * (`git ls-files --cached --others --exclude-standard`), relative to `root`. Projection footprints
  * are measured over them and every worktree digest (`computeWorktreeDigest`) hashes them. A
@@ -121,108 +111,6 @@ export function listGitVisibleFiles(root: string, pathspec?: string): string[] {
     .sort((left, right) => left.localeCompare(right));
 }
 
-/** Distinguishes absent skip-worktree entries from tracked paths deleted in a full checkout. */
-export function hasSkippedWorktreePaths(root: string): boolean {
-  const entries = readOnlyGit(root, "ls-files", ["--cached", "-t", "-z", "--"], { maxBytes: 256 * 1024 * 1024 });
-  return entries.toString("utf8").split("\0").some(entry => entry.startsWith("S ") && !existsSync(join(root, entry.slice(2))));
-}
-
-export interface SkippedWorktreeEntry {
-  path: string;
-  objectId: string;
-}
-
-/** Lists skip-worktree (`S `) index entries matching `pathOrPrefix` (#643 Comment 5). */
-export function listSkippedWorktreeEntries(root: string, pathOrPrefix: string): SkippedWorktreeEntry[] {
-  const raw = readOnlyGit(root, "ls-files", ["--cached", "--stage", "-t", "-z", "--", pathOrPrefix], {
-    maxBytes: 64 * 1024 * 1024
-  }).toString("utf8");
-  const entries: SkippedWorktreeEntry[] = [];
-  for (const line of raw.split("\0")) {
-    if (!line.startsWith("S ")) continue;
-    const tab = line.indexOf("\t");
-    if (tab < 0) continue;
-    const meta = line.slice(2, tab).split(/\s+/);
-    const objectId = meta[1];
-    const path = line.slice(tab + 1);
-    if (objectId && path) entries.push({ path, objectId });
-  }
-  return entries.sort((left, right) => left.path.localeCompare(right.path));
-}
-
-export function listSkippedWorktreePaths(root: string, pathOrPrefix: string): string[] {
-  return listSkippedWorktreeEntries(root, pathOrPrefix).map((entry) => entry.path);
-}
-
-/** True when `repoPath` itself or its hidden parent directory is marked skip-worktree in the index. */
-export function isPathHiddenBySparseCheckout(root: string, repoPath: string): boolean {
-  if (listSkippedWorktreeEntries(root, repoPath).length > 0) return true;
-  if (!existsSync(join(root, repoPath))) {
-    const parentDir = dirname(repoPath);
-    if (parentDir !== "." && !existsSync(join(root, parentDir)) && listSkippedWorktreeEntries(root, parentDir).length > 0) {
-      return true;
-    }
-    const rootSegment = repoPath.split("/")[0];
-    if (rootSegment && rootSegment !== repoPath && !existsSync(join(root, rootSegment)) && listSkippedWorktreeEntries(root, rootSegment).length > 0) {
-      return true;
-    }
-  }
-  return false;
-}
-
-/**
- * Reads skip-worktree blobs under `directoryPrefix` directly from the Git object database without
- * modifying sparse checkout rules or materializing working-tree files (#643 Comment 5).
- */
-export function readSkippedWorktreeBlobs(root: string, directoryPrefix: string): Map<string, string> {
-  const entries = listSkippedWorktreeEntries(root, directoryPrefix);
-  const decoded = new Map<string, string>();
-  if (entries.length === 0) return decoded;
-  const blobs = readGitBlobs(root, entries.map((entry) => ({ objectId: entry.objectId })));
-  for (let index = 0; index < entries.length; index += 1) {
-    decoded.set(entries[index]!.path, blobs[index]!.toString("utf8"));
-  }
-  return decoded;
-}
-
-/** A repo-relative path that the repository's ignore rules exclude, and the rule that excludes it. */
-export interface IgnoredRepositoryPath {
-  path: string;
-  source: string;
-  line: number;
-  pattern: string;
-}
-
-/**
- * The `paths` that Git's own ignore evaluation excludes (`git check-ignore --no-index`), each with
- * its deciding rule. A path ending in `/` asks about the directory, so a parent rule such as a
- * blanket `/.archcontext/` that cancels later negations is reported. `--no-index` judges the rules
- * alone: a force-added file under an ignored directory still leaves new siblings invisible to Git.
- * A path whose last matching rule is a negation is not ignored and is not returned.
- */
-export function ignoredRepositoryPaths(root: string, paths: readonly string[]): IgnoredRepositoryPath[] {
-  if (paths.length === 0) return [];
-  const result = spawnSync("git", ["check-ignore", "--verbose", "--no-index", "-z", "--stdin"], {
-    cwd: root,
-    encoding: "utf8",
-    input: paths.map((path) => `${path}\0`).join(""),
-    stdio: ["pipe", "pipe", "pipe"]
-  });
-  // Exit 1 means no path is ignored; anything other than 0 or 1 is a Git failure.
-  if (result.status !== 0 && result.status !== 1) {
-    const detail = result.error?.message ?? (result.stderr.trim() || `git check-ignore exited ${result.status}`);
-    throw new GitVisibleFilesUnavailableError(root, detail);
-  }
-  const fields = result.stdout.split("\0");
-  const ignored: IgnoredRepositoryPath[] = [];
-  for (let index = 0; index + 3 < fields.length; index += 4) {
-    const [source, line, pattern, path] = fields.slice(index, index + 4) as [string, string, string, string];
-    if (pattern.startsWith("!")) continue;
-    ignored.push({ path, source, line: Number(line), pattern });
-  }
-  return ignored;
-}
-
 export function readHeadSha(root: string): string {
   try {
     return execFileSync("git", ["rev-parse", "HEAD"], {
@@ -257,16 +145,6 @@ export function readRepositoryBinding(start: string): RepositoryBinding {
   return bindRepository(root, readHeadSha(root), listGitVisibleFiles(root));
 }
 
-export type GitChangeSource = "commit" | "staged" | "worktree";
-export type GitPathChangeStatus = "added" | "modified" | "deleted" | "renamed" | "copied" | "typechanged" | "unmerged" | "unknown";
-
-export interface GitPathChange {
-  path: string;
-  previousPath?: string;
-  status: GitPathChangeStatus;
-  rawStatus: string;
-}
-
 export interface GitChangeMetadata {
   schemaVersion: "archcontext.git-change-metadata/v1";
   source: GitChangeSource;
@@ -275,16 +153,6 @@ export interface GitChangeMetadata {
   paths: GitPathChange[];
   pathCount: number;
   metadataDigest: string;
-}
-
-export interface GitChangeFingerprintInput {
-  schemaVersion?: "archcontext.git-change-fingerprint-input/v1";
-  repositoryId: string;
-  baseSha: string;
-  headSha: string;
-  paths: Array<string | GitPathChange>;
-  codeFactsDigest: string;
-  analysisKind?: string;
 }
 
 export function readCommitChangeMetadata(root: string, ref = "HEAD"): GitChangeMetadata {
@@ -316,23 +184,6 @@ export function readWorktreeChangeMetadata(root: string): GitChangeMetadata {
   return gitChangeMetadata({ source: "worktree", baseSha: headSha, headSha, paths: dedupeGitPathChanges([...tracked, ...untracked]) });
 }
 
-export function computeGitChangeFingerprint(input: GitChangeFingerprintInput): string {
-  const paths = input.paths
-    .map((item) => typeof item === "string" ? item : item.path)
-    .filter(Boolean)
-    .sort();
-  return digestJson({
-    schemaVersion: "archcontext.git-change-fingerprint-input/v1",
-    repositoryId: input.repositoryId,
-    baseSha: input.baseSha,
-    headSha: input.headSha,
-    paths: [...new Set(paths)],
-    codeFactsDigest: input.codeFactsDigest,
-    analysisKind: input.analysisKind ?? "architecture-change"
-  } as unknown as Json);
-}
-
-
 export function readTrackedTreeEntries(root: string, ref = "HEAD"): GitTrackedTreeEntry[] {
   assertGitRevisionArgument(ref);
   return readGitBlobTree(root, ref, { maxBytes: GIT_CAT_FILE_MAX_BYTES, sizes: false, trees: false })
@@ -345,27 +196,8 @@ export interface TrackedSourceFileV1 {
   lineCount: number;
 }
 
-export interface WorkspacePackageV1 {
-  name: string;
-  /** Repo-relative package directory. */
-  root: string;
-  /** The manifest `exports` field normalized by `normalizePackageExports`: subpath -> package-relative target. */
-  exports: Record<string, string>;
-}
-
 /**
  * Git-tracked source files with their line counts, measured from the HEAD blobs.
- *
- * Both halves matter. The population is `git ls-tree`, so an untracked build output inside an
- * include glob can never enter the footprint; and the bytes are the committed blobs, so editing a
- * tracked file without committing does not move the measurement either. A snapshot therefore
- * describes a commit, not whatever happens to be on disk, which is what makes two scans at the
- * same HEAD comparable. Projection footprints (`listGitVisibleFiles`) share the population
- * rule — ignored files never count — but deliberately keep working-tree bytes, so an uncommitted
- * edit moves a projection stamp.
- *
- * A blob Git cannot hand back makes the footprint unmeasurable, so this fails closed naming the
- * paths rather than reporting a smaller footprint than the commit actually has.
  */
 export function readTrackedSourceFiles(root: string, options: { include?: string[]; paths?: ReadonlySet<string> } = {}): TrackedSourceFileV1[] {
   const entries = readTrackedTreeEntries(root)
@@ -379,76 +211,6 @@ export function readTrackedSourceFiles(root: string, options: { include?: string
   } catch {
     throw new Error(`git-tracked-blob-unreadable: ${entries.map(entry => entry.path).join(", ")}`);
   }
-}
-
-/**
- * Workspace manifests as declared by the root `package.json`, so a consumer can resolve a bare
- * workspace specifier through the owning package's `exports` map. An entry is a literal directory
- * or `dir/*`, which names every direct subdirectory of `dir` that has a `package.json`. Any other
- * glob shape fails loudly here rather than silently measure nothing.
- */
-export function readWorkspacePackages(root: string): WorkspacePackageV1[] {
-  const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { workspaces?: string[] };
-  return (manifest.workspaces ?? [])
-    .flatMap((entry) => expandWorkspaceEntry(root, entry))
-    .map((directory) => {
-      const path = join(root, ...directory.split("/"), "package.json");
-      const packageManifest = JSON.parse(readFileSync(path, "utf8")) as { name: string; exports?: unknown };
-      return { name: packageManifest.name, root: directory, exports: normalizePackageExports(packageManifest.exports, `${directory}/package.json`) };
-    })
-    .sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
-}
-
-/** Conditions a static reader can follow, in precedence order; every other condition is ignored. */
-const EXPORT_CONDITIONS = ["types", "import", "default", "require"] as const;
-
-/**
- * A manifest `exports` field as subpath -> package-relative target. A string or a root condition
- * object is the `"."` target; a subpath map resolves each value. A condition object takes the first
- * of `EXPORT_CONDITIONS` that resolves, an array its first entry that resolves. A subpath with no
- * resolvable target is left out, so its specifier stays unresolved. Any other shape fails closed
- * with `workspace-exports-unsupported` naming `manifestPath` and the subpath.
- */
-export function normalizePackageExports(exportsField: unknown, manifestPath: string): Record<string, string> {
-  if (exportsField === undefined) return {};
-  const unsupported = (subpath: string) => new FailureError("AC_SCHEMA_INVALID", "workspace-exports-unsupported", { manifestPath, subpath });
-  const target = (value: unknown, subpath: string): string | undefined => {
-    if (typeof value === "string") return value;
-    if (value === null) return undefined;
-    if (typeof value !== "object") throw unsupported(subpath);
-    const candidates = Array.isArray(value)
-      ? value
-      : EXPORT_CONDITIONS.filter((condition) => Object.hasOwn(value, condition)).map((condition) => (value as Record<string, unknown>)[condition]);
-    for (const candidate of candidates) {
-      const resolved = target(candidate, subpath);
-      if (resolved !== undefined) return resolved;
-    }
-    return undefined;
-  };
-  const keys = exportsField !== null && typeof exportsField === "object" && !Array.isArray(exportsField) ? Object.keys(exportsField) : [];
-  const subpathKeys = keys.filter((key) => key.startsWith("."));
-  if (subpathKeys.length === 0) {
-    const root = target(exportsField, ".");
-    return root === undefined ? {} : { ".": root };
-  }
-  if (subpathKeys.length !== keys.length) throw unsupported(".");
-  const entries = subpathKeys.flatMap((subpath) => {
-    const resolved = target((exportsField as Record<string, unknown>)[subpath], subpath);
-    return resolved === undefined ? [] : [[subpath, resolved] as const];
-  });
-  return Object.fromEntries(entries);
-}
-
-function expandWorkspaceEntry(root: string, entry: string): string[] {
-  if (!entry.includes("*")) return [entry];
-  const base = entry.slice(0, -2);
-  if (!entry.endsWith("/*") || base.includes("*")) throw new Error(`workspace-glob-unsupported: ${entry}`);
-  const directory = join(root, ...base.split("/"));
-  if (!existsSync(directory)) return [];
-  return readdirSync(directory, { withFileTypes: true })
-    .filter((child) => child.isDirectory() && existsSync(join(directory, child.name, "package.json")))
-    .map((child) => `${base}/${child.name}`)
-    .sort();
 }
 
 export function isTrackedWorktreeClean(root: string, readOnly = false): boolean {
@@ -538,12 +300,6 @@ function dedupeGitPathChanges(changes: GitPathChange[]): GitPathChange[] {
     .map((change) => [`${change.rawStatus}\0${change.previousPath ?? ""}\0${change.path}`, change])).values()];
 }
 
-/**
- * Revisions reach these helpers from hook flags and RPC input. Git reads a
- * leading `-` as an option wherever a revision is expected (`--output=<path>` writes a file), and
- * Git ref names can never start with `-` or contain whitespace or NUL, so such a value is refused
- * before any Git process starts.
- */
 function assertGitRevisionArgument(ref: string): void {
   if (!isGitRevisionArgument(ref)) throw new Error(`invalid git revision argument: ${JSON.stringify(ref)}`);
 }
