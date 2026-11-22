@@ -266,4 +266,52 @@ describe("impact CLI", () => {
       expect(help.data.command).toBe("impact");
     } finally { fixture.cleanup(); }
   });
+
+  test("#640 batch PR impact handles unfetched head SHAs: succeeds bound to map HEAD while keeping structured per-item refusal by id", () => {
+    const fixture = createNativeFixture();
+    try {
+      // Neither PR head SHA exists in the local Git object database; only known changed paths are supplied.
+      const largePaths = Array.from({ length: 1000 }, (_, index) => `large/${"é".repeat(2000)}/${index}.ts`);
+      const items = [
+        { id: "pr-401@1111111111111111111111111111111111111111", paths: largePaths },
+        { id: "pr-402@2222222222222222222222222222222222222222", paths: largePaths },
+        { id: "pr-403@3333333333333333333333333333333333333333", paths: ["src/worker.ts"] }
+      ];
+      writeFixtureFile(fixture.root, "unfetched-pr-batch.json", JSON.stringify({
+        schemaVersion: REF_IMPACT_BATCH_REQUEST_SCHEMA_VERSION,
+        items
+      }));
+      const raw = execFileSync(process.execPath, [CLI_LAUNCHER, "impact", "--batch-file", "unfetched-pr-batch.json", "--json"], {
+        cwd: fixture.root,
+        encoding: "utf8",
+        maxBuffer: REF_IMPACT_LIMITS.responseBytes,
+        timeout: 30_000
+      });
+      const envelope = JSON.parse(raw);
+      expect(envelope.ok).toBe(true);
+      expect(publishedSchemaIssues("runtime/ref-impact-batch.schema.json", envelope.data)).toEqual([]);
+      expect(envelope.data.items).toHaveLength(3);
+      expect(envelope.data.items[0]).toMatchObject({
+        id: items[0]!.id,
+        impact: {
+          base: null,
+          head: { source: "worktree", headSha: fixture.commit }
+        }
+      });
+      expect(envelope.data.items[1]).toEqual({
+        id: items[1]!.id,
+        status: "unavailable",
+        reasonCode: "batch-response-bytes"
+      });
+      expect(envelope.data.items[2]).toMatchObject({
+        id: items[2]!.id,
+        impact: {
+          base: null,
+          head: { source: "worktree", headSha: fixture.commit },
+          touchedNodes: [{ nodeId: "component.demo.worker", pathCount: 1 }]
+        }
+      });
+      expect(existsSync(join(fixture.root, ".codegraph"))).toBe(false);
+    } finally { fixture.cleanup(); }
+  }, 60_000);
 });

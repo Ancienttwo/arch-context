@@ -5,6 +5,7 @@ import { docsAnchorsReportIssues, FailureError, okEnvelope, type Json, type Json
 import {
   checkProseAnchors,
   loadArchitectureFilesForLayout,
+  loadArchitectureProjectionInstructionsEnabled,
   loadCapabilitySourceFootprints,
   loadNativeModelFromArchContext,
   modelSelectorIds,
@@ -41,8 +42,9 @@ export function runDocsAnchorsCommand(cwd: string, options: { profile?: Architec
     try { root = findRepositoryRoot(cwd); }
     catch { throw new FailureError("AC_REPO_NOT_FOUND", "git-worktree-required"); }
     const profile = options.profile ?? committedArchitectureDocsProfile(root);
+    const includeInstructions = loadArchitectureProjectionInstructionsEnabled(root);
     const model = inputs?.model ?? loadNativeModelFromArchContext(root);
-    const layout = resolveArchitectureDocumentationLayout({ nodes: model.nodes, relations: model.relations, profile });
+    const layout = resolveArchitectureDocumentationLayout({ nodes: model.nodes, relations: model.relations, profile, includeInstructions });
     const documents = new Map(loadArchitectureFilesForLayout(root, layout).map((file) => [file.path, file.body]));
     const files = inputs?.files ?? listGitVisibleFiles(root);
     const footprints = new Map(loadCapabilitySourceFootprints(root, model, files).map((footprint) => [footprint.nodeId, footprint.files]));

@@ -6,7 +6,7 @@ import { resolve } from "node:path";
 import { computeWorktreeDigest, manifestDecisionDiagnostics, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { GitVisibleFilesUnavailableError, findRepositoryRoot, ignoredRepositoryPaths, readHeadSha, listGitVisibleFiles, type IgnoredRepositoryPath } from "@archcontext/local-runtime/git-adapter";
 import { decodeUtf8, isGitRevisionArgument, localGitEnv, readGitBlobTree, readGitBlobs, readNativeGitRoot, readOnlyGit, resolveNativeGitSnapshot } from "@archcontext/local-runtime/git-adapter";
-import { architectureModelIgnoreProbePaths, readArchitectureHistory } from "@archcontext/local-runtime/model-store-yaml";
+import { architectureModelIgnoreProbePaths, listModelFiles, planGeneratedProjection, readArchitectureHistory, validateModelFiles } from "@archcontext/local-runtime/model-store-yaml";
 import { ProjectionCodeFactsUnavailableError, assertProjectionCodeFactsAvailable, prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
 import { assertReadyCodeGraphIndexWithoutWorktreeWrites } from "@archcontext/local-runtime/codegraph-adapter";
 import { isSemanticModelPath } from "@archcontext/core/projection-engine";
@@ -15,9 +15,9 @@ import { projectionFreshnessContract } from "./projection-freshness";
 import { projectionArchitectureDebt } from "./projection-architecture-debt";
 import { classifyProjectionTargetChanges } from "./projection-target-changes";
 import type { RuntimeDaemonClient } from "./runtime-types";
-import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, PROJECTION_RESULT_SCHEMA_VERSION, architectureDocsProjectionManifestSchemaVersion, isSupersededArchitectureDocsProjectionManifestSchemaVersion, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_SLICE_SCHEMA_VERSION, PROJECTION_TARGETS, digestJson, isRepoRelativePosixPath, okEnvelope, projectionFreshnessIssues, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest, projectionResultRequestModeIssues } from "@archcontext/contracts";
-import type { AcceptedArchitectureChangeReferenceV1, ArchitectureDocumentationProjectionProvenanceV3, ArchitectureHistory, ArchitectureRefreshSignalV2, Json, JsonEnvelope, ProjectionFreshnessV2, ProjectionCoverageV1, ProjectionRequestV1, ProjectionResultV3, ProjectionSliceV1, ProjectionSnapshotV1, ProjectionExpectedSnapshotV1, ProjectionTargetChangeV2, Sha256Digest } from "@archcontext/contracts";
-import { REPO_HARNESS_PROJECTION_PROFILE, ARCHITECTURE_HISTORY_TARGET, architectureAdoptionReceipt, architectureHistoryCarryForwardBlocker, architectureProjectionFilePreviews, architectureDocumentationSourceDigest, ProjectionPreconditionError, buildArchitectureDocumentationAdoptionPlan, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, architectureProjectionFootprintOwners, architectureProjectionFreshnessWithoutBaseline, loadArchitectureDocumentationProfile, readCommittedArchitectureDocsProjectionManifest, measureCapabilitySourceScaleSignals, loadNativeModelFromArchContext, loadNativeModelFromModelFiles, parseArchitectureDocumentationProfile, projectionOwnedWriteBody, renderAgentContextProjection, renderArchitectureProjectionSlice, renderArchitectureDocumentationProjection, architectureDocumentationProjectionWorktreeDigest, type ArchitectureProjectionProfile, type ProjectionOwnedFile, type ArchitectureMajorChangeClassificationV1, type ArchitectureDocumentationProjectionRuntimeSnapshot } from "@archcontext/core/projection-engine";
+import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, PROJECTION_RESULT_SCHEMA_VERSION, SYNC_CHECK_SCHEMA_VERSION, architectureDocsProjectionManifestSchemaVersion, isSupersededArchitectureDocsProjectionManifestSchemaVersion, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_SLICE_SCHEMA_VERSION, PROJECTION_TARGETS, digestJson, isRepoRelativePosixPath, okEnvelope, projectionFreshnessIssues, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest, projectionResultRequestModeIssues } from "@archcontext/contracts";
+import type { AcceptedArchitectureChangeReferenceV1, ArchitectureDocumentationProjectionProvenanceV3, ArchitectureHistory, ArchitectureRefreshSignalV2, Json, JsonEnvelope, ProjectionFreshnessV2, ProjectionCoverageV1, ProjectionRequestV1, ProjectionResultV3, ProjectionSliceV1, ProjectionSnapshotV1, ProjectionExpectedSnapshotV1, ProjectionTargetChangeV2, Sha256Digest, SyncCheckOutputV1 } from "@archcontext/contracts";
+import { REPO_HARNESS_PROJECTION_PROFILE, ARCHITECTURE_HISTORY_TARGET, architectureAdoptionReceipt, architectureHistoryCarryForwardBlocker, architectureProjectionFilePreviews, architectureDocumentationSourceDigest, ProjectionPreconditionError, buildArchitectureDocumentationAdoptionPlan, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, loadArchitectureProjectionInstructionsEnabled, architectureProjectionFootprintOwners, architectureProjectionFreshnessWithoutBaseline, loadArchitectureDocumentationProfile, readCommittedArchitectureDocsProjectionManifest, measureCapabilitySourceScaleSignals, loadNativeModelFromArchContext, loadNativeModelFromModelFiles, parseArchitectureDocumentationProfile, projectionOwnedWriteBody, renderAgentContextProjection, renderArchitectureProjectionSlice, renderArchitectureDocumentationProjection, architectureDocumentationProjectionWorktreeDigest, type ArchitectureProjectionProfile, type ProjectionOwnedFile, type ArchitectureMajorChangeClassificationV1, type ArchitectureDocumentationProjectionRuntimeSnapshot } from "@archcontext/core/projection-engine";
 import { loadStateMachinesFromArchContext } from "@archcontext/core/state-machine-engine";
 import type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./runtime-types";
 export type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./runtime-types";
@@ -117,7 +117,8 @@ export async function runArchitectureDocsProjectionCommand(input: RuntimeDocsPro
     // `docs apply` is the one re-baseline of a superseded manifest (#327); every other surface refuses it.
     projection = buildArchitectureDocsProjection(daemon, root, profile, undefined, acceptedChange, {
       rebaselineSupersededManifest: subcommand === "apply",
-      ...(input.indexSynced ? { indexSynced: true } : {})
+      ...(input.indexSynced ? { indexSynced: true } : {}),
+      ...(input.includeInstructions === undefined ? {} : { includeInstructions: input.includeInstructions })
     });
   } catch (error) {
     return projectionFailureEnvelope(`docs.${subcommand}`, error);
@@ -297,7 +298,67 @@ function withProjectionMetadata(
  * `isolateBlockedCapabilities`: `projection run` only (check, plan and apply without an accepted
  * change). See `renderArchitectureDocumentationProjection`.
  */
-type ArchitectureDocsRenderOptions = { rebaselineSupersededManifest?: boolean; isolateBlockedCapabilities?: boolean; indexSynced?: boolean };
+type ArchitectureDocsRenderOptions = {
+  rebaselineSupersededManifest?: boolean;
+  isolateBlockedCapabilities?: boolean;
+  indexSynced?: boolean;
+  includeInstructions?: boolean;
+};
+
+/**
+ * Read-only in-process `archctx sync --check` (#640 / #642). Checks `.archcontext/generated/`
+ * and, when `repo-harness/v1` or a projection manifest is active, runs the render-equivalent
+ * drift/orphan check without opening SQLite or mutating any file.
+ */
+export function runSyncCheckCommand(cwd: string, options: { noInstructions?: boolean } = {}): JsonEnvelope {
+  try {
+    let root: string;
+    try {
+      root = findRepositoryRoot(cwd);
+    } catch {
+      return publicFailureEnvelope("sync", "AC_REPO_NOT_FOUND", "git-worktree-required");
+    }
+    const validation = validateModelFiles(listModelFiles(root));
+    if (!validation.valid) {
+      if (validation.allowedTargetErrors?.length) {
+        return publicFailureEnvelope("validate", "AC_SCHEMA_INVALID", "constraint-model-invalid", { issueCount: validation.allowedTargetErrors.length });
+      }
+      return okEnvelope("validate", validation as unknown as Json);
+    }
+    const pendingGeneratedPaths = planGeneratedProjection(root).map((operation) => operation.path).sort();
+    const profile = committedArchitectureDocsProfile(root);
+    const includeInstructions = options.noInstructions === true ? false : loadArchitectureProjectionInstructionsEnabled(root);
+    let drift: ReturnType<typeof buildArchitectureDocsProjection>["plan"]["drift"] | undefined;
+    let projectionPending = false;
+    if (profile === REPO_HARNESS_PROJECTION_PROFILE || existsSync(resolve(root, ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH))) {
+      let projection: ReturnType<typeof buildArchitectureDocsProjection>;
+      try {
+        projection = buildArchitectureDocsProjection(undefined, root, profile, undefined, undefined, {
+          includeInstructions,
+          indexSynced: true
+        });
+      } catch (error) {
+        return projectionFailureEnvelope("sync", error);
+      }
+      drift = projection.plan.drift;
+      projectionPending = !projection.plan.drift.ok || projection.plan.rejected.length > 0 || projection.plan.orphans.length > 0;
+    }
+    const fresh = pendingGeneratedPaths.length === 0 && !projectionPending;
+    const payload: SyncCheckOutputV1 = {
+      schemaVersion: SYNC_CHECK_SCHEMA_VERSION,
+      check: true,
+      fresh,
+      profile,
+      includeInstructions,
+      modelDigest: validation.modelDigest as Sha256Digest,
+      pendingGeneratedPaths,
+      ...(drift ? { drift: drift as unknown as Record<string, Json> } : {})
+    };
+    return okEnvelope("sync", payload as unknown as Json);
+  } catch (error) {
+    return publicOperationErrorEnvelope("sync", error);
+  }
+}
 
 /**
  * The architecture history a render is given (ADR-0056 §8), read only when the request names the
@@ -329,7 +390,17 @@ export function buildArchitectureDocsProjection(
   options: ArchitectureDocsRenderOptions & { historyTargetNamed?: boolean } = {},
   readInputs?: ProjectionCheckReadInputs
 ) {
-  const inputs = measureArchitectureDocsProjectionInputs(root, profile, existingFilesOverride, options.historyTargetNamed === true, options.rebaselineSupersededManifest === true, readInputs, options.indexSynced === true);
+  const includeInstructions = options.includeInstructions ?? loadArchitectureProjectionInstructionsEnabled(root);
+  const inputs = measureArchitectureDocsProjectionInputs(
+    root,
+    profile,
+    existingFilesOverride,
+    options.historyTargetNamed === true,
+    options.rebaselineSupersededManifest === true,
+    readInputs,
+    options.indexSynced === true,
+    includeInstructions
+  );
   return renderArchitectureDocsProjectionFromInputs(root, inputs, existingFilesOverride ?? inputs.loaded.existingFiles, acceptedChange, options);
 }
 
@@ -361,13 +432,14 @@ interface ProjectionCheckReadInputs {
   prepareCodeGraph(): ReturnType<typeof prepareArchitectureDocumentationProjectionSnapshot>;
 }
 
-function measureArchitectureDocsProjectionInputs(root: string, profile: ArchitectureProjectionProfile, existingFilesOverride: ProjectionOwnedFile[] | undefined, historyTargetNamed: boolean, rebaselineSupersededManifest: boolean, readInputs?: ProjectionCheckReadInputs, indexSynced = false) {
-  const loaded = loadArchitectureDocumentationInputs(root, profile, { rebaselineSupersededManifest, model: readInputs?.model() });
+function measureArchitectureDocsProjectionInputs(root: string, profile: ArchitectureProjectionProfile, existingFilesOverride: ProjectionOwnedFile[] | undefined, historyTargetNamed: boolean, rebaselineSupersededManifest: boolean, readInputs?: ProjectionCheckReadInputs, indexSynced = false, includeInstructions = true) {
+  const loaded = loadArchitectureDocumentationInputs(root, profile, { rebaselineSupersededManifest, model: readInputs?.model(), includeInstructions });
   const sourceDigest = architectureDocumentationSourceDigest({ model: loaded.model, profile, decisions: loaded.decisions });
   const codeGraphInputs = readInputs ? readInputs.prepareCodeGraph() : prepareArchitectureDocumentationProjectionSnapshot(root, loaded.model, indexSynced ? { indexSynced: true } : {});
   assertProjectionCodeFactsAvailable(root, codeGraphInputs);
   return {
     profile,
+    includeInstructions,
     loaded,
     stateMachines: readInputs?.machines() ?? loadStateMachinesFromArchContext(root, loaded.model.nodes),
     sourceDigest,
@@ -429,6 +501,7 @@ function renderArchitectureDocsProjectionFromInputs(
     selectorEvidence: codeGraphInputs.selectorEvidence,
     provenance,
     sourceDigest,
+    includeInstructions: options.includeInstructions ?? inputs.includeInstructions,
     ...(inputs.architectureHistory ? { architectureHistory: inputs.architectureHistory } : {}),
     ...(options.rebaselineSupersededManifest ? { rebaselineSupersededManifest: true } : {}),
     ...(options.isolateBlockedCapabilities ? { isolateBlockedCapabilities: true } : {}),
@@ -1302,6 +1375,7 @@ export async function runAgentContextProjectionCommand(input: RuntimeAgentContex
     // The committed manifest decides, as for every projection command: a superseded one needs its
     // re-baseline first, and under `repo-harness/v1` the projection is the one contract-file writer
     // and a root contract file carries no region (ADR-0056 §9).
+    if (!loadArchitectureProjectionInstructionsEnabled(root)) return publicFailureEnvelope(channel, "AC_PRECONDITION_FAILED", "instructions-projection-disabled", {});
     if (committedArchitectureDocsProfile(root) === REPO_HARNESS_PROJECTION_PROFILE) return publicFailureEnvelope(channel, "AC_PRECONDITION_FAILED", "agent-context-owned-by-projection", {});
     projection = buildAgentContextProjection(root);
   } catch (error) {
@@ -1473,9 +1547,10 @@ function validateHumanProjectionInput(input: Record<string, unknown>, actions: r
 }
 
 export function validateDocsProjectionInput(value: unknown): asserts value is RuntimeDocsProjectionInput {
-  const input = projectionInputRecord(value, ["action", "profile", "acceptedChange", "id", "taskSessionId", "approved", "expectedWorktreeDigest", "adoptionPlanId"]);
+  const input = projectionInputRecord(value, ["action", "profile", "acceptedChange", "id", "taskSessionId", "approved", "expectedWorktreeDigest", "adoptionPlanId", "includeInstructions"]);
   validateHumanProjectionInput(input, ["plan", "apply", "adopt", "drift", "clean"]);
   if (input.profile !== undefined && input.profile !== "default" && input.profile !== REPO_HARNESS_PROJECTION_PROFILE) throw new Error("projection profile is invalid");
+  if (input.includeInstructions !== undefined && typeof input.includeInstructions !== "boolean") throw new Error("projection includeInstructions must be a boolean");
   if (input.acceptedChange !== undefined) validateProjectionAcceptedChange(input.acceptedChange);
 }
 

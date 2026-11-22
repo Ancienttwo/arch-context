@@ -24,7 +24,7 @@
         "packages/local-runtime/runtime-daemon/test/egress*",
         "packages/local-runtime/runtime-daemon/test/investigation-transport*",
         "packages/local-runtime/runtime-daemon/test/projection-writer*",
-        "packages/surfaces/cli/src/main.ts"
+        "packages/surfaces/cli/src/**"
       ]
     },
     {
@@ -36,7 +36,7 @@
         "scripts/packaged-cli-smoke.mjs",
         "packages/local-runtime/codegraph-adapter/src/**",
         "packages/surfaces/cli/bin/**",
-        "packages/surfaces/cli/src/main.ts",
+        "packages/surfaces/cli/src/**",
         "packages/surfaces/cli/test/bundle-entry.test.ts",
         "packages/contracts/test/publishability.test.ts"
       ]

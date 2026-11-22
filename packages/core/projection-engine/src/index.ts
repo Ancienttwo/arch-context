@@ -368,6 +368,11 @@ export function renderArchitectureDocumentationProjection(input: {
    * renders the complete plan, exactly as without the flag. Only `projection run` asks for it.
    */
   isolateBlockedCapabilities?: boolean;
+  /**
+   * When false (`--no-instructions` or `manifest.projection.instructions: false`, #642), omits
+   * capability-local `agent-context` (`AGENTS.md` / `CLAUDE.md`) targets from the layout.
+   */
+  includeInstructions?: boolean;
   refreshContext?: {
     repositoryId: string;
     workspaceId: string;
@@ -380,7 +385,12 @@ export function renderArchitectureDocumentationProjection(input: {
   const rendererVersion = input.rendererVersion ?? ARCHITECTURE_DOCS_RENDERER_VERSION;
   assertArchitectureDocumentationProjectionProvenance(input.provenance, rendererVersion);
   const model = normalizeNativeModel(input.model);
-  const layout = resolveArchitectureDocumentationLayout({ nodes: model.nodes, relations: model.relations, profile: input.profile });
+  const layout = resolveArchitectureDocumentationLayout({
+    nodes: model.nodes,
+    relations: model.relations,
+    profile: input.profile,
+    includeInstructions: input.includeInstructions
+  });
   const existingByPath = new Map((input.existingFiles ?? []).map((file) => [file.path, file.body]));
   const previousManifest = previousArchitectureDocsProjectionManifest(
     existingByPath.get(ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH),
@@ -1093,7 +1103,7 @@ function assertArchitectureDocumentationProjectionProvenance(
 export function loadArchitectureDocumentationInputs(
   root: string,
   profile: ArchitectureProjectionProfile = "default",
-  options: { rebaselineSupersededManifest?: boolean; model?: NativeModel } = {}
+  options: { rebaselineSupersededManifest?: boolean; model?: NativeModel; includeInstructions?: boolean } = {}
 ): {
   model: NativeModel;
   decisions: ArchitectureDecisionRecord[];
@@ -1101,7 +1111,12 @@ export function loadArchitectureDocumentationInputs(
   docsLanguage: ArchitectureDocsLanguage | undefined;
 } {
   const model = options.model ?? loadNativeModelFromArchContext(root);
-  const layout = resolveArchitectureDocumentationLayout({ nodes: model.nodes, relations: model.relations, profile });
+  const layout = resolveArchitectureDocumentationLayout({
+    nodes: model.nodes,
+    relations: model.relations,
+    profile,
+    includeInstructions: options.includeInstructions
+  });
   return {
     model,
     decisions: loadArchitectureDecisionRecords(root),
@@ -1320,6 +1335,34 @@ function assertArchitectureDocsLanguage(value: unknown): ArchitectureDocsLanguag
   return value as ArchitectureDocsLanguage;
 }
 
+/**
+ * `projection.instructions` from `.archcontext/manifest.yaml` (#642). Defaults to `true` when absent
+ * so existing repositories keep their default behavior; setting `false` disables `AGENTS.md`/`CLAUDE.md`
+ * instruction-block writes during `archctx sync`.
+ */
+export function loadArchitectureProjectionInstructionsEnabled(root: string): boolean {
+  const path = resolve(root, ARCHCONTEXT_MANIFEST_PATH);
+  if (!existsSync(path)) return true;
+  let manifest: Json;
+  try {
+    manifest = parseJsonOrStableYaml(readFileSync(path, "utf8"), ARCHCONTEXT_MANIFEST_PATH);
+  } catch {
+    return true;
+  }
+  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) return true;
+  const projection = manifest.projection;
+  if (projection === undefined) return true;
+  if (!projection || typeof projection !== "object" || Array.isArray(projection)) {
+    throw new Error("architecture-projection-config-invalid: projection must be an object");
+  }
+  const instructions = (projection as Record<string, Json>).instructions;
+  if (instructions === undefined) return true;
+  if (typeof instructions !== "boolean") {
+    throw new Error(`architecture-projection-instructions-invalid: projection.instructions must be a boolean (got ${JSON.stringify(instructions)})`);
+  }
+  return instructions;
+}
+
 export function loadArchitectureDecisionRecords(root: string): ArchitectureDecisionRecord[] {
   const dir = resolve(root, "docs/adr");
   if (!existsSync(dir)) return [];
@@ -1336,11 +1379,12 @@ export function loadArchitectureDecisionRecords(root: string): ArchitectureDecis
 export function loadArchitectureDocumentationFiles(
   root: string,
   model: NativeModel = loadNativeModelFromArchContext(root),
-  profile: ArchitectureProjectionProfile = "default"
+  profile: ArchitectureProjectionProfile = "default",
+  includeInstructions?: boolean
 ): ProjectionOwnedFile[] {
   return loadArchitectureFilesForLayout(
     root,
-    resolveArchitectureDocumentationLayout({ nodes: model.nodes, relations: model.relations, profile })
+    resolveArchitectureDocumentationLayout({ nodes: model.nodes, relations: model.relations, profile, includeInstructions })
   );
 }
 

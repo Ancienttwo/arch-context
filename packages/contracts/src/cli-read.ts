@@ -1,17 +1,32 @@
+import type { ArchitectureDebtReportV1 } from "./architecture-debt";
+import type { ProjectionSliceV1 } from "./projection";
+import type { RuntimeVerifyV1 } from "./runtime-verify";
+import type { ArchContextError } from "./schema";
 import {
+  ArchContextErrorSchema,
   CodeFactsStateSchema,
   Const,
+  GitOidSchema,
   JsonObjectSchema,
   NullableType,
+  OneOf,
+  Ref,
+  RepoPathSchema,
   SchemaDocument,
+  Sha256DigestSchema,
   StrictObject,
   StrictSemverSchema,
+  StringEnum,
   Type,
+  TypedUnsafe,
   UniqueStringArray,
   type Static
 } from "./schema-kit";
 
 export const CLI_HELP_SCHEMA_VERSION = "archcontext.cli-help/v1" as const;
+export const CLI_CHECK_SCHEMA_VERSION = "archcontext.cli-check/v1" as const;
+export const PATH_CONTEXT_SCHEMA_VERSION = "archcontext.path-context/v1" as const;
+export const SYNC_CHECK_SCHEMA_VERSION = "archcontext.sync-check/v1" as const;
 export const RESOLVE_PATH_SCHEMA_VERSION = "archcontext.resolve-path/v1" as const;
 export const RESOLVE_PATHS_BATCH_SCHEMA_VERSION = "archcontext.resolve-paths-batch/v1" as const;
 
@@ -87,6 +102,86 @@ export const HostOwnershipIsolationOptionsSchema = StrictObject({
   noInstructions: Type.Optional(Type.Boolean())
 });
 export type HostOwnershipIsolationOptions = Static<typeof HostOwnershipIsolationOptionsSchema>;
+
+/** #640 & #642: Unified gate output for `archctx check --changed` and `archctx check --base <ref> [--slice]`. */
+export const CliCheckChangedOutputSchema = StrictObject({
+  schemaVersion: Const(CLI_CHECK_SCHEMA_VERSION),
+  mode: Const("changed"),
+  status: StringEnum(["pass", "findings"]),
+  exitCode: TypedUnsafe<0 | 2>({ type: "integer", enum: [0, 2] }),
+  changedPaths: Type.Array(RepoPathSchema),
+  debt: Ref<ArchitectureDebtReportV1>("https://archctx.repoharness.com/schemas/runtime/architecture-debt.schema.json")
+});
+export type CliCheckChangedOutputV1 = Static<typeof CliCheckChangedOutputSchema>;
+
+const CliCheckSliceArmSchema = OneOf([
+  StrictObject({
+    ok: Const(true),
+    data: Ref<ProjectionSliceV1>("https://archcontext.dev/schemas/runtime/projection-slice.schema.json")
+  }),
+  StrictObject({
+    ok: Const(false),
+    error: ArchContextErrorSchema as unknown as ReturnType<typeof StrictObject>
+  })
+]);
+export type CliCheckSliceResult = { ok: true; data: ProjectionSliceV1 } | { ok: false; error: ArchContextError };
+
+export const CliCheckPrOutputSchema = StrictObject({
+  schemaVersion: Const(CLI_CHECK_SCHEMA_VERSION),
+  mode: Const("pr"),
+  status: StringEnum(["pass", "findings"]),
+  exitCode: TypedUnsafe<0 | 2>({ type: "integer", enum: [0, 2] }),
+  base: Type.String({ minLength: 1 }),
+  baseSha: GitOidSchema,
+  headSha: GitOidSchema,
+  blockingChecks: Type.Array(Type.String({ minLength: 1 })),
+  verify: Ref<RuntimeVerifyV1>("https://archcontext.dev/schemas/runtime/runtime-verify.schema.json"),
+  slice: Type.Optional(CliCheckSliceArmSchema as unknown as typeof JsonObjectSchema)
+});
+export type CliCheckPrOutputV1 = Omit<Static<typeof CliCheckPrOutputSchema>, "slice"> & {
+  slice?: CliCheckSliceResult;
+};
+
+export const CliCheckOutputSchema = SchemaDocument({
+  $id: "https://archcontext.dev/schemas/runtime/cli-check.schema.json",
+  title: "CliCheckOutputV1",
+  description: "Unified read-only gate payload for `archctx check --changed` and `archctx check --base <ref> [--slice]`.",
+  schema: OneOf([CliCheckChangedOutputSchema, CliCheckPrOutputSchema])
+});
+export type CliCheckOutputV1 = CliCheckChangedOutputV1 | CliCheckPrOutputV1;
+
+/** #642: Composable path-context payload for `archctx context --path <p>... --json`. */
+export const PathContextOutputSchema = SchemaDocument({
+  $id: "https://archcontext.dev/schemas/runtime/path-context.schema.json",
+  title: "PathContextOutputV1",
+  description: "Read-only architecture ownership and relation context resolved for explicit paths.",
+  schema: StrictObject({
+    schemaVersion: Const(PATH_CONTEXT_SCHEMA_VERSION),
+    paths: Type.Array(RepoPathSchema),
+    owners: Type.Array(ResolvePathResultSchema),
+    nodes: Type.Array(JsonObjectSchema),
+    relations: Type.Array(JsonObjectSchema)
+  })
+});
+export type PathContextOutputV1 = Static<typeof PathContextOutputSchema>;
+
+/** #642 & #640: Read-only projection freshness output for `archctx sync --check --json`. */
+export const SyncCheckOutputSchema = SchemaDocument({
+  $id: "https://archcontext.dev/schemas/runtime/sync-check.schema.json",
+  title: "SyncCheckOutputV1",
+  description: "Read-only projection freshness check returned by `archctx sync --check --json`.",
+  schema: StrictObject({
+    schemaVersion: Const(SYNC_CHECK_SCHEMA_VERSION),
+    check: Const(true),
+    fresh: Type.Boolean(),
+    profile: StringEnum(["default", "repo-harness/v1"]),
+    includeInstructions: Type.Boolean(),
+    modelDigest: Sha256DigestSchema,
+    pendingGeneratedPaths: Type.Array(RepoPathSchema),
+    drift: Type.Optional(JsonObjectSchema)
+  })
+});
+export type SyncCheckOutputV1 = Static<typeof SyncCheckOutputSchema>;
 
 export const ARCHCTX_CAPABILITIES_V2_SCHEMA_VERSION = "archcontext.capabilities/v1" as const;
 

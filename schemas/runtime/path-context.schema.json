@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archcontext.dev/schemas/runtime/path-context.schema.json",
+  "title": "PathContextOutputV1",
+  "description": "Read-only architecture ownership and relation context resolved for explicit paths.",
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "paths",
+    "owners",
+    "nodes",
+    "relations"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "archcontext.path-context/v1"
+    },
+    "paths": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "not": {
+          "anyOf": [
+            {
+              "pattern": "^/"
+            },
+            {
+              "pattern": "\\\\"
+            },
+            {
+              "pattern": "(^|/)\\.\\.(/|$)"
+            }
+          ]
+        }
+      }
+    },
+    "owners": {
+      "type": "array",
+      "items": {
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "path",
+          "matched",
+          "ambiguous",
+          "owningCapabilityId"
+        ],
+        "properties": {
+          "path": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "matched": {
+            "type": "boolean"
+          },
+          "ambiguous": {
+            "type": "boolean"
+          },
+          "owningCapabilityId": {
+            "minLength": 1,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "stableId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "kind": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "source": {
+            "type": "object"
+          },
+          "extensions": {
+            "type": "object"
+          },
+          "candidates": {
+            "type": "array",
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "relations": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    }
+  }
+}

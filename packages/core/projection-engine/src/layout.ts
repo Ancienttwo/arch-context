@@ -143,8 +143,10 @@ export function resolveArchitectureDocumentationLayout(input: {
   nodes: ProjectionLayoutNode[];
   relations: ProjectionLayoutRelation[];
   profile?: ArchitectureProjectionProfile;
+  includeInstructions?: boolean;
 }): ArchitectureDocumentationLayout {
   const profile = input.profile ?? "default";
+  const includeInstructions = input.includeInstructions ?? true;
   const targetNodes = entitySummaryTargetNodes(input.nodes, profile);
   const entityTargets = targetNodes.map((node) => {
     const path = profile === REPO_HARNESS_PROJECTION_PROFILE
@@ -169,9 +171,10 @@ export function resolveArchitectureDocumentationLayout(input: {
   ));
   const topologyTargets = hasRuntimeTopologyNodes(input.nodes) ? RUNTIME_TOPOLOGY_TARGETS : [];
   // repo-harness/v1 requires `contractFiles` on every capability, so each contract file it
-  // designates outside the repository root is a row the projection writes (ADR-0056 §9). The default profile keeps
-  // `archctx agent-context` as their writer.
-  const agentContextTargets = profile === REPO_HARNESS_PROJECTION_PROFILE ? agentContextLayoutTargets(targetNodes) : [];
+  // designates outside the repository root is a row the projection writes (ADR-0056 §9), unless
+  // host-ownership isolation disables instruction-file projection (`includeInstructions: false`, #642).
+  // The default profile keeps `archctx agent-context` as their writer.
+  const agentContextTargets = profile === REPO_HARNESS_PROJECTION_PROFILE && includeInstructions ? agentContextLayoutTargets(targetNodes) : [];
   // repo-harness/v1 publishes one projection per fact class (repo-harness#1222 D9): the capability
   // documents, the runtime topology pair (its only projection, ADR-0049 §4), the architecture
   // history, and the manifest. The

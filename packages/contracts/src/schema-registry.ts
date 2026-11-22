@@ -5,7 +5,14 @@ import {
   ArchitectureDebtReportSchema
 } from "./architecture-debt";
 import { ArchitectureHistorySchema } from "./architecture-history";
-import { CliHelpOutputSchema, DoctorCodeFactsSchema, ResolvePathsBatchResultSchema } from "./cli-read";
+import {
+  CliCheckOutputSchema,
+  CliHelpOutputSchema,
+  DoctorCodeFactsSchema,
+  PathContextOutputSchema,
+  ResolvePathsBatchResultSchema,
+  SyncCheckOutputSchema
+} from "./cli-read";
 import { DocsAnchorsReportSchema } from "./docs-anchors";
 import { IndexSeedResultSchema } from "./index-seed";
 import { CapabilityDependenciesSchema } from "./ownership-dependencies";
@@ -42,6 +49,7 @@ export const CONTRACT_SCHEMA_REGISTRY: Readonly<Record<string, TSchema>> = {
   "schemas/runtime/architecture-debt.schema.json": ArchitectureDebtReportSchema,
   "schemas/runtime/architecture-history.schema.json": ArchitectureHistorySchema,
   "schemas/runtime/capability-dependencies.schema.json": CapabilityDependenciesSchema,
+  "schemas/runtime/cli-check.schema.json": CliCheckOutputSchema,
   "schemas/runtime/cli-help.schema.json": CliHelpOutputSchema,
   "schemas/runtime/dependency-constraint-evaluation.schema.json": DependencyConstraintEvaluationSchema,
   "schemas/runtime/docs-anchors.schema.json": DocsAnchorsReportSchema,
@@ -49,6 +57,7 @@ export const CONTRACT_SCHEMA_REGISTRY: Readonly<Record<string, TSchema>> = {
   "schemas/runtime/flow-selector-check.schema.json": ArchitectureFlowSelectorCheckSchema,
   "schemas/runtime/hook-debt-checkpoint.schema.json": ArchitectureDebtHookCheckpointSchema,
   "schemas/runtime/index-seed.schema.json": IndexSeedResultSchema,
+  "schemas/runtime/path-context.schema.json": PathContextOutputSchema,
   "schemas/runtime/product-version-manifest.schema.json": ProductVersionManifestSchema,
   "schemas/runtime/projection-slice.schema.json": ProjectionSliceSchema,
   "schemas/runtime/ref-impact-batch-request.schema.json": RefImpactBatchRequestSchema,
@@ -59,5 +68,6 @@ export const CONTRACT_SCHEMA_REGISTRY: Readonly<Record<string, TSchema>> = {
   "schemas/runtime/refactor-verify-v2.schema.json": RefactorVerifyV2Schema,
   "schemas/runtime/resolve-path.schema.json": ResolvePathsBatchResultSchema,
   "schemas/runtime/runtime-verify.schema.json": RuntimeVerifySchema,
-  "schemas/runtime/state-machine-check.schema.json": StateMachineCheckReportSchema
+  "schemas/runtime/state-machine-check.schema.json": StateMachineCheckReportSchema,
+  "schemas/runtime/sync-check.schema.json": SyncCheckOutputSchema
 };

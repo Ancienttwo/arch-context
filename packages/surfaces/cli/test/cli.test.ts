@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync as nodeRmSync, writeFileSync, type RmDirOptions } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync as nodeRmSync, writeFileSync, type RmDirOptions } from "node:fs";
 import { createServer as createHttpServer, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -1551,7 +1551,8 @@ describe("archctx CLI", () => {
 
       writeFileSync(join(root, "package.json"), JSON.stringify({ engines: { node: ">=22.22 <26" } }), "utf8");
       const install = await runTestCli("install", ["--host", "codex"], root);
-      expect((install.data as any).marker).toContain("archcontext_prepare_task");
+      expect((install.data as any).marker).toContain("archctx prepare");
+      expect((install.data as any).marker).toContain("archctx check --changed");
       mkdirSync(join(root, ".git"), { recursive: true });
       const doctor = await runTestCli("doctor", [], root);
       expect((doctor.data as any).version.schemaSetVersion).toBeTruthy();
@@ -1803,7 +1804,7 @@ describe("archctx CLI", () => {
 
   test("the argument table knows every flag a handler reads, so the preflight never rejects a real option (#322)", () => {
     // A Windows checkout may have CRLF line endings; the source readers below match on "\n".
-    const source = readFileSync(CLI_ENTRY, "utf8").replace(/\r\n/g, "\n");
+    const source = collectCliSourceText(join(REPOSITORY_ROOT, "packages/surfaces/cli/src"));
     const read = new Set([...source.matchAll(/\b(?:readFlag|readRepeatedFlag|requireFlag|copyOptionalFlag|refactorFlagValue|readOptional(?:Positive|NonNegative)?IntegerFlag|readRepositoryInputFile)\(\s*[\w.]+\s*,\s*"(--[a-z0-9-]+)"/g)].map((match) => match[1]!));
     const known = new Set(["--format", "--json", ...Object.values(CLI_COMMAND_FLAGS).flatMap((spec) => [
       ...spec.value,
@@ -1824,19 +1825,17 @@ describe("archctx CLI", () => {
       expect(spec, `${command} ${subcommand}`).toBeDefined();
       return new Set([...spec!.value, ...spec!.boolean]);
     };
-    const handlers: Record<string, string> = { practices: "runPracticesCommand", recommendations: "runRecommendationsCommand" };
+    const handlers: Record<string, string> = {
+      practices: "runPracticesCommand",
+      recommendations: "runRecommendationsCommand",
+      explore: "runExploreCommand"
+    };
     for (const [command, handler] of Object.entries(handlers)) {
       for (const [subcommands, block] of subcommandBlocks(functionBody(source, handler))) {
         for (const subcommand of subcommands) {
           const allowed = accepted(command, subcommand);
           expect([...readFlags(block)].filter((flag) => !allowed.has(flag)), `${command} ${subcommand}`).toEqual([]);
         }
-      }
-    }
-    const exploreCase = source.slice(source.indexOf('    case "explore": {'), source.indexOf('    case "prepare": {'));
-    for (const [subcommands, block] of subcommandBlocks(exploreCase)) {
-      for (const subcommand of subcommands) {
-        expect([...readFlags(block)].filter((flag) => !accepted("explore", subcommand).has(flag)), `explore ${subcommand}`).toEqual([]);
       }
     }
     for (const [subcommand, handler] of [["checkpoint", "runHookCheckpointCommand"]] as const) {
@@ -2081,10 +2080,13 @@ describe("archctx CLI", () => {
     for (const file of skillFiles) {
       const body = readFileSync(join(REPOSITORY_ROOT, file), "utf8");
       expect(body).toContain("SOP");
-      for (const token of forbidden) expect(body).not.toContain(token);
+      for (const token of [...forbidden, "archcontext_prepare_task", "archcontext_checkpoint", "archcontext_plan_update", "archcontext_apply_update", "archcontext_complete_task"]) {
+        expect(body).not.toContain(token);
+      }
     }
     const develop = readFileSync(join(REPOSITORY_ROOT, "skills/archcontext-develop/SKILL.md"), "utf8");
-    expect(develop).toContain("archcontext_checkpoint");
+    expect(develop).toContain("archctx check --changed");
+    expect(develop).toContain("archctx checkpoint");
     expect(develop).toContain("added/upgraded");
     expect(develop).toContain("removed/downgraded");
   });
@@ -3742,9 +3744,19 @@ async function runCliProcessRaw(root: string, ...args: string[]): Promise<{ stdo
   return collectProcess(child);
 }
 
-/** The source of one top-level function of main.ts, up to its closing brace at column 0. */
+function collectCliSourceText(dir: string): string {
+  const parts: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+    const fullPath = join(dir, entry.name);
+    if (entry.isDirectory()) parts.push(collectCliSourceText(fullPath));
+    else if (entry.isFile() && entry.name.endsWith(".ts")) parts.push(readFileSync(fullPath, "utf8").replace(/\r\n/g, "\n"));
+  }
+  return `${parts.join("\n")}\n`;
+}
+
+/** The source of one top-level function across CLI modules, up to its closing brace at column 0. */
 function functionBody(source: string, name: string): string {
-  const start = source.search(new RegExp(`^(?:async )?function ${name}\\(`, "m"));
+  const start = source.search(new RegExp(`^(?:export )?(?:async )?function ${name}\\(`, "m"));
   if (start < 0) throw new Error(`function ${name} not found`);
   const end = source.indexOf("\n}\n", start);
   if (end < 0) throw new Error(`function ${name} has no closing brace at column 0`);

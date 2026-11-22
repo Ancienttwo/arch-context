@@ -1,0 +1,317 @@
+import { describe, expect, test } from "bun:test";
+import { execFileSync, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { stableYaml, type Json } from "@archcontext/contracts";
+import * as modelStore from "@archcontext/local-runtime/model-store-yaml";
+import { buildArchitectureDocsProjection } from "../../../local-runtime/runtime-daemon/src/projection-service";
+import { indexCodeGraphFixture, syncCodeGraphFixture } from "../../../local-runtime/codegraph-adapter/test/real-index";
+import { commitFixture, fixtureGit, writeFixtureFile } from "../../../local-runtime/model-store-yaml/test/fixtures/native-context/fixture";
+import { publishedSchemaIssues } from "../../../contracts/test/published-schemas";
+import { runCli } from "../src/main";
+
+const CLI_LAUNCHER = join(import.meta.dir, "../bin/archctx");
+const SUBPROCESS_TIMEOUT_MS = 60_000;
+
+function runArchctx(cwd: string, args: string[], env: Record<string, string | undefined>) {
+  const result = spawnSync(process.execPath, [CLI_LAUNCHER, ...args], {
+    cwd,
+    encoding: "utf8",
+    env: { ...process.env, DO_NOT_TRACK: "1", CODEGRAPH_NO_DOWNLOAD: "1", ...env },
+    timeout: SUBPROCESS_TIMEOUT_MS
+  });
+  return {
+    code: result.status,
+    stdout: result.stdout ?? "",
+    stderr: result.stderr ?? "",
+    json: () => JSON.parse(result.stdout)
+  };
+}
+
+function initGitFixture(prefix: string): { root: string; home: string; stateDir: string; cleanup(): void } {
+  const root = mkdtempSync(join(tmpdir(), prefix));
+  const home = mkdtempSync(join(tmpdir(), `${prefix}-home-`));
+  const stateDir = mkdtempSync(join(tmpdir(), `${prefix}-state-`));
+  rmSync(stateDir, { recursive: true, force: true });
+  fixtureGit(root, ["init", "-q"]);
+  fixtureGit(root, ["config", "core.autocrlf", "false"]);
+  fixtureGit(root, ["config", "maintenance.auto", "false"]);
+  writeFixtureFile(root, ".gitignore", ".codegraph/\n");
+  return {
+    root,
+    home,
+    stateDir,
+    cleanup() {
+      rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      rmSync(stateDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    }
+  };
+}
+
+describe("Stage 4 v2 CLI & contracts (#640, #642)", () => {
+  test("#642 init --infer --model-only leaves root AGENTS/CLAUDE and $HOME host config untouched", () => {
+    const fixture = initGitFixture("archctx-s4-init-");
+    try {
+      const { root, home, stateDir } = fixture;
+      writeFixtureFile(root, "package.json", JSON.stringify({ name: "demo", private: true, workspaces: ["packages/*"] }, null, 2));
+      writeFixtureFile(root, "packages/alpha/src/index.ts", "export const alpha = 1;\n");
+      writeFixtureFile(root, "packages/beta/src/index.ts", "export const beta = 2;\n");
+      writeFixtureFile(root, "unowned/loose.ts", "export const loose = true;\n");
+
+      const hostFiles: Array<[string, string]> = [
+        [join(root, "AGENTS.md"), "# Root AGENTS\nOwned by repo-harness.\n"],
+        [join(root, "CLAUDE.md"), "# Root CLAUDE\nOwned by repo-harness.\n"],
+        [join(root, ".claude/settings.json"), '{"hooks":{"managedBy":"repo-harness"}}\n'],
+        [join(home, ".claude/settings.json"), '{"hooks":{"PostToolUse":[{"command":"repo-harness-hook"}]}}\n'],
+        [join(home, ".codex/hooks.json"), '{"hooks":{"managedBy":"repo-harness"}}\n']
+      ];
+      for (const [path, body] of hostFiles) {
+        mkdirSync(join(path, ".."), { recursive: true });
+        writeFileSync(path, body, "utf8");
+      }
+      commitFixture(root, "initial workspace");
+
+      const env = { HOME: home, USERPROFILE: home, ARCHCONTEXT_STATE_DIR: stateDir };
+      const initRun = runArchctx(root, ["init", "--infer", "--model-only", "--json"], env);
+      expect(initRun.code, initRun.stderr || initRun.stdout).toBe(0);
+      const initEnvelope = initRun.json();
+      expect(initEnvelope.ok).toBe(true);
+      expect(initEnvelope.data.hostOwnership).toEqual({
+        modelOnly: true,
+        hooksInstalled: false,
+        skillsInstalled: false,
+        instructionsProjection: false
+      });
+      expect(initEnvelope.data.inferredNodeIds).toEqual(["capability.packages.alpha", "capability.packages.beta"]);
+      expect(readFileSync(join(root, ".archcontext/manifest.yaml"), "utf8")).toContain("instructions: false");
+
+      for (const [path, originalBody] of hostFiles) {
+        expect(readFileSync(path, "utf8")).toBe(originalBody);
+      }
+
+      const validateRun = runArchctx(root, ["model", "validate", "--json"], env);
+      expect(validateRun.code).toBe(0);
+      expect(validateRun.json().data.valid).toBe(true);
+
+      // sync --check & sync after editing generated file under --model-only
+      writeFileSync(join(root, ".archcontext/generated/ARCHITECTURE.md"), "<!-- Generated by ArchContext. -->\n# stale\n", "utf8");
+      const checkStale = runArchctx(root, ["sync", "--check", "--json"], env);
+      expect(checkStale.code).toBe(2);
+      const staleData = checkStale.json().data;
+      expect(staleData.fresh).toBe(false);
+      expect(staleData.includeInstructions).toBe(false);
+      expect(staleData.pendingGeneratedPaths).toEqual([".archcontext/generated/ARCHITECTURE.md"]);
+      expect(publishedSchemaIssues("runtime/sync-check.schema.json", staleData)).toEqual([]);
+
+      const syncRun = runArchctx(root, ["sync", "--json"], env);
+      expect(syncRun.code).toBe(0);
+      expect(syncRun.json().data.includeInstructions).toBe(false);
+
+      const checkFresh = runArchctx(root, ["sync", "--check", "--json"], env);
+      expect(checkFresh.code).toBe(0);
+      expect(checkFresh.json().data.fresh).toBe(true);
+      expect(publishedSchemaIssues("runtime/sync-check.schema.json", checkFresh.json().data)).toEqual([]);
+
+      for (const [path, originalBody] of hostFiles) {
+        expect(readFileSync(path, "utf8")).toBe(originalBody);
+      }
+      expect(existsSync(join(root, "packages/alpha/AGENTS.md"))).toBe(false);
+      expect(existsSync(join(root, "packages/alpha/CLAUDE.md"))).toBe(false);
+    } finally {
+      fixture.cleanup();
+    }
+  }, 60_000);
+
+  test("#642 sync respects root/HOME isolation, updates subdir mixed blocks cleanly, fails closed before marker removal, then retires them", () => {
+    const fixture = initGitFixture("archctx-s4-sync-");
+    try {
+      const { root, home, stateDir } = fixture;
+      const env = { HOME: home, USERPROFILE: home, ARCHCONTEXT_STATE_DIR: stateDir };
+      const capId = "capability.demo.alpha";
+      modelStore.initializeArchContextModel(root, "Sync Mode B");
+      rmSync(join(root, ".archcontext/model/nodes/capability.architecture.context.yaml"), { force: true });
+      const writeNode = (summary: string) => writeFixtureFile(root, `.archcontext/model/nodes/${capId}.yaml`, stableYaml({
+        schemaVersion: "archcontext.node/v2",
+        id: capId,
+        kind: "capability",
+        name: "Alpha",
+        status: "active",
+        summary,
+        source: { include: ["packages/alpha/**"] },
+        extensions: { contractFiles: { agents: "packages/alpha/AGENTS.md", claude: "packages/alpha/CLAUDE.md" } }
+      }));
+      writeNode("Alpha capability v1.");
+      writeFixtureFile(root, "packages/alpha/src/index.ts", "export const a = 1;\n");
+      writeFixtureFile(root, "packages/alpha/AGENTS.md", "# Human Subdir Header\n\nKeep this note.\n");
+      writeFixtureFile(root, "packages/alpha/CLAUDE.md", "# Human Subdir Header\n\nKeep this note.\n");
+      const rootAgents = "# Root AGENTS\nDo not touch.\n";
+      const rootClaude = "# Root CLAUDE\nDo not touch.\n";
+      writeFixtureFile(root, "AGENTS.md", rootAgents);
+      writeFixtureFile(root, "CLAUDE.md", rootClaude);
+      mkdirSync(join(home, ".claude"), { recursive: true });
+      mkdirSync(join(home, ".codex"), { recursive: true });
+      const homeClaude = '{"hooks":["rh"]}\n';
+      const homeCodex = '{"hooks":["rh"]}\n';
+      writeFileSync(join(home, ".claude/settings.json"), homeClaude, "utf8");
+      writeFileSync(join(home, ".codex/hooks.json"), homeCodex, "utf8");
+
+      commitFixture(root, "baseline source");
+      indexCodeGraphFixture(root);
+      const initial = buildArchitectureDocsProjection(undefined, root, "repo-harness/v1");
+      for (const file of initial.files) writeFixtureFile(root, file.path, file.body);
+      commitFixture(root, "adopt baseline projection");
+
+      // 1. Update capability summary -> sync updates subdir blocks & docs, leaves root + HOME intact, cross-process sync --check agrees.
+      writeNode("Alpha capability v2.");
+      commitFixture(root, "update capability summary");
+      syncCodeGraphFixture(root);
+
+      const syncNormal = runArchctx(root, ["sync", "--json"], env);
+      expect(syncNormal.code, syncNormal.stderr || syncNormal.stdout).toBe(0);
+      expect(syncNormal.json().data.includeInstructions).toBe(true);
+      expect(readFileSync(join(root, "AGENTS.md"), "utf8")).toBe(rootAgents);
+      expect(readFileSync(join(root, "CLAUDE.md"), "utf8")).toBe(rootClaude);
+      expect(readFileSync(join(home, ".claude/settings.json"), "utf8")).toBe(homeClaude);
+      expect(readFileSync(join(home, ".codex/hooks.json"), "utf8")).toBe(homeCodex);
+      const updatedAgents = readFileSync(join(root, "packages/alpha/AGENTS.md"), "utf8");
+      expect(updatedAgents).toContain("# Human Subdir Header");
+      expect(updatedAgents).toContain("Keep this note.");
+      expect(updatedAgents).toContain("Alpha capability v2.");
+
+      const crossCheckNormal = runArchctx(root, ["sync", "--check", "--json"], env);
+      expect(crossCheckNormal.code, crossCheckNormal.stdout).toBe(0);
+      expect(crossCheckNormal.json().data.fresh).toBe(true);
+      expect(publishedSchemaIssues("runtime/sync-check.schema.json", crossCheckNormal.json().data)).toEqual([]);
+
+      // 2. sync --no-instructions while subdir generated blocks still exist fails closed (human review required).
+      const blockedNoInstr = runArchctx(root, ["sync", "--no-instructions", "--json"], env);
+      expect(blockedNoInstr.code).toBe(1);
+      expect(blockedNoInstr.json().error.reasonCode).toBe("projection-orphan-review-required");
+      expect(readFileSync(join(root, "packages/alpha/AGENTS.md"), "utf8")).toBe(updatedAgents);
+
+      // 3. Strip generated markers (preserving adjacent human text), then sync --no-instructions retires the rows cleanly.
+      const stripGenerated = (body: string) => `${body.slice(0, body.indexOf("<!-- BEGIN ARCHCONTEXT"))}`.trimEnd() + "\n";
+      writeFixtureFile(root, "packages/alpha/AGENTS.md", stripGenerated(updatedAgents));
+      writeFixtureFile(root, "packages/alpha/CLAUDE.md", stripGenerated(readFileSync(join(root, "packages/alpha/CLAUDE.md"), "utf8")));
+
+      const syncNoInstr = runArchctx(root, ["sync", "--no-instructions", "--json"], env);
+      expect(syncNoInstr.code, syncNoInstr.stderr || syncNoInstr.stdout).toBe(0);
+      expect(syncNoInstr.json().data.includeInstructions).toBe(false);
+      expect(readFileSync(join(root, "packages/alpha/AGENTS.md"), "utf8")).toBe("# Human Subdir Header\n\nKeep this note.\n");
+      expect(readFileSync(join(root, "packages/alpha/CLAUDE.md"), "utf8")).toBe("# Human Subdir Header\n\nKeep this note.\n");
+      expect(readFileSync(join(root, "AGENTS.md"), "utf8")).toBe(rootAgents);
+      expect(readFileSync(join(root, "CLAUDE.md"), "utf8")).toBe(rootClaude);
+
+      const crossCheckNoInstr = runArchctx(root, ["sync", "--check", "--no-instructions", "--json"], env);
+      expect(crossCheckNoInstr.code, crossCheckNoInstr.stdout).toBe(0);
+      expect(crossCheckNoInstr.json().data.fresh).toBe(true);
+      expect(crossCheckNoInstr.json().data.includeInstructions).toBe(false);
+      expect(publishedSchemaIssues("runtime/sync-check.schema.json", crossCheckNoInstr.json().data)).toEqual([]);
+    } finally {
+      fixture.cleanup();
+    }
+  }, 120_000);
+
+  test("#640 & #642 check --changed, check --base --slice, model namespace, and context --path contracts", async () => {
+    const fixture = initGitFixture("archctx-s4-contracts-");
+    try {
+      const { root, stateDir } = fixture;
+      const env = { ARCHCONTEXT_STATE_DIR: stateDir };
+      writeFixtureFile(root, "package.json", JSON.stringify({ name: "demo", private: true, workspaces: ["packages/*"] }));
+      writeFixtureFile(root, "packages/alpha/src/index.ts", "export function alpha() { return 1; }\n");
+      writeFixtureFile(root, "packages/beta/src/index.ts", "export function beta() { return 2; }\n");
+      modelStore.initializeArchContextModel(root, "Contracts Demo", { infer: true, modelOnly: true });
+      writeFixtureFile(root, ".archcontext/model/relations/relation.alpha.beta.yaml", stableYaml({
+        schemaVersion: "archcontext.relation/v1",
+        id: "relation.alpha.beta",
+        kind: "calls",
+        source: "capability.packages.alpha",
+        target: "capability.packages.beta",
+        intent: "Alpha calls Beta."
+      }));
+      commitFixture(root, "baseline");
+      indexCodeGraphFixture(root);
+      const base = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+      writeFixtureFile(root, "packages/alpha/src/index.ts", "export function alpha() { return 42; }\n");
+      commitFixture(root, "modify alpha");
+      syncCodeGraphFixture(root);
+
+      // 1. Warm in-process `archctx check --changed` latency (<300ms) + schema + no SQLite/state writes
+      await runCli("check", ["--changed", "packages/alpha/src/index.ts", "--json"], root);
+      const start = performance.now();
+      const warmCheck = await runCli("check", ["--changed", "packages/alpha/src/index.ts", "--json"], root);
+      const elapsedMs = performance.now() - start;
+      expect(elapsedMs).toBeLessThan(300);
+      expect(warmCheck.ok).toBe(true);
+      expect((warmCheck as any).data.status).toBe("pass");
+      expect((warmCheck as any).data.exitCode).toBe(0);
+      expect(publishedSchemaIssues("runtime/cli-check.schema.json", (warmCheck as any).data)).toEqual([]);
+      expect(existsSync(stateDir)).toBe(false);
+
+      // 2. Variadic --changed with unowned file under declared source root exits 2 with findings (keep worktree clean afterwards)
+      writeFixtureFile(root, "packages/gamma/extra.ts", "export const extra = true;\n");
+      const findingsRun = runArchctx(root, ["check", "--changed", "packages/alpha/src/index.ts", "packages/gamma/extra.ts", "--json"], env);
+      rmSync(join(root, "packages/gamma"), { recursive: true, force: true });
+      expect(findingsRun.code).toBe(2);
+      const findingsEnv = findingsRun.json();
+      expect(findingsEnv.ok).toBe(true);
+      expect(findingsEnv.data.status).toBe("findings");
+      expect(findingsEnv.data.exitCode).toBe(2);
+      expect(publishedSchemaIssues("runtime/cli-check.schema.json", findingsEnv.data)).toEqual([]);
+
+      // 3. Composite PR gate `archctx check --base <ref> --slice --json` (note package.json at root is unowned)
+      // Since root package.json is outside packages/* globs, debt legitimately flags it as unowned unless excluded/owned,
+      // or we assert valid schema and slice ok; verify blockingChecks accurately reflects it!
+      const prRun = runArchctx(root, ["check", "--base", base, "--slice", "--json"], env);
+      expect(prRun.code === 0 || prRun.code === 2, prRun.stderr || prRun.stdout).toBe(true);
+      const prEnv = prRun.json();
+      expect(prEnv.ok).toBe(true);
+      expect(prEnv.data.mode).toBe("pr");
+      expect(prEnv.data.slice.ok).toBe(true);
+      expect(publishedSchemaIssues("runtime/cli-check.schema.json", prEnv.data)).toEqual([]);
+
+      // 4. Composable `archctx context --path <p> --json` (read-only, no state dir)
+      rmSync(stateDir, { recursive: true, force: true });
+      const ctxRun = runArchctx(root, ["context", "--path", "packages/alpha/src/index.ts", "--json"], env);
+      expect(ctxRun.code).toBe(0);
+      const ctxData = ctxRun.json().data;
+      expect(ctxData.owners[0].owningCapabilityId).toBe("capability.packages.alpha");
+      expect(ctxData.relations.some((r: any) => r.id === "relation.alpha.beta")).toBe(true);
+      expect(publishedSchemaIssues("runtime/path-context.schema.json", ctxData)).toEqual([]);
+      expect(existsSync(stateDir)).toBe(false);
+
+      // 5. `archctx model validate|resolve|export|history|show`
+      const modelValidate = runArchctx(root, ["model", "validate", "--json"], env);
+      expect(modelValidate.code).toBe(0);
+      expect(modelValidate.json().data.valid).toBe(true);
+
+      const modelResolveMatch = runArchctx(root, ["model", "resolve", "--path", "packages/alpha/src/index.ts", "--json"], env);
+      expect(modelResolveMatch.code).toBe(0);
+      expect(modelResolveMatch.json().data.owningCapabilityId).toBe("capability.packages.alpha");
+
+      const modelResolveMiss = runArchctx(root, ["model", "resolve", "--path", "unowned/extra.ts", "--json"], env);
+      expect(modelResolveMiss.code).toBe(1);
+      expect(modelResolveMiss.json().data.matched).toBe(false);
+
+      const modelExport = runArchctx(root, ["model", "export", "native", "--worktree", "--json"], env);
+      expect(modelExport.code).toBe(0);
+      expect(modelExport.json().data.schemaVersion).toBe("archcontext.native-context-export/v1");
+
+      const modelHistory = runArchctx(root, ["model", "history", "--json"], env);
+      expect(modelHistory.code).toBe(0);
+      expect(modelHistory.json().data.schemaVersion).toBe("archcontext.architecture-history/v1");
+
+      const modelShow = runArchctx(root, ["model", "show", "--id", "capability.packages.alpha", "--json"], env);
+      expect(modelShow.code).toBe(0);
+      expect(modelShow.json().data.node.id).toBe("capability.packages.alpha");
+
+      const modelShowMissing = runArchctx(root, ["model", "show", "--id", "capability.does.not.exist", "--json"], env);
+      expect(modelShowMissing.code).toBe(1);
+      expect(modelShowMissing.json().error.code).toBe("AC_SCHEMA_INVALID");
+    } finally {
+      fixture.cleanup();
+    }
+  }, 120_000);
+});

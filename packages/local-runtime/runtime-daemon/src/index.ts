@@ -9,7 +9,7 @@ import {
 import { type ArchitectureLedgerScope } from "@archcontext/core/architecture-ledger";
 import { ChangeSetEngine } from "@archcontext/core/changeset-engine";
 import { compileTaskContext } from "@archcontext/core/context-compiler";
-import { REPO_HARNESS_PROJECTION_PROFILE, ProjectionPreconditionError, agentContextProjectionTargetPaths, architectureDocumentationSourceDigest, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, loadArchitectureDocumentationProfile, loadNativeModelFromArchContext, measureCapabilitySourceScaleSignals, projectionOwnedWriteBody, renderAgentContextProjection, renderArchitectureDocumentationProjection } from "@archcontext/core/projection-engine";
+import { REPO_HARNESS_PROJECTION_PROFILE, ProjectionPreconditionError, agentContextProjectionTargetPaths, architectureDocumentationSourceDigest, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, loadArchitectureDocumentationProfile, loadArchitectureProjectionInstructionsEnabled, loadNativeModelFromArchContext, measureCapabilitySourceScaleSignals, projectionOwnedWriteBody, renderAgentContextProjection, renderArchitectureDocumentationProjection } from "@archcontext/core/projection-engine";
 import { loadPracticeCatalog, type PracticeCatalogCommandInput } from "@archcontext/core/practice-catalog";
 import { loadPracticeEnforcementPolicy, evaluatePracticeEnforcement, loadPracticeWaiverOwnerRegistry, loadPracticeWaivers, shouldEvaluatePracticeEnforcement } from "@archcontext/core/practice-engine";
 import { completeTaskGate, type CompleteTaskInput, type CompleteTaskProjectionDriftInput, type CompleteTaskProjectionFreshnessInput } from "@archcontext/core/review-engine";
@@ -51,7 +51,7 @@ import { defaultJiebaSearchTokenizer } from "@archcontext/local-runtime/search-t
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { ArchitectureDebtReadError, readCompleteTaskArchitectureDebt, selectedProducerFailureEnvelope } from "./architecture-debt";
-import { ChangeSetAuthorityService, runtimeWorktreeDigest } from "./changeset-authority";
+import { ChangeSetAuthorityService } from "./changeset-authority";
 import { localEgressStatus } from "./egress";
 import { ExplorerProjectionService } from "./explorer-projection-service";
 import { ExplorerServerService, type ExplorerServerOptions } from "./explorer-server";
@@ -66,6 +66,7 @@ import {
   runAgentContextProjectionCommand,
   runArchitectureDocsProjectionCommand,
   runProjectionProtocolCommand,
+  runSyncCheckCommand,
   validateAgentContextProjectionInput,
   validateDocsProjectionInput,
   validateProjectionInvocation,
@@ -82,11 +83,13 @@ import type {
   RuntimeApplyUpdateInput,
   RuntimeCompleteTaskInput,
   RuntimeDocsProjectionInput,
+  RuntimeInitOptions,
   RuntimePlanUpdateInput,
   RuntimePracticeCheckpointInput,
   RuntimePracticeWaiverInput,
   RuntimeProjectionInvocation,
-  RuntimeRefactorVerifyInput
+  RuntimeRefactorVerifyInput,
+  RuntimeSyncOptions
 } from "./runtime-types";
 import { modelValidationEnvelope } from "./verify";
 
@@ -104,13 +107,15 @@ export type {
   RuntimeCompleteTaskInput,
   RuntimeDaemonClient,
   RuntimeDocsProjectionInput,
+  RuntimeInitOptions,
   RuntimePlanUpdateInput,
   RuntimePracticeCheckpointInput,
   RuntimePracticeWaiverInput,
   RuntimeProjectionInvocation,
+  RuntimeSyncOptions,
   RuntimeWorktreeDigestProfile
 } from "./runtime-types";
-export { runProjectionCheckInvocation, runProjectionFreshnessCommand, runProjectionSliceCommand, runProjectionSnapshotCommand } from "./projection-service";
+export { runProjectionCheckInvocation, runProjectionFreshnessCommand, runProjectionSliceCommand, runProjectionSnapshotCommand, runSyncCheckCommand } from "./projection-service";
 export { PROJECTION_PR_BODY_MARKER, PROJECTION_WRITER_DEFAULT_BASE, PROJECTION_WRITER_DEFAULT_REMOTE, createCommandProjectionPublisher, createGhProjectionPublisher, createNoneProjectionPublisher, projectionPublishBody, projectionPublishTitle, projectionWriterPaths, runProjectionPublishCommand, runProjectionPublishFollow, runProjectionPublishStatusCommand, runProjectionVerifyPrCommand, type ProjectionPublishOptions, type ProjectionPublisherExec, type ProjectionPublisherInput, type ProjectionPublisherPort, type ProjectionVerifyPrCheckPort, type ProjectionWriterApplyPort } from "./projection-writer";
 export { runDocsAnchorsCommand } from "./docs-anchors";
 export { runRuntimeVerifyCommand } from "./verify";
@@ -357,12 +362,25 @@ export class ArchctxDaemon implements LocalRuntimeClient {
 
   async hasActiveBackgroundWork(): Promise<boolean> { return false; }
 
-  async init(root: string, productName?: string): Promise<JsonEnvelope> {
+  async init(root: string, productName?: string, options: RuntimeInitOptions = {}): Promise<JsonEnvelope> {
     try {
       this.assertRunning();
+      const modelOnly = options.modelOnly === true;
+      const noHooks = modelOnly || options.noHooks === true;
+      const noSkills = modelOnly || options.noSkills === true;
+      const noInstructions = modelOnly || options.noInstructions === true;
       return await this.withWriter(async () => {
         listGitVisibleFiles(root);
-        try { initializeArchContextModel(root, productName); }
+        let initResult: { inferredNodeIds: string[]; instructionsProjection: boolean };
+        try {
+          initResult = initializeArchContextModel(root, productName, {
+            infer: options.infer === true,
+            modelOnly,
+            noHooks,
+            noSkills,
+            noInstructions
+          });
+        }
         catch (error) {
           if (error instanceof ArchContextInitRefusedError) return publicFailureEnvelope("init", "AC_PRECONDITION_FAILED", "init-would-overwrite-existing-model");
           throw error;
@@ -373,52 +391,74 @@ export class ArchctxDaemon implements LocalRuntimeClient {
           repositoryId: session.workspace.repositoryId,
           headSha: session.workspace.headSha,
           worktreeDigest: session.snapshot.worktreeDigest,
-          modelDigest: session.modelDigest
+          modelDigest: session.modelDigest,
+          hostOwnership: {
+            modelOnly,
+            hooksInstalled: false,
+            skillsInstalled: false,
+            instructionsProjection: initResult.instructionsProjection
+          },
+          ...(initResult.inferredNodeIds.length > 0 ? { inferredNodeIds: initResult.inferredNodeIds } : {})
         } as Json);
       });
     } catch (error) { throw publicOperationFailure(error); }
   }
 
   /**
-   * Idempotent, atomic architecture documentation projection (#641): separated from CodeGraph
-   * shared-base seeding (`archctx index seed`). Does not create or mutate `.codegraph/`.
+   * Idempotent, atomic architecture documentation projection (#641, #642): separated from
+   * CodeGraph shared-base seeding (`archctx index seed`). Does not create or mutate `.codegraph/`.
    */
-  async sync(root: string, _changedPaths: string[] = []): Promise<JsonEnvelope> {
-    try { return publicOperationResult("sync", await this.syncUnchecked(root)) as JsonEnvelope; }
+  async sync(root: string, options: RuntimeSyncOptions = {}): Promise<JsonEnvelope> {
+    try {
+      this.assertRunning();
+      if (options.check === true) {
+        return runSyncCheckCommand(root, { noInstructions: options.noInstructions === true });
+      }
+      return publicOperationResult("sync", await this.syncUnchecked(root, options)) as JsonEnvelope;
+    }
     catch (error) { throw publicOperationFailure(error); }
   }
 
-  private async syncUnchecked(root: string): Promise<JsonEnvelope> {
+  private async syncUnchecked(root: string, options: RuntimeSyncOptions = {}): Promise<JsonEnvelope> {
     this.assertRunning();
-    return await this.withWriter(async () => {
+    const prepared = await this.withWriter(async () => {
       const session = await this.openSession(root);
       const validation = await this.modelStore.validateModel(session.workspace);
       session.modelDigest = validation.modelDigest;
-      if (!validation.valid) return modelValidationEnvelope(validation);
+      if (!validation.valid) return { status: "invalid" as const, envelope: modelValidationEnvelope(validation) };
       rebuildGeneratedProjection(root);
-      const profile = committedArchitectureDocsProfile(session.workspace.root);
-      let projectionData: Json | undefined;
-      if (profile === REPO_HARNESS_PROJECTION_PROFILE) {
-        const applied = await this.docsProjection(session.workspace.root, {
-          action: "apply",
-          profile,
-          approved: true,
-          expectedWorktreeDigest: runtimeWorktreeDigest(session.workspace.root, "architecture-documentation-projection"),
-          indexSynced: true
-        } as RuntimeDocsProjectionCommandOptions);
-        if (!applied.ok) return applied;
-        projectionData = applied.data;
-      }
-      return okEnvelope("sync", {
-        schemaVersion: "archcontext.sync/v2",
-        profile,
-        repositoryId: session.workspace.repositoryId,
-        headSha: session.workspace.headSha,
-        worktreeDigest: computeWorktreeDigest(session.workspace.root, listGitVisibleFiles(session.workspace.root)),
-        modelDigest: validation.modelDigest,
-        ...(projectionData ? { projection: projectionData } : { generatedPath: ".archcontext/generated/ARCHITECTURE.md" })
-      } as unknown as Json);
+      return { status: "ready" as const, session, validation };
     });
+    if (prepared.status === "invalid") return prepared.envelope;
+    const { session, validation } = prepared;
+    const profile = committedArchitectureDocsProfile(session.workspace.root);
+    const includeInstructions = options.noInstructions === true
+      ? false
+      : loadArchitectureProjectionInstructionsEnabled(session.workspace.root);
+    let projectionData: Json | undefined;
+    if (profile === REPO_HARNESS_PROJECTION_PROFILE) {
+      // Delegate to docsProjection outside withWriter so applyUpdate can acquire the writer lock cleanly.
+      const applied = await this.docsProjection(session.workspace.root, {
+        action: "apply",
+        profile,
+        approved: true,
+        includeInstructions,
+        expectedWorktreeDigest: computeWorktreeDigest(session.workspace.root, listGitVisibleFiles(session.workspace.root)),
+        indexSynced: true
+      } as RuntimeDocsProjectionCommandOptions);
+      if (!applied.ok) return applied;
+      projectionData = applied.data;
+    }
+    return okEnvelope("sync", {
+      schemaVersion: "archcontext.sync/v2",
+      profile,
+      includeInstructions,
+      repositoryId: session.workspace.repositoryId,
+      headSha: session.workspace.headSha,
+      worktreeDigest: computeWorktreeDigest(session.workspace.root, listGitVisibleFiles(session.workspace.root)),
+      modelDigest: validation.modelDigest,
+      ...(projectionData ? { projection: projectionData } : { generatedPath: ".archcontext/generated/ARCHITECTURE.md" })
+    } as unknown as Json);
   }
 
   async indexSeed(root: string, options: CodeGraphIndexSeedOptions = {}): Promise<JsonEnvelope> {
@@ -871,7 +911,8 @@ function blockedProductionInjections(deps: RuntimeDeps): string[] {
 function completeTaskProjectionDrift(root: string): { projectionDrift?: CompleteTaskProjectionDriftInput; projectionFreshness?: CompleteTaskProjectionFreshnessInput } {
   if (!existsSync(resolve(root, "docs/architecture/.projection-manifest.json"))) return {};
   const profile = loadArchitectureDocumentationProfile(root);
-  const loaded = loadArchitectureDocumentationInputs(root, profile);
+  const includeInstructions = loadArchitectureProjectionInstructionsEnabled(root);
+  const loaded = loadArchitectureDocumentationInputs(root, profile, { includeInstructions });
   const sourceDigest = architectureDocumentationSourceDigest({ model: loaded.model, profile, decisions: loaded.decisions });
   const codeGraphInputs = prepareArchitectureDocumentationProjectionSnapshot(root, loaded.model, { indexSynced: true });
   assertProjectionCodeFactsAvailable(root, codeGraphInputs);
@@ -887,6 +928,7 @@ function completeTaskProjectionDrift(root: string): { projectionDrift?: Complete
     selectorEvidence: codeGraphInputs.selectorEvidence,
     provenance: codeGraphInputs.provenance,
     sourceDigest,
+    includeInstructions,
     ...architectureHistoryRenderInput(root, profile, loaded.existingFiles, false)
   });
   return {

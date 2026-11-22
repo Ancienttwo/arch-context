@@ -21,7 +21,7 @@ export function diagnostics(egress: LocalEgressReport) {
 }
 
 export function installMarker(host: "codex" | "claude" | "generic") {
-  return `<!-- BEGIN ARCHCONTEXT ${host} -->\nUse archcontext_prepare_task before coding and archcontext_complete_task before final response.\n<!-- END ARCHCONTEXT ${host} -->`;
+  return `<!-- BEGIN ARCHCONTEXT ${host} -->\nUse archctx prepare or archctx context before coding, archctx check --changed during edits, and archctx complete before final response.\n<!-- END ARCHCONTEXT ${host} -->`;
 }
 
 export function uninstallMarker(content: string, host: "codex" | "claude" | "generic") {

@@ -101,6 +101,21 @@ export interface RuntimeDocsProjectionInput {
   approved?: boolean;
   expectedWorktreeDigest?: string;
   adoptionPlanId?: string;
+  includeInstructions?: boolean;
+}
+
+export interface RuntimeInitOptions {
+  infer?: boolean;
+  modelOnly?: boolean;
+  noHooks?: boolean;
+  noSkills?: boolean;
+  noInstructions?: boolean;
+}
+
+export interface RuntimeSyncOptions {
+  changedPaths?: string[];
+  check?: boolean;
+  noInstructions?: boolean;
 }
 
 export interface RuntimeAgentContextProjectionInput {
@@ -142,8 +157,8 @@ export interface RuntimeRefactorRecordInput {
 export type RuntimeRefactorVerifyInput = RefactorVerificationRequestV1;
 
 export interface LocalRuntimeClient {
-  init(root: string, productName?: string): Promise<JsonEnvelope>;
-  sync(root: string, changedPaths?: string[]): Promise<JsonEnvelope>;
+  init(root: string, productName?: string, options?: RuntimeInitOptions): Promise<JsonEnvelope>;
+  sync(root: string, options?: RuntimeSyncOptions): Promise<JsonEnvelope>;
   validate(root: string): Promise<JsonEnvelope>;
   context(root: string, task: string, maxSymbols?: number): Promise<JsonEnvelope>;
   prepare(root: string, task: string, maxBytes?: number, maxItems?: number, taskSessionId?: string): Promise<JsonEnvelope>;
