@@ -18,6 +18,10 @@ import {
   loadArchitectureProjectionInstructionsEnabled,
   readCommittedArchitectureDocsProjectionManifest
 } from "@archcontext/core/projection-engine";
+import {
+  assertReadyCodeGraphIndexWithoutWorktreeWrites,
+  codeGraphIndexAvailable
+} from "@archcontext/local-runtime/codegraph-adapter";
 import { findRepositoryRoot } from "@archcontext/local-runtime/git-adapter";
 import { listModelFiles, planGeneratedProjection, validateModelFiles } from "@archcontext/local-runtime/model-store-yaml";
 import { projectionFreshnessContract } from "./projection-freshness";
@@ -60,6 +64,7 @@ export function runSyncCheckCommand(cwd: string, options: { noInstructions?: boo
     if (profile === REPO_HARNESS_PROJECTION_PROFILE || existsSync(resolve(root, ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH))) {
       let projection: BuiltArchitectureDocsProjection;
       try {
+        if (codeGraphIndexAvailable(root)) assertReadyCodeGraphIndexWithoutWorktreeWrites(root);
         projection = buildArchitectureDocsProjection(undefined, root, profile, undefined, undefined, {
           includeInstructions,
           indexSynced: true
