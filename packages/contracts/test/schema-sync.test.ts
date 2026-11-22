@@ -11,7 +11,7 @@ describe("single-source TypeBox schema registry", () => {
     const entries = Object.entries(CONTRACT_SCHEMA_REGISTRY);
     expect(entries.length).toBeGreaterThanOrEqual(24);
     for (const [relPath, schema] of entries) {
-      const disk = readFileSync(join(REPO_ROOT, relPath), "utf8");
+      const disk = readFileSync(join(REPO_ROOT, relPath), "utf8").replace(/\r\n/g, "\n");
       expect(disk).toBe(serializeSchemaDocument(schema));
     }
   });
