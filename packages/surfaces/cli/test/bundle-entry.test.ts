@@ -38,9 +38,9 @@ let buildRoot: string;
 let bundlePath: string;
 
 beforeAll(() => {
-  // The bundle keeps the core native dependencies external, so it must sit where Node resolves them
+  // The bundle keeps the local-runtime native dependencies external, so it must sit where Node resolves them
   // the way an installed package does: under the owning workspace's node_modules.
-  const cacheRoot = join(REPO_ROOT, "packages", "core", "node_modules", ".cache");
+  const cacheRoot = join(REPO_ROOT, "packages", "local-runtime", "node_modules", ".cache");
   mkdirSync(cacheRoot, { recursive: true });
   buildRoot = mkdtempSync(join(cacheRoot, "archctx-bundle-entry-"));
   execFileSync("bun", [

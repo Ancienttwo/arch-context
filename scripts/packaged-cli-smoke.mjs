@@ -527,7 +527,7 @@ function runNativePackagedSmoke() {
   try {
     execFileSync("bun", ["build", "packages/surfaces/cli/src/main.ts", "--target=node", "--format=esm", "--outfile", nativeBin, "--external=@colbymchenry/codegraph", "--external=@node-rs/jieba", "--external=@node-rs/jieba/dict.js", "--external=koffi"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
     const moduleDir = join(stage, "node_modules"); mkdirSync(moduleDir);
-    const coreRequire = createRequire(join(root, "packages/core/package.json"));
+    const localRuntimeRequire = createRequire(join(root, "packages/local-runtime/package.json"));
     const stagePackage = (name, from) => {
       // Resolve each dependency from its owning package. Workspace installs can
       // hoist it or isolate it; a fixed scope directory assumes one layout.
@@ -549,7 +549,7 @@ function runNativePackagedSmoke() {
       ["@node-rs/jieba", `@node-rs/jieba-${process.platform}-${process.arch}${jiebaSuffix}`],
       ["koffi", `@koromix/koffi-${process.platform}-${process.arch}`]
     ]) {
-      const installed = stagePackage(name, coreRequire);
+      const installed = stagePackage(name, localRuntimeRequire);
       assert(installed.manifest.optionalDependencies?.[binding], `native smoke has no declared platform binding: ${binding}`);
       stagePackage(binding, createRequire(installed.entry));
     }

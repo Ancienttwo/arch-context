@@ -9,8 +9,8 @@ import { delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-// The adapter imports core native dependencies; keep the Node fixture under their owning workspace.
-const cacheRoot = join(repoRoot, "packages", "core", "node_modules", ".cache");
+// The adapter imports local-runtime native dependencies; keep the Node fixture under their owning workspace.
+const cacheRoot = join(repoRoot, "packages", "local-runtime", "node_modules", ".cache");
 mkdirSync(cacheRoot, { recursive: true });
 const buildRoot = mkdtempSync(join(cacheRoot, "archctx-codegraph-selector-node-"));
 const fixtureRoot = mkdtempSync(join(tmpdir(), "archctx-codegraph-selector-node-"));
