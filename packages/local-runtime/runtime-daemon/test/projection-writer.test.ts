@@ -4,8 +4,12 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { jsonSchemaResolver, okEnvelope, validateJsonSchema, type Json, type JsonEnvelope, type ProjectionPublishRunV1, type ProjectionPublishStatusV1, type ProjectionRequestV1 } from "@archcontext/contracts";
-import { createPrivateControlFile } from "@archcontext/local-runtime/control-file-security";
 import { publicOperationErrorEnvelope } from "../src/public-operation-failure";
+
+function createPrivateControlFile(path: string, body: string): void {
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  writeFileSync(path, body, { encoding: "utf8", mode: 0o600 });
+}
 import { failureEnvelope, knownFailure } from "@archcontext/contracts";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { indexCodeGraphFixture } from "../../codegraph-adapter/test/real-index";

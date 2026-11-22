@@ -100,9 +100,9 @@ describe("archctx deps (#301)", () => {
     const data = depsData(await runCli("deps", ["--json"], root));
     expect(data.capabilities).toEqual(["capability.architecture.context", "capability.billing", "capability.checkout"]);
     expect(data.matrix).toEqual([
-      { from: "capability.billing", to: "capability.billing", imports: 1, calls: null, declared: true, relationIds: [] },
-      { from: "capability.checkout", to: "capability.billing", imports: 2, calls: null, declared: false, relationIds: [] },
-      { from: "capability.checkout", to: "capability.checkout", imports: 1, calls: null, declared: true, relationIds: [] }
+      { from: "capability.billing", to: "capability.billing", imports: 1, calls: expect.any(Number), declared: true, relationIds: [] },
+      { from: "capability.checkout", to: "capability.billing", imports: 2, calls: expect.any(Number), declared: false, relationIds: [] },
+      { from: "capability.checkout", to: "capability.checkout", imports: 1, calls: expect.any(Number), declared: true, relationIds: [] }
     ]);
     expect(data.imports).toMatchObject({
       coverage: "complete",
@@ -114,7 +114,7 @@ describe("archctx deps (#301)", () => {
     });
     // pay.ts holds an import-shaped string naming invoice.ts; no edge pay.ts -> invoice.ts exists.
     expect(data.edges.items.some((edge) => edge.fromPath === "src/checkout/pay.ts" && edge.toPath === "src/billing/invoice.ts")).toBe(false);
-    expect(data.calls).toEqual({ coverage: "unknown", reasonCodes: ["call-edges-not-exposed"] });
+    expect(data.calls).toMatchObject({ coverage: "complete", reasonCodes: [] });
   }, 120_000);
 
   test("--into and --from filter by the owning node's subtree", async () => {
@@ -128,7 +128,7 @@ describe("archctx deps (#301)", () => {
     ]);
     const fromComponent = depsData(await runCli("deps", ["--from", "component.cart"], root));
     expect(fromComponent.edges.items.map((edge) => edge.fromPath)).toEqual(["src/checkout/cart/cart.ts"]);
-    expect(fromComponent.matrix).toEqual([{ from: "capability.checkout", to: "capability.billing", imports: 1, calls: null, declared: false, relationIds: [] }]);
+    expect(fromComponent.matrix).toEqual([{ from: "capability.checkout", to: "capability.billing", imports: 1, calls: expect.any(Number), declared: false, relationIds: [] }]);
   }, 120_000);
 
   test("reports a read limit below the index size as partial coverage with the count", async () => {

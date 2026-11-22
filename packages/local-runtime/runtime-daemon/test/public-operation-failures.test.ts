@@ -2,7 +2,6 @@ import { expect, test } from "bun:test";
 import { failureIssues } from "@archcontext/contracts";
 import { ExternalDocumentationService } from "../src/external-documentation";
 import { LandscapeService } from "../src/landscape";
-import { auditConsentRequiredEnvelope } from "../src/audit-consent";
 import { readCapabilityDependencies, CapabilityDependenciesError } from "../src/capability-dependencies";
 const sentinel = "/private/customer Authorization=private-body";
 
@@ -37,10 +36,7 @@ test("C1 ordinary unknown rejection is safe at the operation boundary", async ()
   expect(JSON.stringify(result)).not.toContain(sentinel);
 });
 
-test("C1 consent and dependency refusals use source-owned reasons and original codes", () => {
-  const consent=auditConsentRequiredEnvelope("audit.run", "not-granted");
-  expect(consent.error?.reasonCode).toBe("audit-user-consent-required");
-  expect(consent.error?.details).toEqual({consentReason:"not-granted"}); expect(failureIssues(consent.error)).toEqual([]);
+test("C1 dependency refusal uses source-owned reasons and original codes", () => {
   try {readCapabilityDependencies("/unused", {importNodeLimit:0});throw new Error("unexpected success");}
   catch(error) { expect(error).toBeInstanceOf(CapabilityDependenciesError);expect((error as any).code).toBe("AC_SCHEMA_INVALID"); expect((error as any).reasonCode).toBe("deps-input-invalid"); }
 });
@@ -57,22 +53,9 @@ test("C1 preserves raw throw shape and typed attributes when a public operation 
   expect(failureIssues(failure)).toEqual([]);
 });
 
-test("C2 recovery sentinel is typed and keeps complete original journal bindings", async () => {
-  const { ChangeSetRecoveryUnresolvedError } = await import("../src/changeset-recovery-error");
-  const { publicOperationFailure } = await import("../src/public-operation-failure");
-  const journals = [{journalId:"journal."+"a".repeat(240), changeSetId:"changeset."+"b".repeat(240), root:"/fixture", reason:"fixture-recovery"}];
-  const sentinel = new ChangeSetRecoveryUnresolvedError(journals as any);
-  let caught: unknown;
-  caught=publicOperationFailure(sentinel);
-  expect(caught).toBe(sentinel);
-  expect((caught as InstanceType<typeof ChangeSetRecoveryUnresolvedError>).unresolvedJournals).toBe(journals as any);
-  expect((caught as InstanceType<typeof ChangeSetRecoveryUnresolvedError>).unresolvedJournals[0]!.journalId).toBe(journals[0]!.journalId);
-});
-
-
 test("C1 hostile throws retain safe typed raw failures at the existing public boundaries", async () => {
   const {FailureError} = await import("@archcontext/contracts");
-  const {runProjectionCheckCommand} = await import("../src/projection-service");
+  const {runProjectionCheckCommand} = await import("../src/projection-check");
   const {exportNativeContext} = await import("@archcontext/local-runtime/model-store-yaml");
   const throwing = (key: string) => Object.defineProperty({},key,{get(){const p=Proxy.revocable({},{});p.revoke();throw p.proxy;}});
   for (const read of [()=>runProjectionCheckCommand(throwing("mode") as any,"."),()=>readCapabilityDependencies(".",throwing("importNodeLimit")),()=>exportNativeContext(".",throwing("source") as any)]) {

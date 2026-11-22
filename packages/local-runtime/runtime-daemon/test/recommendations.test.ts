@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { planRecommendationRun, recommendationRunLedgerPayload } from "@archcontext/core/recommendation-engine";
-import { digestJson } from "@archcontext/contracts";
+import { digestJson, type ArchitectureEventV1 } from "@archcontext/contracts";
 import { runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
 
@@ -32,6 +32,7 @@ describe("daemon recommendations", () => {
       });
       const plan = await appendRecommendationRunFixture(store, root, "2026-06-26T12:00:00.000Z");
       const recommendationId = plan.recommendations[0].recommendationId;
+      const readRefactorEvents = async () => (await store.readCacheEntry<ArchitectureEventV1[]>("refactor_events", runtimeStatePaths(root).storageRepositoryId)) ?? [];
 
       await expect(daemon.recommendations(root, {
         command: "accept", approved: true,
@@ -41,7 +42,7 @@ describe("daemon recommendations", () => {
         source: "cli",
         now: "2026-06-26T12:09:00.000Z"
       })).rejects.toMatchObject({ code: "AC_UNCLASSIFIED_FAILURE", reasonCode: "failure-unclassified" });
-      expect(store.architectureEvents).toHaveLength(1);
+      expect(await readRefactorEvents()).toHaveLength(1);
 
       const accepted = await daemon.recommendations(root, {
         command: "accept", approved: true,
@@ -77,12 +78,13 @@ describe("daemon recommendations", () => {
       });
       expect(JSON.stringify(accepted.data)).not.toContain("sourceCode");
       expect(JSON.stringify(accepted.data)).not.toContain("diff --git");
-      expect(store.architectureEventAppends.at(-1)?.events[0]?.eventType).toBe("architecture.recommendation.lifecycle");
-      expect((store.architectureEventAppends.at(-1)?.events[0]?.payload as any).feedback).toHaveLength(1);
+      const afterEvents = await readRefactorEvents();
+      expect(afterEvents.at(-1)?.eventType).toBe("architecture.recommendation.lifecycle");
+      expect((afterEvents.at(-1)?.payload as any).feedback).toHaveLength(1);
 
-      const open = await daemon.book(root, { command: "recommendations", openOnly: true });
+      const open = await daemon.recommendations(root, { command: "list", status: "open" });
       expect((open.data as any).recommendations).toEqual([]);
-      const all = await daemon.book(root, { command: "recommendations" });
+      const all = await daemon.recommendations(root, { command: "list", status: "accepted" });
       expect((all.data as any).recommendations.map((recommendation: any) => recommendation.status)).toEqual(["accepted"]);
 
       const metrics = await daemon.recommendations(root, { command: "metrics", now: "2026-06-26T12:11:00.000Z" });
@@ -149,9 +151,7 @@ async function appendRecommendationRunFixture(store: TestLocalStore, root: strin
   });
   const graphDigest = digestJson({ fixture: "empty-architecture-graph" } as any);
   const inputDigest = digestJson({ runId: plan.run.runId, recommendationIds: plan.run.recommendationIds } as any);
-  await store.appendArchitectureEvents({
-    writer: "runtime-daemon",
-    events: [{
+  await store.writeCacheEntry("refactor_events", repository.storageRepositoryId, [{
       schemaVersion: "archcontext.architecture-event/v1",
       eventId: `architecture_event.recommendation_run.${inputDigest.replace(/^sha256:/, "").slice(0, 16)}`,
       eventType: "architecture.recommendation.run",
@@ -171,7 +171,6 @@ async function appendRecommendationRunFixture(store: TestLocalStore, root: strin
         inputDigest
       },
       payload: recommendationRunLedgerPayload(plan) as any
-    }]
-  });
+  }]);
   return plan;
 }

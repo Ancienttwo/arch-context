@@ -4,12 +4,44 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { toEnvelope, digestJson } from "@archcontext/contracts";
 import { initializeArchContextModel, YamlModelStore } from "../../../local-runtime/model-store-yaml/src/index";
-import { SqliteLocalStore } from "../../../local-runtime/local-store-sqlite/src/index";
-import { ChangeSetEngine, type ChangeOperation } from "../src/index";
+import { ChangeSetEngine, type ChangeOperation, type ChangeSetJournalFile, type ChangeSetJournalPort } from "../src/index";
+
+class RecordingJournal implements ChangeSetJournalPort {
+  committed: Array<{ path: string; operation: "delete" | "write"; hash: string }[]> = [];
+  pending = new Set<string>();
+  private draftFiles = new Map<string, ChangeSetJournalFile[]>();
+  private nextId = 0;
+
+  async beginChangeSet(): Promise<string> {
+    const id = `journal.${++this.nextId}`;
+    this.pending.add(id);
+    this.draftFiles.set(id, []);
+    return id;
+  }
+
+  async recordChangeSetFile(journalId: string, file: ChangeSetJournalFile): Promise<void> {
+    this.draftFiles.get(journalId)?.push(file);
+  }
+
+  async commitChangeSet(journalId: string): Promise<void> {
+    this.pending.delete(journalId);
+    const files = this.draftFiles.get(journalId);
+    if (!files) return;
+    this.committed.push(files.map((file) => ({ path: file.path, operation: "write", hash: file.bodyHash })));
+  }
+
+  async completeChangeSetCleanup(): Promise<void> {}
+
+  async abortChangeSet(journalId: string): Promise<void> {
+    this.pending.delete(journalId);
+    this.draftFiles.delete(journalId);
+  }
+
+  recoverPendingChangeSets(): number { return 0; }
+}
 
 const roots: string[] = [];
-const stores: SqliteLocalStore[] = [];
-afterEach(() => { for (const store of stores.splice(0)) store.close(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
+afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 const oldId = "capability.architecture.context", newId = "capability.architecture.renamed";
 const adrPath = "docs/adr/ADR-0099-reference-test.md";
 async function fixture() {
@@ -18,7 +50,7 @@ async function fixture() {
   mkdirSync(join(root, "docs/adr"), { recursive: true });
   const before = `---\nschemaVersion: archcontext.adr/v1\nid: adr.0099.reference-test\ntitle: References\nstatus: accepted\nappliesTo: # keep this comment\n  - '${oldId}' # keep inline\n---\n\n# Human prose\nDo not replace ${oldId} here.  \n\n`;
   writeFileSync(join(root, adrPath), before);
-  const journal = new SqliteLocalStore(join(root, "journal.sqlite")); stores.push(journal); await journal.migrate();
+  const journal = new RecordingJournal();
   const engine = new ChangeSetEngine({ modelStore: new YamlModelStore(), journal, projection: { planGeneratedProjection: () => [] } });
   const operation = { op: "update_adr_references", path: adrPath, expectedHash: digestJson({ body: before }), references: [{ from: oldId, to: newId }] } as unknown as ChangeOperation;
   const nodePath = `.archcontext/model/nodes/${oldId}.yaml`;
@@ -39,7 +71,7 @@ test("ADR reference migration commits with its model rename and preserves every 
   const after = before.replace(`'${oldId}'`, `'${newId}'`);
   expect(readFileSync(join(root, adrPath), "utf8")).toBe(after);
   expect(existsSync(join(root, nodePath))).toBe(false);
-  expect((await journal.listCommittedChangeSetsForTaskSession(root, "task.adr"))[0].files).toContainEqual({ path: adrPath, operation: "write", hash: digestJson({ body: after }) });
+  expect(journal.committed[0]).toContainEqual({ path: adrPath, operation: "write", hash: digestJson({ body: after }) });
 });
 
 test("failure after ADR write restores model and ADR preimages without a committed claim", async () => {
@@ -48,8 +80,8 @@ test("failure after ADR write restores model and ADR preimages without a committ
   expect(readFileSync(join(root, adrPath), "utf8")).toBe(before);
   expect(readFileSync(join(root, nodePath), "utf8")).toBe(node);
   expect(existsSync(join(root, `.archcontext/model/nodes/${newId}.yaml`))).toBe(false);
-  expect(await journal.listCommittedChangeSetsForTaskSession(root, "task.adr")).toEqual([]);
-  expect(journal.listUnresolvedChangeSetJournals()).toEqual([]);
+  expect(journal.committed).toEqual([]);
+  expect(journal.pending.size).toBe(0);
 });
 
 const invalid: Record<string, unknown>[] = [
@@ -67,7 +99,7 @@ for (const patch of invalid) test(`ADR operation rejects ${JSON.stringify(patch)
   expect(engine.preview(root, draft).allowed).toBe(false);
   await expect(engine.apply(root, draft, { approved: true })).rejects.toThrow();
   expect(readFileSync(join(root, adrPath), "utf8")).toBe(before);
-  expect(await journal.listCommittedChangeSetsForTaskSession(root, "task.adr")).toEqual([]);
+  expect(journal.committed).toEqual([]);
 });
 
 test("ADR unknown target fails model validation and generic operations cannot write ADRs", async () => {
@@ -82,15 +114,14 @@ test("ADR unknown target fails model validation and generic operations cannot wr
   }
 });
 
-test("ADR schema is shared with MCP and proposal parser, without arbitrary-body escape", async () => {
-  const { ADR_REFERENCE_OPERATION_SCHEMA } = await import("../src/index");
-  const { MCP_TOOL_INPUT_SCHEMAS } = await import("../../../surfaces/mcp-local/src/tool-schemas");
+test("ADR schema is shared with ChangeSet plan schema and proposal parser, without arbitrary-body escape", async () => {
+  const { ADR_REFERENCE_OPERATION_SCHEMA, PLAN_OPERATIONS_SCHEMA } = await import("../src/index");
   const { validateJsonSchema } = await import("@archcontext/contracts");
   const { parseModelProposal } = await import("../../../../scripts/apply-model-proposal");
-  const { root, operation } = await fixture();
+  const { operation } = await fixture();
   const runtime = await Bun.file(join(import.meta.dir, "../../../../schemas/runtime/changeset.schema.json")).json();
   expect(runtime.properties.operations.items.oneOf[2]).toEqual(ADR_REFERENCE_OPERATION_SCHEMA);
-  expect(validateJsonSchema(MCP_TOOL_INPUT_SCHEMAS.archcontext_plan_update, { root, id: "changeset.adr", operations: [operation] } as any).valid).toBe(true);
+  expect(validateJsonSchema(PLAN_OPERATIONS_SCHEMA, [operation] as any).valid).toBe(true);
   const proposal = { schemaVersion: "archcontext.model-proposal/v1", changeSetId: "changeset.adr", taskSessionId: "task.adr", operations: [operation] };
   expect(JSON.stringify(parseModelProposal(proposal).operations)).toBe(JSON.stringify([operation]));
   expect(() => parseModelProposal({ ...proposal, operations: [{ ...operation, body: "arbitrary" }] })).toThrow();
@@ -128,22 +159,6 @@ test("ADR symlink target and parent are refused without changing their content",
   expect(readFileSync(path, "utf8")).toBe(before);
 });
 
-test("pending ADR journal recovery restores the exact preimage after restart", async () => {
-  const { root, before, journal, operation, plan } = await fixture();
-  const { renderAdrReferenceUpdate } = await import("../src/adr-reference-update");
-  const path = join(root, adrPath), backupPath = `${path}.archctx-backup`;
-  const body = renderAdrReferenceUpdate(before, operation.references!);
-  const id = await journal.beginChangeSet(root, plan([operation]));
-  await journal.recordChangeSetFile(id, { path: adrPath, backupPath, existed: true, operation: "update_adr_references", bodyHash: digestJson({ body }) });
-  renameSync(path, backupPath); writeFileSync(path, body);
-  journal.close(); stores.splice(stores.indexOf(journal), 1);
-  const reopened = new SqliteLocalStore(join(root, "journal.sqlite")); stores.push(reopened); await reopened.migrate();
-  expect(reopened.recoverPendingChangeSets()).toBe(1);
-  expect(readFileSync(path, "utf8")).toBe(before);
-  expect(await reopened.listCommittedChangeSetsForTaskSession(root, "task.adr")).toEqual([]);
-});
-
-
 test("ADR stale preview retains its diagnostic while apply carries typed preimage metadata", async () => {
   const { root, before, journal, engine, operation, plan } = await fixture();
   const draft = plan([{ ...operation, expectedHash: `sha256:${"0".repeat(64)}` }]);
@@ -154,5 +169,5 @@ test("ADR stale preview retains its diagnostic while apply carries typed preimag
   expect(publicFailure.error.message).toBe("Projection preimage changed before apply.");
   expect(JSON.stringify(publicFailure)).not.toContain(root);
   expect(readFileSync(join(root, adrPath), "utf8")).toBe(before);
-  expect(await journal.listCommittedChangeSetsForTaskSession(root, "task.adr")).toEqual([]);
+  expect(journal.committed).toEqual([]);
 });

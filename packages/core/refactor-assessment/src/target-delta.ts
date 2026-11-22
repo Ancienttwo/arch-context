@@ -3,7 +3,7 @@ import type {
   ArchitectureTargetDeltaV1,
   ModuleStatisticsSnapshotV1
 } from "@archcontext/contracts";
-import { nativeNodeSource, type NativeModel } from "@archcontext/core/projection-engine";
+import { nativeNodeSource, type NativeModel } from "@archcontext/core/architecture-domain";
 
 export interface TargetDeltaDerivationV1 {
   /** The subset of `ArchitectureMajorChangeReasonCode` v1 can derive from a declared model. */

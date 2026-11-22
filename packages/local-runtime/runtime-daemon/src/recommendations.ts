@@ -2,10 +2,15 @@ import { publicFailureEnvelope, publicOperationErrorEnvelope, publicOperationFai
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { findRepositoryRoot, readTrackedSourceFiles } from "@archcontext/local-runtime/git-adapter";
-import { type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
+import { verifySymbolKillList } from "@archcontext/local-runtime/codegraph-adapter";
+import { runtimeStatePaths, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { loadNativeModelFromArchContext } from "@archcontext/core/projection-engine";
 import {
   architectureLedgerPayload,
+  architectureLedgerStateDigest,
+  replayArchitectureLedgerEvidenceState,
+  replayArchitectureLedgerEvents,
+  validateArchitectureLedgerEvent,
   type ArchitectureLedgerAppendInput,
   type ArchitectureLedgerAppendResult,
   type ArchitectureLedgerScope,
@@ -21,6 +26,7 @@ import {
   type RecommendationFeedbackAction
 } from "@archcontext/core/recommendation-engine";
 import {
+  REFACTOR_ASSESSMENT_REGISTRY_CAPACITY,
   REFACTOR_RUN_PERSISTENCE_REASON_CODE,
   RefactorAssessmentRegistry,
   RefactorRunTooLargeError,
@@ -57,6 +63,7 @@ import {
   type RuntimeRefactorVerifyInput
 } from "./refactor-verify";
 import {
+  architectureEventHash,
   digestJson,
   okEnvelope,
   type ArchContextErrorCode,
@@ -94,8 +101,31 @@ import {
   type RefactorResolutionEvidenceV1,
   type StructuralObservationPayloadV1
 } from "@archcontext/contracts";
-import type { RuntimeRecommendationInput, RuntimeRefactorScanInput, RuntimeRefactorRecordInput } from "./rpc-types";
-export type { RuntimeRecommendationInput, RuntimeRefactorScanInput, RuntimeRefactorRecordInput } from "./rpc-types";
+import type { RuntimeRecommendationInput, RuntimeRefactorScanInput, RuntimeRefactorRecordInput } from "./runtime-types";
+export type { RuntimeRecommendationInput, RuntimeRefactorScanInput, RuntimeRefactorRecordInput } from "./runtime-types";
+
+const REFACTOR_ASSESSMENTS_CACHE_NAMESPACE = "refactor_assessments";
+
+interface SerializedRegisteredRefactorAssessmentV1 extends Omit<RegisteredRefactorAssessmentV1, "decisionSnapshot"> {
+  decisionSnapshot?: {
+    digest: string;
+    structuralWorktreeDigest: string;
+    recommendationIds: string[];
+  };
+}
+
+interface SerializedRegisteredRefactorAssessmentEntry {
+  assessmentDigest: string;
+  entry: SerializedRegisteredRefactorAssessmentV1;
+}
+
+interface CachedRefactorReplay {
+  cursor: { eventCount: number; lastEventId?: string; lastEventHash?: string };
+  graphDigest: string;
+  state: ReturnType<typeof replayArchitectureLedgerEvents>;
+  evidenceState: EvidenceStateAtCursorV1;
+  events: ArchitectureEventV1[];
+}
 
 interface RecommendationsContext {
   assertRunning(): void;
@@ -111,22 +141,18 @@ interface RecommendationsContext {
   }>;
   assertFreshWorktree(root: string, expectedWorktreeDigest: string | undefined, command: string): void;
   shortDigest(digest: string): string;
-  appendArchitectureEventsWithFeed(root: string, input: ArchitectureLedgerAppendInput): Promise<ArchitectureLedgerAppendResult>;
-  /**
-   * Writes refactor decision files and appends `events` in one ChangeSet journal boundary
-   * (ADR-0046). Must be called inside `withWriter`; it never takes the lock itself.
-   */
   applyRefactorDecision(
     root: string,
-    input: { writes: { path: string; expectedHash: string; body: string }[]; events: ArchitectureEventV1[] }
-  ): Promise<{ changeSetId: string; journalId: string; append: ArchitectureLedgerAppendResult }>;
-  localStore: Pick<RuntimeLocalStore, "replayArchitectureLedger" | "resolveArchitectureLedgerScope">;
+    writes: { path: string; expectedHash: string; body: string }[],
+    afterValidated?: () => Promise<void>
+  ): Promise<{ changeSetId: string }>;
+  localStore: Pick<RuntimeLocalStore, "readCacheEntry" | "writeCacheEntry">;
 }
 
 interface RefactorLedgerState {
   gitScope: ArchitectureLedgerScope;
   storageScope: ArchitectureLedgerScope;
-  replay: Awaited<ReturnType<RecommendationsContext["localStore"]["replayArchitectureLedger"]>>;
+  replay: CachedRefactorReplay;
   artifacts: ReturnType<typeof recommendationArtifactsFromEvents>;
 }
 
@@ -146,7 +172,7 @@ export class RecommendationsService {
     const command = input.command;
     const readMetrics = async () => {
       const scope = await this.context.architectureLedgerScope(repositoryRoot);
-      const replay = await this.context.localStore.replayArchitectureLedger({ ...scope, mode: "genesis" });
+      const replay = await this.replayEvents(scope);
       const artifacts = recommendationArtifactsFromEvents(replay.events);
       return okEnvelope("recommendations.metrics", {
         ...aggregateRecommendationLifecycleMetrics({
@@ -208,7 +234,7 @@ export class RecommendationsService {
       const cached = input.snapshotDigest === undefined ? undefined : await this.cachedDecisionSnapshot(repositoryRoot, input, command);
       if (cached && "error" in cached) return cached.error;
       const scope = cached?.storageScope ?? await this.context.architectureLedgerScope(repositoryRoot);
-      const replay = cached?.replay ?? await this.context.localStore.replayArchitectureLedger({ ...scope, mode: "genesis" });
+      const replay = cached?.replay ?? await this.replayEvents(scope);
       const artifacts = cached?.artifacts ?? recommendationArtifactsFromEvents(replay.events);
       const ledgerCurrent = latestRecommendationById(artifacts.recommendations, input.recommendationId!);
       if (!ledgerCurrent) {
@@ -270,7 +296,7 @@ export class RecommendationsService {
       let append: ArchitectureLedgerAppendResult;
       let decisionFile: string | null = null;
       if (decisions) {
-        const written = await this.writeRefactorDecision(repositoryRoot, {
+        const written = await this.writeRefactorDecision(repositoryRoot, scope, {
           namespace: decisions.namespace,
           next: next as RecommendationV3,
           command,
@@ -283,10 +309,7 @@ export class RecommendationsService {
         append = written.append;
         decisionFile = written.path;
       } else {
-        append = await this.context.appendArchitectureEventsWithFeed(root, {
-          writer: "runtime-daemon",
-          events: [event]
-        });
+        append = await this.appendEvents(scope, [event]);
       }
       const metrics = aggregateRecommendationLifecycleMetrics({
         recommendationRuns: artifacts.recommendationRuns,
@@ -304,7 +327,9 @@ export class RecommendationsService {
     command: RecommendationFeedbackAction
   ): Promise<(RefactorLedgerState & { registered: RegisteredRefactorAssessmentV1 }) | { error: JsonEnvelope }> {
     const recommendationId = input.recommendationId!;
-    const registered = this.refactorAssessments.getBySnapshotDigest(input.snapshotDigest!);
+    const storageRepositoryId = runtimeStatePaths(repositoryRoot).storageRepositoryId;
+    const registered = this.refactorAssessments.getBySnapshotDigest(input.snapshotDigest!)
+      ?? await this.readCachedRefactorAssessmentBySnapshotDigest(storageRepositoryId, input.snapshotDigest!);
     if (!registered?.decisionSnapshot) return { error: recommendationSnapshotChanged(command, recommendationId, []) };
     const { scope: gitScope, structuralWorktreeDigest } = await this.context.refactorScanGitScope(repositoryRoot, true);
     if (registered.snapshot.repository.repositoryId !== gitScope.repository.repositoryId
@@ -423,7 +448,7 @@ export class RecommendationsService {
     // Same last look `refactor record` takes: the record binds the measurement to this tree.
     const moved = await this.movedScanWorktree(repositoryRoot, gitScope.worktree, registered.decisionSnapshot?.structuralWorktreeDigest);
     if (moved.length > 0) return recommendationSnapshotChanged(command, recommendationId, moved);
-    const written = await this.writeRefactorDecision(repositoryRoot, {
+    const written = await this.writeRefactorDecision(repositoryRoot, storageScope, {
       namespace: decisions.namespace,
       next: next as RecommendationV3,
       command,
@@ -468,6 +493,7 @@ export class RecommendationsService {
    */
   private async writeRefactorDecision(
     repositoryRoot: string,
+    scope: ArchitectureLedgerScope,
     input: {
       namespace: string;
       next: RecommendationV3;
@@ -497,8 +523,12 @@ export class RecommendationsService {
     } catch (error) {
       return { error: refactorScanErrorEnvelope(surface, error) };
     }
-    const applied = await this.context.applyRefactorDecision(repositoryRoot, { writes: [write], events: input.events });
-    return { append: applied.append, path: write.path };
+    let append: ArchitectureLedgerAppendResult | undefined;
+    await this.context.applyRefactorDecision(repositoryRoot, [write], async () => {
+      append = await this.appendEvents(scope, input.events);
+    });
+    if (!append) throw new Error("refactor decision ChangeSet committed without appending events");
+    return { append, path: write.path };
   }
 
   /**
@@ -521,7 +551,7 @@ export class RecommendationsService {
     importNodeLimit: number | undefined
   ): Promise<JsonEnvelope> {
     const scope = await this.context.architectureLedgerScope(repositoryRoot);
-    const replay = await this.context.localStore.replayArchitectureLedger({ ...scope, mode: "genesis" });
+    const replay = await this.replayEvents(scope);
     const artifacts = recommendationArtifactsFromEvents(replay.events);
     const ledgerRecorded = latestRecommendationById(artifacts.recommendations, recommendationId);
     let decisions: RefactorDecisionSetV1 | undefined;
@@ -576,11 +606,6 @@ export class RecommendationsService {
     }
     const candidate = measured.result.proposedRecommendations.find((entry) => entry.recommendationId === recommendationId);
     if (!candidate) return recommendationNotFound("show", recommendationId, "recorded-or-scanned");
-    // A candidate is shown under the identity a decision on it would record; a run that cannot be
-    // recorded cannot be decided, so its candidate is refused the way the decision would be.
-    if (!measured.result.recording.recordable) {
-      return refactorRunTooLargeEnvelope("recommendations.show", measured.result.recording);
-    }
     const bindings = measured.result.evidenceBindings
       .filter((binding) => binding.target.kind === "recommendation" && binding.target.id === recommendationId)
       .sort((left, right) => left.bindingId.localeCompare(right.bindingId));
@@ -593,21 +618,30 @@ export class RecommendationsService {
       items: evidenceItemsFor(measured.result.evidenceItems, bindings),
       baseline: { status: "measured", snapshotDigest: measured.result.snapshot.snapshotDigest, snapshot: measured.result.snapshot },
       decisions: [],
-      worktree: { headSha: measured.gitScope.worktree.headSha, worktreeDigest: measured.gitScope.worktree.worktreeDigest }
+      worktree: { headSha: measured.gitScope.worktree.headSha, worktreeDigest: measured.gitScope.worktree.worktreeDigest },
+      ...(!measured.result.recording.recordable
+        ? {
+          recording: {
+            recorded: false,
+            recordable: false,
+            reasonCode: measured.result.recording.reasonCode,
+            measuredBytes: measured.result.recording.measuredBytes,
+            limitBytes: measured.result.recording.limitBytes
+          }
+        }
+        : {})
     });
   }
 
   /**
-   * Every recommendation whose latest record has `status`, read from the ledger alone. Unlike
-   * `book recommendations` there is no item or byte budget: a consumer that reads decisions must
-   * see all of them, so nothing is cut and `count` is the whole answer. Read-only.
+   * Every recommendation whose latest record has `status`, or all statuses when `status` is omitted. Read-only.
    */
   private async listRecommendations(repositoryRoot: string, status: string | undefined): Promise<JsonEnvelope> {
-    if (status === undefined || !(RECOMMENDATION_STATUSES as readonly string[]).includes(status)) {
+    if (status !== undefined && !(RECOMMENDATION_STATUSES as readonly string[]).includes(status)) {
       return publicFailureEnvelope("recommendations.list", "AC_SCHEMA_INVALID", "recommendations-input-invalid", {});
     }
     const scope = await this.context.architectureLedgerScope(repositoryRoot);
-    const replay = await this.context.localStore.replayArchitectureLedger({ ...scope, mode: "genesis" });
+    const replay = await this.replayEvents(scope);
     const latest = latestRecommendationsById(recommendationArtifactsFromEvents(replay.events).recommendations);
     let decisions: RefactorDecisionSetV1 | undefined;
     if (refactorDecisionsInPlay(repositoryRoot, latest)) {
@@ -622,19 +656,19 @@ export class RecommendationsService {
     // subject's status, only reported under `ledgerAudit` with the status the ledger recorded.
     const views = latest.map((recommendation) => refactorStatusView(recommendation, decisions));
     const recommendations = views
-      .filter((view) => view.authority !== "ledger-audit" && view.record.status === status)
+      .filter((view) => view.authority !== "ledger-audit" && (status === undefined || view.record.status === status))
       .map((view) => view.record);
     const ledgerAudit = views
-      .filter((view) => view.authority === "ledger-audit" && view.record.status === status)
+      .filter((view) => view.authority === "ledger-audit" && (status === undefined || view.record.status === status))
       .map((view) => view.record);
     const recorded = new Set(latest.map((recommendation) => recommendation.recommendationId));
     // Decisions this checkout carries for ids this workspace's ledger never recorded (another
     // worktree or branch decided them and the decision came through Git).
     const gitOnlyDecisions = (decisions?.decisions ?? [])
-      .filter((decision) => decision.status === status && !recorded.has(decision.recommendationId));
+      .filter((decision) => (status === undefined || decision.status === status) && !recorded.has(decision.recommendationId));
     return okEnvelope("recommendations.list", {
       schemaVersion: "archcontext.runtime-recommendation-list/v1",
-      status,
+      status: status ?? "all",
       count: recommendations.length + gitOnlyDecisions.length,
       recommendations,
       decisions: gitOnlyDecisions,
@@ -769,11 +803,62 @@ export class RecommendationsService {
     return { next, feedback, event };
   }
 
-  /** Resolve the live Git scope to the ledger's existing storage partition before replay. */
+  private async replayEvents(scope: ArchitectureLedgerScope): Promise<CachedRefactorReplay> {
+    const events = await this.context.localStore.readCacheEntry<ArchitectureEventV1[]>("refactor_events", scope.repository.storageRepositoryId) ?? [];
+    const state = replayArchitectureLedgerEvents(events);
+    const graphDigest = architectureLedgerStateDigest(state);
+    const evidenceState = replayArchitectureLedgerEvidenceState(events);
+    const last = events.at(-1);
+    return {
+      events,
+      state,
+      graphDigest,
+      evidenceState,
+      cursor: { eventCount: events.length, ...(last ? { lastEventId: last.eventId, lastEventHash: last.eventHash } : {}) }
+    };
+  }
+
+  private async appendEvents(scope: ArchitectureLedgerScope, incoming: ArchitectureEventV1[]): Promise<ArchitectureLedgerAppendResult> {
+    const existing = await this.context.localStore.readCacheEntry<ArchitectureEventV1[]>("refactor_events", scope.repository.storageRepositoryId) ?? [];
+    const byKey = new Map<string, ArchitectureEventV1>();
+    for (const item of existing) byKey.set(item.idempotencyKey ?? item.eventId, item);
+    const appendedEvents: ArchitectureEventV1[] = [];
+    const duplicateEvents: ArchitectureEventV1[] = [];
+    const next = [...existing];
+    for (const raw of incoming) {
+      const normalized = { ...raw, eventHash: raw.eventHash ?? architectureEventHash(raw) };
+      validateArchitectureLedgerEvent(normalized);
+      const key = normalized.idempotencyKey ?? normalized.eventId;
+      const prev = byKey.get(key);
+      if (prev) {
+        if ((prev.eventHash ?? architectureEventHash(prev)) !== normalized.eventHash) {
+          throw new Error(`architecture-ledger-idempotency-conflict: ${key}`);
+        }
+        duplicateEvents.push(prev);
+        continue;
+      }
+      byKey.set(key, normalized);
+      next.push(normalized);
+      appendedEvents.push(normalized);
+    }
+    if (appendedEvents.length > 0) {
+      await this.context.localStore.writeCacheEntry("refactor_events", scope.repository.storageRepositoryId, next);
+    }
+    const state = replayArchitectureLedgerEvents(next);
+    return {
+      appendedEvents,
+      duplicateEvents,
+      graphDigest: architectureLedgerStateDigest(state),
+      entityCount: state.entities.length,
+      relationCount: state.relations.length,
+      constraintCount: state.constraints.length
+    };
+  }
+
+  /** Read refactor events from discardable local cache without requiring a 41-table ledger. */
   private async readRefactorLedger(gitScope: ArchitectureLedgerScope): Promise<RefactorLedgerState> {
-    const storageScope = await this.context.localStore.resolveArchitectureLedgerScope(gitScope);
-    const replay = await this.context.localStore.replayArchitectureLedger({ ...storageScope, mode: "genesis" });
-    return { gitScope, storageScope, replay, artifacts: recommendationArtifactsFromEvents(replay.events) };
+    const replay = await this.replayEvents(gitScope);
+    return { gitScope, storageScope: gitScope, replay, artifacts: recommendationArtifactsFromEvents(replay.events) };
   }
 
   /** Measures the current tree and checks it again before the result can enter the registry. */
@@ -870,14 +955,16 @@ export class RecommendationsService {
       requestId: result.requestId,
       assessmentDigest: result.assessment.assessmentDigest
     });
-    this.registerRefactorAssessment({
+    const registeredEntry: RegisteredRefactorAssessmentV1 = {
       ...registeredAssessment(result, gitScope.worktree),
       decisionSnapshot: {
         digest: snapshotDigest,
         structuralWorktreeDigest,
         recommendationIds: new Set([...result.proposedRecommendations, ...result.openRecommendations].map((record) => record.recommendationId))
       }
-    });
+    };
+    this.registerRefactorAssessment(registeredEntry);
+    await this.persistRegisteredRefactorAssessment(gitScope.repository.storageRepositoryId, registeredEntry);
     // SAFETY: the scan result and request are JSON contract values.
     return okEnvelope("refactor.scan", {
       schemaVersion: "archcontext.runtime-refactor-scan/v1",
@@ -944,7 +1031,9 @@ export class RecommendationsService {
     }
     const repositoryRoot = findRepositoryRoot(root);
     return this.context.withWriter(async () => {
-      const registered = this.refactorAssessments.get(input.assessmentDigest);
+      const storageRepositoryId = runtimeStatePaths(repositoryRoot).storageRepositoryId;
+      const registered = this.refactorAssessments.get(input.assessmentDigest)
+        ?? await this.readCachedRefactorAssessmentByDigest(storageRepositoryId, input.assessmentDigest);
       if (!registered) {
         return publicFailureEnvelope("refactor.record", "AC_SCHEMA_INVALID", "refactor-assessment-missing", {assessmentDigest: input.assessmentDigest});
       }
@@ -959,10 +1048,7 @@ export class RecommendationsService {
       if (registered.headSha !== gitScope.worktree.headSha || registered.worktreeDigest !== gitScope.worktree.worktreeDigest) {
         return publicFailureEnvelope("refactor.record", "AC_REFACTOR_STALE", "refactor-assessment-stale", {assessmentDigest: input.assessmentDigest, expectedHeadSha: registered.headSha, actualHeadSha: gitScope.worktree.headSha, expectedWorktreeDigest: registered.worktreeDigest, actualWorktreeDigest: gitScope.worktree.worktreeDigest});
       }
-      // The event still lands in the ledger scope the workspace's prior events live in, so the
-      // chain and its replay stay one continuous log. Deferred to 0.6.0: decoupling that ledger
-      // partition key from the identity the event itself carries.
-      const scope = await this.context.localStore.resolveArchitectureLedgerScope(gitScope);
+      const scope = gitScope;
       if (registered.proposal) {
         const authorIssues = refactorProposalAuthorPairIssues(registered.proposal.authoredBy);
         if (authorIssues.length > 0) {
@@ -976,7 +1062,7 @@ export class RecommendationsService {
       });
       if (scanIssues.length > 0) return publicFailureEnvelope("refactor.record", "AC_SCHEMA_INVALID", "refactor-invariant-invalid", {issueCount: scanIssues.length});
 
-      const replay = await this.context.localStore.replayArchitectureLedger({ ...scope, mode: "genesis" });
+      const replay = await this.replayEvents(scope);
       const artifacts = recommendationArtifactsFromEvents(replay.events);
       // Re-read under the writer: a decision committed or checked out since the scan is the
       // authority the record must plan against, and the product id must still be the scanned one.
@@ -1013,10 +1099,7 @@ export class RecommendationsService {
       if (movedBeforeAppend.length > 0) {
         return publicFailureEnvelope("refactor.record", "AC_REFACTOR_STALE", "refactor-record-snapshot-changed", {assessmentDigest: input.assessmentDigest, changedFields: movedBeforeAppend});
       }
-      const append = await this.context.appendArchitectureEventsWithFeed(root, {
-        writer: "runtime-daemon",
-        events: [built.event]
-      });
+      const append = await this.appendEvents(scope, [built.event]);
       return okEnvelope("refactor.record", {
         schemaVersion: "archcontext.runtime-refactor-record/v1",
         repository: gitScope.repository,
@@ -1088,9 +1171,8 @@ export class RecommendationsService {
       if (input.expectedHeadSha !== undefined && input.expectedHeadSha !== gitScope.worktree.headSha) {
         return publicFailureEnvelope("refactor.verify", "AC_REFACTOR_STALE", "refactor-head-mismatch", {recommendationId: input.recommendationId, expectedHeadSha: input.expectedHeadSha, actualHeadSha: gitScope.worktree.headSha});
       }
-      // Ledger replay and append share the recorded partition; the response reports live Git identity.
-      const scope = await this.context.localStore.resolveArchitectureLedgerScope(gitScope);
-      const replay = await this.context.localStore.replayArchitectureLedger({ ...scope, mode: "genesis" });
+      const scope = gitScope;
+      const replay = await this.replayEvents(scope);
       const artifacts = recommendationArtifactsFromEvents(replay.events);
       const ledgerCurrent = latestRecommendationById(artifacts.recommendations, input.recommendationId);
       if (!ledgerCurrent) {
@@ -1147,6 +1229,19 @@ export class RecommendationsService {
         if (error instanceof RefactorScanError) return publicOperationErrorEnvelope("refactor.verify", error);
         return publicOperationErrorEnvelope("refactor.verify", error);
       }
+      const afterTrackedFiles = readTrackedSourceFiles(repositoryRoot);
+      const symbolTargets = recommendation.category === "refactor_proposal"
+        ? recommendation.payload.killList.filter((entry) => entry.kind === "symbol").map((entry) => entry.selectorId)
+        : [];
+      const codeFactsReady = scan.snapshot.codeFacts.coverage !== "unknown" &&
+        scan.snapshot.codeFacts.indexedWorktreeDigest === scan.snapshot.worktree.worktreeDigest;
+      const symbolChecks = symbolTargets.length > 0
+        ? verifySymbolKillList(repositoryRoot, symbolTargets, {
+          codeFactsReady,
+          trackedFiles: new Set(afterTrackedFiles.map((file) => file.path))
+        })
+        : [];
+      const afterSymbolKillList = new Map(symbolChecks.map((check) => [check.target, check] as const));
       let plan: ReturnType<typeof runRefactorVerify>;
       try {
         plan = runRefactorVerify({
@@ -1161,7 +1256,8 @@ export class RecommendationsService {
           // silently diverge from the scan: `evaluateResolution` binds both to the snapshot's
           // `modelDigest` and footprint digests and reports `stale` when they disagree.
           afterModel: loadNativeModelFromArchContext(repositoryRoot),
-          afterTrackedFiles: readTrackedSourceFiles(repositoryRoot),
+          afterTrackedFiles,
+          ...(afterSymbolKillList.size > 0 ? { afterSymbolKillList } : {}),
           ...(input.executionEvidenceRefs ? { executionEvidenceRefs: input.executionEvidenceRefs } : {}),
           evidenceState: replay.evidenceState,
           graphDigest: replay.graphDigest,
@@ -1193,10 +1289,7 @@ export class RecommendationsService {
       if (moved.length > 0) {
         return publicFailureEnvelope("refactor.verify", "AC_REFACTOR_STALE", "refactor-verify-snapshot-changed", {recommendationId: input.recommendationId, changedFields: moved});
       }
-      const append = await this.context.appendArchitectureEventsWithFeed(root, {
-        writer: "runtime-daemon",
-        events: [plan.event]
-      });
+      const append = await this.appendEvents(scope, [plan.event]);
       return this.refactorVerifyEnvelope({
         gitScope,
         recommendation,
@@ -1249,6 +1342,28 @@ export class RecommendationsService {
         implicitAcceptance: false
       }
     } as unknown as Json);
+  }
+
+  private async persistRegisteredRefactorAssessment(storageRepositoryId: string, entry: RegisteredRefactorAssessmentV1): Promise<void> {
+    const existing = await this.context.localStore.readCacheEntry<SerializedRegisteredRefactorAssessmentEntry[]>(REFACTOR_ASSESSMENTS_CACHE_NAMESPACE, storageRepositoryId);
+    const items = Array.isArray(existing) ? existing.filter((item) => item.assessmentDigest !== entry.assessment.assessmentDigest) : [];
+    items.push({ assessmentDigest: entry.assessment.assessmentDigest, entry: serializeRegisteredRefactorAssessment(entry) });
+    while (items.length > REFACTOR_ASSESSMENT_REGISTRY_CAPACITY) items.shift();
+    await this.context.localStore.writeCacheEntry(REFACTOR_ASSESSMENTS_CACHE_NAMESPACE, storageRepositoryId, items);
+  }
+
+  private async readCachedRefactorAssessmentByDigest(storageRepositoryId: string, assessmentDigest: string): Promise<RegisteredRefactorAssessmentV1 | undefined> {
+    const existing = await this.context.localStore.readCacheEntry<SerializedRegisteredRefactorAssessmentEntry[]>(REFACTOR_ASSESSMENTS_CACHE_NAMESPACE, storageRepositoryId);
+    if (!Array.isArray(existing)) return undefined;
+    const hit = existing.find((item) => item.assessmentDigest === assessmentDigest);
+    return hit ? deserializeRegisteredRefactorAssessment(hit.entry) : undefined;
+  }
+
+  private async readCachedRefactorAssessmentBySnapshotDigest(storageRepositoryId: string, snapshotDigest: string): Promise<RegisteredRefactorAssessmentV1 | undefined> {
+    const existing = await this.context.localStore.readCacheEntry<SerializedRegisteredRefactorAssessmentEntry[]>(REFACTOR_ASSESSMENTS_CACHE_NAMESPACE, storageRepositoryId);
+    if (!Array.isArray(existing)) return undefined;
+    const hit = existing.find((item) => item.entry.decisionSnapshot?.digest === snapshotDigest);
+    return hit ? deserializeRegisteredRefactorAssessment(hit.entry) : undefined;
   }
 }
 
@@ -1492,6 +1607,7 @@ function recommendationShowEnvelope(input: {
   decisions: RecommendationFeedbackV1[];
   /** The tree a scan candidate was measured at; `null` for a recorded recommendation. */
   worktree: { headSha: string; worktreeDigest: string } | null;
+  recording?: { recorded: boolean; recordable: boolean; reasonCode: string | null; measuredBytes: number; limitBytes: number };
 }): JsonEnvelope {
   const recommendation = input.recommendation as RecommendationV2 | RecommendationV3 | null;
   const affectedNodeIds = recommendation !== null && "category" in recommendation && recommendation.category !== "practice"
@@ -1515,6 +1631,7 @@ function recommendationShowEnvelope(input: {
     affectedModules,
     decisions: input.decisions,
     worktree: input.worktree,
+    ...(input.recording ? { recording: input.recording } : {}),
     privacy: {
       writes: "none",
       rawSourcePersisted: false,
@@ -1743,4 +1860,32 @@ function recommendationActorKind(input: RuntimeRecommendationInput): Architectur
   if (input.source === "system") return "system";
   if (input.source === "subagent") return "subagent";
   return "cli";
+}
+
+function serializeRegisteredRefactorAssessment(entry: RegisteredRefactorAssessmentV1): SerializedRegisteredRefactorAssessmentV1 {
+  const { decisionSnapshot, ...rest } = entry;
+  return decisionSnapshot
+    ? {
+        ...rest,
+        decisionSnapshot: {
+          digest: decisionSnapshot.digest,
+          structuralWorktreeDigest: decisionSnapshot.structuralWorktreeDigest,
+          recommendationIds: [...decisionSnapshot.recommendationIds]
+        }
+      }
+    : rest;
+}
+
+function deserializeRegisteredRefactorAssessment(entry: SerializedRegisteredRefactorAssessmentV1): RegisteredRefactorAssessmentV1 {
+  const { decisionSnapshot, ...rest } = entry;
+  return decisionSnapshot
+    ? {
+        ...rest,
+        decisionSnapshot: {
+          digest: decisionSnapshot.digest,
+          structuralWorktreeDigest: decisionSnapshot.structuralWorktreeDigest,
+          recommendationIds: new Set(decisionSnapshot.recommendationIds)
+        }
+      }
+    : rest;
 }

@@ -2,33 +2,103 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://archcontext.dev/schemas/runtime/ref-impact-batch.schema.json",
   "title": "RefImpactBatchV1",
-  "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "items"],
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "items"
+  ],
   "properties": {
-    "schemaVersion": { "const": "archcontext.ref-impact-batch/v1" },
+    "schemaVersion": {
+      "const": "archcontext.ref-impact-batch/v1"
+    },
     "items": {
+      "description": "One impact or typed refusal/response-limit status per request item, in request order.",
       "type": "array",
-      "description": "One impact or response-limit status per request item, in request order.",
       "items": {
         "oneOf": [
           {
-            "type": "object",
             "additionalProperties": false,
-            "required": ["id", "impact"],
+            "type": "object",
+            "required": [
+              "id",
+              "impact"
+            ],
             "properties": {
-              "id": { "type": "string" },
-              "impact": { "$ref": "https://archctx.repoharness.com/schemas/runtime/ref-impact.schema.json" }
+              "id": {
+                "type": "string"
+              },
+              "impact": {
+                "$ref": "https://archctx.repoharness.com/schemas/runtime/ref-impact.schema.json"
+              }
             }
           },
           {
-            "type": "object",
             "additionalProperties": false,
-            "required": ["id", "status", "reasonCode"],
+            "type": "object",
+            "required": [
+              "id",
+              "status",
+              "reasonCode"
+            ],
             "properties": {
-              "id": { "type": "string" },
-              "status": { "const": "unavailable" },
-              "reasonCode": { "const": "batch-response-bytes" }
+              "id": {
+                "type": "string"
+              },
+              "status": {
+                "const": "unavailable"
+              },
+              "reasonCode": {
+                "enum": [
+                  "batch-response-bytes",
+                  "head-ref-unavailable",
+                  "base-ref-unavailable",
+                  "diff-limit-exceeded",
+                  "model-invalid",
+                  "path-invalid",
+                  "worktree-error"
+                ]
+              },
+              "error": {
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "code",
+                  "message",
+                  "severity",
+                  "retryable",
+                  "action"
+                ],
+                "properties": {
+                  "code": {
+                    "pattern": "^AC_[A-Z_]+$",
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "severity": {
+                    "enum": [
+                      "notice",
+                      "warning",
+                      "error",
+                      "critical"
+                    ]
+                  },
+                  "retryable": {
+                    "type": "boolean"
+                  },
+                  "action": {
+                    "type": "string"
+                  },
+                  "reasonCode": {
+                    "type": "string"
+                  },
+                  "details": {
+                    "type": "object"
+                  }
+                }
+              }
             }
           }
         ]

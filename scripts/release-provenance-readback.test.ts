@@ -5,7 +5,7 @@ import {
   inspectReleaseProvenanceReadback
 } from "./release-provenance-readback";
 
-const HELP_COMMANDS = ["ledger", "book", "recommendations", "investigate", "agents", "jobs"];
+const HELP_COMMANDS = ["ledger", "book", "recommendations"];
 const RELEASE_VERSION = productVersionManifest().product.version;
 
 describe("release provenance readback", () => {
@@ -23,7 +23,7 @@ describe("release provenance readback", () => {
   });
 
   test("rejects a publishable source workspace including contracts", () => {
-    for (const workspaceIndex of [0, 1, 2, 3, 4]) {
+    for (const workspaceIndex of [0, 1, 2, 3]) {
       const input = validInput();
       input.workspacePackages[workspaceIndex]!.manifest.private = false;
       const recording = buildReleaseProvenanceReadback(input);
@@ -37,7 +37,7 @@ describe("release provenance readback", () => {
     input.publishedHelp = {
       command: "npx -y archctx@latest help",
       ok: true,
-      commands: HELP_COMMANDS.filter((command) => command !== "jobs")
+      commands: HELP_COMMANDS.filter((command) => command !== "recommendations")
     };
     const recording = buildReleaseProvenanceReadback(input);
 
@@ -68,8 +68,7 @@ function validInput(): Parameters<typeof buildReleaseProvenanceReadback>[0] {
       sourcePackage("packages/contracts/package.json", "@archcontext/contracts"),
       sourcePackage("packages/core/package.json", "@archcontext/core"),
       sourcePackage("packages/local-runtime/package.json", "@archcontext/local-runtime"),
-      sourcePackage("packages/surfaces/package.json", "@archcontext/surfaces", { archctx: "./cli/bin/archctx" }),
-      sourcePackage("packages/cloud/package.json", "@archcontext/cloud")
+      sourcePackage("packages/surfaces/package.json", "@archcontext/surfaces", { archctx: "./cli/bin/archctx" })
     ],
     productManifest: productVersionManifest(),
     packageScripts: {

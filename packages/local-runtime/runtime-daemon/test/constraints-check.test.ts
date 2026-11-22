@@ -6,10 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { stableYaml } from "@archcontext/contracts";
 import { codeGraphCliInvocation } from "@archcontext/local-runtime/codegraph-adapter";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
-import { isProcessAlive } from "@archcontext/local-runtime/process-liveness";
-import { runtimeStatePaths } from "@archcontext/local-runtime/runtime-state-paths";
 import { runConstraintCheckCommand } from "../src/constraints-check";
-import { createRuntimeRpcClientFromWorkspaceStateDir } from "../src/daemon-control";
 
 const contract = "component.runtime.contract";
 const internal = "component.runtime.internal";
@@ -100,25 +97,9 @@ test("constraints check and archctx validate reject an allowed target outside th
 
     const cli = resolve(import.meta.dir, "../../../surfaces/cli/bin/archctx");
     const env = { ...process.env, ARCHCONTEXT_STATE_DIR: join(root, ".state") };
-    const { workspaceStateDir, daemonConnectionPath, daemonLockPath } = runtimeStatePaths(root, env);
-    try {
-      const result = spawnSync("bun", [cli, "validate", "--json"], { cwd: root, env, encoding: "utf8", timeout: 60_000 });
-      expect(result.error).toBeUndefined();
-      expect(result.status, result.stderr).toBe(1);
-      expect(JSON.parse(result.stdout)).toMatchObject(failure);
-    } finally {
-      // Validate leaves the shared daemon running, and its open state files pin the fixture on Windows.
-      const client = createRuntimeRpcClientFromWorkspaceStateDir(workspaceStateDir);
-      if (client) {
-        const { pid } = client.connectionInfo();
-        expect(await client.shutdown()).toMatchObject({ ok: true });
-        // Shutdown acknowledges the request before the daemon closes its files and exits.
-        const deadline = Date.now() + 5_000;
-        while (isProcessAlive(pid) && Date.now() < deadline) await Bun.sleep(50);
-        expect(isProcessAlive(pid), `fixture daemon ${pid} should have exited`).toBe(false);
-      }
-      expect(existsSync(daemonConnectionPath)).toBe(false);
-      expect(existsSync(daemonLockPath)).toBe(false);
-    }
+    const result = spawnSync("bun", [cli, "validate", "--json"], { cwd: root, env, encoding: "utf8", timeout: 60_000 });
+    expect(result.error).toBeUndefined();
+    expect(result.status, result.stderr).toBe(1);
+    expect(JSON.parse(result.stdout)).toMatchObject(failure);
   });
 }, 60_000);

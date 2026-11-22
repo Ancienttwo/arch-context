@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { resolveArchitectureOwnerForPath, type NativeModel } from "@archcontext/core/projection-engine";
+import { resolveArchitectureOwnerForPath, type NativeModel } from "@archcontext/core/architecture-domain";
 import { buildModuleStatisticsSnapshot, resolveOwnership } from "../src/index";
 import { MODEL, TRACKED_FILES, makeInput } from "./factories";
 

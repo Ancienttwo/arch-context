@@ -1,16 +1,16 @@
 import { publicFailureEnvelope, publicOperationErrorEnvelope, publicOperationFailure, publicOperationResult } from "./public-operation-failure";
 import { assertLocalEgressAllowed, LocalEgressPolicyError } from "@archcontext/local-runtime/egress-admission";
-import { ChangeSetRecoveryUnresolvedError } from "./changeset-recovery-error";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { assertPathHasNoSymlinkSegments, writeFileWithoutFollowingSymlinks } from "@archcontext/core/changeset-engine";
+import { assertPathHasNoSymlinkSegments } from "@archcontext/core/changeset-engine";
+import { writeFileWithoutFollowingSymlinks } from "@archcontext/local-runtime/descriptor-write";
 import type { prepareTask } from "@archcontext/core/application";
 import { Context7ExternalDocumentationAdapter, assertContext7LibraryId, assertContext7Version, buildContext7Query } from "@archcontext/local-runtime/context7-adapter";
 import { finalizeContextBudgetMetadata } from "@archcontext/core/context-compiler";
 import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, digestJson, errorEnvelope, okEnvelope, type Context7LibraryPinV1, type Context7LockfileV1, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type Json, type JsonEnvelope, type WorkspaceRef } from "@archcontext/contracts";
 import { type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
-import type { RuntimeDocsInput } from "./rpc-types";
-export type { RuntimeDocsInput } from "./rpc-types";
+import type { RuntimeDocsInput } from "./runtime-types";
+export type { RuntimeDocsInput } from "./runtime-types";
 
 export interface RuntimeResourceReadResult {
   schemaVersion: "archcontext.resource-read/v1";
@@ -218,7 +218,6 @@ export class ExternalDocumentationService {
       return publicFailureEnvelope("docs", "AC_SCHEMA_INVALID", "docs-command-invalid", {});
     } catch (error) {
       if (error instanceof LocalEgressPolicyError) return publicOperationErrorEnvelope(`docs.${input.command}`, error);
-      if (error instanceof ChangeSetRecoveryUnresolvedError) return publicOperationErrorEnvelope(`docs.${input.command}`, error);
       return publicOperationErrorEnvelope(`docs.${input.command}`, error);
     }
   }

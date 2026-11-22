@@ -1,0 +1,197 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archcontext.dev/schemas/runtime/cli-check.schema.json",
+  "title": "CliCheckOutputV1",
+  "description": "Unified read-only gate payload for `archctx check --changed` and `archctx check --base <ref> [--slice]`.",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "mode",
+        "status",
+        "exitCode",
+        "changedPaths",
+        "debt"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "archcontext.cli-check/v1"
+        },
+        "mode": {
+          "const": "changed"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pass",
+            "findings"
+          ]
+        },
+        "exitCode": {
+          "type": "integer",
+          "enum": [
+            0,
+            2
+          ]
+        },
+        "changedPaths": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "not": {
+              "anyOf": [
+                {
+                  "pattern": "^/"
+                },
+                {
+                  "pattern": "\\\\"
+                },
+                {
+                  "pattern": "(^|/)\\.\\.(/|$)"
+                }
+              ]
+            }
+          }
+        },
+        "debt": {
+          "$ref": "https://archctx.repoharness.com/schemas/runtime/architecture-debt.schema.json"
+        }
+      }
+    },
+    {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "mode",
+        "status",
+        "exitCode",
+        "base",
+        "baseSha",
+        "headSha",
+        "blockingChecks",
+        "verify"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "archcontext.cli-check/v1"
+        },
+        "mode": {
+          "const": "pr"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pass",
+            "findings"
+          ]
+        },
+        "exitCode": {
+          "type": "integer",
+          "enum": [
+            0,
+            2
+          ]
+        },
+        "base": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "baseSha": {
+          "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$",
+          "type": "string"
+        },
+        "headSha": {
+          "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$",
+          "type": "string"
+        },
+        "blockingChecks": {
+          "type": "array",
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "verify": {
+          "$ref": "https://archcontext.dev/schemas/runtime/runtime-verify.schema.json"
+        },
+        "slice": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "ok",
+                "data"
+              ],
+              "properties": {
+                "ok": {
+                  "const": true
+                },
+                "data": {
+                  "$ref": "https://archcontext.dev/schemas/runtime/projection-slice.schema.json"
+                }
+              }
+            },
+            {
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "ok",
+                "error"
+              ],
+              "properties": {
+                "ok": {
+                  "const": false
+                },
+                "error": {
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "code",
+                    "message",
+                    "severity",
+                    "retryable",
+                    "action"
+                  ],
+                  "properties": {
+                    "code": {
+                      "pattern": "^AC_[A-Z_]+$",
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "severity": {
+                      "enum": [
+                        "notice",
+                        "warning",
+                        "error",
+                        "critical"
+                      ]
+                    },
+                    "retryable": {
+                      "type": "boolean"
+                    },
+                    "action": {
+                      "type": "string"
+                    },
+                    "reasonCode": {
+                      "type": "string"
+                    },
+                    "details": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

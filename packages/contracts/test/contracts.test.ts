@@ -203,8 +203,6 @@ const schemaByFixture: Record<string, string> = {
   "architecture-event": "schemas/runtime/architecture-event.schema.json",
   "architecture-snapshot": "schemas/runtime/architecture-snapshot.schema.json",
   "architecture-subject-selector": "schemas/runtime/architecture-subject-selector.schema.json",
-  "architecture-candidate-delta": "schemas/runtime/architecture-candidate-delta.schema.json",
-  "architecture-candidate-delta-policy": "schemas/runtime/architecture-candidate-delta-policy.schema.json",
   "projection-target": "schemas/runtime/projection-target.schema.json",
   "projection-request": "schemas/runtime/projection-request.schema.json",
   "projection-result": "schemas/runtime/projection-result.schema.json",
@@ -233,8 +231,6 @@ const schemaByFixture: Record<string, string> = {
   "runtime-recommendation-show": "schemas/runtime/runtime-recommendation-show.schema.json",
   "runtime-verify": "schemas/runtime/runtime-verify.schema.json",
   "recommendation-feedback": "schemas/runtime/recommendation-feedback.schema.json",
-  "agent-job": "schemas/runtime/agent-job.schema.json",
-  "investigation-report": "schemas/runtime/investigation-report.schema.json",
   "practice-catalog-manifest": "schemas/runtime/practice-catalog-manifest.schema.json",
   "practice-match": "schemas/runtime/practice-match.schema.json",
   "practice-guidance": "schemas/runtime/practice-guidance.schema.json",
@@ -244,15 +240,7 @@ const schemaByFixture: Record<string, string> = {
   "hook-debt-checkpoint": "schemas/runtime/hook-debt-checkpoint.schema.json",
   "retrieval-config": "schemas/runtime/retrieval-config.schema.json",
   "retrieval-eval": "schemas/runtime/retrieval-eval.schema.json",
-  "retrieval-decision": "schemas/runtime/retrieval-decision.schema.json",
-  "notification-event": "schemas/runtime/notification-event.schema.json",
-  "notification-provider": "schemas/runtime/notification-provider.schema.json",
-  "likec4-mapping": "schemas/integrations/likec4-mapping.schema.json",
-  "structurizr-mapping": "schemas/integrations/structurizr-mapping.schema.json",
-  "adapter-fidelity": "schemas/integrations/adapter-fidelity.schema.json",
-  "chatgpt-ga-tool": "schemas/integrations/chatgpt-ga-tool.schema.json",
-  "cloud-egress-envelope": "schemas/cloud/cloud-egress-envelope.schema.json",
-  "entitlement": "schemas/cloud/entitlement.schema.json"
+  "retrieval-decision": "schemas/runtime/retrieval-decision.schema.json"
 };
 
 test("projection request contract enforces adopt binding, unique arrays, and canonical ordering", () => {
@@ -1552,33 +1540,6 @@ describe("JSON schema contracts", () => {
     expect(fixtures).toEqual(Object.keys(schemaByFixture).sort());
   });
 
-  test("notification event is a Check-level whitelist and rejects private content fields", () => {
-    const schema = readJson("schemas/runtime/notification-event.schema.json") as any;
-    const fixture = readJson("packages/contracts/fixtures/valid/notification-event.json") as Record<string, Json>;
-    expect(Object.keys(schema.properties).sort()).toEqual([
-      "commitSha",
-      "eventId",
-      "occurredAt",
-      "prUrl",
-      "result",
-      "riskLevel",
-      "runtimeVersion",
-      "schemaVersion"
-    ]);
-    for (const field of ["code", "diff", "finding", "findings", "architectureBody", "modelBody"]) {
-      expect(validateJsonSchema(schema, { ...fixture, [field]: "private content" }).valid).toBe(false);
-    }
-  });
-
-  test("adapter fidelity contract keeps Native model as source of truth", () => {
-    const schema = readJson("schemas/integrations/adapter-fidelity.schema.json");
-    const fixture = readJson("packages/contracts/fixtures/valid/adapter-fidelity.json") as Record<string, Json>;
-    expect(validateJsonSchema(schema as any, fixture).valid).toBe(true);
-    expect(fixture.nativeIsSourceOfTruth).toBe(true);
-    expect(fixture.reverseSync).toBe("forbidden");
-    expect(fixture.protectedNativeFields).toEqual(["evidence", "verification", "constraint", "intervention"]);
-  });
-
   test("explorer projection contract is read-only and contains no SaaS egress fields", () => {
     const v2 = readJson("schemas/runtime/explorer-projection-v2.schema.json") as any;
     const v2RootProperties = Object.keys(v2.properties);
@@ -1744,7 +1705,6 @@ function fixtureNameFromSchemaVersion(schemaVersion: Json): string {
     "archcontext.architecture-docs-projection-manifest/v4": "projection-manifest",
     "archcontext.evidence-item/v2": "evidence-item",
     "archcontext.evidence-binding/v1": "evidence-binding",
-    "archcontext.architecture-candidate-delta-policy/v1": "architecture-candidate-delta-policy",
     "archcontext.recommendation-run/v1": "recommendation-run",
     "archcontext.recommendation/v2": "recommendation",
     "archcontext.recommendation/v3": "recommendation-v3",
@@ -1754,21 +1714,11 @@ function fixtureNameFromSchemaVersion(schemaVersion: Json): string {
     "archcontext.docs-anchors/v1": "docs-anchors",
     "archcontext.runtime-recommendation-show/v1": "runtime-recommendation-show",
     "archcontext.recommendation-feedback/v1": "recommendation-feedback",
-    "archcontext.agent-job/v1": "agent-job",
-    "archcontext.investigation-report/v1": "investigation-report",
     "archcontext.retrieval-config/v1": "retrieval-config",
     "archcontext.retrieval-eval/v1": "retrieval-eval",
     "archcontext.retrieval-decision/v1": "retrieval-decision",
-    "archcontext.notification-event/v1": "notification-event",
-    "archcontext.notification-provider/v1": "notification-provider",
-    "archcontext.likec4-mapping/v1": "likec4-mapping",
-    "archcontext.structurizr-mapping/v1": "structurizr-mapping",
-    "archcontext.adapter-fidelity/v1": "adapter-fidelity",
-    "archcontext.chatgpt-ga-tool/v1": "chatgpt-ga-tool",
     "archcontext.architecture-debt-delta/v1": "architecture-debt-delta",
     "archcontext.hook-debt-checkpoint/v1": "hook-debt-checkpoint",
-    "archcontext.cloud-egress/v1": "cloud-egress-envelope",
-    "archcontext.entitlement/v1": "entitlement",
     "archcontext.native-context-export/v1": "native-context-export"
   };
   const fixtureName = byVersion[schemaVersion];
@@ -1796,7 +1746,7 @@ describe("contract utilities", () => {
     expect(failed.error?.retryable).toBe(false);
   });
 
-  test("product version manifest aligns CLI, daemon, MCP, schema, and package versions", () => {
+  test("product version manifest aligns CLI, daemon, schema, and package versions", () => {
     const manifest = productVersionManifest();
     const schema = readJson("schemas/runtime/product-version-manifest.schema.json");
     const rootManifest = readJson("package.json") as any;
@@ -1804,20 +1754,18 @@ describe("contract utilities", () => {
     const coreManifest = readJson("packages/core/package.json") as any;
     const runtimeManifest = readJson("packages/local-runtime/package.json") as any;
     const surfacesManifest = readJson("packages/surfaces/package.json") as any;
-    const cloudManifest = readJson("packages/cloud/package.json") as any;
     const staticCatalogManifest = readJson("packages/core/practice-catalog/assets/catalog.yaml") as any;
 
     expect(validateJsonSchema(schema as any, manifest as unknown as Json).valid).toBe(true);
     expect(manifest.product.version).toBe(ARCHCONTEXT_PRODUCT_VERSION);
-    expect([rootManifest, contractManifest, coreManifest, runtimeManifest, surfacesManifest, cloudManifest]
-      .map((candidate) => candidate.version)).toEqual(Array(6).fill(ARCHCONTEXT_PRODUCT_VERSION));
+    expect([rootManifest, contractManifest, coreManifest, runtimeManifest, surfacesManifest]
+      .map((candidate) => candidate.version)).toEqual(Array(5).fill(ARCHCONTEXT_PRODUCT_VERSION));
     expect(manifest.packageManager).toBe(ARCHCONTEXT_PACKAGE_MANAGER);
     expect(manifest.schemas.schemaSetVersion).toBe(ARCHCONTEXT_SCHEMA_SET_VERSION);
     expect(manifest.schemas.contractsPackageVersion).toBe(contractManifest.version);
     expect(manifest.surfaces.daemon.version).toBe(runtimeManifest.version);
     expect(manifest.surfaces.cli.version).toBe(surfacesManifest.version);
     expect(staticCatalogManifest.productVersion).toBe(ARCHCONTEXT_PRODUCT_VERSION);
-    expect(manifest.surfaces.mcp.version).toBe(surfacesManifest.version);
     expect(LOCAL_RUNTIME_RPC_SCHEMA_VERSION).toBe("archcontext.runtime-rpc/v2");
     expect(manifest.runtime.localRpc.schemaVersion).toBe(LOCAL_RUNTIME_RPC_SCHEMA_VERSION);
     expect(manifest.surfaces.daemon.rpcSchemaVersion).toBe(LOCAL_RUNTIME_RPC_SCHEMA_VERSION);
@@ -1873,14 +1821,6 @@ describe("review guard and cloud egress contracts", () => {
       "agent-caller-provided-attestation-field-forbidden: result,reviewDigest,policyDigest,modelDigest,signature,practiceViolations,practiceCheckResultDigest"
     );
     expect(() => assertNoCallerProvidedAttestationFields({ challengeId: "chal_1", taskSessionId: "task_1" }, "agent")).not.toThrow();
-  });
-
-  test("cloud egress envelope schema rejects private content keys", () => {
-    const schema = readJson("schemas/cloud/cloud-egress-envelope.schema.json") as any;
-    const fixture = readJson("packages/contracts/fixtures/valid/cloud-egress-envelope.json") as Record<string, Json>;
-    for (const field of ["source", "sourceCode", "diff", "patch", "filename", "filePath", "symbol", "finding", "prompt", "completion", "llmProvider"]) {
-      expect(validateJsonSchema(schema, { ...fixture, [field]: "private content" }).valid, field).toBe(false);
-    }
   });
 });
 

@@ -8,23 +8,23 @@ import { tmpdir } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { emptyArchitectureLedgerEvidenceState, planYamlToArchitectureLedgerImport, projectArchitectureLedgerStateToYamlFiles, type ArchitectureLedgerGraphState } from "@archcontext/core/architecture-ledger";
-import { ARCHITECTURE_DOCS_RENDERER_VERSION, digestJson, projectionApplyReadbackRequestFromReceipt, stableYaml, type ProjectionApplyReceiptV1, type ProjectionRequestV1, type ProjectionResultV3, type StateMachineV1, type CodeFactsPort, type Json, type ModelStorePort, type NormalizedCodeContext } from "@archcontext/contracts";
+import { ARCHITECTURE_DOCS_RENDERER_VERSION, digestJson, stableYaml, type ProjectionRequestV1, type ProjectionResultV3, type StateMachineV1, type CodeFactsPort, type Json, type ModelStorePort, type NormalizedCodeContext } from "@archcontext/contracts";
 import { gitSpy } from "../../codegraph-adapter/test/git-spy";
 import { syncCodeGraphFixture } from "../../codegraph-adapter/test/real-index";
 import { assertNoCodeGraphInternalPathAccess, CodeGraphAdapter, CodeGraphSdkProvider, REQUIRED_CODEGRAPH_VERSION, loadCapabilityCodeGraphProjectionInputs, prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
 import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { MockCodeGraphProvider, declareOptionalCodeFacts } from "@archcontext/local-runtime/test/codegraph-factories";
-import { migrationSql, assertNoSourceStorageSchema, SQLITE_PRAGMAS, SqliteLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
+import { SQLITE_PRAGMAS, SqliteLocalStore, localStoreWriterOwnershipPath } from "@archcontext/local-runtime/local-store-sqlite";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
 import { runArchitectureDebtCommand } from "@archcontext/local-runtime/architecture-debt";
 import { extractSchemaVersion, initializeArchContextModel, listModelFiles, planGeneratedProjection, YamlModelStore } from "@archcontext/local-runtime/model-store-yaml";
 import { ChangeSetEngine, type ApplyOptions, type ChangeSetDraft } from "@archcontext/core/changeset-engine";
-import { createNodeInvestigationTransport } from "../src/investigation-transport";
-import { createNodeGithubIssueExecutor, preflightGithubIssueDrafts, withGithubIssueBodyFile, type GithubIssueExecutorPort, type GithubIssuePreflightDraft } from "../src/github-issue-executor";
 import { architectureDocumentationSourceDigest, architectureDocumentationProjectionWorktreeDigest, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, loadCapabilitySourceScaleSignals, loadNativeModelFromArchContext, projectionOwnedWriteBody, renderAgentContextProjection, renderArchitectureDocumentationProjection, type ArchitectureProjectionProfile } from "@archcontext/core/projection-engine";
 import * as projectionEngine from "@archcontext/core/projection-engine";
-import { architectureHistoryRenderInput, buildArchitectureDocsProjection, currentProjectionExpectedSnapshot, runArchitectureDocsProjectionCommand, runProjectionProtocolCommand } from "../src/projection-service";
-import { ArchctxRuntimeRpcServer, RUNTIME_RPC_VERSION, RuntimeRpcClient, assertProductionRuntimeDeps, createStartedProductionDaemon, createStartedDaemon, runtimeDefaultClock } from "../src/index";
+import { runArchitectureDocsProjectionCommand } from "../src/projection-adoption";
+import { runProjectionProtocolCommand } from "../src/projection-protocol";
+import { architectureHistoryRenderInput, buildArchitectureDocsProjection, currentProjectionExpectedSnapshot } from "../src/projection-service";
+import { assertProductionRuntimeDeps, createStartedProductionDaemon, createStartedDaemon, runtimeDefaultClock } from "../src/index";
 
 const PREVIOUS_ARCHCONTEXT_STATE_DIR = process.env.ARCHCONTEXT_STATE_DIR;
 const RUNTIME_TEST_STATE_ROOT = mkdtempSync(join(tmpdir(), "archctx-runtime-state-"));
@@ -326,7 +326,11 @@ describe("local runtime foundation", () => {
 
       const sync = await daemon.sync(root);
       expect(sync.ok).toBe(true);
-      expect((sync.data as any).codeFactsDigest).toMatch(/^sha256:/);
+      expect(sync.data).toMatchObject({
+        schemaVersion: "archcontext.sync/v2",
+        worktreeDigest: expect.stringMatching(/^sha256:/),
+        modelDigest: expect.stringMatching(/^sha256:/)
+      });
 
       const context = await daemon.context(root, "add billing");
       expect(context.ok).toBe(true);
@@ -1011,194 +1015,46 @@ describe("local runtime foundation", () => {
     }
   });
 
-  test("a second process cannot start on a store whose live writer is mid-ChangeSet; cold start still recovers (#160)", async () => {
-    // Process A holds writer ownership with a pending journal: original moved to backup, temp file
-    // half written. Before #160, process B's startup recovery treated that live transaction as crash
-    // residue and rolled it back before any lock was checked.
-    const dir = mkdtempSync(join(tmpdir(), "archctx-writer-barrier-"));
+  test("cross-process SQLite cache persists ChangeSet drafts and enforces exclusive cache lock", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "archctx-cache-drafts-"));
     const root = join(dir, "repo");
     const dbPath = join(dir, "state", "runtime.sqlite");
-    const relativePath = ".archcontext/policies/review.yaml";
-    const absolutePath = join(root, relativePath);
-    const backupPath = `${absolutePath}.archctx-backup`;
-    const tempPath = `${absolutePath}.archctx-tmp-barrier`;
-    const original = "schemaVersion: archcontext.policy/v1\nid: policy.original\n";
-    const writerScript = join(dir, "writer.ts");
-    const storeModule = resolve(import.meta.dir, "../../local-store-sqlite/src/index.ts");
-    let writer: ChildProcess | undefined;
-    try {
-      initializeArchContextModel(root, "Writer Barrier App");
-      writeFileSync(absolutePath, original, "utf8");
-      writeFileSync(writerScript, `
-import { renameSync, writeFileSync } from "node:fs";
-import { SqliteLocalStore } from ${JSON.stringify(storeModule)};
-const [dbPath, root, relativePath, absolutePath, backupPath, tempPath] = process.argv.slice(2);
-const store = new SqliteLocalStore(dbPath);
-store.acquireWriterOwnership();
-await store.migrate();
-const journalId = await store.beginChangeSet(root, {
-  schemaVersion: "archcontext.changeset/v1", id: "changeset.barrier", status: "approved",
-  base: { headSha: "abc123", worktreeDigest: "sha256:${"0".repeat(64)}", modelDigest: "sha256:${"1".repeat(64)}" },
-  reason: { taskSessionId: "task.barrier" },
-  operations: [{ op: "update_entity_fields", path: relativePath, expectedHash: "sha256:${"2".repeat(64)}", body: "x" }],
-  preconditions: [], postconditions: []
-});
-await store.recordChangeSetFile(journalId, { path: relativePath, tempPath, backupPath, existed: true, operation: "update_entity_fields", bodyHash: "sha256:${"3".repeat(64)}" });
-renameSync(absolutePath, backupPath);
-writeFileSync(tempPath, "partial write", "utf8");
-process.stdout.write("READY\\n");
-setInterval(() => undefined, 1 << 30);
-`, "utf8");
-      writer = spawn(process.execPath, [writerScript, dbPath, root, relativePath, absolutePath, backupPath, tempPath], { stdio: ["ignore", "pipe", "inherit"] });
-      await waitForStdoutLine(writer, "READY");
-
-      await expect(createStartedTestDaemon({ localStore: undefined, localStorePath: dbPath })).rejects.toMatchObject({code:"AC_PRECONDITION_FAILED",reasonCode:"runtime-writer-owned"});
-      expect(existsSync(absolutePath)).toBe(false);
-      expect(readText(backupPath)).toBe(original);
-      expect(readText(tempPath)).toBe("partial write");
-
-      writer.kill("SIGKILL");
-      await once(writer, "exit");
-      writer = undefined;
-
-      const recovered = await createStartedTestDaemon({ localStore: undefined, localStorePath: dbPath });
-      expect(readText(absolutePath)).toBe(original);
-      expect(existsSync(backupPath)).toBe(false);
-      expect(existsSync(tempPath)).toBe(false);
-      expect(recovered.status().changeSetRecovery).toBeUndefined();
-      await recovered.stop();
-      // The lock file itself stays (it is only ever locked, never deleted); the diagnostic owner
-      // record leaves with its owner.
-      expect(existsSync(`${dbPath}.writer.lock`)).toBe(true);
-      expect(existsSync(`${dbPath}.owner.json`)).toBe(false);
-    } finally {
-      if (writer) {
-        writer.kill("SIGKILL");
-        await once(writer, "exit").catch(() => undefined);
-      }
-      removeTempRepo(dir);
-    }
-  });
-
-  test("startup that leaves a ChangeSet journal unresolved refuses writes until a later start recovers it (#172)", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "archctx-recovery-gate-"));
-    const root = join(dir, "repo");
-    const dbPath = join(dir, "state", "runtime.sqlite");
-    const relativePath = ".archcontext/policies/review.yaml";
-    const absolutePath = join(root, relativePath);
-    const backupPath = join(root, "review.yaml.archctx-backup");
-    const original = "schemaVersion: archcontext.policy/v1\nid: policy.original\n";
-    let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
+    let daemonA: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
+    let daemonB: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
     try {
       mkdirSync(root, { recursive: true });
       execFileSync("git", ["init", "--quiet"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
-      initializeArchContextModel(root, "Recovery Gate App");
-      writeFileSync(absolutePath, original, "utf8");
-      const store = new SqliteLocalStore(dbPath);
-      await store.migrate();
-      const journalId = await store.beginChangeSet(root, {
-        schemaVersion: "archcontext.changeset/v1",
-        id: "changeset.recovery-gate",
-        status: "approved",
-        base: { headSha: "abc123", worktreeDigest: `sha256:${"0".repeat(64)}`, modelDigest: `sha256:${"1".repeat(64)}` },
-        reason: { taskSessionId: "task.recovery-gate" },
-        operations: [{ op: "update_entity_fields", path: relativePath, expectedHash: `sha256:${"2".repeat(64)}`, body: "x" }],
-        preconditions: [],
-        postconditions: []
-      } as any);
-      await store.recordChangeSetFile(journalId, { path: relativePath, backupPath, existed: true, operation: "update_entity_fields", bodyHash: `sha256:${"3".repeat(64)}` });
-      renameSync(absolutePath, backupPath);
-      store.close();
-      // Restoring the backup fails: its target directory has become a regular file.
-      nodeRmSync(dirname(absolutePath), { recursive: true, force: true });
-      writeFileSync(dirname(absolutePath), "not a directory", "utf8");
-
-      daemon = await createStartedTestDaemon({ localStore: undefined, localStorePath: dbPath });
-      const status = daemon.status();
-      expect(status.running).toBe(true);
-      expect(status.changeSetRecovery?.writable).toBe(false);
-      expect(status.changeSetRecovery?.unresolvedJournals.map((journal) => journal.journalId)).toEqual([journalId]);
-      await expect(daemon.init(join(dir, "other-repo"), "Blocked App")).rejects.toThrow("changeset-recovery-unresolved");
-      // An approved docs pin writes tracked `.archcontext/` state too, so the gate covers it.
-      const pin = await daemon.docs(root, { command: "pin", libraryId: "/facebook/react", version: "18.2.0", approved: true });
-      expect(pin.ok).toBe(false);
-      expect(pin.error?.code).toBe("AC_PRECONDITION_FAILED");
-      expect(pin.error?.message).toContain("changeset-recovery-unresolved");
-      expect(existsSync(join(root, ".archcontext", "integrations", "context7.lock.yaml"))).toBe(false);
-      expect(readText(backupPath)).toBe(original);
-
-      // Over RPC the refusal is a typed envelope, and /health reports the daemon as write-gated.
-      const rpc = new ArchctxRuntimeRpcServer(daemon, {
-        root,
-        port: 0,
-        connectionPath: join(dir, "control", "archctxd.json"),
-        lockPath: join(dir, "control", "archctxd.lock")
+      initializeArchContextModel(root, "Cache Drafts App");
+      daemonA = await createStartedTestDaemon({ localStore: undefined, localStorePath: dbPath });
+      expect(existsSync(localStoreWriterOwnershipPath(dbPath))).toBe(true);
+      await expect(createStartedTestDaemon({ localStore: undefined, localStorePath: dbPath })).rejects.toMatchObject({
+        code: "AC_PRECONDITION_FAILED",
+        reasonCode: "runtime-writer-owned"
       });
-      const connection = await rpc.start();
-      try {
-        const health = await (await fetch(`${connection.url}health`, { headers: { "X-ArchContext-RPC-Version": RUNTIME_RPC_VERSION, Authorization: `Bearer ${connection.token}` } })).json() as any;
-        expect(health.ok).toBe(true);
-        expect(health.changeSetRecovery.writable).toBe(false);
-        expect(health.changeSetRecovery.unresolvedJournals.map((journal: { journalId: string }) => journal.journalId)).toEqual([journalId]);
-        const refused = await new RuntimeRpcClient(connection).init(join(dir, "other-repo"), "Blocked App");
-        expect(refused.ok).toBe(false);
-        expect(refused.error?.code).toBe("AC_PRECONDITION_FAILED");
-        expect(refused.error?.message).toContain("changeset-recovery-unresolved");
-      } finally {
-        await rpc.stop();
-      }
-      daemon = undefined;
+      const plan = await daemonA.planUpdate(root, {
+        id: "changeset.cross-process-draft",
+        operations: [{
+          op: "create_entity",
+          path: ".archcontext/model/nodes/module.cross-process.yaml",
+          expectedHash: "missing",
+          body: "schemaVersion: archcontext.node/v2\nid: module.cross-process\nkind: module\nname: Cross Process\nstatus: active\nsummary: Persisted across CLI runs\n"
+        }]
+      });
+      expect(plan.ok).toBe(true);
+      await daemonA.stop();
+      daemonA = undefined;
 
-      nodeRmSync(dirname(absolutePath), { force: true });
-      mkdirSync(dirname(absolutePath), { recursive: true });
-      daemon = await createStartedTestDaemon({ localStore: undefined, localStorePath: dbPath });
-      expect(daemon.status().changeSetRecovery).toBeUndefined();
-      expect(readText(absolutePath)).toBe(original);
+      daemonB = await createStartedTestDaemon({ localStore: undefined, localStorePath: dbPath });
+      const apply = await daemonB.applyUpdate(root, {
+        id: "changeset.cross-process-draft",
+        approved: true,
+        expectedWorktreeDigest: (plan.data as any).draft.base.worktreeDigest
+      });
+      expect(apply.ok, JSON.stringify(apply)).toBe(true);
+      expect(existsSync(join(root, ".archcontext/model/nodes/module.cross-process.yaml"))).toBe(true);
     } finally {
-      await daemon?.stop();
-      removeTempRepo(dir);
-    }
-  });
-
-  test("startup leaves a ChangeSet journal unresolved when a recovered file's backup and destination are both missing (#179)", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "archctx-recovery-lost-backup-"));
-    const root = join(dir, "repo");
-    const dbPath = join(dir, "state", "runtime.sqlite");
-    const relativePath = ".archcontext/policies/review.yaml";
-    const absolutePath = join(root, relativePath);
-    const backupPath = join(root, "review.yaml.archctx-backup");
-    const original = "schemaVersion: archcontext.policy/v1\nid: policy.original\n";
-    let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
-    try {
-      initializeArchContextModel(root, "Recovery Lost Backup App");
-      writeFileSync(absolutePath, original, "utf8");
-      const store = new SqliteLocalStore(dbPath);
-      await store.migrate();
-      const journalId = await store.beginChangeSet(root, {
-        schemaVersion: "archcontext.changeset/v1",
-        id: "changeset.recovery-lost-backup",
-        status: "approved",
-        base: { headSha: "abc123", worktreeDigest: `sha256:${"0".repeat(64)}`, modelDigest: `sha256:${"1".repeat(64)}` },
-        reason: { taskSessionId: "task.recovery-lost-backup" },
-        operations: [{ op: "update_entity_fields", path: relativePath, expectedHash: `sha256:${"2".repeat(64)}`, body: "x" }],
-        preconditions: [],
-        postconditions: []
-      } as any);
-      await store.recordChangeSetFile(journalId, { path: relativePath, backupPath, existed: true, operation: "update_entity_fields", bodyHash: `sha256:${"3".repeat(64)}` });
-      // The crash happened after the rename to backup, and the backup itself was then lost too.
-      renameSync(absolutePath, backupPath);
-      nodeRmSync(backupPath, { force: true });
-      store.close();
-
-      daemon = await createStartedTestDaemon({ localStore: undefined, localStorePath: dbPath });
-      const status = daemon.status();
-      expect(status.running).toBe(true);
-      expect(status.changeSetRecovery?.writable).toBe(false);
-      expect(status.changeSetRecovery?.unresolvedJournals.map((journal) => journal.journalId)).toEqual([journalId]);
-      expect(status.changeSetRecovery?.unresolvedJournals[0]?.reason).toContain(relativePath);
-      await expect(daemon.init(join(dir, "other-repo"), "Blocked App")).rejects.toThrow("changeset-recovery-unresolved");
-    } finally {
-      await daemon?.stop();
+      await daemonA?.stop().catch(() => undefined);
+      await daemonB?.stop().catch(() => undefined);
       removeTempRepo(dir);
     }
   });
@@ -1645,159 +1501,6 @@ setInterval(() => undefined, 1 << 30);
     }
   });
 
-  test("dual architecture ledger mode appends an apply_update event after a successful ChangeSet", async () => {
-    const root = tempRepo();
-    const store = new TestLocalStore();
-    try {
-      const daemon = await createStartedTestDaemon({
-        localStore: store,
-        architectureLedger: { rolloutMode: "dual" },
-        clock: () => "2026-06-25T03:00:00.000Z"
-      });
-      await daemon.init(root, "Dual Ledger App");
-      const plan = await daemon.planUpdate(root, {
-        id: "changeset.dual-ledger-node",
-        operations: [{
-          op: "create_entity",
-          path: ".archcontext/model/nodes/module.dual-ledger.yaml",
-          expectedHash: "missing",
-          body: "schemaVersion: archcontext.node/v2\nid: module.dual-ledger\nkind: module\nname: Dual Ledger\nstatus: active\nsummary: Dual ledger node\n"
-        }]
-      });
-      expect(plan.ok).toBe(true);
-
-      const apply = await daemon.applyUpdate(root, {
-        id: "changeset.dual-ledger-node",
-        approved: true,
-        expectedWorktreeDigest: (plan.data as any).draft.base.worktreeDigest
-      });
-
-      expect(apply.ok).toBe(true);
-      expect((apply.data as any)).toMatchObject({
-        status: "applied",
-        architectureLedger: {
-          rolloutMode: "dual",
-          readMode: "dual-compare",
-          writeMode: "dual",
-          readAuthority: "yaml",
-          append: {
-            status: "appended",
-            appendedEventCount: 1
-          }
-        }
-      });
-      expect(readText(join(root, ".archcontext/model/nodes/module.dual-ledger.yaml"))).toContain("module.dual-ledger");
-      expect(store.architectureEventAppends).toHaveLength(1);
-      const event = store.architectureEventAppends[0]!.events[0]!;
-      const journal = [...store.changeSetJournals.values()][0]!;
-      expect(journal.status).toBe("committed");
-      expect(journal.ledger?.plannedEvent?.idempotencyKey).toBe(event.idempotencyKey);
-      expect(journal.ledger?.append?.appendedEvents.map((appended) => appended.idempotencyKey)).toContain(event.idempotencyKey);
-      expect(event).toMatchObject({
-        eventType: "architecture.changeset.apply",
-        source: "apply_update",
-        actor: { kind: "daemon", id: "archctxd" }
-      });
-      expect((event.payload as any).operations.map((operation: any) => operation.entity?.entityId)).toContain("module.dual-ledger");
-      expect(JSON.stringify(event.payload)).not.toContain("schemaVersion: archcontext.node/v2");
-      expect((await daemon.runtimeStatus(root)).data).toMatchObject({
-        architectureLedger: {
-          rolloutMode: "dual",
-          readMode: "dual-compare",
-          writeMode: "dual"
-        }
-      });
-    } finally {
-      removeTempRepo(root);
-    }
-  });
-
-  test("semantic ChangeSets record a digest-only model transition on the journal in YAML and dual write modes", async () => {
-    for (const rolloutMode of ["yaml", "dual"] as const) {
-      const root = createInitializedGitRepo();
-      const store = new TestLocalStore();
-      try {
-        const daemon = await createStartedTestDaemon({ localStore: store, architectureLedger: { rolloutMode } });
-        const nodeBody = "schemaVersion: archcontext.node/v2\nid: component.transition\nkind: component\nname: Transition\nparent: capability.architecture.context\nstatus: active\nsummary: Transition evidence node\n";
-        const before = digestJson(loadNativeModelFromArchContext(root) as unknown as Json);
-        const plan = await daemon.planUpdate(root, {
-          id: `changeset.transition-${rolloutMode}`,
-          operations: [{ op: "create_entity", path: ".archcontext/model/nodes/component.transition.yaml", expectedHash: "missing", body: nodeBody }]
-        });
-        expect(plan.ok).toBe(true);
-        const apply = await daemon.applyUpdate(root, {
-          id: `changeset.transition-${rolloutMode}`,
-          approved: true,
-          expectedWorktreeDigest: (plan.data as any).draft.base.worktreeDigest
-        });
-        expect(apply.ok, JSON.stringify(apply)).toBe(true);
-        const journalId = (apply.data as any).journalId as string;
-        expect(journalId).toMatch(/^changeset_/);
-        const journal = store.changeSetJournals.get(journalId)!;
-        expect(journal.status).toBe("committed");
-        expect(journal.modelTransition).toEqual({
-          schemaVersion: "archcontext.changeset-model-transition/v1",
-          before,
-          after: digestJson(loadNativeModelFromArchContext(root) as unknown as Json)
-        });
-        expect(journal.modelTransition!.before).not.toBe(journal.modelTransition!.after);
-        expect(JSON.stringify(journal.modelTransition)).not.toContain("Transition evidence node");
-        expect((await store.readCommittedChangeSet(root, journalId))?.modelTransition).toEqual(journal.modelTransition);
-        await daemon.stop();
-      } finally {
-        removeTempRepo(root);
-      }
-    }
-  });
-
-  test("projection-only and waiver ChangeSets record no model transition", async () => {
-    const root = createInitializedGitRepo();
-    const store = new TestLocalStore();
-    try {
-      const daemon = await createStartedTestDaemon({ localStore: store });
-      await applyArchitectureDocsProjection(root, daemon, "changeset.transition-docs-only");
-      writeFileSync(join(root, ".archcontext/model/nodes/module.waiver-owner.yaml"), [
-        "schemaVersion: archcontext.node/v2",
-        "id: module.waiver-owner",
-        "kind: module",
-        "name: Waiver Owner",
-        "status: active",
-        "summary: Owns waiver governance fixtures.",
-        "ownership:",
-        "  lifecycle: [\"team-architecture\"]",
-        ""
-      ].join("\n"), "utf8");
-      const waiver = await daemon.planPracticeWaiver(root, {
-        id: "changeset.transition-waiver",
-        waiverId: "transition-waiver",
-        taskSessionId: "task_waiver",
-        practiceId: "modularity.no-new-cycle",
-        checkId: "no-new-cycle",
-        owner: "team-architecture",
-        reason: "External migration window requires keeping this edge until the upstream cutover is complete.",
-        createdAt: "2026-06-24T00:00:00.000Z",
-        reviewAt: "2026-07-10T00:00:00.000Z",
-        expiresAt: "2026-07-24T00:00:00.000Z",
-        evidenceDigest: `sha256:${"1".repeat(64)}`,
-        subjects: ["module.a->module.b"]
-      });
-      expect(waiver.ok, JSON.stringify(waiver)).toBe(true);
-      const applied = await daemon.applyUpdate(root, {
-        id: (waiver.data as any).draft.id,
-        approved: true,
-        expectedWorktreeDigest: (waiver.data as any).draft.base.worktreeDigest
-      });
-      expect(applied.ok, JSON.stringify(applied)).toBe(true);
-      expect((applied.data as any).journalId).toMatch(/^changeset_/);
-      const journals = [...store.changeSetJournals.values()];
-      expect(journals.map((journal) => journal.draft.id)).toEqual(["changeset.transition-docs-only", "changeset.transition-waiver"]);
-      expect(journals.every((journal) => journal.status === "committed" && journal.modelTransition === undefined)).toBe(true);
-      await daemon.stop();
-    } finally {
-      removeTempRepo(root);
-    }
-  });
-
   test("apply_update repairs a schema-invalid node and classifies an incomplete repair (#370)", async () => {
     const root = createInitializedGitRepo();
     const path = ".archcontext/model/nodes/capability.architecture.context.yaml";
@@ -1824,52 +1527,6 @@ setInterval(() => undefined, 1 << 30);
       }
     } finally {
       await daemon.stop();
-      removeTempRepo(root);
-    }
-  });
-
-  test("a semantic file written by anything but the draft mid-apply leaves no transition and does not fail the apply", async () => {
-    const root = createInitializedGitRepo();
-    const store = new TestLocalStore();
-    class MidApplyWriterEngine extends ChangeSetEngine {
-      override async apply(applyRoot: string, draft: ChangeSetDraft, options: ApplyOptions = {}) {
-        return super.apply(applyRoot, draft, {
-          ...options,
-          afterModelValidatedBeforeCommit: async (input) => {
-            writeFileSync(join(applyRoot, ".archcontext/model/nodes/component.hand-edit.yaml"),
-              "schemaVersion: archcontext.node/v2\nid: component.hand-edit\nkind: component\nname: Hand Edit\nparent: capability.architecture.context\nstatus: active\nsummary: Added during apply.\n", "utf8");
-            return options.afterModelValidatedBeforeCommit?.(input);
-          }
-        });
-      }
-    }
-    try {
-      const daemon = await createStartedTestDaemon({
-        localStore: store,
-        changeSetEngine: new MidApplyWriterEngine({ modelStore: new YamlModelStore(), projection: { planGeneratedProjection }, journal: store })
-      });
-      const plan = await daemon.planUpdate(root, {
-        id: "changeset.transition-raced",
-        operations: [{
-          op: "create_entity",
-          path: ".archcontext/model/nodes/component.raced.yaml",
-          expectedHash: "missing",
-          body: "schemaVersion: archcontext.node/v2\nid: component.raced\nkind: component\nname: Raced\nparent: capability.architecture.context\nstatus: active\nsummary: Created by the draft.\n"
-        }]
-      });
-      expect(plan.ok).toBe(true);
-      const apply = await daemon.applyUpdate(root, {
-        id: "changeset.transition-raced",
-        approved: true,
-        expectedWorktreeDigest: (plan.data as any).draft.base.worktreeDigest
-      });
-      expect(apply.ok, JSON.stringify(apply)).toBe(true);
-      const journal = store.changeSetJournals.get((apply.data as any).journalId)!;
-      expect(journal.status).toBe("committed");
-      expect(journal.modelTransition).toBeUndefined();
-      expect(existsSync(join(root, ".archcontext/model/nodes/component.raced.yaml"))).toBe(true);
-      await daemon.stop();
-    } finally {
       removeTempRepo(root);
     }
   });
@@ -1967,430 +1624,6 @@ setInterval(() => undefined, 1 << 30);
     }
   });
 
-  test("ledger-authoritative write mode appends an event while keeping Git projection updates reviewable", async () => {
-    const root = tempRepo();
-    const store = new TestLocalStore();
-    try {
-      const daemon = await createStartedTestDaemon({
-        localStore: store,
-        architectureLedger: { rolloutMode: "ledger-authoritative" },
-        clock: () => "2026-06-25T03:02:00.000Z"
-      });
-      await daemon.init(root, "Ledger Projection App");
-      const plan = await daemon.planUpdate(root, {
-        id: "changeset.ledger-projection-node",
-        operations: [{
-          op: "create_entity",
-          path: ".archcontext/model/nodes/module.ledger-projection.yaml",
-          expectedHash: "missing",
-          body: "schemaVersion: archcontext.node/v2\nid: module.ledger-projection\nkind: module\nname: Ledger Projection\nstatus: active\nsummary: Ledger projection node\n"
-        }]
-      });
-
-      const apply = await daemon.applyUpdate(root, {
-        id: "changeset.ledger-projection-node",
-        approved: true,
-        expectedWorktreeDigest: (plan.data as any).draft.base.worktreeDigest
-      });
-
-      expect(apply.ok).toBe(true);
-      expect((apply.data as any).architectureLedger).toMatchObject({
-        rolloutMode: "ledger-authoritative",
-        readMode: "ledger",
-        writeMode: "ledger-with-projection",
-        readAuthority: "ledger",
-        writeAuthority: "ledger-with-projection",
-        append: {
-          status: "appended",
-          appendedEventCount: 1
-        }
-      });
-      expect(readText(join(root, ".archcontext/model/nodes/module.ledger-projection.yaml"))).toContain("module.ledger-projection");
-      expect(store.architectureEventAppends[0]!.events[0]!.payload).toMatchObject({
-        changeSet: {
-          id: "changeset.ledger-projection-node"
-        },
-        projectionState: {
-          path: ".archcontext",
-          writeMode: "ledger-with-projection"
-        }
-      });
-    } finally {
-      removeTempRepo(root);
-    }
-  });
-
-  test("verified-ledger focused Explorer projection uses bounded reads without loading the full graph", async () => {
-    const root = tempRepo();
-    const store = new TestLocalStore();
-    try {
-      const daemon = await createStartedTestDaemon({
-        localStore: store,
-        architectureLedger: { rolloutMode: "ledger-authoritative" },
-        clock: () => "2026-07-11T18:45:00.000Z"
-      });
-      await daemon.init(root, "Bounded Ledger Explorer");
-      const plan = await daemon.planUpdate(root, {
-        id: "changeset.bounded-ledger-explorer",
-        operations: [{
-          op: "create_entity",
-          path: ".archcontext/model/nodes/module.bounded-ledger-explorer.yaml",
-          expectedHash: "missing",
-          body: "schemaVersion: archcontext.node/v2\nid: module.bounded-ledger-explorer\nkind: module\nname: Bounded Ledger Explorer\nstatus: active\nsummary: Bounded projection fixture\n"
-        }]
-      });
-      await daemon.applyUpdate(root, {
-        id: "changeset.bounded-ledger-explorer",
-        approved: true,
-        expectedWorktreeDigest: (plan.data as any).draft.base.worktreeDigest
-      });
-      store.architectureLedgerFullStateReads = 0;
-      store.explorerProjectionInputReads.length = 0;
-      writeFileSync(join(root, ".archcontext", "model", "nodes", "ignored-by-ledger-focus.yaml"), "schemaVersion: broken\n", "utf8");
-
-      const projection = await daemon.explorerProjectionV2(root, {
-        schemaVersion: "archcontext.explorer-projection-query/v2",
-        viewId: "system-map",
-        semanticLevel: "detail",
-        focus: { subjectId: "module.bounded-ledger-explorer" },
-        depth: 1,
-        budget: { maxNodes: 5, maxRelations: 5 }
-      });
-
-      expect(projection.ok).toBe(true);
-      expect((projection.data as any).cursor.authoritySource).toBe("ledger");
-      expect((projection.data as any).inputManifest.readPlan.kind).toBe("focused-neighborhood");
-      expect(store.explorerProjectionInputReads).toHaveLength(1);
-      expect(store.architectureLedgerFullStateReads).toBe(0);
-    } finally {
-      removeTempRepo(root);
-    }
-  });
-
-  test("Git graph authority retains verified ledger evidence and backlinks through a separate cursor", async () => {
-    const root = tempRepo();
-    const store = new TestLocalStore();
-    try {
-      const daemon = await createStartedTestDaemon({ localStore: store, architectureLedger: { rolloutMode: "dual" }, clock: () => "2026-07-11T19:05:00.000Z" });
-      await daemon.init(root, "Split Authority Explorer");
-      const plan = await daemon.planUpdate(root, {
-        id: "changeset.split-authority-explorer",
-        operations: [{
-          op: "create_entity",
-          path: ".archcontext/model/nodes/module.split-authority.yaml",
-          expectedHash: "missing",
-          body: "schemaVersion: archcontext.node/v2\nid: module.split-authority\nkind: module\nname: Split Authority\nstatus: active\nsummary: Original summary\n"
-        }]
-      });
-      await daemon.applyUpdate(root, { id: "changeset.split-authority-explorer", approved: true, expectedWorktreeDigest: (plan.data as any).draft.base.worktreeDigest });
-      writeFileSync(
-        join(root, ".archcontext", "model", "nodes", "module.split-authority.yaml"),
-        "schemaVersion: archcontext.node/v2\nid: module.split-authority\nkind: module\nname: Split Authority\nstatus: active\nsummary: Git graph changed after ledger event\n",
-        "utf8"
-      );
-
-      const result = await daemon.explorerProjectionV2(root, {
-        schemaVersion: "archcontext.explorer-projection-query/v2",
-        viewId: "system-map",
-        semanticLevel: "detail",
-        focus: { subjectId: "module.split-authority" },
-        depth: 1,
-        budget: { maxNodes: 5, maxRelations: 5 }
-      });
-
-      expect(result.ok).toBe(true);
-      expect((result.data as any).cursor.authoritySource).toBe("git");
-      expect((result.data as any).cursor.authorityCursor).toBeNull();
-      expect((result.data as any).inputManifest.evidenceAuthorityCursor).toBeDefined();
-      expect((result.data as any).inputManifest.evidenceAuthorityCursor.evidenceStateDigest).toBe((result.data as any).inputManifest.evidenceStateDigest);
-      expect((result.data as any).occurrences[0].inspector.decisions.length).toBeGreaterThan(0);
-    } finally {
-      removeTempRepo(root);
-    }
-  });
-
-  test("dual architecture ledger mode rolls back YAML writes when ledger append fails before commit", async () => {
-    class FailingLedgerStore extends TestLocalStore {
-      async appendArchitectureEvents(input: Parameters<TestLocalStore["appendArchitectureEvents"]>[0]): ReturnType<TestLocalStore["appendArchitectureEvents"]> {
-        this.architectureEventAppends.push(input);
-        throw new Error("ledger-append-down");
-      }
-    }
-    const root = tempRepo();
-    const store = new FailingLedgerStore();
-    try {
-      const daemon = await createStartedTestDaemon({
-        localStore: store,
-        architectureLedger: { rolloutMode: "dual" },
-        clock: () => "2026-06-25T03:05:00.000Z"
-      });
-      await daemon.init(root, "Dual Ledger Rollback App");
-      const path = ".archcontext/model/nodes/module.dual-rollback.yaml";
-      const plan = await daemon.planUpdate(root, {
-        id: "changeset.dual-ledger-rollback",
-        operations: [{
-          op: "create_entity",
-          path,
-          expectedHash: "missing",
-          body: "schemaVersion: archcontext.node/v2\nid: module.dual-rollback\nkind: module\nname: Dual Rollback\nstatus: active\nsummary: Dual rollback node\n"
-        }]
-      });
-
-      await expect(daemon.applyUpdate(root, {
-        id: "changeset.dual-ledger-rollback",
-        approved: true,
-        expectedWorktreeDigest: (plan.data as any).draft.base.worktreeDigest
-      })).rejects.toMatchObject({code:"AC_UNCLASSIFIED_FAILURE",reasonCode:"failure-unclassified"});
-
-      expect(existsSync(join(root, path))).toBe(false);
-      expect([...store.changeSetJournals.values()].some((journal) => journal.status === "aborted" && journal.reason === "ledger-append-down")).toBe(true);
-      expect(store.architectureEventAppends).toHaveLength(1);
-    } finally {
-      removeTempRepo(root);
-    }
-  });
-
-  test("ledger read mode returns SQLite current state and Git drift readback", async () => {
-    const root = tempRepo();
-    const store = new TestLocalStore();
-    try {
-      const daemon = await createStartedTestDaemon({
-        localStore: store,
-        architectureLedger: { rolloutMode: "ledger-authoritative" },
-        clock: () => "2026-06-25T04:00:00.000Z"
-      });
-      await daemon.init(root, "Ledger Read App");
-      const plan = await daemon.planUpdate(root, {
-        id: "changeset.ledger-read-node",
-        operations: [{
-          op: "create_entity",
-          path: ".archcontext/model/nodes/module.ledger-read.yaml",
-          expectedHash: "missing",
-          body: "schemaVersion: archcontext.node/v2\nid: module.ledger-read\nkind: module\nname: Ledger Read\nstatus: active\nsummary: Ledger read node\n"
-        }]
-      });
-      await daemon.applyUpdate(root, {
-        id: "changeset.ledger-read-node",
-        approved: true,
-        expectedWorktreeDigest: (plan.data as any).draft.base.worktreeDigest
-      });
-
-      const state = await daemon.ledgerState(root);
-
-      expect(state.ok).toBe(true);
-      expect((state.data as any).architectureLedger).toMatchObject({
-        rolloutMode: "ledger-authoritative",
-        readMode: "ledger",
-        readAuthority: "ledger"
-      });
-      expect((state.data as any).state.entities.map((entity: any) => entity.entityId)).toContain("module.ledger-read");
-      expect((state.data as any).ledger.graphDigest).toMatch(/^sha256:/);
-      expect((state.data as any).drift.semanticDrift).toBe(false);
-    } finally {
-      removeTempRepo(root);
-    }
-  });
-
-  test("ledger-authoritative runtime read surfaces use SQLite current state when Git projection drifts", async () => {
-    const root = tempRepo();
-    const store = new TestLocalStore();
-    try {
-      const daemon = await createStartedTestDaemon({
-        localStore: store,
-        architectureLedger: { rolloutMode: "ledger-authoritative" },
-        clock: () => "2026-06-25T04:03:00.000Z"
-      });
-      await daemon.init(root, "Ledger Runtime Read App");
-      const path = ".archcontext/model/nodes/module.ledger-runtime-read.yaml";
-      const plan = await daemon.planUpdate(root, {
-        id: "changeset.ledger-runtime-read-node",
-        operations: [{
-          op: "create_entity",
-          path,
-          expectedHash: "missing",
-          body: "schemaVersion: archcontext.node/v2\nid: module.ledger-runtime-read\nkind: module\nname: Ledger Runtime Read\nstatus: active\nsummary: Runtime reads from ledger state\n"
-        }]
-      });
-      await daemon.applyUpdate(root, {
-        id: "changeset.ledger-runtime-read-node",
-        approved: true,
-        expectedWorktreeDigest: (plan.data as any).draft.base.worktreeDigest
-      });
-      const ledger = await daemon.ledgerState(root);
-      rmSync(join(root, path), { force: true });
-
-      const validate = await daemon.validate(root);
-      const validation = validate.data as any;
-      const yamlDigest = digestJson(listModelFiles(root).map((file) => ({ path: file.path, digest: file.digest })) as any);
-      expect(validate.ok).toBe(true);
-      expect(validation.valid).toBe(true);
-      expect(validation.architectureLedger).toMatchObject({
-        readAuthority: "ledger",
-        graphDigest: (ledger.data as any).ledger.graphDigest,
-        entityCount: (ledger.data as any).ledger.entityCount
-      });
-      expect(listModelFiles(root).map((file) => file.path)).not.toContain(path);
-      expect(validation.modelDigest).not.toBe(yamlDigest);
-
-      const context = await daemon.context(root, "change ledger runtime read model", 4);
-      expect(context.ok).toBe(true);
-      const contextData = context.data as any;
-      expect(contextData.extensions.modelDigest).toBe(validation.modelDigest);
-      expect(contextData.extensions.architectureLedgerDigest).toBe((ledger.data as any).ledger.graphDigest);
-      expect(["ledger-first", "ledger-only"]).toContain(contextData.extensions.codeFactsMode);
-      expect(contextData.relevantNodes).toContain("module.ledger-runtime-read");
-      expect((contextData.resources as any[]).some((resource) => resource.type === "architecture-book" && resource.digest === (ledger.data as any).ledger.graphDigest)).toBe(true);
-      expect((contextData.resources as any[]).some((resource) => resource.type === "model" && resource.digest === validation.modelDigest)).toBe(true);
-
-      const prepare = await daemon.prepare(root, "change ledger runtime read model", 12_288, 4, "task_ledger_runtime_reads");
-      expect((prepare.data as any).context.extensions.modelDigest).toBe(validation.modelDigest);
-      expect((prepare.data as any).context.extensions.architectureLedgerDigest).toBe((ledger.data as any).ledger.graphDigest);
-      const complete = await daemon.completeTask(root, {
-        taskSessionId: "task_ledger_runtime_reads",
-        task: "change ledger runtime read model"
-      });
-      expect((complete.data as any).snapshot.modelDigest).toBe(validation.modelDigest);
-    } finally {
-      removeTempRepo(root);
-    }
-  });
-
-  test("ledger-authoritative validate resolves ADR appliesTo against ledger nodes (#163)", async () => {
-    const root = tempRepo();
-    const store = new TestLocalStore();
-    try {
-      const daemon = await createStartedTestDaemon({
-        localStore: store,
-        architectureLedger: { rolloutMode: "ledger-authoritative" },
-        clock: () => "2026-09-25T04:03:00.000Z"
-      });
-      await daemon.init(root, "Ledger ADR Integrity App");
-      const path = ".archcontext/model/nodes/module.ledger-adr.yaml";
-      const plan = await daemon.planUpdate(root, {
-        id: "changeset.ledger-adr-node",
-        operations: [{
-          op: "create_entity",
-          path,
-          expectedHash: "missing",
-          body: "schemaVersion: archcontext.node/v2\nid: module.ledger-adr\nkind: module\nname: Ledger ADR\nstatus: active\nsummary: ADR target held by the ledger\n"
-        }]
-      });
-      await daemon.applyUpdate(root, {
-        id: "changeset.ledger-adr-node",
-        approved: true,
-        expectedWorktreeDigest: (plan.data as any).draft.base.worktreeDigest
-      });
-      rmSync(join(root, path), { force: true });
-      const adrPath = "docs/adr/ADR-0001-ledger-adr.md";
-      const writeAdr = (appliesTo: string) => {
-        mkdirSync(join(root, "docs/adr"), { recursive: true });
-        writeFileSync(join(root, adrPath), [
-          "---",
-          "schemaVersion: archcontext.adr/v1",
-          "id: adr.0001.ledger-adr",
-          "title: Ledger ADR",
-          "status: accepted",
-          "decidedAt: 2026-09-25",
-          "appliesTo:",
-          `  - ${appliesTo}`,
-          "supersedes: []",
-          "---",
-          ""
-        ].join("\n"), "utf8");
-      };
-
-      writeAdr("module.ledger-adr");
-      const resolved = (await daemon.validate(root)).data as any;
-      expect(resolved.architectureLedger.readAuthority).toBe("ledger");
-      expect(resolved).toMatchObject({ valid: true, errors: [] });
-
-      writeAdr("package.bogus");
-      const unresolved = (await daemon.validate(root)).data as any;
-      expect(unresolved.architectureLedger.readAuthority).toBe("ledger");
-      expect(unresolved.valid).toBe(false);
-      expect(unresolved.errors).toEqual([`${adrPath}: ADR appliesTo references unknown node package.bogus`]);
-    } finally {
-      removeTempRepo(root);
-    }
-  });
-
-  describe("ledger read mode validates with the YAML validator: a rejected model fails the same way and a valid model passes (#576)", () => {
-    const fixture = (path: string) => JSON.parse(readFileSync(join(import.meta.dir, "../../../contracts/fixtures", path), "utf8"));
-    const topology = fixture("model/valid/runtime-topology.json") as { nodes: Record<string, Json>[]; relations: Record<string, Json>[] };
-    const machine = { ...fixture("valid/architecture-state-machine.json"), capabilityId: "capability.architecture.context" };
-    const mountPath = ".archcontext/model/nodes/mount.shop.tmp.yaml";
-    const relationPath = ".archcontext/model/relations/relation.shop.api-runs-in-container.yaml";
-    const nested = (name: string) => `.archcontext/model/state-machines/sub/${name}`;
-    const misplaced = (name: string) => `${nested(name)}: state-machine-path-nested: a state machine must be a direct child of .archcontext/model/state-machines/`;
-    const writeNested = (root: string, name: string) => {
-      mkdirSync(join(root, dirname(nested(name))), { recursive: true });
-      writeFileSync(join(root, nested(name)), stableYaml({ ...machine, id: `state-machine.checkout.${name.toLowerCase().replace(".yaml", "")}` }), "utf8");
-    };
-    const cases: Array<[string, { write: (root: string) => void; errors: string[] }]> = [
-      ["valid model", { write: () => {}, errors: [] }],
-      ["node schema violation", {
-        write: (root) => writeFileSync(join(root, mountPath), stableYaml({ schemaVersion: "archcontext.node/v2", id: "mount.shop.tmp", kind: "mount", name: "Scratch", status: "active", summary: "Scratch.", mount: { mode: "rw", order: 0 } }), "utf8"),
-        errors: [`${mountPath}: $.mount.target: required`]
-      }],
-      ["topology error", {
-        write: (root) => writeFileSync(join(root, relationPath), stableYaml({ ...topology.relations.find((relation) => relation.id === "relation.shop.api-runs-in-container")!, target: "component.shop.api" }), "utf8"),
-        errors: [`${relationPath}: target: topology-relation-target-kind-invalid`]
-      }],
-      ["nested state machine", { write: (root) => writeNested(root, "x.yaml"), errors: [misplaced("x.yaml")] }],
-      // Code unit order puts B before a; localeCompare puts a before B.
-      ["two invalid files whose paths sort differently under localeCompare", {
-        write: (root) => { writeNested(root, "a.yaml"); writeNested(root, "B.yaml"); },
-        errors: [misplaced("B.yaml"), misplaced("a.yaml")]
-      }]
-    ];
-    test.each(cases)("%s", async (name, { write, errors }) => {
-      const root = tempRepo();
-      try {
-        initializeArchContextModel(root, "Ledger Validation Parity");
-        mkdirSync(join(root, ".archcontext/model/relations"), { recursive: true });
-        mkdirSync(join(root, ".archcontext/model/state-machines"), { recursive: true });
-        for (const [directory, records] of [["nodes", topology.nodes], ["relations", topology.relations]] as const) {
-          for (const record of records) writeFileSync(join(root, `.archcontext/model/${directory}/${record.id}.yaml`), stableYaml(record), "utf8");
-        }
-        writeFileSync(join(root, ".archcontext/model/state-machines/state-machine.checkout.order.yaml"), stableYaml(machine), "utf8");
-        write(root);
-        const yaml = await new YamlModelStore().validateModel({ root, repositoryId: "repo.test", headSha: "abc" });
-        expect({ name, valid: yaml.valid, errors: yaml.errors }).toEqual({ name, valid: errors.length === 0, errors });
-
-        // The ledger holds the nodes and relations; Git keeps only the files the ledger does not own.
-        const ledgerFiles = listModelFiles(root);
-        rmSync(join(root, ".archcontext/model/nodes"), { recursive: true, force: true });
-        rmSync(join(root, ".archcontext/model/relations"), { recursive: true, force: true });
-        class ImportedLedgerStore extends TestLocalStore {
-          state?: ArchitectureLedgerGraphState;
-          override async readArchitectureLedgerState(scope: Parameters<TestLocalStore["readArchitectureLedgerState"]>[0]) {
-            this.state = planYamlToArchitectureLedgerImport({ ...scope, files: ledgerFiles, previousEvidenceState: emptyArchitectureLedgerEvidenceState(), createdAt: "2026-11-13T00:00:00.000Z" }).state;
-            return this.state;
-          }
-        }
-        const store = new ImportedLedgerStore();
-        const daemon = await createStartedTestDaemon({ localStore: store, architectureLedger: { rolloutMode: "ledger-authoritative" } });
-        const ledger = (await daemon.validate(root)).data as any;
-        expect(ledger.architectureLedger.readAuthority).toBe("ledger");
-        expect(ledger.architectureLedger.entityCount).toBe(topology.nodes.length + 1);
-        expect({ name, valid: ledger.valid, errors: ledger.errors }).toEqual({ name, valid: yaml.valid, errors: yaml.errors });
-        // The two modes hash different file bodies, so their digests differ; each mode hashes its files in the one order.
-        const ledgerSet = [
-          ...listModelFiles(root),
-          ...projectArchitectureLedgerStateToYamlFiles(store.state!).map((file) => ({ path: file.path, body: file.body, digest: file.digest, schemaVersion: extractSchemaVersion(file.body, file.path) }))
-        ];
-        const digestInPathOrder = (files: Array<{ path: string; digest: string }>) => {
-          const byPath = new Map(files.map((file) => [file.path, file.digest]));
-          return digestJson([...byPath.keys()].sort().map((path) => ({ path, digest: byPath.get(path)! })));
-        };
-        expect(ledger.modelDigest).toBe(digestInPathOrder(ledgerSet));
-        expect(yaml.modelDigest).toBe(digestInPathOrder(ledgerFiles));
-      } finally {
-        removeTempRepo(root);
-      }
-    });
-  });
-
   test("apply_update restores a hand-deleted node that an ADR references (#163)", async () => {
     const root = tempRepo();
     try {
@@ -2434,25 +1667,6 @@ setInterval(() => undefined, 1 << 30);
     } finally {
       removeTempRepo(root);
     }
-  });
-
-  test("SQLite contract enables WAL, foreign keys, busy timeout, and stores no source bodies", () => {
-    const sql = migrationSql();
-    for (const pragma of SQLITE_PRAGMAS) expect(sql).toContain(pragma);
-    expect(() => assertNoSourceStorageSchema(sql)).not.toThrow();
-  });
-
-  test("runtime store recovers pending snapshots without losing committed state", async () => {
-    const store = new TestLocalStore();
-    await store.migrate();
-    const snapshot = { repositoryId: "repo.test", headSha: "abc", worktreeDigest: "sha256:test" };
-    const pending = await store.beginSnapshot(snapshot);
-    const committed = await store.beginSnapshot(snapshot);
-    await store.commitSnapshot(committed);
-
-    expect(store.recoverPendingSnapshots()).toBe(1);
-    expect(store.snapshots.has(pending)).toBe(false);
-    expect(store.snapshots.get(committed)?.state).toBe("committed");
   });
 
   test("daemon restart restores persisted repository sessions from the local store", async () => {
@@ -2536,20 +1750,12 @@ setInterval(() => undefined, 1 << 30);
     }
   });
 
-  test("runtime RPC rejects untrusted worktree digest profiles before plan or apply state", async () => {
+  test("runtime rejects untrusted worktree digest profiles before plan or apply state", async () => {
     const root = createGitRepo();
     const store = new TestLocalStore();
     const daemon = await createStartedTestDaemon({ localStore: store });
-    const rpc = new ArchctxRuntimeRpcServer(daemon, {
-      root,
-      port: 0,
-      token: "runtime-profile-test-token",
-      clock: () => "2026-08-27T00:00:00.000Z"
-    });
     try {
-      const connection = await rpc.start();
-      const client = new RuntimeRpcClient(connection);
-      expect((await client.init(root, "RPC Profile Validation App")).ok).toBe(true);
+      expect((await daemon.init(root, "Runtime Profile Validation App")).ok).toBe(true);
       const repositoryDigest = computeWorktreeDigest(root, listGitVisibleFiles(root));
       const projectionDigest = architectureDocumentationProjectionWorktreeDigest(
         root,
@@ -2565,7 +1771,7 @@ setInterval(() => undefined, 1 << 30);
 
       for (const { label, profile, expectedDigest } of invalidPlanProfiles) {
         const id = `changeset.invalid-profile-${label}`;
-        const plan = await (client as any).planUpdate(root, {
+        const plan = await (daemon as any).planUpdate(root, {
           id,
           operations: [],
           worktreeDigestPrecondition: { profile, expectedDigest }
@@ -2577,17 +1783,20 @@ setInterval(() => undefined, 1 << 30);
           error: { code: "AC_SCHEMA_INVALID" }
         });
 
-        const sameProfileApply = await (client as any).applyUpdate(root, {
+        const sameProfileApplyPromise = (daemon as any).applyUpdate(root, {
           id,
           approved: true,
           expectedWorktreeDigest: expectedDigest,
           worktreeDigestProfile: profile
         });
         if (profile === "repository") {
-          expect((sameProfileApply as any).ok).toBe(false);
-          expect(sameProfileApply.error).toMatchObject({code:"AC_PRECONDITION_FAILED",reasonCode:"apply-draft-missing",details:{changeSetId:id}});
+          await expect(sameProfileApplyPromise).rejects.toMatchObject({
+            code: "AC_PRECONDITION_FAILED",
+            reasonCode: "apply-draft-missing",
+            details: { changeSetId: id }
+          });
         } else {
-          expect(sameProfileApply).toMatchObject({
+          expect(await sameProfileApplyPromise).toMatchObject({
             schemaVersion: "archcontext.envelope/v1",
             ok: false,
             requestId: "apply_update",
@@ -2595,23 +1804,25 @@ setInterval(() => undefined, 1 << 30);
           });
         }
 
-        const missingDraft = await client.applyUpdate(root, {
+        await expect(daemon.applyUpdate(root, {
           id,
           approved: true,
           expectedWorktreeDigest: repositoryDigest
+        })).rejects.toMatchObject({
+          code: "AC_PRECONDITION_FAILED",
+          reasonCode: "apply-draft-missing",
+          details: { changeSetId: id }
         });
-        expect(missingDraft.ok).toBe(false);
-        expect(missingDraft.error).toMatchObject({code:"AC_PRECONDITION_FAILED",reasonCode:"apply-draft-missing",details:{changeSetId:id}});
       }
 
-      const validPlan = await client.planUpdate(root, {
+      const validPlan = await daemon.planUpdate(root, {
         id: "changeset.invalid-apply-profile",
         operations: []
       });
       expect(validPlan.ok).toBe(true);
       const expectedWorktreeDigest = (validPlan.data as any).draft.base.worktreeDigest;
       for (const profile of ["not-a-real-profile", null, 7]) {
-        const apply = await (client as any).applyUpdate(root, {
+        const apply = await (daemon as any).applyUpdate(root, {
           id: "changeset.invalid-apply-profile",
           approved: true,
           expectedWorktreeDigest,
@@ -2630,85 +1841,11 @@ setInterval(() => undefined, 1 << 30);
       }
 
       expect(computeWorktreeDigest(root, listGitVisibleFiles(root))).toBe(repositoryDigest);
-      expect(store.changeSetJournals.size).toBe(0);
     } finally {
-      await rpc.stop().catch(() => undefined);
+      await daemon.stop();
       removeTempRepo(root);
     }
   });
-
-  test("idle RPC server does not exit while a runtime_job_queue entry is queued", async () => {
-    const root = createGitRepo();
-    const daemon = await createStartedTestDaemon();
-    mkdirSync(join(root, "src"), { recursive: true });
-    writeFileSync(join(root, "src", "changed.ts"), "export const changed = true;\n", "utf8");
-    const enqueue = await daemon.jobsEnqueueGitHook(root, {
-      source: "worktree",
-      event: "post-edit",
-      taskSessionId: "task.idle-busy-queue",
-      analysisKind: "architecture-delta",
-      risk: "high",
-      uncertainty: "high"
-    });
-    expect((enqueue.data as any).enqueued).toBe(true);
-    const exitCodes: number[] = [];
-    const rpc = new ArchctxRuntimeRpcServer(daemon, {
-      root,
-      port: 0,
-      token: "idle-busy-queue-token",
-      idleTimeoutMs: 150,
-      exit: (code) => { exitCodes.push(code); }
-    });
-    try {
-      const connection = await rpc.start();
-      await sleep(450);
-      expect(exitCodes).toEqual([]);
-      expect(existsSync(connection.connectionPath)).toBe(true);
-    } finally {
-      await rpc.stop().catch(() => undefined);
-      removeTempRepo(root);
-    }
-  }, 10_000);
-
-  test("idle RPC server exits within the idle timeout once its session's worktree is deleted, even with a queued job (#322)", async () => {
-    const root = createGitRepo();
-    const daemon = await createStartedTestDaemon();
-    mkdirSync(join(root, "src"), { recursive: true });
-    writeFileSync(join(root, "src", "changed.ts"), "export const changed = true;\n", "utf8");
-    const enqueue = await daemon.jobsEnqueueGitHook(root, {
-      source: "worktree",
-      event: "post-edit",
-      taskSessionId: "task.idle-deleted-root",
-      analysisKind: "architecture-delta",
-      risk: "high",
-      uncertainty: "high"
-    });
-    expect((enqueue.data as any).enqueued).toBe(true);
-    expect(daemon.status().sessions).toBe(1);
-    const exitCodes: number[] = [];
-    const rpc = new ArchctxRuntimeRpcServer(daemon, {
-      root,
-      port: 0,
-      token: "idle-deleted-root-token",
-      idleTimeoutMs: 300,
-      exit: (code) => { exitCodes.push(code); }
-    });
-    try {
-      const connection = await rpc.start();
-      // The sibling test above shows the same queued job holds the daemon while the root exists.
-      // Once the root is gone nothing can drive that job, so the first idle check closes the
-      // session and exits instead of failing on the missing root and staying busy forever.
-      nodeRmSync(root, { recursive: true, force: true });
-      expect(existsSync(root)).toBe(false);
-      const deadline = Date.now() + 300 + 1_000;
-      while (exitCodes.length === 0 && Date.now() < deadline) await sleep(25);
-      expect(exitCodes).toEqual([0]);
-      expect(existsSync(connection.connectionPath)).toBe(false);
-    } finally {
-      await rpc.stop().catch(() => undefined);
-      removeTempRepo(root);
-    }
-  }, 10_000);
 
   test("production composition root uses real adapters and rejects injected runtime doubles", async () => {
     const root = tempRepo();
@@ -2812,334 +1949,6 @@ setInterval(() => undefined, 1 << 30);
 
 });
 
-describe("createNodeInvestigationTransport", () => {
-  test("unwraps a successful claude --output-format json envelope into a report stdout", async () => {
-    const script = "process.stdout.write(JSON.stringify({type:'result',subtype:'success',is_error:false,result:JSON.stringify({ok:true,findings:[]})}))";
-    const transport = createNodeInvestigationTransport();
-    const result = await transport({
-      runnerPort: "claude-code",
-      runnerId: "runner.claude-code",
-      command: process.execPath,
-      args: ["-e", script],
-      stdin: "{}"
-    });
-    expect(result.exitCode).toBe(0);
-    expect(JSON.parse(result.stdout)).toEqual({ report: { ok: true, findings: [] } });
-  });
-
-  test("reports a non-zero exit without throwing when the envelope signals is_error", async () => {
-    const script = "process.stdout.write(JSON.stringify({type:'result',subtype:'error_during_execution',is_error:true,result:'agent failed'}))";
-    const transport = createNodeInvestigationTransport();
-    const result = await transport({
-      runnerPort: "claude-code",
-      runnerId: "runner.claude-code",
-      command: process.execPath,
-      args: ["-e", script],
-      stdin: "{}"
-    });
-    expect(result.exitCode).toBe(1);
-    expect(result.stdout).toBe("agent failed");
-  });
-
-  test("reports a non-zero exit without throwing when stdout is not an envelope", async () => {
-    const transport = createNodeInvestigationTransport();
-    const result = await transport({
-      runnerPort: "claude-code",
-      runnerId: "runner.claude-code",
-      command: process.execPath,
-      args: ["-e", "process.stdout.write('not json')"],
-      stdin: "{}"
-    });
-    expect(result.exitCode).toBe(1);
-    expect(result.stdout).toBe("not json");
-  });
-
-  test("reports a non-zero exit without throwing when the envelope result is not JSON", async () => {
-    const script = "process.stdout.write(JSON.stringify({type:'result',subtype:'success',is_error:false,result:'not json report'}))";
-    const transport = createNodeInvestigationTransport();
-    const result = await transport({
-      runnerPort: "claude-code",
-      runnerId: "runner.claude-code",
-      command: process.execPath,
-      args: ["-e", script],
-      stdin: "{}"
-    });
-    expect(result.exitCode).toBe(1);
-    expect(result.stdout).toBe("not json report");
-  });
-});
-
-describe("github issue executor", () => {
-  test("withGithubIssueBodyFile removes its temp directory even when writing the body fails", async () => {
-    let capturedBodyFile: string | undefined;
-    const failingWrite = ((path: unknown) => {
-      capturedBodyFile = path as string;
-      throw new Error("simulated disk write failure");
-    }) as unknown as typeof writeFileSync;
-
-    let caught: unknown;
-    try {
-      await withGithubIssueBodyFile(
-        "draft body",
-        async () => {
-          throw new Error("fn must never run: the write should have failed first");
-        },
-        { writeFile: failingWrite }
-      );
-    } catch (error) {
-      caught = error;
-    }
-
-    expect(caught).toBeInstanceOf(Error);
-    expect((caught as Error).message).toBe("simulated disk write failure");
-    expect(capturedBodyFile).toBeDefined();
-    // The temp directory `mkdtempSync` created still existed at the moment of the write failure
-    // (that is what makes this a meaningful assertion); the fix's `finally` must have removed it.
-    expect(existsSync(dirname(capturedBodyFile!))).toBe(false);
-  });
-
-  test("gh executor redacts the call's token and any gh-token-shaped substring from a failing call's error message", async () => {
-    if (process.platform === "win32") return;
-    const binDir = mkdtempSync(join(tmpdir(), "archctx-fake-gh-"));
-    // Deliberately NOT gh-token-shaped, so it can only be stripped by the literal-token match.
-    const callToken = "s3cr3t-pat-literal-000111222333";
-    // gh-token-shaped but NOT the literal token passed to this call, so it can only be stripped by
-    // the gh[opsu]_ pattern match (simulates gh's own output echoing a *different* credential).
-    const otherToken = "ghu_otherLeakedTokenShape999888";
-    try {
-      writeFileSync(
-        join(binDir, "gh"),
-        `#!/bin/sh\necho "authentication failed for token ${callToken}; also saw ${otherToken}" 1>&2\nexit 1\n`
-      );
-      chmodSync(join(binDir, "gh"), 0o755);
-      const previousPath = process.env.PATH;
-      process.env.PATH = `${binDir}${previousPath ? `${delimiter}${previousPath}` : ""}`;
-      try {
-        const executor = createNodeGithubIssueExecutor({ timeoutMs: 5_000 });
-        let caught: unknown;
-        try {
-          await executor.repoView("acme/widgets", { GH_TOKEN: callToken });
-        } catch (error) {
-          caught = error;
-        }
-        expect(caught).toBeInstanceOf(Error);
-        const message = (caught as Error).message;
-        expect(message).toContain("[REDACTED]");
-        expect(message).not.toContain(callToken);
-        expect(message).not.toContain(otherToken);
-      } finally {
-        process.env.PATH = previousPath;
-      }
-    } finally {
-      rmSync(binDir, { recursive: true, force: true });
-    }
-  });
-
-  // ADR-0042 non-goal, reproducing a real `archctx audit approve` e2e failure: `gh issue create
-  // --label archcontext-audit` rejected with `could not add label: 'archcontext-audit' not found`
-  // because label existence on the target repo is never verified first. createIssue() has no
-  // `labels` input at all (see GithubIssueExecutorPort's doc comment) — this pins the real
-  // executor's actual `gh` argv to prove no `--label` is ever emitted, whatever a draft's labels
-  // may be; those stay visible only via `archctx audit show`.
-  test("ADR-0042: real gh executor's createIssue never sends --label to gh (label existence on the target repo is never verified server-side, so an unknown label would fail gh issue create outright)", async () => {
-    if (process.platform === "win32") return;
-    const binDir = mkdtempSync(join(tmpdir(), "archctx-fake-gh-label-"));
-    const capturedArgsFile = join(binDir, "captured-args.txt");
-    const bodyFile = join(binDir, "body.md");
-    try {
-      writeFileSync(bodyFile, "draft body", "utf8");
-      writeFileSync(
-        join(binDir, "gh"),
-        `#!/bin/sh\nprintf '%s\\n' "$@" > "${capturedArgsFile}"\necho "https://github.com/acme/widgets/issues/4242"\n`
-      );
-      chmodSync(join(binDir, "gh"), 0o755);
-      const previousPath = process.env.PATH;
-      process.env.PATH = `${binDir}${previousPath ? `${delimiter}${previousPath}` : ""}`;
-      try {
-        const executor = createNodeGithubIssueExecutor({ timeoutMs: 5_000 });
-        const result = await executor.createIssue({
-          repo: "acme/widgets",
-          title: "Some draft title",
-          bodyFile,
-          env: { GH_TOKEN: "gh_pat_test_token" }
-        });
-        expect(result).toEqual({ number: 4242, url: "https://github.com/acme/widgets/issues/4242" });
-        const capturedArgs = readFileSync(capturedArgsFile, "utf8");
-        expect(capturedArgs).not.toContain("--label");
-      } finally {
-        process.env.PATH = previousPath;
-      }
-    } finally {
-      rmSync(binDir, { recursive: true, force: true });
-    }
-  });
-
-  // Issue #117: the preflight's job is to stop credential *values* from being published, not to
-  // ban the vocabulary a security/architecture audit needs in order to describe them.
-  const preflightDraft = (overrides: Partial<GithubIssuePreflightDraft> = {}): GithubIssuePreflightDraft => ({
-    draftId: "draft_1",
-    draftDigest: `sha256:${"a".repeat(64)}`,
-    title: "Some advisory finding",
-    bodyMarkdown: "## Task\n\nDo the thing.\n",
-    labels: [],
-    ...overrides
-  });
-
-  const benignSecurityProseDrafts: { name: string; draft: GithubIssuePreflightDraft }[] = [
-    { name: "JWT in the title", draft: preflightDraft({ title: "Validate JWT audience and issuer checks" }) },
-    { name: "lowercase jwt in prose", draft: preflightDraft({ bodyMarkdown: "The verifier never checks the jwt expiry claim.\n" }) },
-    { name: "JWT trust-boundary prose", draft: preflightDraft({ bodyMarkdown: "## Task\n\nDocument JWT trust boundaries between the app and the daemon.\n" }) },
-    { name: "installation-token prose", draft: preflightDraft({ title: "Rotate installation-token credentials safely" }) },
-    { name: "installation_token identifier", draft: preflightDraft({ bodyMarkdown: "The `installation_token` field is read from the store and never logged.\n" }) },
-    { name: "jwt label", draft: preflightDraft({ labels: ["area/jwt", "security"] }) },
-    {
-      name: "malformed near-miss token shape",
-      draft: preflightDraft({ bodyMarkdown: "A truncated header-only value such as eyJhbGciOiJIUzI1NiJ9 is not a credential.\n" })
-    },
-    {
-      name: "dotted identifiers that are not a compact token",
-      draft: preflightDraft({ bodyMarkdown: "See packages.local-runtime.runtime-daemon for the handler.\n" })
-    },
-    {
-      name: "Bearer authentication terminology",
-      draft: preflightDraft({ bodyMarkdown: "Use Bearer authentication for this request.\n" })
-    },
-    {
-      name: "provider key vocabulary without a value",
-      draft: preflightDraft({ bodyMarkdown: "Keys start with sk-ant- or AKIA; the risk-free task-runner uses sk-learn and xoxb- tokens in docs only.\n" })
-    }
-  ];
-
-  for (const { name, draft } of benignSecurityProseDrafts) {
-    test(`preflight publishes benign security prose: ${name}`, () => {
-      const result = preflightGithubIssueDrafts("audit_run.benign", [draft]);
-      expect(result.ok).toBe(true);
-    });
-  }
-
-  const credentialValueDrafts: { name: string; field: string; draft: GithubIssuePreflightDraft }[] = [
-    {
-      name: "compact token value in the body",
-      field: "body",
-      draft: preflightDraft({
-        bodyMarkdown:
-          "Observed value: eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiIxMjM0NSIsImV4cCI6OTk5OTk5fQ.c2lnbmF0dXJlLXZhbHVlLWhlcmU\n"
-      })
-    },
-    {
-      name: "compact token value in the title",
-      field: "title",
-      draft: preflightDraft({
-        title: "Leaked eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiIxMjM0NSIsImV4cCI6OTk5OTk5fQ.c2lnbmF0dXJlLXZhbHVlLWhlcmU value"
-      })
-    },
-    {
-      name: "compact token value in a label",
-      field: "label",
-      draft: preflightDraft({
-        labels: ["eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiIxMjM0NSIsImV4cCI6OTk5OTk5fQ.c2lnbmF0dXJlLXZhbHVlLWhlcmU"]
-      })
-    },
-    {
-      name: "github token prefix",
-      field: "body",
-      draft: preflightDraft({ bodyMarkdown: "Rotate ghp_abcdefghijklmnopqrstuvwxyz0123456789 immediately.\n" })
-    },
-    {
-      name: "fine-grained github token prefix",
-      field: "body",
-      draft: preflightDraft({ bodyMarkdown: `Rotate github_pat_${"A".repeat(40)} immediately.\n` })
-    },
-    {
-      name: "github refresh token prefix",
-      field: "body",
-      draft: preflightDraft({ bodyMarkdown: "Rotate ghr_abcdefghijklmnopqrstuvwxyz0123456789 immediately.\n" })
-    },
-    {
-      name: "bearer credential",
-      field: "body",
-      draft: preflightDraft({ bodyMarkdown: "Request header: Authorization: Bearer abcdefghijklmnopqrstuvwxyz012345\n" })
-    },
-    {
-      name: "private key header",
-      field: "body",
-      draft: preflightDraft({ bodyMarkdown: "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKC\n" })
-    },
-    {
-      name: "webhook secret",
-      field: "body",
-      draft: preflightDraft({ bodyMarkdown: "GITHUB_WEBHOOK_SECRET=hunter2hunter2hunter2\n" })
-    },
-    {
-      name: "installation token assignment",
-      field: "body",
-      draft: preflightDraft({ bodyMarkdown: 'installation_token = "NOT-A-REAL-INSTALLATION-TOKEN-0000"\n' })
-    },
-    {
-      name: "installation-token assignment in mixed case",
-      field: "body",
-      draft: preflightDraft({ bodyMarkdown: "Installation-Token: NOT-A-REAL-INSTALLATION-TOKEN-0000\n" })
-    },
-    // Issue #161: model-provider, cloud and chat credential values shared with the Context7 guard.
-    {
-      name: "anthropic api key",
-      field: "body",
-      draft: preflightDraft({ bodyMarkdown: "Found ANTHROPIC_API_KEY=sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123 in config.\n" })
-    },
-    {
-      name: "openai-style api key",
-      field: "title",
-      draft: preflightDraft({ title: "Remove sk-proj-abcdefghijklmnopqrstuvwxyz0123 from fixtures" })
-    },
-    {
-      name: "aws access key id",
-      field: "body",
-      draft: preflightDraft({ bodyMarkdown: "aws_access_key_id = AKIAIOSFODNN7EXAMPLE\n" })
-    },
-    {
-      name: "slack bot token",
-      field: "label",
-      draft: preflightDraft({ labels: ["xoxb-123456789012-abcdefghijkl"] })
-    }
-  ];
-
-  for (const { name, field, draft } of credentialValueDrafts) {
-    test(`preflight rejects a credential value: ${name}`, () => {
-      const result = preflightGithubIssueDrafts("audit_run.credential", [draft]);
-      expect(result.ok).toBe(false);
-      const reason = (result as { ok: false; reason: string }).reason;
-      expect(reason).toContain("secret-shaped");
-      expect(reason).toContain(draft.draftId);
-      expect(reason).toContain(field);
-      // The reason names the detector and the field, never the matched credential text.
-      const scanned = [draft.title, draft.bodyMarkdown, ...draft.labels].join("\n");
-      for (const word of scanned.split(/\s+/).filter((token) => token.length >= 12)) {
-        expect(reason).not.toContain(word);
-      }
-    });
-  }
-
-  test("preflight aborts the whole batch on one credential value and publishes nothing partially", () => {
-    const result = preflightGithubIssueDrafts("audit_run.batch", [
-      preflightDraft({ draftId: "draft_safe_1", title: "Validate JWT audience and issuer checks" }),
-      preflightDraft({ draftId: "draft_bad", bodyMarkdown: "Rotate ghp_abcdefghijklmnopqrstuvwxyz0123456789 immediately.\n" }),
-      preflightDraft({ draftId: "draft_safe_2", title: "Document installation-token lifecycle" })
-    ]);
-    expect(result.ok).toBe(false);
-    expect((result as { ok: false; reason: string }).reason).toContain("draft_bad");
-    expect((result as { ok: false; reason: string }).reason).toContain("entire run");
-  });
-
-  test("preflight passes a multi-draft batch of benign security findings", () => {
-    const result = preflightGithubIssueDrafts("audit_run.batch_ok", [
-      preflightDraft({ draftId: "draft_1", title: "Validate JWT audience and issuer checks" }),
-      preflightDraft({ draftId: "draft_2", title: "Rotate installation-token credentials safely", labels: ["area/jwt"] })
-    ]);
-    expect(result.ok).toBe(true);
-    expect((result as { ok: true; bodies: Map<string, string> }).bodies.size).toBe(2);
-  });
-});
-
 function gitExitCode(root: string, ...args: string[]): number {
   try {
     execFileSync("git", args, { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
@@ -3158,163 +1967,7 @@ function gitCommitAll(root: string, message: string): void {
   );
 }
 
-/** Real journal/file sequence: J0 committed, J1 rollback conflicts, then same-process J2. */
-async function inProcessRecoveryConflictFixture(options: { failSnapshotReads?: boolean } = {}) {
-  const root = createInitializedGitRepo();
-  const dir = mkdtempSync(join(tmpdir(), "archctx-in-process-recovery-"));
-  const databasePath = join(dir, "runtime.sqlite");
-  const manifestPath = join(root, "docs/architecture/.projection-manifest.json");
-  const laterPath = "docs/architecture/later.md";
-  const preservedPath = "docs/architecture/previously-committed.md";
-  mkdirSync(dirname(manifestPath), { recursive: true });
-  writeFileSync(manifestPath, JSON.stringify({
-    schemaVersion: "archcontext.architecture-docs-projection-manifest/v4",
-    minimumRendererVersion: "archcontext.docs-renderer/v5"
-  }));
-  let armed = false;
-  let snapshotUnavailable = false;
-  let postimage = "";
-  let raised = "";
-  const trace: Array<{ event: string; changeSetId?: string; writerHeld?: boolean; pending?: string[] }> = [];
-  const modelStore = new class extends YamlModelStore {
-    override async validateModel(workspace: Parameters<YamlModelStore["validateModel"]>[0]) {
-      const result = await super.validateModel(workspace);
-      if (armed && existsSync(join(root, laterPath))) {
-        armed = false;
-        postimage = readText(manifestPath);
-        raised = JSON.stringify({ ...JSON.parse(postimage), minimumRendererVersion: "archcontext.docs-renderer/v6" });
-        writeFileSync(manifestPath, raised);
-        trace.push({ event: "J1-post-validation-conflict" });
-        snapshotUnavailable = options.failSnapshotReads === true;
-        return { ...result, valid: false, errors: ["injected post-publication validation failure"] };
-      }
-      return result;
-    }
-  }();
-  const store = new SqliteLocalStore(databasePath);
-  let activeStore = store;
-  let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
-  const begin = store.beginChangeSet.bind(store);
-  store.beginChangeSet = async (root, draft) => {
-    trace.push({ event: "journal-begin", changeSetId: draft.id });
-    return begin(root, draft);
-  };
-  const list = store.listUnresolvedChangeSetJournals.bind(store);
-  store.listUnresolvedChangeSetJournals = () => {
-    const journals = list();
-    trace.push({ event: "pending-read", writerHeld: (daemon as any)?.writerLocked === true, pending: journals.map(journal => journal.changeSetId) });
-    if (snapshotUnavailable) throw new Error("journal snapshot unavailable /private/fixture");
-    return journals;
-  };
-  const recover = store.recoverPendingChangeSets.bind(store);
-  store.recoverPendingChangeSets = () => { trace.push({ event: "startup-recovery" }); return recover(); };
-  const apply = async (id: string, projectionFiles: Array<{ path: string; expectedHash: string; body: string }>) => {
-    const planned = await daemon!.planUpdate(root, { id, operations: [{ op: "render_projection", expectedHash: "missing", projectionFiles }] });
-    expect(planned.ok).toBe(true);
-    const draft = (planned.data as any).draft;
-    return daemon!.applyUpdate(root, { id, approved: true, expectedWorktreeDigest: draft.base.worktreeDigest });
-  };
-  try {
-    daemon = await createStartedTestDaemon({ localStore: store, modelStore });
-    const previous = await apply("changeset.in-process-J0", [{ path: preservedPath, expectedHash: "missing", body: "previously committed\n" }]);
-    expect(previous.ok).toBe(true);
-    const previousJournalId = (previous.data as any).journalId as string;
-    const before = readText(manifestPath);
-    armed = true;
-    const failure = await apply("changeset.in-process-J1", [
-      { path: laterPath, expectedHash: "missing", body: "J1 uncommitted\n" },
-      { path: "docs/architecture/.projection-manifest.json", expectedHash: digestJson({ body: before }), body: JSON.stringify({ ...JSON.parse(before), rendererVersion: "archcontext.docs-renderer/v6" }) }
-    ]).catch(error => error);
-    expect(failure).toMatchObject({ code: "AC_PRECONDITION_FAILED", reasonCode: "changeset-rollback-conflict" });
-    trace.push({ event: "J1-rejected" });
-    expect(raised).not.toBe("");
-    expect(readText(manifestPath)).toBe(raised);
-    expect(existsSync(join(root, laterPath))).toBe(false);
-    const pending = list();
-    expect(pending).toHaveLength(1);
-    expect(pending[0]!.changeSetId).toBe("changeset.in-process-J1");
-    return {
-      root, store, daemon, trace, pending, manifestPath, laterPath, preservedPath, previousJournalId,
-      applyJ2: () => apply("changeset.in-process-J2", [{ path: laterPath, expectedHash: "missing", body: "J2 committed\n" }]),
-      restoreJ1Manifest: () => writeFileSync(manifestPath, postimage),
-      async restart() {
-        await daemon!.stop();
-        activeStore = new SqliteLocalStore(databasePath);
-        daemon = await createStartedTestDaemon({ localStore: activeStore });
-        return daemon;
-      },
-      readPreviousCommitted: () => activeStore.readCommittedChangeSet(root, previousJournalId),
-      restoreSnapshotReads: () => { snapshotUnavailable = false; },
-      async cleanup() { await daemon?.stop(); removeTempRepo(root); removeTempRepo(dir); }
-    };
-  } catch (error) {
-    await daemon?.stop(); store.close(); removeTempRepo(root); removeTempRepo(dir); throw error;
-  }
-}
-
-test("in-process rollback conflicts publish full unresolved authority before the writer is released", async () => {
-  const f = await inProcessRecoveryConflictFixture();
-  try {
-    console.info("[in-process-recovery/status]", JSON.stringify({ trace: f.trace, recovery: f.daemon.status().changeSetRecovery }));
-    expect(f.daemon.status().changeSetRecovery).toEqual({ writable: false, unresolvedJournals: f.pending });
-    const rejection = f.trace.findIndex(entry => entry.event === "J1-rejected");
-    expect(f.trace.slice(0, rejection)).toContainEqual({ event: "pending-read", writerHeld: true, pending: ["changeset.in-process-J1"] });
-    expect(f.trace.filter(entry => entry.event === "startup-recovery")).toHaveLength(1);
-  } finally { await f.cleanup(); }
-});
-
-test("in-process unresolved J1 refuses J2 before beginning any later journal or file write", async () => {
-  const f = await inProcessRecoveryConflictFixture();
-  try {
-    const result = await f.applyJ2().then(value => ({ applied: value.ok, error: undefined }), error => ({ applied: false, error }));
-    console.info("[in-process-recovery/J2]", JSON.stringify({ applied: result.applied, reason: result.error?.reasonCode, trace: f.trace }));
-    expect(result.error).toMatchObject({ code: "AC_PRECONDITION_FAILED", reasonCode: "changeset-recovery-unresolved", unresolvedJournals: f.pending });
-    expect(existsSync(join(f.root, f.laterPath))).toBe(false);
-    expect(f.trace.filter(entry => entry.event === "journal-begin").map(entry => entry.changeSetId)).toEqual(["changeset.in-process-J0", "changeset.in-process-J1"]);
-    expect(readText(f.manifestPath)).toContain('"minimumRendererVersion":"archcontext.docs-renderer/v6"');
-    expect(f.trace.filter(entry => entry.event === "startup-recovery")).toHaveLength(1);
-  } finally { await f.cleanup(); }
-});
-
-test("manual recovery and restart cannot delete a successful later ChangeSet", async () => {
-  const f = await inProcessRecoveryConflictFixture();
-  try {
-    const later = await f.applyJ2().then(value => ({ committed: value.ok, error: undefined }), error => ({ committed: false, error }));
-    f.restoreJ1Manifest();
-    const restarted = await f.restart();
-    const after = existsSync(join(f.root, f.laterPath)) ? readText(join(f.root, f.laterPath)) : undefined;
-    console.info("[in-process-recovery/restart]", JSON.stringify({ laterCommitted: later.committed, laterFile: after ?? null, recovery: restarted.status().changeSetRecovery ?? null }));
-    // This invariant fails on the old code: J2 reports committed, then pending J1 removes its file.
-    expect(after).toBe(later.committed ? "J2 committed\n" : undefined);
-    expect(later.error).toMatchObject({ reasonCode: "changeset-recovery-unresolved" });
-    expect(restarted.status().changeSetRecovery).toBeUndefined();
-    expect(readText(join(f.root, f.preservedPath))).toBe("previously committed\n");
-    // J0 remains committed and readable after J1 recovery; no active-operation recovery ran.
-    expect(await f.readPreviousCommitted()).toMatchObject({ journalId: f.previousJournalId, changeSetId: "changeset.in-process-J0" });
-  } finally { await f.cleanup(); }
-});
-
-
-test("a failed pending snapshot read retains the rollback failure and gates status and later writes", async () => {
-  const f = await inProcessRecoveryConflictFixture({ failSnapshotReads: true });
-  try {
-    let statusError: any;
-    try { f.daemon.status(); } catch (error) { statusError = error; }
-    expect(statusError).toMatchObject({ code: "AC_UNCLASSIFIED_FAILURE", reasonCode: "failure-unclassified" });
-    const blocked = await f.applyJ2().catch(error => error);
-    expect(blocked).toMatchObject({ code: "AC_UNCLASSIFIED_FAILURE", reasonCode: "failure-unclassified" });
-    expect(JSON.stringify(blocked.failure)).not.toContain("/private/fixture");
-    expect(f.trace.filter(entry => entry.event === "journal-begin").map(entry => entry.changeSetId)).toEqual(["changeset.in-process-J0", "changeset.in-process-J1"]);
-    expect(existsSync(join(f.root, f.laterPath))).toBe(false);
-    f.restoreSnapshotReads();
-    const refused = await f.applyJ2().catch(error => error);
-    expect(refused).toMatchObject({ code: "AC_PRECONDITION_FAILED", reasonCode: "changeset-recovery-unresolved", unresolvedJournals: f.pending });
-    expect(f.daemon.status().changeSetRecovery).toEqual({ writable: false, unresolvedJournals: f.pending });
-    expect(f.trace.filter(entry => entry.event === "startup-recovery")).toHaveLength(1);
-  } finally { await f.cleanup(); }
-});
-
-test("SM-S15 projection plan, apply readback proof and completion drift render the same statechart bytes", async () => {
+test("SM-S15 projection plan, apply and completion drift render the same statechart bytes", async () => {
   const root = createInitializedGitRepo();
   let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
   const renderSpy = spyOn(projectionEngine, "renderArchitectureDocumentationProjection");
@@ -3338,14 +1991,14 @@ test("SM-S15 projection plan, apply readback proof and completion drift render t
     const machinePath = `.archcontext/model/state-machines/${machine.id}.yaml`;
     mkdirSync(dirname(join(root, machinePath)), { recursive: true });
     writeFileSync(join(root, machinePath), JSON.stringify(machine), "utf8");
-    // A real index is required by the apply readback proof, even for a model-only fixture.
+    // A real index is required for completion code-facts sync, even for a model-only fixture.
     execFileSync("codegraph", ["init", root], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
     // Completion reuses its code-facts sync for the projection (#584), so that sync has to be CodeGraph's.
     daemon = await createStartedTestDaemon({ codeFacts: new CodeGraphAdapter(new CodeGraphSdkProvider()) });
     const baseline = await runArchitectureDocsProjectionCommand({ action: "apply", profile: "repo-harness/v1", approved: true }, root, daemon);
     expect(baseline.ok, JSON.stringify(baseline)).toBe(true);
 
-    // A semantic edit creates an accepted apply receipt, so readback runs the production proof.
+    // A semantic edit applies the statechart projection so completion can verify identical bytes.
     writeFileSync(nodePath, JSON.stringify({ ...node, summary: "Architecture context with a declared job lifecycle." }), "utf8");
     const planned = buildArchitectureDocsProjection(undefined, root, "repo-harness/v1");
     const capability = planned.plan.files.find((file) => file.target.type === "entity-summary" && file.target.scope.id === machine.capabilityId)!;
@@ -3360,17 +2013,6 @@ test("SM-S15 projection plan, apply readback proof and completion drift render t
     const result = applied.data as unknown as ProjectionResultV3;
     expect(result.status, JSON.stringify(applied)).toBe("applied");
     expect(readText(join(root, capability.path))).toBe(capability.body);
-    const inspection = await daemon.inspectProjectionApplyReceipt(root, result.applyReceipt!.lookupKey);
-    expect(inspection.ok, JSON.stringify(inspection)).toBe(true);
-    const receipt = (inspection.data as unknown as { receipt: ProjectionApplyReceiptV1 }).receipt;
-    const beforeProof = renderSpy.mock.results.length;
-    const readbackRequest = projectionApplyReadbackRequestFromReceipt(receipt)!;
-    const readback = await daemon.readbackProjectionApply(root, readbackRequest);
-    expect(readback.ok, JSON.stringify(readback)).toBe(true);
-    expect(renderSpy.mock.results.length).toBe(beforeProof + 1);
-    const proofRender = renderSpy.mock.results.at(-1)!.value as ReturnType<typeof renderArchitectureDocumentationProjection>;
-    expect(proofRender.files.find((file) => file.path === capability.path)!.body).toBe(capability.body);
-    expect(proofRender.drift.ok).toBe(true);
 
     const beforeCompletion = renderSpy.mock.results.length;
     // One `codegraph sync` per completion (#584). A sync runs `git status`, a read never does
@@ -3403,13 +2045,11 @@ test("SM-S15 projection plan, apply readback proof and completion drift render t
     expect(driftRender.drift.ok).toBe(true);
     expect(readText(join(root, capability.path))).toBe(capability.body);
 
-    // A model-only machine edit must invalidate both consumers of the applied document.
+    // A model-only machine edit must invalidate the applied document on completion.
     machine.events[0]!.label = "Complete the job";
     writeFileSync(join(root, machinePath), JSON.stringify(machine), "utf8");
     const changed = await daemon.completeTask(root, { taskSessionId: "task_statechart_changed" });
     expect((changed.data as any).extensions.projectionDriftGate.reasonCodes).toContain("projection-generated-region-stale");
-    const refused = await daemon.readbackProjectionApply(root, readbackRequest);
-    expect(refused.ok).toBe(false);
   } finally {
     renderSpy.mockRestore();
     await daemon?.stop();

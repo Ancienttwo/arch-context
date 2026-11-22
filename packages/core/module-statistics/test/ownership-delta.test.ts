@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { NativeNode } from "@archcontext/core/projection-engine";
+import type { NativeNode } from "@archcontext/core/architecture-domain";
 import { ownershipDelta } from "../src/index";
 import { MODEL, TRACKED_FILES } from "./factories";
 

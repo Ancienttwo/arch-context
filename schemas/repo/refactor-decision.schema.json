@@ -3,8 +3,8 @@
   "$id": "https://archctx.repoharness.com/schemas/repo/refactor-decision.schema.json",
   "title": "RefactorDecision",
   "description": "The latest human decision for one refactor recommendation generation, stored at .archcontext/refactor-decisions/<recommendationId>.json (ADR-0046). Identity that needs the core hashers (recommendationId from fingerprint and regressesFrom, the namespace-scoped subject selector) is checked by the runtime reader.",
-  "type": "object",
   "additionalProperties": false,
+  "type": "object",
   "required": [
     "schemaVersion",
     "namespace",
@@ -29,16 +29,16 @@
       "const": "archcontext.refactor-decision/v1"
     },
     "namespace": {
-      "type": "string",
-      "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9][a-z0-9-]*)+$"
+      "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9][a-z0-9-]*)+$",
+      "type": "string"
     },
     "recommendationId": {
-      "type": "string",
-      "pattern": "^recommendation\\.[a-f0-9]{16}$"
+      "pattern": "^recommendation\\.[a-f0-9]{16}$",
+      "type": "string"
     },
     "fingerprint": {
-      "type": "string",
-      "pattern": "^sha256:[a-f0-9]{64}$"
+      "pattern": "^sha256:[a-f0-9]{64}$",
+      "type": "string"
     },
     "fingerprintSchemaVersion": {
       "const": "archcontext.recommendation-fingerprint/v3"
@@ -58,20 +58,31 @@
         {
           "type": "string",
           "enum": [
+            "co-change-coupling",
+            "component-cycle",
             "cycle",
+            "dead-public-export",
             "direction-violation",
+            "entrypoint-bypass",
             "evidence-gap",
+            "file-cycle",
+            "god-file",
+            "low-cohesion-god-file",
             "ownership-ambiguous",
+            "purity-violation",
             "residual-cycle",
+            "shotgun-surgery-hotspot",
+            "undeclared-dependency",
             "undeclared-footprint",
-            "unowned-paths"
+            "unowned-paths",
+            "unstable-dependency"
           ]
         }
       ]
     },
     "subject": {
-      "type": "object",
       "additionalProperties": false,
+      "type": "object",
       "required": [
         "selectorKind",
         "stableKey",
@@ -86,29 +97,29 @@
           ]
         },
         "stableKey": {
-          "type": "string",
           "minLength": 1,
           "maxLength": 512,
-          "pattern": "^\\S(?:[^\\u0000-\\u001f\\u007f]*\\S)?$"
+          "pattern": "^\\S(?:[^\\u0000-\\u001f\\u007f]*\\S)?$",
+          "type": "string"
         },
         "subjectSelectorId": {
-          "type": "string",
-          "pattern": "^subject\\.(node|repository)\\.[a-f0-9]{16}$"
+          "pattern": "^subject\\.(node|repository)\\.[a-f0-9]{16}$",
+          "type": "string"
         }
       }
     },
     "affectedNodeIds": {
-      "type": "array",
-      "maxItems": 32,
       "uniqueItems": true,
+      "maxItems": 32,
+      "type": "array",
       "items": {
-        "type": "string",
-        "minLength": 1
+        "minLength": 1,
+        "type": "string"
       }
     },
     "affectedNodeCount": {
-      "type": "integer",
-      "minimum": 0
+      "minimum": 0,
+      "type": "integer"
     },
     "regressesFrom": {
       "anyOf": [
@@ -116,8 +127,8 @@
           "type": "null"
         },
         {
-          "type": "string",
-          "pattern": "^recommendation\\.[a-f0-9]{16}$"
+          "pattern": "^recommendation\\.[a-f0-9]{16}$",
+          "type": "string"
         }
       ]
     },
@@ -133,9 +144,9 @@
       ]
     },
     "observationScopeDigest": {
-      "type": "string",
       "pattern": "^sha256:[a-f0-9]{64}$",
-      "description": "Scope of the measured observation metrics. Absent for repository baselines."
+      "description": "Scope of the measured observation metrics. Absent for repository baselines.",
+      "type": "string"
     },
     "observationMetrics": {
       "anyOf": [
@@ -158,14 +169,14 @@
       ]
     },
     "reason": {
-      "type": "string",
       "minLength": 1,
       "maxLength": 1024,
-      "pattern": "^\\S(?:[^\\u0000-\\u001f\\u007f]*\\S)?$"
+      "pattern": "^\\S(?:[^\\u0000-\\u001f\\u007f]*\\S)?$",
+      "type": "string"
     },
     "actor": {
-      "type": "object",
       "additionalProperties": false,
+      "type": "object",
       "required": [
         "kind",
         "id"
@@ -185,20 +196,20 @@
           ]
         },
         "id": {
-          "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^\\S(?:[^\\u0000-\\u001f\\u007f]*\\S)?$"
+          "pattern": "^\\S(?:[^\\u0000-\\u001f\\u007f]*\\S)?$",
+          "type": "string"
         }
       }
     },
     "decidedAt": {
-      "type": "string",
-      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?(Z|[+-]\\d{2}:\\d{2})$"
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?(Z|[+-]\\d{2}:\\d{2})$",
+      "type": "string"
     },
     "provenance": {
-      "type": "object",
       "additionalProperties": false,
+      "type": "object",
       "required": [
         "headSha",
         "assessmentDigest",
@@ -206,17 +217,252 @@
       ],
       "properties": {
         "headSha": {
-          "type": "string",
-          "pattern": "^[a-f0-9]{40}$"
+          "pattern": "^[a-f0-9]{40}$",
+          "type": "string"
         },
         "assessmentDigest": {
-          "type": "string",
-          "pattern": "^sha256:[a-f0-9]{64}$"
+          "pattern": "^sha256:[a-f0-9]{64}$",
+          "type": "string"
         },
         "baselineSnapshotDigest": {
-          "type": "string",
-          "pattern": "^sha256:[a-f0-9]{64}$"
+          "pattern": "^sha256:[a-f0-9]{64}$",
+          "type": "string"
         }
+      }
+    },
+    "snapshotDigest": {
+      "pattern": "^sha256:[a-f0-9]{64}$",
+      "type": "string"
+    },
+    "evidenceDigest": {
+      "pattern": "^sha256:[a-f0-9]{64}$",
+      "type": "string"
+    },
+    "resolutionDigest": {
+      "pattern": "^sha256:[a-f0-9]{64}$",
+      "type": "string"
+    },
+    "scope": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "const": "repository"
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "kind",
+            "nodeId"
+          ],
+          "properties": {
+            "kind": {
+              "const": "node"
+            },
+            "nodeId": {
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "kind",
+            "paths"
+          ],
+          "properties": {
+            "kind": {
+              "const": "paths"
+            },
+            "paths": {
+              "uniqueItems": true,
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "not": {
+                  "anyOf": [
+                    {
+                      "pattern": "^/"
+                    },
+                    {
+                      "pattern": "\\\\"
+                    },
+                    {
+                      "pattern": "(^|/)\\.\\.(/|$)"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "importNodeLimit": {
+      "minimum": 1,
+      "type": "integer"
+    },
+    "targetOutcomes": {
+      "type": "array",
+      "items": {
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "outcomeId",
+          "metric",
+          "subjectSelectorId",
+          "nodeId",
+          "operator",
+          "value",
+          "required"
+        ],
+        "properties": {
+          "outcomeId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "metric": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "subjectSelectorId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "nodeId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "memberNodeIds": {
+            "uniqueItems": true,
+            "minItems": 2,
+            "type": "array",
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "operator": {
+            "type": "string",
+            "enum": [
+              "absent",
+              "equals",
+              "greater_than",
+              "less_than",
+              "present"
+            ]
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "required": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "killList": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "kind",
+              "target",
+              "required"
+            ],
+            "properties": {
+              "kind": {
+                "const": "path"
+              },
+              "target": {
+                "type": "string",
+                "minLength": 1,
+                "not": {
+                  "anyOf": [
+                    {
+                      "pattern": "^/"
+                    },
+                    {
+                      "pattern": "\\\\"
+                    },
+                    {
+                      "pattern": "(^|/)\\.\\.(/|$)"
+                    }
+                  ]
+                }
+              },
+              "required": {
+                "type": "boolean"
+              }
+            }
+          },
+          {
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "kind",
+              "target",
+              "required"
+            ],
+            "properties": {
+              "kind": {
+                "const": "relation"
+              },
+              "target": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "required": {
+                "type": "boolean"
+              }
+            }
+          },
+          {
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "kind",
+              "target",
+              "required"
+            ],
+            "properties": {
+              "kind": {
+                "const": "symbol"
+              },
+              "target": {
+                "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^#\\s\\\\\\u0000-\\u001f\\u007f]+#[^\\s\\u0000-\\u001f\\u007f]+$",
+                "type": "string"
+              },
+              "required": {
+                "type": "boolean"
+              }
+            }
+          }
+        ]
       }
     }
   }

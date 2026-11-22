@@ -8,8 +8,6 @@ import {
   type RetrievalEvalSet,
   type RetrievalScore
 } from "@archcontext/contracts";
-import { Jieba } from "@node-rs/jieba";
-import { dict } from "@node-rs/jieba/dict.js";
 
 export interface RetrievalDocument {
   id: string;
@@ -186,14 +184,10 @@ export class InMemoryLexicalRetriever implements Retriever {
   }
 }
 
-export class JiebaSearchTokenizer implements SearchTokenizer {
-  constructor(private readonly segmenter = Jieba.withDict(dict)) {}
-
+export class BasicSearchTokenizer implements SearchTokenizer {
   tokenize(value: string): string[] {
     const englishTerms = tokenizeEnglish(value);
-    const chineseTerms = containsChinese(value)
-      ? this.segmenter.cutForSearch(value, true).flatMap(normalizeJiebaTerm)
-      : [];
+    const chineseTerms = tokenizeChineseNgrams(value);
     return unique([...englishTerms, ...chineseTerms]);
   }
 }
@@ -201,7 +195,7 @@ export class JiebaSearchTokenizer implements SearchTokenizer {
 let cachedTokenizer: SearchTokenizer | undefined;
 
 export function defaultSearchTokenizer(): SearchTokenizer {
-  cachedTokenizer ??= new JiebaSearchTokenizer();
+  cachedTokenizer ??= new BasicSearchTokenizer();
   return cachedTokenizer;
 }
 
@@ -212,12 +206,15 @@ export function tokenizeForSearch(value: string, tokenizer: SearchTokenizer = de
 export class DeterministicEmbeddingRetriever implements Retriever {
   readonly mode = "embedding" as const;
 
-  constructor(private readonly dimensions = DEFAULT_RETRIEVAL_CONFIG.embedding.dimensions) {}
+  constructor(
+    private readonly dimensions = DEFAULT_RETRIEVAL_CONFIG.embedding.dimensions,
+    private readonly tokenizer: SearchTokenizer = defaultSearchTokenizer()
+  ) {}
 
   search(query: string, documents: RetrievalDocument[], limit: number): RetrievalHit[] {
-    const queryVector = vectorize(query, this.dimensions);
+    const queryVector = vectorize(query, this.dimensions, this.tokenizer);
     return documents
-      .map((document) => ({ id: document.id, score: cosine(queryVector, vectorize(document.text, this.dimensions)) }))
+      .map((document) => ({ id: document.id, score: cosine(queryVector, vectorize(document.text, this.dimensions, this.tokenizer)) }))
       .filter((hit) => hit.score > 0)
       .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))
       .slice(0, limit);
@@ -368,7 +365,7 @@ function stem(term: string): string {
   return term;
 }
 
-function tokenizeEnglish(value: string): string[] {
+export function tokenizeEnglish(value: string): string[] {
   return value
     .toLowerCase()
     .split(/[^a-z0-9]+/)
@@ -376,25 +373,33 @@ function tokenizeEnglish(value: string): string[] {
     .map(stem);
 }
 
-function normalizeJiebaTerm(term: string): string[] {
-  const normalized = term.trim().toLowerCase();
-  if (!normalized) return [];
-  if (/^[a-z0-9]+$/.test(normalized)) return tokenizeEnglish(normalized);
-  if (!containsChinese(normalized)) return [];
-  return normalized.length >= 2 ? [normalized] : [];
+function tokenizeChineseNgrams(value: string): string[] {
+  const runs = value.match(/[\p{Script=Han}]+/gu);
+  if (!runs) return [];
+  const terms: string[] = [];
+  for (const run of runs) {
+    if (run.length === 1) {
+      terms.push(run);
+      continue;
+    }
+    for (let index = 0; index < run.length - 1; index += 1) {
+      terms.push(run.slice(index, index + 2));
+    }
+  }
+  return terms;
 }
 
-function containsChinese(value: string): boolean {
+export function containsChinese(value: string): boolean {
   return /\p{Script=Han}/u.test(value);
 }
 
-function unique(terms: string[]): string[] {
+export function unique(terms: string[]): string[] {
   return [...new Set(terms)];
 }
 
-function vectorize(value: string, dimensions: number): number[] {
+function vectorize(value: string, dimensions: number, tokenizer: SearchTokenizer = defaultSearchTokenizer()): number[] {
   const vector = Array.from({ length: dimensions }, () => 0);
-  for (const term of tokenizeForSearch(value)) {
+  for (const term of tokenizeForSearch(value, tokenizer)) {
     let hash = 0;
     for (const char of term) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
     vector[hash % dimensions] += 1;

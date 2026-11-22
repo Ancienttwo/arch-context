@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archcontext.dev/schemas/runtime/doctor-code-facts.schema.json",
+  "title": "DoctorCodeFactsV1",
+  "description": "Machine-readable CodeGraph readiness report returned in `archctx doctor --json` and capability diagnostics.",
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "state",
+    "codeGraphVersion",
+    "issues"
+  ],
+  "properties": {
+    "state": {
+      "type": "string",
+      "enum": [
+        "ready",
+        "not-ready",
+        "index-missing",
+        "unavailable"
+      ]
+    },
+    "codeGraphVersion": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "message": {
+            "minLength": 1,
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

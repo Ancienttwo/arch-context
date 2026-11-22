@@ -2,22 +2,35 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://archcontext.dev/schemas/runtime/ref-impact-batch-request.schema.json",
   "title": "RefImpactBatchRequestV1",
-  "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "items"],
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "items"
+  ],
   "properties": {
-    "schemaVersion": { "const": "archcontext.ref-impact-batch-request/v1" },
+    "schemaVersion": {
+      "const": "archcontext.ref-impact-batch-request/v1"
+    },
     "items": {
       "type": "array",
       "items": {
-        "type": "object",
         "additionalProperties": false,
-        "required": ["id", "paths"],
+        "type": "object",
+        "required": [
+          "id",
+          "paths"
+        ],
         "properties": {
-          "id": { "type": "string" },
+          "id": {
+            "type": "string"
+          },
           "paths": {
             "type": "array",
-            "items": { "type": "string", "pattern": "^(?!/)(?![\\s\\S]*(?:^|/)\\.\\.(?:/|(?![\\s\\S])))[^\\\\\u0000]+$" }
+            "items": {
+              "pattern": "^(?!/)(?![\\s\\S]*(?:^|/)\\.\\.(?:/|(?![\\s\\S])))[^\\\\\u0000]+$",
+              "type": "string"
+            }
           }
         }
       }

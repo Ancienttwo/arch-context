@@ -1,0 +1,354 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archcontext.dev/schemas/runtime/architecture-history.schema.json",
+  "title": "ArchitectureHistory",
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "head",
+    "total",
+    "offset",
+    "limit",
+    "milestones"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "archcontext.architecture-history/v1"
+    },
+    "head": {
+      "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$",
+      "type": "string"
+    },
+    "total": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "offset": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "limit": {
+      "minimum": 0,
+      "maximum": 1000,
+      "type": "integer"
+    },
+    "milestones": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "rev",
+              "date",
+              "subject",
+              "nodes",
+              "edges",
+              "delta"
+            ],
+            "properties": {
+              "rev": {
+                "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$",
+                "type": "string"
+              },
+              "date": {
+                "type": "string"
+              },
+              "subject": {
+                "type": "string"
+              },
+              "nodes": {
+                "type": "array",
+                "items": {
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "name",
+                    "domain"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "domain": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  }
+                }
+              },
+              "edges": {
+                "type": "array",
+                "items": {
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "source",
+                    "target"
+                  ],
+                  "properties": {
+                    "source": {
+                      "type": "string"
+                    },
+                    "target": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "delta": {
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "baseRev",
+                  "added",
+                  "removed",
+                  "renamed",
+                  "edgesChanged"
+                ],
+                "properties": {
+                  "baseRev": {
+                    "oneOf": [
+                      {
+                        "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "added": {
+                    "type": "array",
+                    "items": {
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "kind",
+                        "capability"
+                      ],
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "kind": {
+                          "enum": [
+                            "capability",
+                            "module",
+                            "component"
+                          ]
+                        },
+                        "capability": {
+                          "oneOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "removed": {
+                    "type": "array",
+                    "items": {
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "kind",
+                        "capability"
+                      ],
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "kind": {
+                          "enum": [
+                            "capability",
+                            "module",
+                            "component"
+                          ]
+                        },
+                        "capability": {
+                          "oneOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "renamed": {
+                    "type": "array",
+                    "items": {
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "kind",
+                        "capability",
+                        "from",
+                        "to"
+                      ],
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "kind": {
+                          "enum": [
+                            "capability",
+                            "module",
+                            "component"
+                          ]
+                        },
+                        "capability": {
+                          "oneOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "from": {
+                          "type": "string"
+                        },
+                        "to": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "edgesChanged": {
+                    "additionalProperties": false,
+                    "type": "object",
+                    "required": [
+                      "added",
+                      "removed"
+                    ],
+                    "properties": {
+                      "added": {
+                        "type": "array",
+                        "items": {
+                          "additionalProperties": false,
+                          "type": "object",
+                          "required": [
+                            "source",
+                            "target"
+                          ],
+                          "properties": {
+                            "source": {
+                              "type": "string"
+                            },
+                            "target": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "removed": {
+                        "type": "array",
+                        "items": {
+                          "additionalProperties": false,
+                          "type": "object",
+                          "required": [
+                            "source",
+                            "target"
+                          ],
+                          "properties": {
+                            "source": {
+                              "type": "string"
+                            },
+                            "target": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "rev",
+              "date",
+              "subject",
+              "nodes",
+              "edges",
+              "delta",
+              "error"
+            ],
+            "properties": {
+              "rev": {
+                "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$",
+                "type": "string"
+              },
+              "date": {
+                "type": "string"
+              },
+              "subject": {
+                "type": "string"
+              },
+              "nodes": {
+                "type": "null"
+              },
+              "edges": {
+                "type": "null"
+              },
+              "delta": {
+                "type": "null"
+              },
+              "error": {
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "code"
+                ],
+                "properties": {
+                  "code": {
+                    "enum": [
+                      "history-model-layout-unsupported",
+                      "history-model-missing",
+                      "history-model-invalid",
+                      "history-model-too-large"
+                    ]
+                  },
+                  "path": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

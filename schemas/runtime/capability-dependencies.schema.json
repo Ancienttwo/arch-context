@@ -3,117 +3,324 @@
   "$id": "https://archcontext.dev/schemas/runtime/capability-dependencies.schema.json",
   "title": "CapabilityDependenciesV1",
   "description": "The data of `archctx deps`: a read-only capability x capability import matrix. Owners come from the parent-chain rule `refactor scan` uses, rolled up to the nearest capability. Each cell says whether a model relation declares it. Call counts are not available in v1. Without code facts that attest to the measured tree, deps refuses with AC_CODE_FACTS_UNAVAILABLE instead of returning this data.",
-  "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "ownershipRule", "filter", "capabilities", "matrix", "imports", "calls", "edges", "worktree", "privacy"],
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "ownershipRule",
+    "filter",
+    "capabilities",
+    "matrix",
+    "imports",
+    "calls",
+    "edges",
+    "worktree",
+    "privacy"
+  ],
   "properties": {
-    "schemaVersion": { "const": "archcontext.capability-dependencies/v1" },
-    "ownershipRule": { "const": "parent-chain" },
+    "schemaVersion": {
+      "const": "archcontext.capability-dependencies/v1"
+    },
+    "ownershipRule": {
+      "const": "parent-chain"
+    },
     "filter": {
-      "type": "object",
       "additionalProperties": false,
-      "required": ["from", "into"],
+      "type": "object",
+      "required": [
+        "from",
+        "into"
+      ],
       "properties": {
-        "from": { "type": ["string", "null"] },
-        "into": { "type": ["string", "null"] }
+        "from": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "into": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
       }
     },
-    "capabilities": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "capabilities": {
+      "uniqueItems": true,
+      "type": "array",
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      }
+    },
     "matrix": {
       "type": "array",
       "items": {
-        "type": "object",
         "additionalProperties": false,
-        "required": ["from", "to", "imports", "calls", "declared", "relationIds"],
-        "properties": {
-          "from": { "type": "string", "minLength": 1 },
-          "to": { "type": "string", "minLength": 1 },
-          "imports": { "type": "integer", "minimum": 1 },
-          "calls": { "type": "null" },
-          "declared": { "type": "boolean", "description": "A relation of a declaring kind (every kind but deployed-on, spawns, runs-in and mounts) runs from a node that rolls up to `from` into a node that rolls up to `to`. A cell with from equal to to is always declared and lists no relation ids." },
-          "relationIds": { "type": "array", "uniqueItems": true, "description": "The declaring relation ids, sorted. Non-empty exactly when a cross-capability cell is declared.", "items": { "type": "string", "minLength": 1 } }
+        "if": {
+          "properties": {
+            "relationIds": {
+              "minItems": 1
+            }
+          }
         },
-        "if": { "properties": { "relationIds": { "minItems": 1 } } },
-        "then": { "properties": { "declared": { "const": true } } }
+        "then": {
+          "properties": {
+            "declared": {
+              "const": true
+            }
+          }
+        },
+        "type": "object",
+        "required": [
+          "from",
+          "to",
+          "imports",
+          "calls",
+          "declared",
+          "relationIds"
+        ],
+        "properties": {
+          "from": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "to": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "imports": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "calls": {
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "declared": {
+            "description": "A relation of a declaring kind (every kind but deployed-on, spawns, runs-in and mounts) runs from a node that rolls up to `from` into a node that rolls up to `to`. A cell with from equal to to is always declared and lists no relation ids.",
+            "type": "boolean"
+          },
+          "relationIds": {
+            "uniqueItems": true,
+            "description": "The declaring relation ids, sorted. Non-empty exactly when a cross-capability cell is declared.",
+            "type": "array",
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        }
       }
     },
     "imports": {
-      "type": "object",
       "additionalProperties": false,
-      "required": ["coverage", "reasonCodes", "truncated", "importNodeCount", "importNodeLimit", "importNodeLimitExceeded", "edgeCount", "unresolvedCount", "unattributed"],
+      "type": "object",
+      "required": [
+        "coverage",
+        "reasonCodes",
+        "truncated",
+        "importNodeCount",
+        "importNodeLimit",
+        "importNodeLimitExceeded",
+        "edgeCount",
+        "unresolvedCount",
+        "unattributed"
+      ],
       "properties": {
-        "coverage": { "enum": ["complete", "partial"] },
-        "reasonCodes": {
-          "type": "array",
-          "uniqueItems": true,
-          "items": { "enum": ["code-facts-import-limit", "code-facts-truncated"] }
+        "coverage": {
+          "enum": [
+            "complete",
+            "partial"
+          ]
         },
-        "truncated": { "type": "boolean" },
-        "importNodeCount": { "type": ["integer", "null"], "minimum": 0 },
-        "importNodeLimit": { "type": "integer", "minimum": 1 },
-        "importNodeLimitExceeded": { "type": "boolean" },
-        "edgeCount": { "type": "integer", "minimum": 0 },
-        "unresolvedCount": { "type": "integer", "minimum": 0 },
+        "reasonCodes": {
+          "uniqueItems": true,
+          "type": "array",
+          "items": {
+            "enum": [
+              "code-facts-import-limit",
+              "code-facts-truncated"
+            ]
+          }
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "importNodeCount": {
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "importNodeLimit": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "importNodeLimitExceeded": {
+          "type": "boolean"
+        },
+        "edgeCount": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "unresolvedCount": {
+          "minimum": 0,
+          "type": "integer"
+        },
         "unattributed": {
-          "type": "object",
           "additionalProperties": false,
-          "required": ["unownedEndpoint", "contestedEndpoint", "noCapabilityEndpoint"],
+          "type": "object",
+          "required": [
+            "unownedEndpoint",
+            "contestedEndpoint",
+            "noCapabilityEndpoint"
+          ],
           "properties": {
-            "unownedEndpoint": { "type": "integer", "minimum": 0 },
-            "contestedEndpoint": { "type": "integer", "minimum": 0 },
-            "noCapabilityEndpoint": { "type": "integer", "minimum": 0 }
+            "unownedEndpoint": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "contestedEndpoint": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "noCapabilityEndpoint": {
+              "minimum": 0,
+              "type": "integer"
+            }
           }
         }
       }
     },
     "calls": {
-      "type": "object",
       "additionalProperties": false,
-      "required": ["coverage", "reasonCodes"],
+      "type": "object",
+      "required": [
+        "coverage",
+        "reasonCodes"
+      ],
       "properties": {
-        "coverage": { "const": "unknown" },
-        "reasonCodes": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "const": "call-edges-not-exposed" } }
+        "coverage": {
+          "enum": [
+            "complete",
+            "partial",
+            "unknown"
+          ]
+        },
+        "reasonCodes": {
+          "uniqueItems": true,
+          "type": "array",
+          "items": {
+            "enum": [
+              "call-edges-not-exposed",
+              "code-facts-call-limit",
+              "code-facts-truncated",
+              "code-facts-unavailable"
+            ]
+          }
+        },
+        "edgeCount": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "edgeLimit": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "limitExceeded": {
+          "type": "boolean"
+        }
       }
     },
     "edges": {
-      "type": "object",
       "additionalProperties": false,
-      "required": ["limit", "count", "omittedCount", "items"],
+      "type": "object",
+      "required": [
+        "limit",
+        "count",
+        "omittedCount",
+        "items"
+      ],
       "properties": {
-        "limit": { "type": "integer", "minimum": 0 },
-        "count": { "type": "integer", "minimum": 0 },
-        "omittedCount": { "type": "integer", "minimum": 0 },
+        "limit": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "omittedCount": {
+          "minimum": 0,
+          "type": "integer"
+        },
         "items": {
           "type": "array",
           "items": {
-            "type": "object",
             "additionalProperties": false,
-            "required": ["fromPath", "toPath", "fromCapability", "toCapability"],
+            "type": "object",
+            "required": [
+              "fromPath",
+              "toPath",
+              "fromCapability",
+              "toCapability"
+            ],
             "properties": {
-              "fromPath": { "type": "string", "minLength": 1 },
-              "toPath": { "type": "string", "minLength": 1 },
-              "fromCapability": { "type": "string", "minLength": 1 },
-              "toCapability": { "type": "string", "minLength": 1 }
+              "fromPath": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "toPath": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "fromCapability": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "toCapability": {
+                "minLength": 1,
+                "type": "string"
+              }
             }
           }
         }
       }
     },
     "worktree": {
-      "type": "object",
       "additionalProperties": false,
-      "required": ["headSha", "worktreeDigest"],
+      "type": "object",
+      "required": [
+        "headSha",
+        "worktreeDigest"
+      ],
       "properties": {
-        "headSha": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
-        "worktreeDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+        "headSha": {
+          "pattern": "^[a-f0-9]{40}$",
+          "type": "string"
+        },
+        "worktreeDigest": {
+          "pattern": "^sha256:[a-f0-9]{64}$",
+          "type": "string"
+        }
       }
     },
     "privacy": {
-      "type": "object",
       "additionalProperties": false,
-      "required": ["writes"],
+      "type": "object",
+      "required": [
+        "writes"
+      ],
       "properties": {
-        "writes": { "const": "none" }
+        "writes": {
+          "const": "none"
+        }
       }
     }
   }

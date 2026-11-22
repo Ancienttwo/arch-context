@@ -3,8 +3,31 @@
   "$id": "https://archcontext.dev/schemas/runtime/dependency-constraint-evaluation.schema.json",
   "title": "DependencyConstraintEvaluationV1",
   "description": "The data of `archctx constraints check`: a read-only evaluation of the model's dependency constraints against observed import edges. `warnings` is added by the constraints-check command from the declaration reader, so it is not part of the evaluator's own type. Without code facts that attest to the measured tree, the evaluation still answers, but `coverage` is not `complete` and the import observations are dropped rather than reported as facts about some other tree.",
-  "type": "object",
   "additionalProperties": false,
+  "allOf": [
+    {
+      "description": "The layer edges are an observation, so they exist only for a settled verdict over complete coverage.",
+      "if": {
+        "required": [
+          "layerEdges"
+        ]
+      },
+      "then": {
+        "properties": {
+          "status": {
+            "enum": [
+              "pass",
+              "violated"
+            ]
+          },
+          "coverage": {
+            "const": "complete"
+          }
+        }
+      }
+    }
+  ],
+  "type": "object",
   "required": [
     "schemaVersion",
     "status",
@@ -29,17 +52,17 @@
       ]
     },
     "coverage": {
+      "description": "`complete` only when an index attested to the evaluated worktree and was not truncated.",
       "enum": [
         "complete",
         "partial",
         "unknown"
-      ],
-      "description": "`complete` only when an index attested to the evaluated worktree and was not truncated."
+      ]
     },
     "reasonCodes": {
-      "type": "array",
       "uniqueItems": true,
       "description": "Why a result is not a complete observation, sorted.",
+      "type": "array",
       "items": {
         "enum": [
           "code-facts-import-limit",
@@ -54,46 +77,46 @@
       }
     },
     "constraintIds": {
-      "type": "array",
       "description": "The constraints this evaluation covered, in declaration order.",
+      "type": "array",
       "items": {
-        "type": "string",
-        "minLength": 1
+        "minLength": 1,
+        "type": "string"
       }
     },
     "importEdgeCount": {
-      "type": "integer",
       "minimum": 0,
-      "description": "Import observations the evaluation read; zero when the index did not attest to this tree."
+      "description": "Import observations the evaluation read; zero when the index did not attest to this tree.",
+      "type": "integer"
     },
     "unresolvedImports": {
-      "type": "array",
       "description": "Repository-local specifiers from constrained files that resolved to no file.",
+      "type": "array",
       "items": {
-        "type": "object",
         "additionalProperties": false,
+        "type": "object",
         "required": [
           "from",
           "specifier"
         ],
         "properties": {
           "from": {
-            "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "type": "string"
           },
           "specifier": {
-            "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "type": "string"
           }
         }
       }
     },
     "violations": {
-      "type": "array",
       "description": "One record per (constraint, from path, to path), sorted by those keys.",
+      "type": "array",
       "items": {
-        "type": "object",
         "additionalProperties": false,
+        "type": "object",
         "required": [
           "constraintId",
           "fromPath",
@@ -104,32 +127,32 @@
         ],
         "properties": {
           "constraintId": {
-            "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "type": "string"
           },
           "fromPath": {
-            "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "type": "string"
           },
           "toPath": {
-            "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "type": "string"
           },
           "fromNode": {
-            "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "type": "string"
           },
           "toNode": {
-            "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "type": "string"
           },
           "fromLayer": {
-            "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "type": "string"
           },
           "toLayer": {
-            "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "type": "string"
           },
           "severity": {
             "enum": [
@@ -141,11 +164,11 @@
       }
     },
     "layerEdges": {
-      "type": "array",
       "description": "Resolved imports between two layers of one `layer-direction` constraint. An import counts only when every owner of each endpoint carries one shared layer listed in the rule. Present only with a `layer-direction` constraint, `status` `pass` or `violated`, and `coverage` `complete`; otherwise absent. When present it may be an empty list, and it is sorted by `(constraintId, fromLayer, toLayer)`.",
+      "type": "array",
       "items": {
-        "type": "object",
         "additionalProperties": false,
+        "type": "object",
         "required": [
           "constraintId",
           "fromLayer",
@@ -154,55 +177,31 @@
         ],
         "properties": {
           "constraintId": {
-            "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "type": "string"
           },
           "fromLayer": {
-            "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "type": "string"
           },
           "toLayer": {
-            "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "type": "string"
           },
           "imports": {
-            "type": "integer",
             "minimum": 1,
-            "description": "Import edges, so two specifiers from one file to the same target count twice."
+            "type": "integer"
           }
         }
       }
     },
     "warnings": {
-      "type": "array",
       "description": "Declaration-reader warnings, such as an unsupported rule. Every unevaluated constraint type produces one, because a validated constraint is not proof that its rule was evaluated.",
+      "type": "array",
       "items": {
-        "type": "string",
-        "minLength": 1
+        "minLength": 1,
+        "type": "string"
       }
     }
-  },
-  "allOf": [
-    {
-      "description": "The layer edges are an observation, so they exist only for a settled verdict over complete coverage.",
-      "if": {
-        "required": [
-          "layerEdges"
-        ]
-      },
-      "then": {
-        "properties": {
-          "status": {
-            "enum": [
-              "pass",
-              "violated"
-            ]
-          },
-          "coverage": {
-            "const": "complete"
-          }
-        }
-      }
-    }
-  ]
+  }
 }

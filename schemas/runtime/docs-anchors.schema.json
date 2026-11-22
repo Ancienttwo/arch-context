@@ -3,51 +3,113 @@
   "$id": "https://archcontext.dev/schemas/runtime/docs-anchors.schema.json",
   "title": "DocsAnchorsReportV1",
   "description": "Read-only result of `archctx docs anchors`: stale citations in human-owned module document regions and node prose. A signal, not a gate.",
-  "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "profile", "codeGraph", "summary", "nodes"],
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "profile",
+    "codeGraph",
+    "summary",
+    "nodes"
+  ],
   "properties": {
-    "schemaVersion": { "const": "archcontext.docs-anchors/v1" },
-    "profile": { "enum": ["default", "repo-harness/v1"] },
+    "schemaVersion": {
+      "const": "archcontext.docs-anchors/v1"
+    },
+    "profile": {
+      "enum": [
+        "default",
+        "repo-harness/v1"
+      ]
+    },
     "codeGraph": {
       "oneOf": [
         {
-          "type": "object",
           "additionalProperties": false,
-          "required": ["availability"],
-          "properties": { "availability": { "const": "ready" } }
+          "type": "object",
+          "required": [
+            "availability"
+          ],
+          "properties": {
+            "availability": {
+              "const": "ready"
+            }
+          }
         },
         {
-          "type": "object",
           "additionalProperties": false,
-          "required": ["availability", "reasonCode"],
+          "type": "object",
+          "required": [
+            "availability",
+            "reasonCode"
+          ],
           "properties": {
-            "availability": { "const": "unavailable" },
-            "reasonCode": { "enum": ["index-missing", "index-open-failed"] }
+            "availability": {
+              "const": "unavailable"
+            },
+            "reasonCode": {
+              "enum": [
+                "index-missing",
+                "index-open-failed"
+              ]
+            }
           }
         }
       ]
     },
     "summary": {
-      "type": "object",
       "additionalProperties": false,
-      "required": ["nodes", "documents", "citations", "findings", "unchecked", "byKind"],
+      "type": "object",
+      "required": [
+        "nodes",
+        "documents",
+        "citations",
+        "findings",
+        "unchecked",
+        "byKind"
+      ],
       "properties": {
-        "nodes": { "$ref": "#/$defs/count" },
-        "documents": { "$ref": "#/$defs/count" },
-        "citations": { "$ref": "#/$defs/count" },
-        "findings": { "$ref": "#/$defs/count" },
-        "unchecked": { "$ref": "#/$defs/count" },
+        "nodes": {
+          "$ref": "#/$defs/count"
+        },
+        "documents": {
+          "$ref": "#/$defs/count"
+        },
+        "citations": {
+          "$ref": "#/$defs/count"
+        },
+        "findings": {
+          "$ref": "#/$defs/count"
+        },
+        "unchecked": {
+          "$ref": "#/$defs/count"
+        },
         "byKind": {
-          "type": "object",
           "additionalProperties": false,
-          "required": ["line-moved", "line-out-of-range", "missing-path", "missing-symbol", "unknown-selector"],
+          "type": "object",
+          "required": [
+            "line-moved",
+            "line-out-of-range",
+            "missing-path",
+            "missing-symbol",
+            "unknown-selector"
+          ],
           "properties": {
-            "line-moved": { "$ref": "#/$defs/count" },
-            "line-out-of-range": { "$ref": "#/$defs/count" },
-            "missing-path": { "$ref": "#/$defs/count" },
-            "missing-symbol": { "$ref": "#/$defs/count" },
-            "unknown-selector": { "$ref": "#/$defs/count" }
+            "line-moved": {
+              "$ref": "#/$defs/count"
+            },
+            "line-out-of-range": {
+              "$ref": "#/$defs/count"
+            },
+            "missing-path": {
+              "$ref": "#/$defs/count"
+            },
+            "missing-symbol": {
+              "$ref": "#/$defs/count"
+            },
+            "unknown-selector": {
+              "$ref": "#/$defs/count"
+            }
           }
         }
       }
@@ -55,89 +117,210 @@
     "nodes": {
       "type": "array",
       "items": {
-        "type": "object",
         "additionalProperties": false,
-        "required": ["nodeId", "citationCount", "findings", "unchecked"],
+        "type": "object",
+        "required": [
+          "nodeId",
+          "citationCount",
+          "findings",
+          "unchecked"
+        ],
         "properties": {
-          "nodeId": { "type": "string", "minLength": 1 },
-          "documentPath": { "$ref": "#/$defs/repoPath" },
-          "citationCount": { "type": "integer", "minimum": 1 },
-          "findings": { "type": "array", "items": { "$ref": "#/$defs/finding" } },
-          "unchecked": { "type": "array", "items": { "$ref": "#/$defs/unchecked" } }
+          "nodeId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "documentPath": {
+            "$ref": "#/$defs/repoPath"
+          },
+          "citationCount": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "findings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/finding"
+            }
+          },
+          "unchecked": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/unchecked"
+            }
+          }
         }
       }
     }
   },
   "$defs": {
-    "count": { "type": "integer", "minimum": 0 },
-    "line": { "type": "integer", "minimum": 1 },
+    "count": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "line": {
+      "minimum": 1,
+      "type": "integer"
+    },
     "repoPath": {
       "type": "string",
       "minLength": 1,
-      "not": { "anyOf": [{ "pattern": "^/" }, { "pattern": "\\\\" }, { "pattern": "(^|/)\\.\\.(/|$)" }] }
+      "not": {
+        "anyOf": [
+          {
+            "pattern": "^/"
+          },
+          {
+            "pattern": "\\\\"
+          },
+          {
+            "pattern": "(^|/)\\.\\.(/|$)"
+          }
+        ]
+      }
     },
     "origin": {
       "oneOf": [
         {
-          "type": "object",
           "additionalProperties": false,
-          "required": ["kind", "path", "line"],
+          "type": "object",
+          "required": [
+            "kind",
+            "path",
+            "line"
+          ],
           "properties": {
-            "kind": { "const": "document" },
-            "path": { "$ref": "#/$defs/repoPath" },
-            "line": { "$ref": "#/$defs/line" }
+            "kind": {
+              "const": "document"
+            },
+            "path": {
+              "$ref": "#/$defs/repoPath"
+            },
+            "line": {
+              "$ref": "#/$defs/line"
+            }
           }
         },
         {
-          "type": "object",
           "additionalProperties": false,
-          "required": ["kind"],
-          "properties": { "kind": { "const": "node-summary" } }
+          "type": "object",
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "const": "node-summary"
+            }
+          }
         },
         {
-          "type": "object",
           "additionalProperties": false,
-          "required": ["kind", "index"],
+          "type": "object",
+          "required": [
+            "kind",
+            "index"
+          ],
           "properties": {
-            "kind": { "const": "node-responsibility" },
-            "index": { "type": "integer", "minimum": 0 }
+            "kind": {
+              "const": "node-responsibility"
+            },
+            "index": {
+              "minimum": 0,
+              "type": "integer"
+            }
           }
         }
       ]
     },
     "citation": {
-      "type": "object",
       "additionalProperties": false,
-      "required": ["text"],
+      "type": "object",
+      "required": [
+        "text"
+      ],
       "properties": {
-        "text": { "type": "string", "minLength": 1 },
-        "path": { "type": "string", "minLength": 1 },
-        "resolvedPath": { "$ref": "#/$defs/repoPath" },
-        "line": { "$ref": "#/$defs/line" },
-        "endLine": { "$ref": "#/$defs/line" },
-        "symbol": { "type": "string", "minLength": 1 }
+        "text": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "path": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "resolvedPath": {
+          "$ref": "#/$defs/repoPath"
+        },
+        "line": {
+          "$ref": "#/$defs/line"
+        },
+        "endLine": {
+          "$ref": "#/$defs/line"
+        },
+        "symbol": {
+          "minLength": 1,
+          "type": "string"
+        }
       }
     },
     "finding": {
-      "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "origin", "citation"],
+      "type": "object",
+      "required": [
+        "kind",
+        "origin",
+        "citation"
+      ],
       "properties": {
-        "kind": { "enum": ["line-moved", "line-out-of-range", "missing-path", "missing-symbol", "unknown-selector"] },
-        "origin": { "$ref": "#/$defs/origin" },
-        "citation": { "$ref": "#/$defs/citation" },
-        "lineCount": { "$ref": "#/$defs/count" },
-        "currentLines": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/line" } }
+        "kind": {
+          "enum": [
+            "line-moved",
+            "line-out-of-range",
+            "missing-path",
+            "missing-symbol",
+            "unknown-selector"
+          ]
+        },
+        "origin": {
+          "$ref": "#/$defs/origin"
+        },
+        "citation": {
+          "$ref": "#/$defs/citation"
+        },
+        "lineCount": {
+          "$ref": "#/$defs/count"
+        },
+        "currentLines": {
+          "minItems": 1,
+          "uniqueItems": true,
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/line"
+          }
+        }
       }
     },
     "unchecked": {
-      "type": "object",
       "additionalProperties": false,
-      "required": ["reasonCode", "origin", "citation"],
+      "type": "object",
+      "required": [
+        "reasonCode",
+        "origin",
+        "citation"
+      ],
       "properties": {
-        "reasonCode": { "enum": ["codegraph-unavailable", "language-unsupported", "path-ambiguous"] },
-        "origin": { "$ref": "#/$defs/origin" },
-        "citation": { "$ref": "#/$defs/citation" }
+        "reasonCode": {
+          "enum": [
+            "codegraph-unavailable",
+            "language-unsupported",
+            "path-ambiguous"
+          ]
+        },
+        "origin": {
+          "$ref": "#/$defs/origin"
+        },
+        "citation": {
+          "$ref": "#/$defs/citation"
+        }
       }
     }
   }

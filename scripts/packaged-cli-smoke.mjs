@@ -52,21 +52,21 @@ try {
   const connectionPath = paths.data.daemonConnectionPath;
   const lockPath = paths.data.daemonLockPath;
 
-  const started = await runArchctx("daemon", "start");
-  assert(started.ok === true, "daemon start must succeed");
-  assert(started.data?.running === true, "daemon start must report running");
-  assert(started.data?.background === true, "daemon start must report background mode");
-  assert(/^http:\/\/127\.0\.0\.1:/.test(String(started.data?.url)), "daemon start must return loopback RPC URL");
-  assert(existsSync(connectionPath), "daemon start must write connection file");
-  assert(existsSync(lockPath), "daemon start must write lock file");
+  const doctor = await runArchctx("doctor");
+  assert(doctor.ok === true, `doctor must succeed: ${JSON.stringify(doctor.error ?? {})}`);
+  assert(doctor.data?.runtime?.mode === "in-process", "doctor must report in-process runtime mode");
+
+  const seedHelp = await runArchctx("index", "seed", "--help");
+  assert(seedHelp.ok === true, "index seed --help must succeed");
 
   const init = await runArchctx("init", "--name", "Packaged CLI Smoke");
   assert(init.ok === true, "init must succeed through packaged bin");
 
   const status = await runArchctx("status");
   assert(status.ok === true, "status must succeed through packaged bin");
-  assert(status.data?.running === true, "status must reuse daemon");
-  assert(status.data?.sessions === 1, "status must observe shared daemon session");
+  assert(status.data?.running === true, "status must report in-process runtime active");
+  assert(status.data?.mode === "in-process", "status must report in-process mode");
+  assert(status.data?.sessions === 1, "status must observe persisted repository session");
   const repositoryId = status.data?.repositoryId;
   const initialWorktreeDigest = status.data?.worktreeDigest;
 
@@ -93,57 +93,6 @@ try {
     assert(typedView.data?.page?.returnedNodes <= 20 && typedView.data?.page?.returnedRelations <= 40, `packaged Explorer ${view} must honor hard budgets`);
   }
 
-  const mcpStartup = await runArchctxMcpSession([
-    {
-      jsonrpc: "2.0",
-      id: 1,
-      method: "initialize",
-      params: {
-        protocolVersion: "2025-03-26",
-        capabilities: {},
-        clientInfo: { name: "packaged-cli-smoke", version: "0" }
-      }
-    },
-    { jsonrpc: "2.0", method: "notifications/initialized", params: {} },
-    { jsonrpc: "2.0", id: 2, method: "tools/list" }
-  ]);
-  assert(mcpStartup.length === 2, "mcp startup must answer initialize and tools/list only");
-  assert(mcpStartup[0].id === 1, "mcp initialize must preserve request id");
-  assert(mcpStartup[0].result?.protocolVersion === "2025-03-26", "mcp initialize must negotiate protocol version");
-  assert(mcpStartup[0].result?.serverInfo?.name === "archctx", "mcp initialize must report server info");
-  const mcp = mcpStartup[1];
-  assert(mcp.jsonrpc === "2.0", "mcp must return JSON-RPC");
-  assert(mcp.id === 2, "mcp must preserve request id");
-  assert(Array.isArray(mcp.result?.tools), "mcp must list tools");
-  assert(mcp.result.tools.some((tool) => tool.name === "archcontext_prepare_task"), "mcp must expose prepare_task");
-  assert(mcp.result.tools.some((tool) => tool.name === "archcontext_practices"), "mcp must expose practices");
-
-  const stoppedBeforeMcpStart = await runArchctx("daemon", "stop");
-  assert(stoppedBeforeMcpStart.ok === true, "daemon stop before MCP auto-start must succeed");
-  await waitForRemoved(connectionPath, "connection file");
-  await waitForRemoved(lockPath, "lock file");
-
-  const mcpAutoStarted = await runArchctxMcp({
-    jsonrpc: "2.0",
-    id: 2,
-    method: "tools/call",
-    params: {
-      name: "archcontext_practices",
-      arguments: {
-        root: repo,
-        action: "validate",
-        strict: true,
-        maxBytes: 12_288
-      }
-    }
-  });
-  assert(mcpEnvelope(mcpAutoStarted)?.ok === true, "mcp runtime tool call must auto-start daemon RPC when no daemon is running");
-  assert(mcpEnvelope(mcpAutoStarted)?.data?.valid === true, "mcp auto-start practices validate must return a valid catalog");
-  const daemonAfterMcpStart = await runArchctx("daemon", "status");
-  assert(daemonAfterMcpStart.ok === true, "daemon status after MCP auto-start must succeed");
-  assert(daemonAfterMcpStart.data?.running === true, "MCP auto-start must leave the daemon running");
-  assert(daemonAfterMcpStart.data?.rpcVersionCompatible === true, "MCP auto-started daemon must be RPC compatible");
-
   const practices = await runArchctx("practices", "validate", "--strict");
   assert(practices.ok === true, "practices validate must succeed through packaged bin");
   assert(practices.data?.valid === true, "built-in practice catalog must validate through packaged bin");
@@ -153,169 +102,92 @@ try {
   assert(practiceList.ok === true, "practices list must succeed through packaged bin");
   assert(practiceList.data?.practices?.some((practice) => practice.id === "compatibility.single-owner"), "packaged catalog must list compatibility.single-owner");
 
-  const planned = await runArchctxMcp({
-    jsonrpc: "2.0",
-    id: 3,
-    method: "tools/call",
-    params: {
-      name: "archcontext_plan_update",
-      arguments: {
-        root: repo,
-        id: "changeset.packaged-mcp",
-        operations: [
-          {
-            op: "create_entity",
-            path: ".archcontext/model/nodes/module.packaged-mcp.yaml",
-            expectedHash: "missing",
-            body: [
-              "schemaVersion: archcontext.node/v2",
-              "id: module.packaged-mcp",
-              "kind: module",
-              "name: Packaged MCP",
-              "status: active",
-              "summary: Packaged MCP smoke",
-              "responsibilities:",
-              "  - prove cli and mcp share daemon state",
-              ""
-            ].join("\n")
-          }
-        ]
-      }
-    }
-  });
-  assert(mcpEnvelope(planned)?.ok === true, "mcp plan_update must succeed through daemon RPC");
+  const packagedNodePath = ".archcontext/model/nodes/module.packaged-cli.yaml";
+  const planned = await runArchctx(
+    "plan", "--id", "changeset.packaged-cli", "--op", "create_entity", "--path", packagedNodePath, "--expected-hash", "missing",
+    "--body", [
+      "schemaVersion: archcontext.node/v2",
+      "id: module.packaged-cli",
+      "kind: module",
+      "name: Packaged CLI",
+      "status: active",
+      "summary: Packaged CLI smoke",
+      "responsibilities:",
+      "  - prove cli plan and apply share daemon state",
+      ""
+    ].join("\n")
+  );
+  assert(planned.ok === true && planned.data?.preview?.allowed === true, "CLI plan must succeed through daemon RPC");
 
-  const applied = await applyApprovedMcpPlan(planned);
-  assert(applied.ok === true, "explicitly approved MCP apply must apply the daemon ChangeSet draft");
-  assert(existsSync(join(repo, ".archcontext/model/nodes/module.packaged-mcp.yaml")), "approved MCP apply must write the planned model file");
+  const applied = await applyApprovedCliPlan(planned);
+  assert(applied.ok === true, "explicitly approved CLI apply must apply the daemon ChangeSet draft");
+  assert(existsSync(join(repo, packagedNodePath)), "approved CLI apply must write the planned model file");
 
-  const packagedMcpPath = ".archcontext/model/nodes/module.packaged-mcp.yaml";
-  const updatedBody = readFileSync(join(repo, packagedMcpPath), "utf8").replace("summary: Packaged MCP smoke", "summary: Packaged MCP smoke updated by CLI");
+  const updatedBody = readFileSync(join(repo, packagedNodePath), "utf8").replace("summary: Packaged CLI smoke", "summary: Packaged CLI smoke updated by CLI");
   const cliUpdate = await runArchctx(
-    "plan", "--id", "changeset.packaged-cli-update", "--op", "update_entity_fields", "--path", packagedMcpPath,
-    "--expected-hash", fileBodyDigest(join(repo, packagedMcpPath)), "--body", updatedBody
+    "plan", "--id", "changeset.packaged-cli-update", "--op", "update_entity_fields", "--path", packagedNodePath,
+    "--expected-hash", fileBodyDigest(join(repo, packagedNodePath)), "--body", updatedBody
   );
   assert(cliUpdate.ok === true && cliUpdate.data?.preview?.allowed === true, "CLI plan must accept an update_entity_fields operation with the current file hash");
   const cliUpdateApplied = await runArchctx("apply", "--id", "changeset.packaged-cli-update", "--approved", "--expected-worktree-digest", cliUpdate.data.draft.base.worktreeDigest);
   assert(cliUpdateApplied.ok === true, "CLI apply must update an existing entity with --approved and the preview worktree digest");
-  assert(readFileSync(join(repo, packagedMcpPath), "utf8") === updatedBody, "CLI update must write the complete planned YAML body");
-
-  const again = await runArchctx("daemon", "start");
-  assert(again.ok === true, "second daemon start must succeed");
-  assert(again.data?.alreadyRunning === true, "second daemon start must be idempotent");
-
-  const daemonStatus = await runArchctx("daemon", "status");
-  assert(daemonStatus.ok === true, "daemon status must succeed");
-  assert(daemonStatus.data?.rpcVersionCompatible === true, "daemon status must report RPC compatibility");
-  assert(daemonStatus.data?.product?.schemaVersion === "archcontext.product-version-manifest/v1", "daemon status must include product manifest");
-
-  const statusBeforeRestart = await runArchctx("status");
-  assert(statusBeforeRestart.ok === true, "status before restart must succeed");
-  const worktreeDigestBeforeRestart = statusBeforeRestart.data?.worktreeDigest;
-  assert(typeof worktreeDigestBeforeRestart === "string", "status before restart must report a worktree digest");
-
-  const stoppedForRestart = await runArchctx("daemon", "stop");
-  assert(stoppedForRestart.ok === true, "daemon stop before restart must succeed");
-  await waitForRemoved(connectionPath, "connection file");
-  await waitForRemoved(lockPath, "lock file");
-
-  const restarted = await runArchctx("daemon", "start");
-  assert(restarted.ok === true, "daemon restart must succeed");
-  assert(restarted.data?.background === true, "daemon restart must report background mode");
+  assert(readFileSync(join(repo, packagedNodePath), "utf8") === updatedBody, "CLI update must write the complete planned YAML body");
 
   const restoredStatus = await runArchctx("status");
-  assert(restoredStatus.ok === true, "status after restart must succeed");
-  assert(restoredStatus.data?.sessions === 1, `daemon restart must restore persisted repository session: ${JSON.stringify(restoredStatus.data)}`);
+  assert(restoredStatus.ok === true, "status across processes must succeed");
+  assert(restoredStatus.data?.sessions === 1, `fresh process must restore persisted repository session: ${JSON.stringify(restoredStatus.data)}`);
   assert(restoredStatus.data?.repositoryId === repositoryId, "restored session must keep the same repository id");
-  assert(restoredStatus.data?.worktreeDigest === worktreeDigestBeforeRestart, "restored status must report the current worktree digest");
 
-  const plannedAfterRestart = await runArchctxMcp({
-    jsonrpc: "2.0",
-    id: 4,
-    method: "tools/call",
-    params: {
-      name: "archcontext_plan_update",
-      arguments: {
-        root: repo,
-        id: "changeset.packaged-mcp-restart",
-        operations: [
-          {
-            op: "create_entity",
-            path: ".archcontext/model/nodes/module.packaged-mcp-restart.yaml",
-            expectedHash: "missing",
-            body: [
-              "schemaVersion: archcontext.node/v2",
-              "id: module.packaged-mcp-restart",
-              "kind: module",
-              "name: Packaged MCP Restart",
-              "status: active",
-              "summary: Packaged MCP restart smoke",
-              "responsibilities:",
-              "  - prove cli and mcp share restarted daemon state",
-              ""
-            ].join("\n")
-          }
-        ]
-      }
-    }
-  });
-  assert(mcpEnvelope(plannedAfterRestart)?.ok === true, "mcp plan_update after restart must succeed through restored daemon RPC");
-  const restartDraftDigest = mcpEnvelope(plannedAfterRestart)?.data?.draft?.base?.worktreeDigest;
-  assert(/^sha256:/.test(String(restartDraftDigest)), "mcp plan_update after restart must return a draft worktree digest");
+  const plannedCrossProcess = await runArchctx(
+    "plan", "--id", "changeset.packaged-cli-restart", "--op", "create_entity", "--path", ".archcontext/model/nodes/module.packaged-cli-restart.yaml", "--expected-hash", "missing",
+    "--body", [
+      "schemaVersion: archcontext.node/v2",
+      "id: module.packaged-cli-restart",
+      "kind: module",
+      "name: Packaged CLI Restart",
+      "status: active",
+      "summary: Packaged CLI restart smoke",
+      "responsibilities:",
+      "  - prove cli persists drafts via sqlite kv_cache",
+      ""
+    ].join("\n")
+  );
+  assert(plannedCrossProcess.ok === true, "CLI plan must succeed across fresh processes");
+  const restartDraftDigest = plannedCrossProcess.data?.draft?.base?.worktreeDigest;
+  assert(/^sha256:/.test(String(restartDraftDigest)), "CLI plan must return a draft worktree digest");
 
-  const appliedAfterRestart = await applyApprovedMcpPlan(plannedAfterRestart);
-  assert(appliedAfterRestart.ok === true, "approved MCP apply after restart must apply the MCP-created ChangeSet draft");
-  assert(existsSync(join(repo, ".archcontext/model/nodes/module.packaged-mcp-restart.yaml")), "approved MCP apply after restart must write the MCP-planned model file");
+  const appliedCrossProcess = await applyApprovedCliPlan(plannedCrossProcess);
+  assert(appliedCrossProcess.ok === true, "approved CLI apply must apply the ChangeSet draft across processes");
+  assert(existsSync(join(repo, ".archcontext/model/nodes/module.packaged-cli-restart.yaml")), "approved CLI apply must write the planned model file");
 
   // `refactor scan` classifies a proposal against declared ownership: a scope path no node claims
   // is `model_adoption_required` and produces no proposal recommendation to verify. This node
   // declares the footprint, and it is planned through the same ChangeSet path as every other model
-  // write rather than by writing the YAML behind the daemon's back.
-  const plannedOwner = await runArchctxMcp({
-    jsonrpc: "2.0",
-    id: 5,
-    method: "tools/call",
-    params: {
-      name: "archcontext_plan_update",
-      arguments: {
-        root: repo,
-        id: "changeset.packaged-legacy-owner",
-        operations: [
-          {
-            op: "create_entity",
-            path: `.archcontext/model/nodes/${KILL_LIST_OWNER_NODE_ID}.yaml`,
-            expectedHash: "missing",
-            body: [
-              "schemaVersion: archcontext.node/v2",
-              `id: ${KILL_LIST_OWNER_NODE_ID}`,
-              "kind: module",
-              "name: Packaged Legacy",
-              "status: active",
-              "summary: Owns the legacy shim the packaged refactor proposal kills",
-              "responsibilities:",
-              "  - hold the shim path the refactor proposal removes",
-              "source:",
-              "  include:",
-              `    - "${KILL_LIST_PATH}"`,
-              ""
-            ].join("\n")
-          }
-        ]
-      }
-    }
-  });
-  assert(mcpEnvelope(plannedOwner)?.ok === true, "mcp plan_update must declare the kill-list owner node");
-  const ownerDraftDigest = mcpEnvelope(plannedOwner)?.data?.draft?.base?.worktreeDigest;
-  assert(/^sha256:/.test(String(ownerDraftDigest)), "mcp plan_update must return a draft worktree digest for the owner node");
+  // write rather than by writing the YAML behind the runtime's back.
+  const plannedOwner = await runArchctx(
+    "plan", "--id", "changeset.packaged-legacy-owner", "--op", "create_entity", "--path", `.archcontext/model/nodes/${KILL_LIST_OWNER_NODE_ID}.yaml`, "--expected-hash", "missing",
+    "--body", [
+      "schemaVersion: archcontext.node/v2",
+      `id: ${KILL_LIST_OWNER_NODE_ID}`,
+      "kind: module",
+      "name: Packaged Legacy",
+      "status: active",
+      "summary: Owns the legacy shim the packaged refactor proposal kills",
+      "responsibilities:",
+      "  - hold the shim path the refactor proposal removes",
+      "source:",
+      "  include:",
+      `    - "${KILL_LIST_PATH}"`,
+      ""
+    ].join("\n")
+  );
+  assert(plannedOwner.ok === true, "CLI plan must declare the kill-list owner node");
+  const ownerDraftDigest = plannedOwner.data?.draft?.base?.worktreeDigest;
+  assert(/^sha256:/.test(String(ownerDraftDigest)), "CLI plan must return a draft worktree digest for the owner node");
 
-  const appliedOwner = await applyApprovedMcpPlan(plannedOwner);
-  assert(appliedOwner.ok === true, "approved MCP apply must write the kill-list owner node");
-  assert(existsSync(join(repo, `.archcontext/model/nodes/${KILL_LIST_OWNER_NODE_ID}.yaml`)), "approved MCP apply must write the owner model file");
-
-  const stopped = await runArchctx("daemon", "stop");
-  assert(stopped.ok === true, "daemon stop must succeed");
-  await waitForRemoved(connectionPath, "connection file");
-  await waitForRemoved(lockPath, "lock file");
+  const appliedOwner = await applyApprovedCliPlan(plannedOwner);
+  assert(appliedOwner.ok === true, "approved CLI apply must write the kill-list owner node");
+  assert(existsSync(join(repo, `.archcontext/model/nodes/${KILL_LIST_OWNER_NODE_ID}.yaml`)), "approved CLI apply must write the owner model file");
 
   // `refactor scan` reads Git-tracked HEAD blobs, so the smoke repo only becomes measurable once
   // it has a commit. Committing here, after the last `apply` and after the daemon has stopped,
@@ -381,19 +253,6 @@ try {
   assert(
     String(missingValue.error?.message ?? "").includes("--assessment-digest"),
     `packaged refactor record rejection must name the flag: ${JSON.stringify(missingValue.error ?? {})}`
-  );
-
-  // `audit list --status` reads a top-level const through `runCli`, which the entrypoint block
-  // calls during module evaluation. Declared below that block it is in the temporal dead zone and
-  // the spawned CLI answers AC_RUNTIME_UNAVAILABLE instead of listing anything.
-  const auditListed = await runArchctxExpectingRejection("audit", "list", "--status", "pending", "--json");
-  assert(
-    auditListed.error?.code !== "AC_RUNTIME_UNAVAILABLE",
-    `packaged audit list must not fail as an unavailable runtime: ${JSON.stringify(auditListed.error ?? {})}`
-  );
-  assert(
-    !String(auditListed.error?.message ?? "").includes("before initialization"),
-    `packaged audit list must not hit a temporal dead zone: ${JSON.stringify(auditListed.error ?? {})}`
   );
 
   // S4 end to end through the packaged CLI: an authored proposal whose kill list names one tracked
@@ -501,11 +360,9 @@ try {
     typeof statusAfterResolve.data?.worktreeDigest === "string" && statusAfterResolve.data.worktreeDigest !== verified.data.worktree.worktreeDigest,
     "the resolve decision file must change the worktree digest"
   );
-  const resolvedReadback = await runArchctx("book", "recommendations", "--json");
+  const resolvedReadback = await runArchctx("recommendations", "list", "--status", "resolved", "--json");
   assert(resolvedReadback.ok === true, "resolved recommendation readback must succeed");
-  assert(resolvedReadback.data?.freshness?.worktree?.headSha === verified.data.worktree.headSha, "recommendation freshness must bind the final HEAD");
-  assert(resolvedReadback.data?.freshness?.worktreeDigest === statusAfterResolve.data.worktreeDigest, "recommendation freshness must bind the final worktree digest");
-  assert(resolvedReadback.data?.provenance?.headSha === proposed.data.worktree.headSha, "recommendation provenance must retain the baseline ledger HEAD");
+  assert(resolvedReadback.data?.schemaVersion === "archcontext.runtime-recommendation-list/v1", "recommendation list must return v1 schema");
   assert(resolvedReadback.data?.recommendations?.find((entry) => entry.recommendationId === proposalRecommendation.recommendationId)?.status === "resolved", "resolved recommendation must remain visible after HEAD movement");
 
   writeFileSync(join(repo, KILL_LIST_PATH), "export const legacyShim = 1;\n", "utf8");
@@ -521,20 +378,13 @@ try {
   const regression = regressionRecord.data?.recommendations?.find((entry) => entry.category === "refactor_proposal");
   assert(regression?.relations?.regressesFrom === proposalRecommendation.recommendationId, "regression must link to the resolved recommendation");
   assert(regression?.recommendationId !== proposalRecommendation.recommendationId, "regression must receive a distinct identity");
-  const regressionReadback = await runArchctx("book", "recommendations", "--json");
+  const regressionReadback = await runArchctx("recommendations", "list", "--status", "resolved", "--json");
   assert(regressionReadback.ok === true, "regression readback must succeed");
   assert(regressionReadback.data?.recommendations?.find((entry) => entry.recommendationId === proposalRecommendation.recommendationId)?.status === "resolved", "regression must not reopen its resolved predecessor");
 
-  const stoppedAfterScan = await runArchctx("daemon", "stop");
-  assert(stoppedAfterScan.ok === true, "daemon stop after refactor scan must succeed");
-  await waitForRemoved(committedPaths.data.daemonConnectionPath, "connection file");
-  await waitForRemoved(committedPaths.data.daemonLockPath, "lock file");
-
   // The required flag is the whole point of the verb: without a subject there is nothing to verify,
-  // and answering with a default would measure a recommendation nobody named. Run with the daemon
-  // stopped so the rejection also proves the CLI validated before it reached for a runtime: a
-  // start here would leave a connection file, a thirty-minute idle process, and possibly a
-  // state migration behind an invocation that was never going to run.
+  // and answering with a default would measure a recommendation nobody named. Confirm preflight
+  // validation fails cleanly without leaving daemon control files or cache locks behind.
   const verifyWithoutRequest = await runArchctxExpectingRejection("refactor", "verify", "--json");
   assert(verifyWithoutRequest.ok === false, "packaged refactor verify must refuse to run without --request-json");
   assert(
@@ -547,16 +397,35 @@ try {
   );
   assert(
     existsSync(committedPaths.data.daemonConnectionPath) === false,
-    `packaged refactor verify rejection must not start a daemon: ${committedPaths.data.daemonConnectionPath} exists`
+    `packaged refactor verify rejection must not create a daemon connection file: ${committedPaths.data.daemonConnectionPath} exists`
   );
   assert(
     existsSync(committedPaths.data.daemonLockPath) === false,
-    `packaged refactor verify rejection must not start a daemon: ${committedPaths.data.daemonLockPath} exists`
+    `packaged refactor verify rejection must not create a daemon lock file: ${committedPaths.data.daemonLockPath} exists`
   );
+
+  // Stage 5 packaged smoke (#639 AC #3): bounded deps calls matrix, pure-Git scan/decide/verify (with path#symbol), and simulate.
+  const depsResult = await runArchctx("deps", "--json");
+  assert(depsResult.ok === true && depsResult.data?.calls?.coverage === "complete", `packaged deps must expose bounded call facts: ${JSON.stringify(depsResult)}`);
+  const scanV2 = await runArchctx("scan", "--json");
+  assert(scanV2.ok === true && scanV2.data?.schemaVersion === "archcontext.refactor-scan/v2", `packaged scan --json failed: ${JSON.stringify(scanV2)}`);
+  const decideList = await runArchctx("decide", "list", "--json");
+  assert(decideList.ok === true && decideList.data?.schemaVersion === "archcontext.refactor-decide-list/v1", `packaged decide list failed: ${JSON.stringify(decideList)}`);
+  const firstFinding = scanV2.data?.findings?.[0];
+  if (firstFinding) {
+    const decided = await runArchctx("decide", "accept", firstFinding.recommendationId, "--kill-symbol", `${KILL_LIST_PATH}#legacyShim`, "--reason", "Packaged Stage 5 killList smoke", "--json");
+    assert(decided.ok === true, `packaged decide accept failed: ${JSON.stringify(decided)}`);
+    const verifiedV2 = await runArchctx("verify", firstFinding.recommendationId, "--json");
+    assert(
+      verifiedV2.ok === true && verifiedV2.data?.schemaVersion === "archcontext.refactor-verify/v2" && verifiedV2.data?.killListChecks?.[0]?.status === "still-present",
+      `packaged verify <id> with path#symbol must report still-present: ${JSON.stringify(verifiedV2)}`
+    );
+  }
+  const sim = await runArchctx("refactor", "simulate", "--target", "pair:capability.billing|capability.checkout", "--json");
+  assert(sim.ok === true && sim.data?.schemaVersion === "archcontext.runtime-refactor-simulate/v1" && sim.data?.privacy?.writes === "none", `packaged refactor simulate failed: ${JSON.stringify(sim)}`);
 
   console.log("[packaged-cli-smoke] OK");
 } finally {
-  await runArchctx("daemon", "stop").catch(() => undefined);
   cleanupRoot(repo);
   cleanupRoot(stateRoot);
 }
@@ -658,7 +527,7 @@ function runNativePackagedSmoke() {
   try {
     execFileSync("bun", ["build", "packages/surfaces/cli/src/main.ts", "--target=node", "--format=esm", "--outfile", nativeBin, "--external=@colbymchenry/codegraph", "--external=@node-rs/jieba", "--external=@node-rs/jieba/dict.js", "--external=koffi"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
     const moduleDir = join(stage, "node_modules"); mkdirSync(moduleDir);
-    const coreRequire = createRequire(join(root, "packages/core/package.json"));
+    const localRuntimeRequire = createRequire(join(root, "packages/local-runtime/package.json"));
     const stagePackage = (name, from) => {
       // Resolve each dependency from its owning package. Workspace installs can
       // hoist it or isolate it; a fixed scope directory assumes one layout.
@@ -680,7 +549,7 @@ function runNativePackagedSmoke() {
       ["@node-rs/jieba", `@node-rs/jieba-${process.platform}-${process.arch}${jiebaSuffix}`],
       ["koffi", `@koromix/koffi-${process.platform}-${process.arch}`]
     ]) {
-      const installed = stagePackage(name, coreRequire);
+      const installed = stagePackage(name, localRuntimeRequire);
       assert(installed.manifest.optionalDependencies?.[binding], `native smoke has no declared platform binding: ${binding}`);
       stagePackage(binding, createRequire(installed.entry));
     }
@@ -729,57 +598,6 @@ function resolveCodeGraphBin() {
   return candidates.find((candidate) => existsSync(candidate)) ?? "codegraph";
 }
 
-function runArchctxMcp(message) {
-  return runArchctxMcpSession([message]).then((responses) => responses.at(-1));
-}
-
-function runArchctxMcpSession(messages) {
-  return new Promise((resolvePromise, rejectPromise) => {
-    const child = spawn(archctxBin, ["mcp"], {
-      cwd: repo,
-      env: {
-        ...process.env,
-        ARCHCONTEXT_STATE_DIR: stateRoot,
-        PATH: `${binDir}${delimiter}${process.env.PATH ?? ""}`
-      }
-    });
-    let stdout = "";
-    let stderr = "";
-    const timeout = setTimeout(() => {
-      child.kill("SIGTERM");
-      rejectPromise(new Error(`archctx mcp timed out: ${stderr || stdout}`));
-    }, PROCESS_TIMEOUT_MS);
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk.toString();
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString();
-    });
-    child.once("exit", (code) => {
-      clearTimeout(timeout);
-      if (code !== 0) {
-        rejectPromise(new Error(`archctx mcp failed (${code}): ${stderr || stdout}`));
-        return;
-      }
-      try {
-        resolvePromise(stdout.trim().split("\n").filter(Boolean).map((line) => JSON.parse(line)));
-      } catch (error) {
-        rejectPromise(new Error(`archctx mcp returned invalid JSON: ${stdout}\n${stderr}\n${error}`));
-      }
-    });
-    child.stdin.end(`${messages.map((message) => JSON.stringify(message)).join("\n")}\n`);
-  });
-}
-
-async function waitForRemoved(path, label) {
-  const deadline = Date.now() + 5_000;
-  while (Date.now() < deadline) {
-    if (!existsSync(path)) return;
-    await new Promise((resolvePromise) => setTimeout(resolvePromise, 50));
-  }
-  fail(`timed out waiting for ${label} removal: ${path}`);
-}
-
 function assert(condition, message) {
   if (!condition) fail(message);
 }
@@ -811,21 +629,13 @@ function fileBodyDigest(path) {
   return `sha256:${createHash("sha256").update(JSON.stringify({ body: readFileSync(path, "utf8") }), "utf8").digest("hex")}`;
 }
 
-async function applyApprovedMcpPlan(planned) {
-  const preview = mcpEnvelope(planned).data;
-  const apply = async (id, approved) => mcpEnvelope(await runArchctxMcp({
-    jsonrpc: "2.0", id, method: "tools/call",
-    params: {
-      name: "archcontext_apply_update",
-      arguments: { root: repo, id: preview.draft.id, expectedWorktreeDigest: preview.draft.base.worktreeDigest, approved }
-    }
-  }));
-  const declined = await apply(9, false);
-  assert(declined.ok === false && declined.error?.code === "AC_USER_CONFIRMATION_REQUIRED", "MCP apply must refuse a ChangeSet without explicit approval");
-  return apply(10, true);
-}
-
-function mcpEnvelope(response) {
-  assert(response.result?.content?.[0]?.type === "text", "MCP tool result must contain text content");
-  return JSON.parse(response.result.content[0].text);
+async function applyApprovedCliPlan(planned) {
+  const preview = planned.data;
+  const declined = await runArchctxExpectingRejection(
+    "apply", "--id", preview.draft.id, "--expected-worktree-digest", preview.draft.base.worktreeDigest
+  );
+  assert(declined.ok === false && declined.error?.code === "AC_USER_CONFIRMATION_REQUIRED", "CLI apply must refuse a ChangeSet without explicit --approved");
+  return runArchctx(
+    "apply", "--id", preview.draft.id, "--approved", "--expected-worktree-digest", preview.draft.base.worktreeDigest
+  );
 }

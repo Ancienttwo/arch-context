@@ -404,12 +404,13 @@ test("each platform family is selected by a path it owns; shared-core and packag
   const families = (...paths: string[]) => selectImpact(SCOPE, WORKSPACES, paths).families;
   expect(families(PLATFORM_PATH)).toEqual(["platform"]);
   expect(families("scripts/packaged-cli-smoke.mjs")).toEqual(["node-compat"]);
-  expect(families("packages/core/changeset-engine/src/index.ts")).toEqual(["platform", "linux-arm64"]);
+  expect(families("packages/core/changeset-engine/src/index.ts")).toEqual(["platform"]);
+  expect(families("packages/local-runtime/descriptor-write/src/index.ts")).toEqual(["platform", "linux-arm64"]);
   // A shared-core path that no family owns selects no family; the Linux job covers it and every dependent.
   expect(selectImpact(SCOPE, WORKSPACES, ["packages/contracts/src/failure.ts"])).toEqual({ families: [], workspaces: ALL_WORKSPACES });
   // Workspace membership alone selects no family.
   expect(selectImpact(SCOPE, WORKSPACES, ["packages/core/policy-engine/src/index.ts"])).toEqual({ families: [],
-    workspaces: ["archcontext", "@archcontext/core", "@archcontext/local-runtime", "@archcontext/cloud", "@archcontext/surfaces"] });
+    workspaces: ["archcontext", "@archcontext/core", "@archcontext/local-runtime", "@archcontext/surfaces"] });
   expect(selectImpact(SCOPE, WORKSPACES, ["docs/runbooks/verify-sharding.md", "README.md"])).toEqual({ families: [], workspaces: [] });
   for (const path of ["bun.lock", "package.json", "packages/core/package.json", ".github/workflows/verify.yml", "scripts/verify-ci.mjs",
     "packages/surfaces/cli/package.json", "packages/core/policy-engine/bunfig.toml", "tsconfig.build.json", "packages/core/tsconfig.json",
@@ -457,8 +458,8 @@ test("release plans need an allowed ref and the exact approved SHA; routine plan
   const leaky = { ...SCOPE, families: SCOPE.families.map((family: any) => family.id === SCOPE.completeSuite ? { ...family, owners: [globToRegExp("docs/**")] } : family) };
   expect(() => planImpact(leaky, WORKSPACES, TRACKED, { event: "pull_request", ref: "refs/pull/1/merge", sha: SHA, base: BASE, files: ["docs/a.md"] }))
     .toThrow("complete-suite family");
-  expect(() => planImpact(SCOPE, WORKSPACES, TRACKED.filter(file => !file.startsWith("packages/cloud/")),
-    { event: "pull_request", ref: "refs/pull/1/merge", sha: SHA, base: BASE, files: ["packages/cloud/hardening/src/index.ts"] })).toThrow("selected workspace without a check");
+  expect(() => planImpact(SCOPE, WORKSPACES, TRACKED.filter(file => !file.startsWith("packages/contracts/")),
+    { event: "pull_request", ref: "refs/pull/1/merge", sha: SHA, base: BASE, files: ["packages/contracts/src/failure.ts"] })).toThrow("selected workspace without a check");
 });
 
 test("the gate passes only this run's plan with every selected job succeeded and every other job skipped", () => {
@@ -510,7 +511,7 @@ test("the impact and gate commands plan each event from its base and gate the sa
     mkdirSync(docs); mkdirSync(platform);
     mergeRepo(docs, ["docs/a.md"], ["docs/old.md", "docs/new.md"]);
     // Every workspace has a check in this fixture, so a release plan may select them all.
-    mergeRepo(platform, ["packages/local-runtime/runtime-daemon/src/rpc-server.ts", ...["contracts", "core", "local-runtime", "cloud", "surfaces"].map(name => `packages/${name}/a.test.ts`), "scripts/a.test.ts"]);
+    mergeRepo(platform, ["packages/local-runtime/runtime-daemon/src/projection-writer.ts", ...["contracts", "core", "local-runtime", "surfaces"].map(name => `packages/${name}/a.test.ts`), "scripts/a.test.ts"]);
     const pr = (cwd: string) => ({ GITHUB_EVENT_NAME: "pull_request", GITHUB_REF: "refs/pull/7/merge", GITHUB_SHA: head(cwd), VERIFY_DISPATCH_SHA: "" });
     const docsPlan = run(docs, "impact", pr(docs)).outputs!;
     // Renames count both sides, as `--no-renames` lists them.
@@ -580,16 +581,13 @@ interface ReviewedStep { step: Record<string, any>; inputs?: string[]; scripts?:
 interface ReviewedScript { run: string; inputs?: string[]; scripts?: string[]; bunTest?: true }
 
 const PLATFORM_SUITES = [
-  "packages/cloud/hardening", "packages/core/changeset-engine", "packages/local-runtime/codegraph-adapter",
-  "packages/local-runtime/control-file-security", "packages/local-runtime/git-adapter", "packages/local-runtime/local-store-sqlite",
+  "packages/core/changeset-engine", "packages/local-runtime/codegraph-adapter",
+  "packages/local-runtime/descriptor-write", "packages/local-runtime/git-adapter", "packages/local-runtime/local-store-sqlite",
   "packages/local-runtime/runtime-state-paths", "packages/local-runtime/model-store-yaml/test/native-context.test.ts",
-  ...["daemon-control-acl", "egress-admission", "investigation-transport", "projection-writer", "rpc-argument-codec", "rpc-client",
-    "rpc-contract-boundary", "rpc-methods", "rpc-prepare-session", "rpc-server", "rpc-v2-failure-compat", "rpc-version"]
-    .map(name => `packages/local-runtime/runtime-daemon/test/${name}.test.ts`),
-  ...["hook-helper-parity", "hook-state-paths", "rpc-version-upgrade"].map(name => `packages/surfaces/cli/test/${name}.test.ts`)
+  "packages/local-runtime/runtime-daemon/test/egress-admission.test.ts",
+  "packages/local-runtime/runtime-daemon/test/projection-writer.test.ts"
 ];
-const NODE_COMPAT_SUITES = ["packages/surfaces/cli/test/bundle-entry.test.ts", "packages/surfaces/mcp-local/test/mcp-wire.test.ts",
-  "tests/ownership-change-acceptance-recovery.test.ts", "packages/contracts/test/publishability.test.ts"];
+const NODE_COMPAT_SUITES = ["packages/surfaces/cli/test/bundle-entry.test.ts", "packages/contracts/test/publishability.test.ts"];
 const REVIEWED_SCRIPTS: Record<string, ReviewedScript> = {
   "archcontext#verify:platform": { run: `bun test --timeout 60000 ${PLATFORM_SUITES.map(path => `./${path}`).join(" ")}`, inputs: PLATFORM_SUITES, bunTest: true },
   "archcontext#verify:node-compat": {
@@ -609,7 +607,7 @@ const ipcUpload = (suffix: string): ReviewedStep => ({ step: { uses: "actions/up
 const ifFamily = (id: string) => `contains(fromJSON(needs.verify-plan.outputs.families), '${id}')`;
 const OS_TIMEOUT = "${{ matrix.os == 'windows-latest' && 60 || 20 }}";
 const RUNNER_GUARD = `node -e "if (process.platform !== 'linux' || process.arch !== 'arm64') process.exit(1)"`;
-const ARM64_TEST = "packages/core/changeset-engine/test/changeset-engine.test.ts";
+const ARM64_TEST = "packages/local-runtime/descriptor-write/test/descriptor-write.test.ts";
 const REVIEWED_JOBS: Record<string, { header: Record<string, any>; steps: ReviewedStep[] }> = {
   "verify-platform": {
     header: { if: ifFamily("platform"), needs: "verify-plan", "runs-on": "${{ matrix.os }}", "timeout-minutes": OS_TIMEOUT,
@@ -720,7 +718,7 @@ test("owner drift contract: each targeted family job equals its reviewed job and
   const tracked = new Set(TRACKED);
   const { failures, checked } = ownerDrift(workflow, manifests, tracked);
   expect(failures).toEqual([]);
-  expect(checked).toBeGreaterThanOrEqual(50);
+  expect(checked).toBeGreaterThanOrEqual(30);
   expect(Object.keys(REVIEWED_JOBS).sort()).toEqual(SCOPE.families.filter((family: any) => family.id !== SCOPE.completeSuite).flatMap((family: any) => family.jobs).sort());
   // Every bun-test family runs the root preload files; each counts them as inputs.
   const preload = ["scripts/check-bun-version.mjs", "packages/surfaces/cli/bin/bun-darwin-sqlite.ts"];
@@ -728,9 +726,9 @@ test("owner drift contract: each targeted family job equals its reviewed job and
   for (const id of Object.keys(REVIEWED_JOBS)) expect(resolveFamilyJob(workflow, id, manifests, tracked)).toEqual(expect.arrayContaining(preload));
   expect(resolveFamilyJob(workflow, "linux-arm64-descriptor-write", manifests, tracked)).toEqual([ARM64_TEST, ...preload]);
   // A preload file that no family owns or maps is drift.
-  const unowned = { ...manifests, bunfig: { test: { preload: [...manifests.bunfig.test.preload, "./scripts/privacy-capture-lib.mjs"] } } };
+  const unowned = { ...manifests, bunfig: { test: { preload: [...manifests.bunfig.test.preload, "./scripts/check-architecture-mermaid.mjs"] } } };
   expect(ownerDrift(workflow, unowned, tracked).failures)
-    .toEqual(["platform", "node-compat", "linux-arm64"].map(id => `${id} runs scripts/privacy-capture-lib.mjs but does not own it`));
+    .toEqual(["platform", "node-compat", "linux-arm64"].map(id => `${id} runs scripts/check-architecture-mermaid.mjs but does not own it`));
 
   const withJob = (id: string, change: (job: any) => any, base = workflow) => ({ ...base, jobs: { ...base.jobs, [id]: change(structuredClone(base.jobs[id])) } });
   const appendStep = (step: any) => withJob("verify-platform", job => ({ ...job, steps: [...job.steps, step] }));
@@ -751,7 +749,7 @@ test("owner drift contract: each targeted family job equals its reviewed job and
     ].map(step => [JSON.stringify(step), appendStep(step), withScripts({ wrap: gptCommand })] as [string, any, Manifests]),
     ["GPT command in place of a reviewed run", changeStep(5, step => ({ ...step, run: gptCommand })), manifests],
     ["reviewed run with one extra flag", changeStep(7, step => ({ ...step, run: `${run(7)} --bail` })), manifests],
-    ["reviewed run with an extra env NODE_OPTIONS", changeStep(7, step => ({ ...step, env: { NODE_OPTIONS: "--require ./scripts/privacy-capture-lib.mjs" } })), manifests],
+    ["reviewed run with an extra env NODE_OPTIONS", changeStep(7, step => ({ ...step, env: { NODE_OPTIONS: "--require ./scripts/check-architecture-mermaid.mjs" } })), manifests],
     ["reviewed action with a changed with: value", changeStep(3, step => ({ ...step, with: { "bun-version": "latest" } })), manifests],
     ["reviewed action with an extra with: input", changeStep(0, step => ({ ...step, with: { ref: "other" } })), manifests],
     ["reviewed step with a working-directory", changeStep(4, step => ({ ...step, "working-directory": "packages" })), manifests],
@@ -763,16 +761,16 @@ test("owner drift contract: each targeted family job equals its reviewed job and
     ["job defaults.run.shell", withJob("verify-platform", job => ({ ...job, defaults: { run: { shell: "node scripts/packaged-cli-smoke.mjs {0}" } } })), manifests],
     ["job defaults.run.working-directory", withJob("verify-platform", job => ({ ...job, defaults: { run: { "working-directory": "packages" } } })), manifests],
     ["workflow defaults", { ...workflow, defaults: { run: { shell: "bash" } } }, manifests],
-    ["workflow env", { ...workflow, env: { BUN_OPTIONS: "--preload ./scripts/privacy-capture-lib.mjs" } }, manifests],
+    ["workflow env", { ...workflow, env: { BUN_OPTIONS: "--preload ./scripts/check-architecture-mermaid.mjs" } }, manifests],
     ["job container", withJob("verify-platform", job => ({ ...job, container: "node:22" })), manifests],
     ["job services", withJob("verify-platform", job => ({ ...job, services: { cache: { image: "redis" } } })), manifests],
-    ["job env", withJob("verify-platform", job => ({ ...job, env: { NODE_OPTIONS: "--import ./scripts/privacy-capture-lib.mjs" } })), manifests],
+    ["job env", withJob("verify-platform", job => ({ ...job, env: { NODE_OPTIONS: "--import ./scripts/check-architecture-mermaid.mjs" } })), manifests],
     ["arm64 env value changed", withJob("linux-arm64-descriptor-write", job => ({ ...job, env: { PUPPETEER_SKIP_DOWNLOAD: "0" } })), manifests],
-    ["root postinstall", workflow, withScripts({ postinstall: "node scripts/privacy-capture-lib.mjs" })],
+    ["root postinstall", workflow, withScripts({ postinstall: "node scripts/check-architecture-mermaid.mjs" })],
     ["workspace prepare", workflow, { ...manifests, workspaces: manifests.workspaces.map((manifest, index) => index ? manifest : { ...manifest, scripts: { prepare: "bun x tsc" } }) }],
-    ["pre-hook of a family-run script", workflow, withScripts({ "preverify:platform": "node scripts/privacy-capture-lib.mjs" })],
-    ["post-hook of a nested family-run script", workflow, withScripts({ "posttest:codegraph-selector-node": "node scripts/privacy-capture-lib.mjs" })],
-    ["bunfig top-level preload", workflow, withBunfig({ ...manifests.bunfig, preload: ["./scripts/privacy-capture-lib.mjs"] })],
+    ["pre-hook of a family-run script", workflow, withScripts({ "preverify:platform": "node scripts/check-architecture-mermaid.mjs" })],
+    ["post-hook of a nested family-run script", workflow, withScripts({ "posttest:codegraph-selector-node": "node scripts/check-architecture-mermaid.mjs" })],
+    ["bunfig top-level preload", workflow, withBunfig({ ...manifests.bunfig, preload: ["./scripts/check-architecture-mermaid.mjs"] })],
     ["bunfig [run] bun = true", workflow, withBunfig({ ...manifests.bunfig, run: { bun: true } })],
     ["bunfig [test] root", workflow, withBunfig({ test: { ...manifests.bunfig.test, root: "packages" } })],
     ["bunfig [install]", workflow, withBunfig({ ...manifests.bunfig, install: { exact: true } })],
@@ -793,7 +791,7 @@ test("the reviewed workspace graph equals the workspace manifests: every workspa
     .filter(([, spec]) => String(spec).startsWith("workspace:")).map(([name]) => name).sort();
   const byName = (a: any, b: any) => a.name.localeCompare(b.name);
   const manifests = [{ dir: ".", manifest: root }, ...root.workspaces.map((dir: string) => ({ dir, manifest: JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) }))];
-  expect(manifests).toHaveLength(6);
+  expect(manifests).toHaveLength(5);
   expect(WORKSPACES.map(workspace => ({ name: workspace.name, dir: workspace.dir, dependsOn: [...workspace.dependsOn].sort() })).sort(byName))
     .toEqual(manifests.map(({ dir, manifest }) => ({ name: manifest.name, dir, dependsOn: localEdges(manifest) })).sort(byName));
   for (const workspace of WORKSPACES.filter(candidate => candidate.dir !== ".")) {

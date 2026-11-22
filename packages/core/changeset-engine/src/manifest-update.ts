@@ -1,9 +1,9 @@
 import { isMap, isScalar, parseDocument } from "yaml";
 import { digestJson, orderedLayerIssues, validateJsonSchema, type Json } from "@archcontext/contracts";
-import type { ChangeOperation } from "./index";
+import type { ChangeOperation, ManifestUpdateFields } from "./types";
+export type { ManifestUpdateFields } from "./types";
 
 export const MANIFEST_UPDATE_PATH = ".archcontext/manifest.yaml";
-export interface ManifestUpdateFields { "content.decisions"?: "docs/adr"; "model.layers"?: string[] }
 
 /** Runtime source; the JSON ChangeSet schema is a checked projection of this branch. */
 export const MANIFEST_UPDATE_OPERATION_SCHEMA: Parameters<typeof validateJsonSchema>[0] = {

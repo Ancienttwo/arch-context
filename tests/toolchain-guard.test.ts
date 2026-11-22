@@ -12,7 +12,7 @@ test("the Bun version gate rejects a mismatch before test code loads", () => {
     copyFileSync(fileURLToPath(new URL("../scripts/check-bun-version.mjs", import.meta.url)), join(root, "scripts/check-bun-version.mjs"));
     writeFileSync(join(root, "package.json"), JSON.stringify({ packageManager: "bun@0.0.0" }));
     const repository = fileURLToPath(new URL("../", import.meta.url));
-    for (const directory of [".", "packages/contracts", "packages/core", "packages/local-runtime", "packages/surfaces", "packages/cloud"]) {
+    for (const directory of [".", "packages/contracts", "packages/core", "packages/local-runtime", "packages/surfaces"]) {
       const cwd = join(root, directory);
       mkdirSync(cwd, { recursive: true });
       copyFileSync(join(repository, directory, "bunfig.toml"), join(cwd, "bunfig.toml"));

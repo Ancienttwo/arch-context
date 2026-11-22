@@ -126,12 +126,12 @@ describe("module import graph and strongly connected components", () => {
     expect(graph.countsByNode.get("module.c")).toMatchObject({ inboundModuleEdges: 2, fanIn: 2 });
   });
 
-  test("the snapshot carries the measured graph and leaves instability unmeasured", () => {
+  test("the snapshot carries the measured graph including real instability", () => {
     const snapshot = buildModuleStatisticsSnapshot(makeInput());
     const runtime = snapshot.modules.find((module) => module.nodeId === "module.runtime")!;
 
     expect(runtime.dependencyGraph).toMatchObject({
-      instability: null,
+      instability: 1,
       directionViolationCount: null,
       inboundModuleEdges: 0
     });

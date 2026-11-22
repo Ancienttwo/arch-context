@@ -1415,13 +1415,17 @@ function sealDraft(
 const DAEMON_AUTHOR: RecommendationAuthorV1 = { kind: "daemon", id: "archctxd", source: "daemon" };
 
 const OBSERVATION_RISK_SIGNALS: Readonly<Record<RefactorObservationKind, readonly RecommendationRiskSignal[]>> = {
+  "co-change-coupling": ["boundary-change"],
   "cycle": ["cycle-detected"],
   "residual-cycle": ["cycle-detected"],
   "direction-violation": ["boundary-change"],
+  "entrypoint-bypass": ["boundary-change"],
   "evidence-gap": [],
+  "low-cohesion-god-file": [],
   "ownership-ambiguous": ["ownership-change"],
   "undeclared-footprint": ["ownership-change"],
-  "unowned-paths": ["ownership-change"]
+  "unowned-paths": ["ownership-change"],
+  "unstable-dependency": ["boundary-change"]
 };
 
 const MAJOR_CHANGE_RISK_SIGNALS: Readonly<Record<ArchitectureMajorChangeReasonCode, RecommendationRiskSignal>> = {
@@ -1495,6 +1499,14 @@ function limitEvidenceSample(evidence: RefactorObservationEvidenceV1, limit: num
       return { ...evidence, violations: evidence.violations.slice(0, limit), truncated };
     case "evidence-gap":
       return { ...evidence, unresolvedImports: evidence.unresolvedImports.slice(0, limit), truncated };
+    case "low-cohesion-god-file":
+      return { ...evidence, files: evidence.files.slice(0, limit), truncated };
+    case "entrypoint-bypass":
+      return { ...evidence, edges: evidence.edges.slice(0, limit), truncated };
+    case "unstable-dependency":
+      return { ...evidence, targets: evidence.targets.slice(0, limit), truncated };
+    case "co-change-coupling":
+      return { ...evidence, pairs: evidence.pairs.slice(0, limit), truncated };
     default:
       return { ...evidence, paths: evidence.paths.slice(0, limit), truncated };
   }
@@ -1581,6 +1593,38 @@ export function observationExplanation(observation: RefactorObservationV1, affec
           : [`${evidence.totalCount} import specifier(s) did not resolve to a tracked file.`, ...examples.map((entry) => `${locationText(entry.fromPath, entry.fromLine)} imports ${entry.specifier}.`), ...more(examples.length)])
       ];
     }
+    case "low-cohesion-god-file": {
+      const examples = evidence.files.slice(0, EXPLANATION_EXAMPLE_LIMIT);
+      return [
+        `${observation.subjectSelectorId} owns ${evidence.totalCount} low-cohesion oversized file(s) with disconnected symbol clusters.`,
+        ...examples.map((entry) => `${entry.path} (${entry.lineCount} lines, ${entry.topLevelSymbolCount} top-level symbols, ${entry.clusterCount} clusters).`),
+        ...more(examples.length)
+      ];
+    }
+    case "entrypoint-bypass": {
+      const examples = evidence.edges.slice(0, EXPLANATION_EXAMPLE_LIMIT);
+      return [
+        `${observation.subjectSelectorId} has ${evidence.totalCount} cross-module import(s) bypassing declared entrypoints.`,
+        ...examples.map((edge) => `${edgeText(edge)} (${edge.fromNodeId} → ${edge.toNodeId}).`),
+        ...more(examples.length)
+      ];
+    }
+    case "unstable-dependency": {
+      const examples = evidence.targets.slice(0, EXPLANATION_EXAMPLE_LIMIT);
+      return [
+        `${observation.subjectSelectorId} (fanIn=${evidence.sourceFanIn}, I=${evidence.sourceInstability}) depends on ${evidence.totalCount} markedly more unstable module(s).`,
+        ...examples.map((target) => `${target.targetNodeId} (I=${target.targetInstability}, delta=${target.delta}, edges=${target.edgeCount}).`),
+        ...more(examples.length)
+      ];
+    }
+    case "co-change-coupling": {
+      const examples = evidence.pairs.slice(0, EXPLANATION_EXAMPLE_LIMIT);
+      return [
+        `${evidence.memberNodeIds.join(" and ")} show ${evidence.totalCount} high co-change file pair(s) over ${evidence.observedCommitCount} commits (window=${evidence.windowLimit}).`,
+        ...examples.map((pair) => `${pair.pathA} <-> ${pair.pathB} (coChanges=${pair.coChangeCount}, jaccard=${pair.jaccard}).`),
+        ...more(examples.length)
+      ];
+    }
   }
 }
 
@@ -1599,6 +1643,14 @@ function evidenceLength(evidence: RefactorObservationEvidenceV1): number {
       return evidence.violations.length;
     case "evidence-gap":
       return evidence.unresolvedImports.length;
+    case "low-cohesion-god-file":
+      return evidence.files.length;
+    case "entrypoint-bypass":
+      return evidence.edges.length;
+    case "unstable-dependency":
+      return evidence.targets.length;
+    case "co-change-coupling":
+      return evidence.pairs.length;
     default:
       return evidence.paths.length;
   }

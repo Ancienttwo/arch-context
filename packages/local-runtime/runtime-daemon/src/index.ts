@@ -1,51 +1,3 @@
-import { loadStateMachinesFromArchContext } from "@archcontext/core/state-machine-engine";
-import { FailureError } from "@archcontext/contracts";
-import { exportChangeSetReceipt } from "./changeset-receipt";
-import { publicFailureEnvelope, publicOperationErrorEnvelope, publicOperationFailure, publicOperationResult } from "./public-operation-failure";
-import { ArchitectureDebtReadError, readCompleteTaskArchitectureDebt, selectedProducerFailureEnvelope } from "./architecture-debt";
-import type { RuntimePracticeCheckpointInput, RuntimePracticeWaiverInput, RuntimeLedgerProjectInput, RuntimeAcceptCommittedChangeInput, RuntimeLedgerRebuildInput, RuntimeLedgerMigrateInput, RuntimeLedgerRollbackInput, RuntimeCompleteTaskInput, RuntimePlanUpdateInput, RuntimeApplyUpdateInput } from "./rpc-types";
-export type { RuntimePracticeCheckpointInput, RuntimePracticeWaiverInput, RuntimeLedgerProjectInput, RuntimeAcceptCommittedChangeInput, RuntimeLedgerRebuildInput, RuntimeLedgerMigrateInput, RuntimeLedgerRollbackInput, RuntimeCompleteTaskInput, RuntimeWorktreeDigestProfile, RuntimePlanUpdateInput, RuntimeApplyUpdateInput } from "./rpc-types";
-import { AgentJobService, runtimeAgentJobId, runtimeInvestigationRisk, runtimeInvestigationUncertainty, validateRuntimeAgentProposalPlan, type RuntimeAgentJobEnqueueGitInput, type RuntimeAgentJobClaimRpcInput, type RuntimeAgentJobCompleteRpcInput, type RuntimeAgentJobRetryRpcInput, type RuntimeAgentJobCancelRpcInput } from "./agent-jobs";
-export type { RuntimeAgentJobEnqueueGitInput, RuntimeAgentJobClaimRpcInput, RuntimeAgentJobCompleteRpcInput, RuntimeAgentJobRetryRpcInput, RuntimeAgentJobCancelRpcInput } from "./agent-jobs";
-import { ExternalDocumentationService, type RuntimeDocsInput } from "./external-documentation";
-import { PracticeCheckpointService } from "./practice-checkpoint";
-export type { RuntimeDocsInput, RuntimeResourceReadResult } from "./external-documentation";
-import { ExplorerServerService, type ExplorerServerOptions } from "./explorer-server";
-import { ExplorerProjectionService } from "./explorer-projection-service";
-export type { ExplorerServerOptions, ExplorerServerStatus } from "./explorer-server";
-import { LedgerAdminService, type RuntimeArchitectureLedgerRolloutMode, type RuntimeArchitectureLedgerReadMode, type RuntimeArchitectureLedgerWriteMode, type RuntimeArchitectureLedgerModes, type RuntimeArchitectureLedgerPhaseFlags } from "./ledger-admin";
-export type { RuntimeArchitectureLedgerRolloutMode, RuntimeArchitectureLedgerReadMode, RuntimeArchitectureLedgerWriteMode, RuntimeArchitectureLedgerModes, RuntimeArchitectureLedgerPhaseFlags } from "./ledger-admin";
-import { ArchitectureBookService, type RuntimeBookInput } from "./architecture-book";
-import { LandscapeService } from "./landscape";
-export type { RuntimeBookInput } from "./architecture-book";
-import { AuditService, AUDIT_APPROVE_GH_TOKEN_ENV, type RuntimeAuditRunInput, type RuntimeAuditApproveInput } from "./audit";
-export { AUDIT_RUN_DEFAULT_TIMEOUT_MS, AUDIT_APPROVE_GH_TOKEN_ENV, type RuntimeAuditRunInput, type RuntimeAuditApproveInput } from "./audit";
-import { ProjectionApplyService } from "./projection-apply";
-import { architectureHistoryRenderInput, committedArchitectureDocsProfile, ignoredArchitectureModelPaths, runArchitectureDocsProjectionCommand, runAgentContextProjectionCommand, runProjectionProtocolCommand, validateProjectionInvocation, validateDocsProjectionInput, validateAgentContextProjectionInput, type RuntimeDocsProjectionInput, type RuntimeAgentContextProjectionInput, type RuntimeProjectionInvocation, type ProjectionServiceHost } from "./projection-service";
-import { readCurrentBranch } from "./projection-inputs";
-export type { RuntimeDocsProjectionInput, RuntimeAgentContextProjectionInput, RuntimeProjectionInvocation } from "./projection-service";
-export { runProjectionCheckInvocation, runProjectionFreshnessCommand, runProjectionSliceCommand, runProjectionSnapshotCommand } from "./projection-service";
-export { PROJECTION_PR_BODY_MARKER, PROJECTION_WRITER_DEFAULT_BASE, PROJECTION_WRITER_DEFAULT_REMOTE, createCommandProjectionPublisher, createGhProjectionPublisher, createNoneProjectionPublisher, projectionPublishBody, projectionPublishTitle, projectionWriterPaths, runProjectionPublishCommand, runProjectionPublishFollow, runProjectionPublishStatusCommand, runProjectionVerifyPrCommand, type ProjectionPublishOptions, type ProjectionPublisherExec, type ProjectionPublisherInput, type ProjectionPublisherPort, type ProjectionVerifyPrCheckPort, type ProjectionWriterApplyPort } from "./projection-writer";
-export { runDocsAnchorsCommand } from "./docs-anchors";
-export { runRuntimeVerifyCommand } from "./verify";
-import { modelValidationEnvelope } from "./verify";
-export { CapabilityDependenciesError, readCapabilityDependencies, type CapabilityDependenciesRequestV1, type CapabilityDependenciesResultV1 } from "./capability-dependencies";
-export { runConstraintCheckCommand } from "./constraints-check";
-export { runFlowSelectorCheckCommand } from "./flow-selector-check";
-export { runStateMachineCheckCommand } from "./state-machine-check";
-import { RecommendationsService, recommendationArtifactsFromEvents, type RuntimeRecommendationInput, type RuntimeRefactorScanInput, type RuntimeRefactorRecordInput } from "./recommendations";
-export type { RuntimeRecommendationInput, RuntimeRefactorScanInput, RuntimeRefactorRecordInput } from "./recommendations";
-import type { RuntimeDaemonClient } from "./rpc-protocol";
-import { ChangeSetRecoveryUnresolvedError } from "./changeset-recovery-error";
-import { ChangeSetAuthorityService, runtimeWorktreeDigest } from "./changeset-authority";
-export { DEFAULT_DAEMON_IDLE_TIMEOUT_MS, RUNTIME_RPC_MAX_REQUEST_BODY_BYTES, RUNTIME_RPC_REQUEST_BODY_TIMEOUT_MS, type RuntimeRpcServerOptions, ArchctxRuntimeRpcServer } from "./rpc-server";
-export { type DaemonControlRecoveryReason, type DaemonControlRecovery, defaultDaemonControlDir, defaultDaemonConnectionPath, defaultDaemonLockPath, readRuntimeRpcConnectionFile, runtimeRpcCompatibilityIssue, readRuntimeRpcConnection, createRuntimeRpcClientFromConnectionFile, createRuntimeRpcClientFromWorkspaceStateDir, type DaemonControlListing, listDaemonControlStates, liveDaemonLockOwnerPid, recoverStaleDaemonControlFiles } from "./daemon-control";
-export { ChangeSetRecoveryUnresolvedError } from "./changeset-recovery-error";
-export * from "./rpc-client";
-export * from "./rpc-protocol";
-import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
 import {
   bindRepository,
   computeWorktreeDigest,
@@ -54,81 +6,149 @@ import {
   type Landscape,
   type RepositoryRegistration
 } from "@archcontext/core/architecture-domain";
-import { ChangeSetEngine, type ChangeSetDraft } from "@archcontext/core/changeset-engine";
+import { type ArchitectureLedgerScope } from "@archcontext/core/architecture-ledger";
+import { ChangeSetEngine } from "@archcontext/core/changeset-engine";
+import { compileTaskContext } from "@archcontext/core/context-compiler";
+import { REPO_HARNESS_PROJECTION_PROFILE, ProjectionPreconditionError, agentContextProjectionTargetPaths, architectureDocumentationSourceDigest, loadAgentContextProjectionFiles, loadArchitectureDocumentationInputs, loadArchitectureDocumentationProfile, loadArchitectureProjectionInstructionsEnabled, loadNativeModelFromArchContext, measureCapabilitySourceScaleSignals, projectionOwnedWriteBody, renderAgentContextProjection, renderArchitectureDocumentationProjection } from "@archcontext/core/projection-engine";
+import { loadPracticeCatalog, type PracticeCatalogCommandInput } from "@archcontext/core/practice-catalog";
+import { loadPracticeEnforcementPolicy, evaluatePracticeEnforcement, loadPracticeWaiverOwnerRegistry, loadPracticeWaivers, shouldEvaluatePracticeEnforcement } from "@archcontext/core/practice-engine";
+import { completeTaskGate, type CompleteTaskInput, type CompleteTaskProjectionDriftInput, type CompleteTaskProjectionFreshnessInput } from "@archcontext/core/review-engine";
+import { loadStateMachinesFromArchContext } from "@archcontext/core/state-machine-engine";
 import {
-  architectureLedgerStateDigest,
-  compareArchitectureLedgerStateToYaml,
-  planYamlToArchitectureLedgerImport,
-  projectArchitectureLedgerStateToYamlFiles,
-  type ArchitectureAuditRunV1,
-  type ArchitectureLedgerAppendInput,
-  type ArchitectureLedgerAppendResult,
-  type ArchitectureLedgerScope,
-  type ArchitectureLedgerGraphState
-} from "@archcontext/core/architecture-ledger";
+  FailureError,
+  digestJson,
+  okEnvelope,
+  type CodeFactsPort,
+  type CodeFactsSnapshot,
+  type ExplorerDeltaQueryV2,
+  type ExplorerProjectionQueryV2,
+  type ExplorerServiceContract,
+  type ExternalDocumentationPort,
+  type IndexSeedResultV1,
+  type Json,
+  type JsonEnvelope,
+  type ModelStorePort,
+  type PracticeCheckpointSnapshotV1,
+  type RepositorySnapshot,
+  type WorkspaceRef
+} from "@archcontext/contracts";
+import {
+  CodeGraphAdapter,
+  CodeGraphSdkProvider,
+  ProjectionCodeFactsUnavailableError,
+  assertProjectionCodeFactsAvailable,
+  prepareArchitectureDocumentationProjectionSnapshot,
+  runCodeGraphIndexSeed,
+  type CodeGraphIndexSeedOptions,
+  type CodeGraphProvider
+} from "@archcontext/local-runtime/codegraph-adapter";
+import { Context7ExternalDocumentationAdapter } from "@archcontext/local-runtime/context7-adapter";
+import { CONTEXT7_ENABLED_ENV, CONTEXT7_MODE_ENV } from "@archcontext/local-runtime/context7-adapter";
+import { findRepositoryRoot, listGitVisibleFiles, readCurrentBranch, readHeadSha } from "@archcontext/local-runtime/git-adapter";
+import { SqliteLocalStore, defaultLocalStorePath, runtimeStatePaths, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
+import { ArchContextInitRefusedError, YamlModelStore, initializeArchContextModel, planGeneratedProjection, rebuildGeneratedProjection, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
+import { defaultJiebaSearchTokenizer } from "@archcontext/local-runtime/search-tokenizer";
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { ArchitectureDebtReadError, readCompleteTaskArchitectureDebt, selectedProducerFailureEnvelope } from "./architecture-debt";
+import { ChangeSetAuthorityService } from "./changeset-authority";
+import { localEgressStatus } from "./egress";
+import { ExplorerProjectionService } from "./explorer-projection-service";
+import { ExplorerServerService, type ExplorerServerOptions } from "./explorer-server";
+import { ExternalDocumentationService, type RuntimeDocsInput } from "./external-documentation";
+import { LandscapeService } from "./landscape";
+import { PracticeCheckpointService } from "./practice-checkpoint";
+import { runArchitectureDocsProjectionCommand, type RuntimeDocsProjectionCommandOptions } from "./projection-adoption";
+import { runProjectionCheckInvocation, runProjectionFreshnessCommand, runSyncCheckCommand } from "./projection-check";
+import { runProjectionProtocolCommand } from "./projection-protocol";
+import {
+  architectureHistoryRenderInput,
+  committedArchitectureDocsProfile,
+  ignoredArchitectureModelPaths,
+  runAgentContextProjectionCommand,
+  runProjectionSliceCommand,
+  runProjectionSnapshotCommand,
+  validateAgentContextProjectionInput,
+  validateDocsProjectionInput,
+  validateProjectionInvocation,
+  type ProjectionServiceHost
+} from "./projection-service";
+import { publicFailureEnvelope, publicOperationFailure, publicOperationResult } from "./public-operation-failure";
+import { RecommendationsService, type RuntimeRecommendationInput, type RuntimeRefactorRecordInput, type RuntimeRefactorScanInput } from "./recommendations";
 import { type RegisteredRefactorAssessmentV1 } from "./refactor-recording";
 import { evaluateReviewDependencyConstraints, refactorWorktreeDigests } from "./refactor-scan";
-import { type RuntimeRefactorVerifyInput } from "./refactor-verify";
-import { type CommandInvestigationRunnerTransport } from "@archcontext/core/agent-orchestrator";
-import { loadPracticeCatalog, type PracticeCatalogCommandInput } from "@archcontext/core/practice-catalog";
-import { evaluatePracticeEnforcement, loadPracticeEnforcementPolicy, loadPracticeWaiverOwnerRegistry, loadPracticeWaivers, shouldEvaluatePracticeEnforcement } from "@archcontext/core/practice-engine";
-import { reconcileArchitectureLedgerDrift } from "@archcontext/core/reconcile-engine";
-import { ProjectionPreconditionError, REPO_HARNESS_PROJECTION_PROFILE, renderAgentContextProjection, loadAgentContextProjectionFiles, agentContextProjectionTargetPaths, architectureDocumentationSourceDigest, loadArchitectureDocumentationInputs, loadArchitectureDocumentationProfile, loadNativeModelFromArchContext, measureCapabilitySourceScaleSignals, projectionOwnedWriteBody, renderArchitectureDocumentationProjection } from "@archcontext/core/projection-engine";
-import { completeTaskGate, type CompleteTaskInput, type CompleteTaskProjectionDriftInput, type CompleteTaskProjectionFreshnessInput } from "@archcontext/core/review-engine";
-import { CodeGraphAdapter, CodeGraphSdkProvider, ProjectionCodeFactsUnavailableError, assertProjectionCodeFactsAvailable, prepareArchitectureDocumentationProjectionSnapshot, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
-import { CONTEXT7_ENABLED_ENV, CONTEXT7_MODE_ENV, Context7ExternalDocumentationAdapter } from "@archcontext/local-runtime/context7-adapter";
-import { compileTaskContext, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
-import { assertNoCallerProvidedAttestationFields, digestJson, errorEnvelope, failureEnvelope, knownFailure, okEnvelope, type AgentJobV1, type CodeFactsPort, type CodeFactsSnapshot, type ExplorerDeltaQueryV2, type ExplorerProjectionQueryV2, type ExplorerServiceContract, type ExternalDocumentationPort, type Json, type JsonEnvelope, type ModelStorePort, type ModelValidationResult, type PracticeCheckpointSnapshotV1, type RepositorySnapshot, type WorkspaceRef } from "@archcontext/contracts";
-import { type ProjectionRequestV1, type ProjectionApplyRecoveryIntentV1 } from "@archcontext/contracts";
-import { findRepositoryRoot, listGitVisibleFiles, readHeadSha } from "@archcontext/local-runtime/git-adapter";
-import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeAgentJobQueueScope, type RuntimeLocalStore, type UnresolvedChangeSetJournal } from "@archcontext/local-runtime/local-store-sqlite";
-import { ArchContextInitRefusedError, extractSchemaVersion, initializeArchContextModel, listModelFiles, orderModelFiles, planGeneratedProjection, rebuildGeneratedProjection, validateModelFiles, YamlModelStore, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
-import { createNodeInvestigationTransport } from "./investigation-transport";
-import { auditConsentRequiredEnvelope, readAuditConsent } from "./audit-consent";
-import { localEgressStatus } from "./egress";
-import {
-  createNodeGithubIssueExecutor,
-  type GithubIssueExecutorPort
-} from "./github-issue-executor";
+import type {
+  LocalRuntimeClient,
+  RuntimeAgentContextProjectionInput,
+  RuntimeApplyUpdateInput,
+  RuntimeCompleteTaskInput,
+  RuntimeDocsProjectionInput,
+  RuntimeInitOptions,
+  RuntimePlanUpdateInput,
+  RuntimePracticeCheckpointInput,
+  RuntimePracticeWaiverInput,
+  RuntimeProjectionInvocation,
+  RuntimeRefactorVerifyInput,
+  RuntimeSyncOptions
+} from "./runtime-types";
+import { modelValidationEnvelope } from "./verify";
+
+export type {
+  ExplorerServerOptions,
+  ExplorerServerStatus
+} from "./explorer-server";
+export type { RuntimeDocsInput, RuntimeResourceReadResult } from "./external-documentation";
+export type { RuntimeRefactorVerifyInput } from "./refactor-verify";
+export type { RuntimeRecommendationInput, RuntimeRefactorRecordInput, RuntimeRefactorScanInput } from "./recommendations";
+export type {
+  LocalRuntimeClient,
+  RuntimeAgentContextProjectionInput,
+  RuntimeApplyUpdateInput,
+  RuntimeCompleteTaskInput,
+  RuntimeDaemonClient,
+  RuntimeDocsProjectionInput,
+  RuntimeInitOptions,
+  RuntimePlanUpdateInput,
+  RuntimePracticeCheckpointInput,
+  RuntimePracticeWaiverInput,
+  RuntimeProjectionInvocation,
+  RuntimeSyncOptions,
+  RuntimeWorktreeDigestProfile
+} from "./runtime-types";
+export { runProjectionSliceCommand, runProjectionSnapshotCommand } from "./projection-service";
+export { runProjectionCheckInvocation, runProjectionFreshnessCommand, runSyncCheckCommand } from "./projection-check";
+export { PROJECTION_PR_BODY_MARKER, PROJECTION_WRITER_DEFAULT_BASE, PROJECTION_WRITER_DEFAULT_REMOTE, createCommandProjectionPublisher, createGhProjectionPublisher, createNoneProjectionPublisher, projectionPublishBody, projectionPublishTitle, projectionWriterPaths, runProjectionPublishCommand, runProjectionPublishFollow, runProjectionPublishStatusCommand, runProjectionVerifyPrCommand, type ProjectionPublishOptions, type ProjectionPublisherExec, type ProjectionPublisherInput, type ProjectionPublisherPort, type ProjectionVerifyPrCheckPort, type ProjectionWriterApplyPort } from "./projection-writer";
+export { runDocsAnchorsCommand } from "./docs-anchors";
+export { runRuntimeVerifyCommand } from "./verify";
+export { CapabilityDependenciesError, readCapabilityDependencies, type CapabilityDependenciesRequestV1, type CapabilityDependenciesResultV1 } from "./capability-dependencies";
+export {
+  runDecideV2,
+  runRefactorSimulate,
+  runScanV2,
+  runVerifyV2,
+  type RunDecideV2Input,
+  type RunScanV2Options,
+  type V2DecideAction
+} from "./refactor-radar-v2";
+export { runConstraintCheckCommand } from "./constraints-check";
+export { runFlowSelectorCheckCommand } from "./flow-selector-check";
+export { runStateMachineCheckCommand } from "./state-machine-check";
+export { runCodeGraphIndexSeed } from "@archcontext/local-runtime/codegraph-adapter";
 
 export interface RuntimeStatus {
   running: boolean;
+  mode: "in-process";
   sessions: number;
   repositories: string[];
-  architectureLedger: RuntimeArchitectureLedgerModes;
-  architectureChangeFeed: {
-    deferredScopeCount: number;
-    failureDigests: string[];
-  };
-  /** Present when startup recovery or an in-process rollback left journals unresolved; writes are refused. */
-  changeSetRecovery?: {
-    writable: false;
-    unresolvedJournals: UnresolvedChangeSetJournal[];
-  };
 }
 
 export interface RepositorySession {
   workspace: WorkspaceRef;
   snapshot: RepositorySnapshot;
-  /** Storage ids recorded when the session opened; the idle check reads queue stats by these alone. */
-  queueScope: RuntimeAgentJobQueueScope;
   codeFactsDigest?: string;
   modelDigest?: string;
   startedAt: string;
 }
-
-export type { RuntimeRefactorVerifyInput } from "./refactor-verify";
-export {
-  AUDIT_CONSENT_GRANT_COMMAND,
-  AUDIT_CONSENT_REQUIRED_REASON_CODE,
-  AUDIT_EGRESS_POLICY,
-  auditConsentRequiredEnvelope,
-  grantAuditConsent,
-  readAuditConsent,
-  revokeAuditConsent,
-  type AuditConsentRecordV1,
-  type AuditConsentStatus
-} from "./audit-consent";
 
 export interface RuntimeDeps {
   codeFacts?: CodeFactsPort;
@@ -137,12 +157,9 @@ export interface RuntimeDeps {
   localStore?: RuntimeLocalStore;
   changeSetEngine?: ChangeSetEngine;
   externalDocumentation?: ExternalDocumentationPort;
-  architectureLedger?: Partial<Pick<RuntimeArchitectureLedgerModes, "rolloutMode" | "readMode" | "writeMode">>;
   localStorePath?: string;
   clock?: () => string;
   maxRepoSessions?: number;
-  investigationTransport?: CommandInvestigationRunnerTransport;
-  githubIssueExecutor?: GithubIssueExecutorPort;
 }
 
 export interface ProductionRuntimeOptions {
@@ -164,490 +181,301 @@ export interface RuntimeCompositionReport {
     changeSetEngine: "default" | "injected";
     externalDocumentation: "context7" | "injected";
   };
-  architectureLedger: RuntimeArchitectureLedgerModes;
   localStorePath?: string;
   blockedProductionInjections: string[];
 }
 
 interface RuntimeConstructionOptions {
   compositionMode?: RuntimeCompositionMode;
-  /**
-   * Repository root whose legacy local store `start()` migrates into the default store path. It runs
-   * after writer ownership is claimed: the migration can upgrade an existing target in place, which
-   * must never race the live owner's own migrations (#160).
-   */
-  legacyLocalStoreMigrationRoot?: string;
 }
 
-interface ArchitectureLedgerReadModelValidation extends ModelValidationResult {
-  architectureLedger: RuntimeArchitectureLedgerModes & {
-    graphDigest: string;
-    entityCount: number;
-    relationCount: number;
-    constraintCount: number;
-  };
-}
-
-interface ArchitectureLedgerReadModel {
-  files: ModelFile[];
-  state: ArchitectureLedgerGraphState;
-  graphDigest: string;
-}
-
-class ArchitectureLedgerReadModelStore implements ModelStorePort {
-  constructor(
-    private readonly fallback: ModelStorePort,
-    private readonly localStore: RuntimeLocalStore,
-    private readonly architectureLedger: RuntimeArchitectureLedgerModes
-  ) {}
-
-  loadManifest(workspace: WorkspaceRef): Promise<unknown> {
-    return this.fallback.loadManifest(workspace);
-  }
-
-  async loadModel(workspace: WorkspaceRef): Promise<unknown[]> {
-    if (this.architectureLedger.readAuthority !== "ledger") return this.fallback.loadModel(workspace);
-    return (await this.loadLedgerModel(workspace)).files;
-  }
-
-  async validateModel(workspace: WorkspaceRef): Promise<ModelValidationResult> {
-    if (this.architectureLedger.readAuthority !== "ledger") return this.fallback.validateModel(workspace);
-    const readback = await this.loadLedgerModel(workspace);
-    const result: ArchitectureLedgerReadModelValidation = {
-      ...validateModelFiles(readback.files),
-      architectureLedger: {
-        ...this.architectureLedger,
-        readAuthority: "ledger",
-        graphDigest: readback.graphDigest,
-        entityCount: readback.state.entities.length,
-        relationCount: readback.state.relations.length,
-        constraintCount: readback.state.constraints.length
-      }
-    };
-    return result;
-  }
-
-  writeChangeSetPreview(changeSet: unknown): Promise<{ digest: string; summary: string }> {
-    return this.fallback.writeChangeSetPreview(changeSet);
-  }
-
-  private async loadLedgerModel(workspace: WorkspaceRef): Promise<ArchitectureLedgerReadModel> {
-    const scope = await this.localStore.resolveArchitectureLedgerScope(architectureLedgerScopeForWorkspace(workspace));
-    const state = await this.localStore.readArchitectureLedgerState(scope);
-    const projectedFiles: ModelFile[] = projectArchitectureLedgerStateToYamlFiles(state).map((file) => ({
-      path: file.path,
-      body: file.body,
-      schemaVersion: extractSchemaVersion(file.body, file.path),
-      digest: file.digest
-    }));
-    const fallbackFiles = (await this.fallback.loadModel(workspace))
-      .filter(isModelFile)
-      .filter((file) => !isArchitectureLedgerManagedModelPath(file.path));
-    return {
-      files: orderModelFiles([...fallbackFiles, ...projectedFiles]),
-      state,
-      graphDigest: architectureLedgerStateDigest(state)
-    };
-  }
-}
-
-export class ArchctxDaemon implements RuntimeDaemonClient {
+/**
+ * In-process daemonless runtime host for all archctx operations. Preserves the
+ * `ArchctxDaemon` / `createStartedDaemon` / `createStartedProductionDaemon` symbols while executing
+ * strictly in-process with a discardable SQLite cache and Git-visible YAML authority.
+ */
+export class ArchctxDaemon implements LocalRuntimeClient {
   private readonly codeFacts: CodeFactsPort;
   private readonly codeGraphProviderFactory: (repository: RepositoryRegistration) => CodeGraphProvider;
   private readonly modelStore: ModelStorePort;
-  private readonly readModelStore: ModelStorePort;
   private readonly localStore: RuntimeLocalStore;
   private readonly changeSetEngine: ChangeSetEngine;
   private readonly externalDocumentationService: ExternalDocumentationService;
   private readonly practiceCheckpoints: PracticeCheckpointService;
   private readonly externalDocumentation: ExternalDocumentationPort;
   private readonly externalDocumentationInjected: boolean;
-  private readonly architectureLedger: RuntimeArchitectureLedgerModes;
-  private readonly investigationTransport: CommandInvestigationRunnerTransport;
-  private readonly githubIssueExecutor: GithubIssueExecutorPort;
   private readonly clock: () => string;
-  private readonly ledgerAdmin: LedgerAdminService;
   private readonly recommendationsService: RecommendationsService;
-  private readonly architectureBook: ArchitectureBookService;
-  private readonly agentJobs: AgentJobService;
-  private readonly auditService: AuditService;
-  private readonly projectionApplies: ProjectionApplyService;
-  private readonly maxRepoSessions: number;
-  private readonly composition: RuntimeCompositionReport;
-  private readonly sessions = new Map<string, RepositorySession>();
-  private readonly changeSetAuthority: ChangeSetAuthorityService;
-  /**
-   * Drafts planned by the daemon's own projection commands, by object identity: an id is caller
-   * chosen and `planUpdate` replaces the stored draft, so only the exact draft object the projection
-   * host planned is ever marked, and a re-plan under the same id is a different, unmarked object.
-   * `planUpdate` itself (RPC, MCP, CLI) never marks: every operation it receives is caller-authored.
-   */
-  private readonly projectionPlannedDrafts = new WeakSet<ChangeSetDraft>();
-  // Tracks the AbortController for every audit job's in-flight (foreground or detached
-  // background) investigation, keyed by jobId, so `stop()` can abort real `claude` subprocesses
-  // rather than leaving them running orphaned past the daemon's own lifetime.
-  private readonly auditRunAbortControllers = new Map<string, AbortController>();
   private readonly landscapes: LandscapeService;
   private readonly explorerServer: ExplorerServerService;
   private readonly explorerProjections: ExplorerProjectionService;
+  private readonly changeSetAuthority: ChangeSetAuthorityService;
+  private readonly maxRepoSessions: number;
+  private readonly composition: RuntimeCompositionReport;
+  private readonly sessions = new Map<string, RepositorySession>();
   private running = false;
   private writerLocked = false;
-  private unresolvedChangeSetJournals: UnresolvedChangeSetJournal[] = [];
-  private changeSetRecoveryRefreshRequired = false;
-  private readonly legacyLocalStoreMigrationRoot?: string;
 
   constructor(deps: RuntimeDeps = {}, options: RuntimeConstructionOptions = {}) {
     try {
-    if (options.compositionMode === "production") assertProductionRuntimeDeps(deps);
-    this.legacyLocalStoreMigrationRoot = options.legacyLocalStoreMigrationRoot;
-    this.codeFacts = deps.codeFacts ?? new CodeGraphAdapter(new CodeGraphSdkProvider());
-    this.codeGraphProviderFactory = deps.codeGraphProviderFactory ?? (() => new CodeGraphSdkProvider());
-    this.modelStore = deps.modelStore ?? new YamlModelStore();
-    this.localStore = deps.localStore ?? new SqliteLocalStore(deps.localStorePath ?? defaultLocalStorePath());
-    this.architectureLedger = runtimeArchitectureLedgerModes(deps.architectureLedger);
-    this.readModelStore = new ArchitectureLedgerReadModelStore(this.modelStore, this.localStore, this.architectureLedger);
-    this.changeSetEngine = deps.changeSetEngine ?? new ChangeSetEngine({
-      modelStore: this.modelStore,
-      projection: { planGeneratedProjection },
-      journal: this.localStore,
-      // The ChangeSet write scope for `render_agent_context` is derived from the model on disk at
-      // preview/apply time, never carried in the draft: the renderer and the write allowlist read
-      // the same single derivation, so a ChangeSet can only ever touch the contract files the
-      // current model actually designates.
-      agentContextScope: {
-        derive: (root) => new Set(
-          agentContextProjectionTargetPaths(loadNativeModelFromArchContext(root)).map((target) => target.path)
-        ),
-        validateRootWrite: (root, file) => {
-          // Under repo-harness/v1 a root contract file carries no agent-context region, so no
-          // ChangeSet writes one there, whoever plans it (ADR-0056 §9, #580).
-          if (committedArchitectureDocsProfile(root) === REPO_HARNESS_PROJECTION_PROFILE) {
-            throw new Error(`Root contract has no agent-context region under ${REPO_HARNESS_PROJECTION_PROFILE}: ${file.path}`);
-          }
-          const model = loadNativeModelFromArchContext(root);
-          const canonical = renderAgentContextProjection({ model, existingFiles: loadAgentContextProjectionFiles(root, model) });
-          const canonicalBody = canonical.files.find(candidate => candidate.path === file.path)?.body;
-          if (canonicalBody === undefined || projectionOwnedWriteBody(canonicalBody, readFileSync(resolve(root, file.path), "utf8")) !== file.body) {
-            throw new Error(`Root contract requires canonical marker-only content: ${file.path}`);
+      if (options.compositionMode === "production") assertProductionRuntimeDeps(deps);
+      this.codeFacts = deps.codeFacts ?? new CodeGraphAdapter(new CodeGraphSdkProvider());
+      this.codeGraphProviderFactory = deps.codeGraphProviderFactory ?? (() => new CodeGraphSdkProvider());
+      this.modelStore = deps.modelStore ?? new YamlModelStore();
+      this.localStore = deps.localStore ?? new SqliteLocalStore(deps.localStorePath ?? defaultLocalStorePath());
+      this.changeSetEngine = deps.changeSetEngine ?? new ChangeSetEngine({
+        modelStore: this.modelStore,
+        projection: { planGeneratedProjection },
+        agentContextScope: {
+          derive: (root) => new Set(agentContextProjectionTargetPaths(loadNativeModelFromArchContext(root)).map((t) => t.path)),
+          validateRootWrite: (root, file) => {
+            if (committedArchitectureDocsProfile(root) === REPO_HARNESS_PROJECTION_PROFILE) {
+              throw new Error(`Root contract has no agent-context region under ${REPO_HARNESS_PROJECTION_PROFILE}: ${file.path}`);
+            }
+            const model = loadNativeModelFromArchContext(root);
+            const canonical = renderAgentContextProjection({ model, existingFiles: loadAgentContextProjectionFiles(root, model) });
+            const canonicalBody = canonical.files.find((c) => c.path === file.path)?.body;
+            if (canonicalBody === undefined || projectionOwnedWriteBody(canonicalBody, readFileSync(resolve(root, file.path), "utf8")) !== file.body) {
+              throw new Error(`Root contract requires canonical marker-only content: ${file.path}`);
+            }
           }
         }
-      }
-    });
-    this.investigationTransport = deps.investigationTransport ?? createNodeInvestigationTransport();
-    this.githubIssueExecutor = deps.githubIssueExecutor ?? createNodeGithubIssueExecutor();
-    this.clock = deps.clock ?? runtimeDefaultClock(options.compositionMode ?? "embedded");
-    this.explorerServer = new ExplorerServerService({
-      assertRunning: () => this.assertRunning(),
-      clock: this.clock,
-      explorerProjectionV2: (root, input) => this.explorerProjectionV2(root, input),
-      explorerProjectionDelta: (root, input) => this.explorerProjectionDelta(root, input)
-    });
-    this.explorerProjections = new ExplorerProjectionService({
-      assertRunning: () => this.assertRunning(),
-      clock: this.clock,
-      localStore: this.localStore,
-      architectureLedger: this.architectureLedger,
-      codeFacts: this.codeFacts,
-      architectureLedgerReadback: (root) => this.architectureLedgerReadback(root),
-      architectureLedgerProjectionGitScope: (root) => this.architectureLedgerProjectionGitScope(root),
-      readPracticeCheckpointBaseline: (repositoryId, taskSessionId) => this.readPracticeCheckpointBaseline(repositoryId, taskSessionId),
-      notifyExplorerInvalidation: (projection, affectedOccurrenceIds) => this.explorerServer.notifyExplorerInvalidation(projection, affectedOccurrenceIds),
-      notifyExplorerAuthorityInvalidation: (root, record, occurrenceIds) => this.explorerServer.notifyExplorerAuthorityInvalidation(root, record, occurrenceIds)
-    });
-    this.landscapes = new LandscapeService({
-      assertRunning: () => this.assertRunning(),
-      localStore: this.localStore,
-      sessions: this.sessions,
-      openSession: (root) => this.openSession(root),
-      codeGraphProviderFactory: this.codeGraphProviderFactory,
-      readModelStore: this.readModelStore
-    });
-    this.ledgerAdmin = new LedgerAdminService({
-      assertRunning: () => this.assertRunning(),
-      withWriter: (run) => this.withWriter(run),
-      clock: this.clock,
-      architectureLedger: this.architectureLedger,
-      architectureLedgerScope: (root) => this.architectureLedgerScope(root),
-      architectureLedgerGitScope: (root) => this.architectureLedgerGitScope(root),
-      assertFreshWorktree: (root, digest, command) => this.assertFreshWorktree(root, digest, command, "ledger"),
-      appendArchitectureEventsWithFeed: (root, input) => this.appendArchitectureEventsWithFeed(root, input),
-      localStore: this.localStore,
-      openSession: (root) => this.openSession(root),
-      modelStore: this.modelStore,
-      changeSetEngine: this.changeSetEngine,
-      recommendationArtifacts: recommendationArtifactsFromEvents,
-      managedModelPath: isArchitectureLedgerManagedModelPath,
-      shortDigest
-    });
-    this.recommendationsService = new RecommendationsService({
-      assertRunning: () => this.assertRunning(),
-      withWriter: (run) => this.withWriter(run),
-      clock: this.clock,
-      architectureLedgerScope: (root) => this.architectureLedgerScope(root),
-      architectureLedgerGitScope: (root) => this.architectureLedgerGitScope(root),
-      refactorScanGitScope: (root, includeStructuralDigest) => this.architectureLedgerGitScopeWithFiles(root, includeStructuralDigest),
-      assertFreshWorktree: (root, digest, command) => this.assertFreshWorktree(root, digest, command),
-      shortDigest,
-      appendArchitectureEventsWithFeed: (root, input) => this.appendArchitectureEventsWithFeed(root, input),
-      applyRefactorDecision: (root, input) => this.changeSetAuthority.applyRefactorDecisionWithinWriter(root, input),
-      localStore: this.localStore
-    });
-    this.architectureBook = new ArchitectureBookService({
-      assertRunning: () => this.assertRunning(),
-      clock: this.clock,
-      architectureLedgerGitScope: (root) => this.architectureLedgerGitScope(root),
-      architectureLedgerReadback: (root) => this.architectureLedgerReadback(root),
-      localStore: this.localStore
-    });
-    this.agentJobs = new AgentJobService({
-      abortOwnedAudit: (jobId) => this.auditRunAbortControllers.get(jobId)?.abort(),
-      assertRunning: () => this.assertRunning(),
-      openSession: (root) => this.openSession(root),
-      architectureLedgerScope: (root) => this.architectureLedgerScope(root),
-      clock: this.clock,
-      localStore: this.localStore
-    });
-    this.auditService = new AuditService({
-      assertRunning: () => this.assertRunning(),
-      openSession: (root) => this.openSession(root),
-      withWriter: (run) => this.withWriter(run),
-      architectureLedgerScope: (root) => this.architectureLedgerScope(root),
-      localStore: this.localStore,
-      modelStore: this.modelStore,
-      clock: this.clock,
-      investigationTransport: this.investigationTransport,
-      githubIssueExecutor: this.githubIssueExecutor,
-      auditRunAbortControllers: this.auditRunAbortControllers,
-      jobsComplete: (root, input) => this.jobsComplete(root, input),
-      appendArchitectureEventsWithFeed: (root, input) => this.appendArchitectureEventsWithFeed(root, input),
-      jobId: runtimeAgentJobId,
-      risk: runtimeInvestigationRisk,
-      uncertainty: runtimeInvestigationUncertainty,
-      validateProposal: validateRuntimeAgentProposalPlan
-    });
-    this.projectionApplies = new ProjectionApplyService({
-      assertRunning: () => this.assertRunning(),
-      openSession: (root) => this.openSession(root),
-      withWriter: (run) => this.withWriter(run),
-      localStore: this.localStore,
-      worktreeDigest: runtimeWorktreeDigest
-    });
-    this.changeSetAuthority = new ChangeSetAuthorityService({
-      projectionPlannedDrafts: this.projectionPlannedDrafts,
-      assertRunning: () => this.assertRunning(),
-      clock: this.clock,
-      openSession: (root) => this.openSession(root),
-      withWriter: (run) => this.withWriter(run),
-      assertWriterHeld: () => {
-        if (!this.writerLocked) throw new Error("refactor decision apply requires the runtime writer lock");
-      },
-      appendArchitectureEventsWithFeed: (root, input, journalId) => this.appendArchitectureEventsWithFeed(root, input, journalId),
-      projectionHost: () => this.projectionHost(),
-      projection: (root, input) => this.projection(root, input),
-      readModelStore: this.readModelStore,
-      localStore: this.localStore,
-      changeSetEngine: this.changeSetEngine,
-      architectureLedger: this.architectureLedger
-    });
-    this.externalDocumentation = deps.externalDocumentation ?? new Context7ExternalDocumentationAdapter({
-      enabled: process.env[CONTEXT7_ENABLED_ENV] === "1",
-      mode: process.env[CONTEXT7_MODE_ENV] === "prepare-unknowns" ? "prepare-unknowns" : "manual",
-      clock: this.clock
-    });
-    this.externalDocumentationInjected = deps.externalDocumentation !== undefined;
-    this.maxRepoSessions = deps.maxRepoSessions ?? 8;
-    this.externalDocumentationService = new ExternalDocumentationService({
-      assertRunning: () => this.assertRunning(),
-      openSession: (root) => this.openSession(root),
-      withWriter: (fn) => this.withWriter(fn),
-      clock: this.clock,
-      externalDocumentation: this.externalDocumentation,
-      externalDocumentationInjected: this.externalDocumentationInjected,
-      localStore: this.localStore
-    });
-    this.practiceCheckpoints = new PracticeCheckpointService({
-      assertRunning: () => this.assertRunning(),
-      clock: this.clock,
-      openSession: (root) => this.openSession(root),
-      codeFacts: this.codeFacts,
-      readModelStore: this.readModelStore,
-      localStore: this.localStore,
-      externalDocumentationService: this.externalDocumentationService,
-      runtimeArchitectureLedgerContextPort: (root) => this.runtimeArchitectureLedgerContextPort(root)
-    });
-    this.composition = runtimeCompositionReport(deps, options.compositionMode ?? "embedded", this.architectureLedger);
+      });
+      this.clock = deps.clock ?? runtimeDefaultClock(options.compositionMode ?? "embedded");
+      this.explorerServer = new ExplorerServerService({
+        assertRunning: () => this.assertRunning(),
+        clock: this.clock,
+        explorerProjectionV2: (root, input) => this.explorerProjectionV2(root, input),
+        explorerProjectionDelta: (root, input) => this.explorerProjectionDelta(root, input)
+      });
+      this.explorerProjections = new ExplorerProjectionService({
+        assertRunning: () => this.assertRunning(),
+        clock: this.clock,
+        localStore: this.localStore,
+        codeFacts: this.codeFacts,
+        architectureLedgerProjectionGitScope: (root) => this.architectureLedgerProjectionGitScope(root),
+        readPracticeCheckpointBaseline: (repoId, taskSessionId) => this.readPracticeCheckpointBaseline(repoId, taskSessionId),
+        notifyExplorerInvalidation: (projection, affectedIds) => this.explorerServer.notifyExplorerInvalidation(projection, affectedIds)
+      });
+      this.landscapes = new LandscapeService({
+        assertRunning: () => this.assertRunning(),
+        localStore: this.localStore,
+        sessions: this.sessions,
+        openSession: (root) => this.openSession(root),
+        codeGraphProviderFactory: this.codeGraphProviderFactory,
+        readModelStore: this.modelStore
+      });
+      this.recommendationsService = new RecommendationsService({
+        assertRunning: () => this.assertRunning(),
+        withWriter: (run) => this.withWriter(run),
+        clock: this.clock,
+        architectureLedgerScope: (root) => this.architectureLedgerGitScope(root),
+        architectureLedgerGitScope: (root) => this.architectureLedgerGitScope(root),
+        refactorScanGitScope: (root, includeStructuralDigest) => this.architectureLedgerGitScopeWithFiles(root, includeStructuralDigest),
+        assertFreshWorktree: (root, digest, command) => this.assertFreshWorktree(root, digest, command),
+        shortDigest,
+        applyRefactorDecision: (root, writes, afterValidated) => this.changeSetAuthority.applyRefactorDecisionWithinWriter(root, writes, afterValidated),
+        localStore: this.localStore
+      });
+      this.changeSetAuthority = new ChangeSetAuthorityService({
+        assertRunning: () => this.assertRunning(),
+        clock: this.clock,
+        openSession: (root) => this.openSession(root),
+        withWriter: (run) => this.withWriter(run),
+        assertWriterHeld: () => {
+          if (!this.writerLocked) throw new Error("refactor decision apply requires the runtime writer lock");
+        },
+        projection: (root, input) => this.projection(root, input),
+        readModelStore: this.modelStore,
+        changeSetEngine: this.changeSetEngine,
+        localStore: this.localStore
+      });
+      this.externalDocumentation = deps.externalDocumentation ?? new Context7ExternalDocumentationAdapter({
+        enabled: process.env[CONTEXT7_ENABLED_ENV] === "1",
+        mode: process.env[CONTEXT7_MODE_ENV] === "prepare-unknowns" ? "prepare-unknowns" : "manual",
+        clock: this.clock
+      });
+      this.externalDocumentationInjected = deps.externalDocumentation !== undefined;
+      this.maxRepoSessions = deps.maxRepoSessions ?? 8;
+      this.externalDocumentationService = new ExternalDocumentationService({
+        assertRunning: () => this.assertRunning(),
+        openSession: (root) => this.openSession(root),
+        withWriter: (fn) => this.withWriter(fn),
+        clock: this.clock,
+        externalDocumentation: this.externalDocumentation,
+        externalDocumentationInjected: this.externalDocumentationInjected,
+        localStore: this.localStore
+      });
+      this.practiceCheckpoints = new PracticeCheckpointService({
+        assertRunning: () => this.assertRunning(),
+        clock: this.clock,
+        openSession: (root) => this.openSession(root),
+        codeFacts: this.codeFacts,
+        readModelStore: this.modelStore,
+        localStore: this.localStore,
+        externalDocumentationService: this.externalDocumentationService,
+        runtimeArchitectureLedgerContextPort: () => undefined
+      });
+      this.composition = runtimeCompositionReport(deps, options.compositionMode ?? "embedded");
     } catch (error) { throw publicOperationFailure(error); }
   }
 
   async start(): Promise<void> {
     try {
-    // Ownership first (#160): migrations and crash recovery rewrite state, and recovery cannot tell a
-    // crashed writer's pending journal from a live one's, so no other process may be writing.
-    this.localStore.acquireWriterOwnership?.();
-    try {
-      if (this.legacyLocalStoreMigrationRoot !== undefined) migrateLegacyLocalStoreIfNeeded(this.legacyLocalStoreMigrationRoot);
-      await this.localStore.migrate();
-      this.localStore.recoverPendingSnapshots();
-      this.localStore.recoverPendingChangeSets();
-      // Recovery gate (#172): a journal still pending here failed to recover. Its backups are kept
-      // for the next start's retry, and nothing may write over them in the meantime.
-      this.refreshChangeSetRecovery();
-      await this.landscapes.restore();
-      await this.restoreRepositorySessions();
-    } catch (error) {
-      this.localStore.close();
-      throw error;
-    }
-    this.running = true;
+      this.localStore.acquireWriterOwnership?.();
+      try {
+        await this.localStore.migrate();
+        await this.landscapes.restore();
+        await this.restoreRepositorySessions();
+      } catch (error) {
+        this.localStore.close();
+        throw error;
+      }
+      this.running = true;
     } catch (error) { throw publicOperationFailure(error); }
   }
 
   async stop(): Promise<void> {
     try {
-    try {
-      await this.closeExplorer();
-    } finally {
-      // Store writer ownership (#160) must be released even if the explorer fails to close.
-      this.stopAfterExplorerClosed();
-    }
+      try {
+        await this.closeExplorer();
+      } finally {
+        this.sessions.clear();
+        this.practiceCheckpoints.clear();
+        this.explorerProjections.clearDeferredChangeFeedFailures();
+        this.running = false;
+        this.localStore.close();
+      }
     } catch (error) { throw publicOperationFailure(error); }
-  }
-
-  private stopAfterExplorerClosed(): void {
-    // Abort every in-flight audit investigation: this reliably kills its real `claude` subprocess
-    // via the transport's signal handling (child.kill("SIGKILL") on the 'abort' event), so nothing
-    // is ever left running orphaned past this daemon's lifetime — that guarantee holds
-    // unconditionally. What is best-effort, not guaranteed: runAndCompleteAuditJob's own
-    // subsequent failed-run bookkeeping (jobsComplete + appendAuditRunToArchitectureLedger) races
-    // against `this.running` flipping false and `this.localStore.close()` a few lines below, both
-    // of which happen synchronously right after this loop while the aborted investigation's
-    // rejection is still propagating through several microtask hops. If that bookkeeping loses the
-    // race, the job simply stays "running" in the queue with a lease that will expire on its own
-    // (recoverable via the existing claim/dead-letter path) rather than a clean "failed" run
-    // record — never a crash or a silently corrupted state, just a missed observability record.
-    try {
-      for (const controller of this.auditRunAbortControllers.values()) controller.abort();
-      this.sessions.clear();
-      this.practiceCheckpoints.clear();
-      this.explorerProjections.clearDeferredChangeFeedFailures();
-    } finally {
-      this.running = false;
-      this.localStore.close();
-    }
   }
 
   status(): RuntimeStatus {
     try {
-    if (this.running && !this.writerLocked && this.changeSetRecoveryRefreshRequired) this.refreshChangeSetRecovery();
-    return {
-      running: this.running,
-      sessions: this.sessions.size,
-      repositories: [...this.sessions.keys()].sort(),
-      architectureLedger: this.architectureLedger,
-      architectureChangeFeed: this.explorerProjections.changeFeedStatus(),
-      ...(this.unresolvedChangeSetJournals.length === 0
-        ? {}
-        : { changeSetRecovery: { writable: false, unresolvedJournals: this.unresolvedChangeSetJournals.map((journal) => ({ ...journal })) } })
-    };
+      return { running: this.running, mode: "in-process", sessions: this.sessions.size, repositories: [...this.sessions.keys()].sort() };
     } catch (error) { throw publicOperationFailure(error); }
   }
 
   compositionReport(): RuntimeCompositionReport {
+    try { return this.composition; }
+    catch (error) { throw publicOperationFailure(error); }
+  }
+
+  async egressReport(_root: string) {
     try {
-    return this.composition;
+      const documentation = await this.externalDocumentation.health();
+      return {
+        ...localEgressStatus({ ...process.env, [CONTEXT7_ENABLED_ENV]: documentation.enabled ? "1" : "0", [CONTEXT7_MODE_ENV]: documentation.mode }, {}),
+        source: "in-process" as const
+      };
     } catch (error) { throw publicOperationFailure(error); }
   }
 
-  async egressReport(root: string) {
+  async hasActiveBackgroundWork(): Promise<boolean> { return false; }
+
+  async init(root: string, productName?: string, options: RuntimeInitOptions = {}): Promise<JsonEnvelope> {
     try {
-    const repositoryRoot = runtimeStatePaths(root).repositoryRoot;
-    const workspace = { root: repositoryRoot, repositoryId: repositoryFingerprint(repositoryRoot), headSha: readHeadSha(repositoryRoot) };
-    const documentation = await this.externalDocumentation.health();
-    return {
-      ...localEgressStatus({
-        ...process.env,
-        [CONTEXT7_ENABLED_ENV]: documentation.enabled ? "1" : "0",
-        [CONTEXT7_MODE_ENV]: documentation.mode
-      }, {
-        auditEnabled: await this.auditService.auditGithubIssuesEnabled(workspace),
-        auditUserConsent: readAuditConsent(repositoryRoot).granted,
-        githubIssuesTokenEnv: AUDIT_APPROVE_GH_TOKEN_ENV
-      }),
-      source: "daemon" as const
-    };
+      this.assertRunning();
+      const modelOnly = options.modelOnly === true;
+      const noHooks = modelOnly || options.noHooks === true;
+      const noSkills = modelOnly || options.noSkills === true;
+      const noInstructions = modelOnly || options.noInstructions === true;
+      return await this.withWriter(async () => {
+        listGitVisibleFiles(root);
+        let initResult: { inferredNodeIds: string[]; instructionsProjection: boolean };
+        try {
+          initResult = initializeArchContextModel(root, productName, {
+            infer: options.infer === true,
+            modelOnly,
+            noHooks,
+            noSkills,
+            noInstructions
+          });
+        }
+        catch (error) {
+          if (error instanceof ArchContextInitRefusedError) return publicFailureEnvelope("init", "AC_PRECONDITION_FAILED", "init-would-overwrite-existing-model");
+          throw error;
+        }
+        rebuildGeneratedProjection(root);
+        const session = await this.openSession(root);
+        return okEnvelope("init", {
+          repositoryId: session.workspace.repositoryId,
+          headSha: session.workspace.headSha,
+          worktreeDigest: session.snapshot.worktreeDigest,
+          modelDigest: session.modelDigest,
+          hostOwnership: {
+            modelOnly,
+            hooksInstalled: false,
+            skillsInstalled: false,
+            instructionsProjection: initResult.instructionsProjection
+          },
+          ...(initResult.inferredNodeIds.length > 0 ? { inferredNodeIds: initResult.inferredNodeIds } : {})
+        } as Json);
+      });
     } catch (error) { throw publicOperationFailure(error); }
   }
 
   /**
-   * Whether the daemon currently has real background work that must not be interrupted: a
-   * queued or running `runtime_job_queue` entry in any currently open repository session's
-   * scope, or an audit investigation this daemon is actively driving
-   * (`auditRunAbortControllers`). Used by `ArchctxRuntimeRpcServer`'s idle-exit timer to decide
-   * whether it is safe to shut the process down even when no RPC request happens to be in
-   * flight at the moment the timer fires — `auditRun`'s synchronous claim already marks its job
-   * "running" in the queue for the investigation's entire multi-minute lifetime, independent of
-   * whether the RPC call that started it is still open (see `auditRun`). Scoped to sessions this
-   * daemon currently has open rather than every scope ever persisted to the local store: the
-   * daemon only drives work for repositories it has a live session for, so this is the most
-   * direct existing signal without scanning storage for repositories nothing is tracking.
-   *
-   * Never reads the worktree itself (#322): queue stats come from the storage ids recorded when
-   * the session opened, so an idle check costs one store query per session instead of a full
-   * worktree digest walk. A session whose root no longer exists is closed here and counts as idle:
-   * nothing can drive work for a deleted worktree, and keeping it would hold the daemon forever.
+   * Idempotent, atomic architecture documentation projection (#641, #642): separated from
+   * CodeGraph shared-base seeding (`archctx index seed`). Does not create or mutate `.codegraph/`.
    */
-  async hasActiveBackgroundWork(): Promise<boolean> {
+  async sync(root: string, options: RuntimeSyncOptions = {}): Promise<JsonEnvelope> {
     try {
-    if (this.auditRunAbortControllers.size > 0) return true;
-    for (const [repositoryId, session] of this.sessions) {
-      if (!existsSync(session.workspace.root)) {
-        this.sessions.delete(repositoryId);
-        continue;
+      this.assertRunning();
+      if (options.check === true) {
+        return runSyncCheckCommand(root, { noInstructions: options.noInstructions === true });
       }
-      const stats = await this.localStore.queueStatsRuntimeAgentJobs(session.queueScope);
-      if (stats.queuedDepth > 0 || stats.runningDepth > 0) return true;
+      return publicOperationResult("sync", await this.syncUnchecked(root, options)) as JsonEnvelope;
     }
-    return false;
-    } catch (error) { throw publicOperationFailure(error); }
-  }
-
-  async init(root: string, productName?: string): Promise<JsonEnvelope> {
-    try {
-    this.assertRunning();
-    return await this.withWriter(async () => {
-      // archctx requires a Git worktree: refuse before writing, so a non-Git root keeps no partial model.
-      listGitVisibleFiles(root);
-      try {
-        initializeArchContextModel(root, productName);
-      } catch (error) {
-        if (error instanceof ArchContextInitRefusedError) {
-          return publicFailureEnvelope("init", "AC_PRECONDITION_FAILED", "init-would-overwrite-existing-model");
-        }
-        throw error;
-      }
-      rebuildGeneratedProjection(root);
-      const session = await this.openSession(root);
-      return okEnvelope("init", {
-        repositoryId: session.workspace.repositoryId,
-        headSha: session.workspace.headSha,
-        worktreeDigest: session.snapshot.worktreeDigest,
-        modelDigest: session.modelDigest
-      } as Json);
-    });
-    } catch (error) { throw publicOperationFailure(error); }
-  }
-
-  async sync(root: string, changedPaths: string[] = []): Promise<JsonEnvelope> {
-    try { return publicOperationResult("sync", await this.syncUnchecked(root, changedPaths)) as JsonEnvelope; }
     catch (error) { throw publicOperationFailure(error); }
   }
 
-  private async syncUnchecked(root: string, changedPaths: string[] = []): Promise<JsonEnvelope> {
+  private async syncUnchecked(root: string, options: RuntimeSyncOptions = {}): Promise<JsonEnvelope> {
     this.assertRunning();
-    const session = await this.openSession(root);
-    const codeFacts = await this.codeFacts.sync({ workspace: session.workspace, changedPaths });
-    session.codeFactsDigest = codeFacts.schemaDigest;
-    return okEnvelope("sync", { codeFactsDigest: codeFacts.schemaDigest, indexedAt: codeFacts.indexedAt, ...(codeFacts.codeGraphBase ? { codeGraphBase: codeFacts.codeGraphBase } : {}), ...(codeFacts.codeGraphKept?.length ? { codeGraphKept: codeFacts.codeGraphKept } : {}) } as unknown as Json);
+    const prepared = await this.withWriter(async () => {
+      const session = await this.openSession(root);
+      const validation = await this.modelStore.validateModel(session.workspace);
+      session.modelDigest = validation.modelDigest;
+      if (!validation.valid) return { status: "invalid" as const, envelope: modelValidationEnvelope(validation) };
+      rebuildGeneratedProjection(root);
+      return { status: "ready" as const, session, validation };
+    });
+    if (prepared.status === "invalid") return prepared.envelope;
+    const { session, validation } = prepared;
+    const profile = committedArchitectureDocsProfile(session.workspace.root);
+    const includeInstructions = options.noInstructions === true
+      ? false
+      : loadArchitectureProjectionInstructionsEnabled(session.workspace.root);
+    let projectionData: Json | undefined;
+    if (profile === REPO_HARNESS_PROJECTION_PROFILE) {
+      // Delegate to docsProjection outside withWriter so applyUpdate can acquire the writer lock cleanly.
+      const applied = await this.docsProjection(session.workspace.root, {
+        action: "apply",
+        profile,
+        approved: true,
+        includeInstructions,
+        expectedWorktreeDigest: computeWorktreeDigest(session.workspace.root, listGitVisibleFiles(session.workspace.root)),
+        indexSynced: true
+      } as RuntimeDocsProjectionCommandOptions);
+      if (!applied.ok) return applied;
+      projectionData = applied.data;
+    }
+    return okEnvelope("sync", {
+      schemaVersion: "archcontext.sync/v2",
+      profile,
+      includeInstructions,
+      repositoryId: session.workspace.repositoryId,
+      headSha: session.workspace.headSha,
+      worktreeDigest: computeWorktreeDigest(session.workspace.root, listGitVisibleFiles(session.workspace.root)),
+      modelDigest: validation.modelDigest,
+      ...(projectionData ? { projection: projectionData } : { generatedPath: ".archcontext/generated/ARCHITECTURE.md" })
+    } as unknown as Json);
+  }
+
+  async indexSeed(root: string, options: CodeGraphIndexSeedOptions = {}): Promise<JsonEnvelope> {
+    try {
+      const result: IndexSeedResultV1 = await runCodeGraphIndexSeed(root, options);
+      return okEnvelope("index.seed", result as unknown as Json);
+    } catch (error) { throw publicOperationFailure(error); }
   }
 
   async validate(root: string): Promise<JsonEnvelope> {
@@ -658,7 +486,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   private async validateUnchecked(root: string): Promise<JsonEnvelope> {
     this.assertRunning();
     const session = await this.openSession(root);
-    const result = await this.readModelStore.validateModel(session.workspace);
+    const result = await this.modelStore.validateModel(session.workspace);
     session.modelDigest = result.modelDigest;
     return modelValidationEnvelope(result);
   }
@@ -675,8 +503,8 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
       workspace: session.workspace,
       task,
       codeFacts: this.codeFacts,
-      modelStore: this.readModelStore,
-      architectureLedger: this.runtimeArchitectureLedgerContextPort(root),
+      modelStore: this.modelStore,
+      tokenizer: defaultJiebaSearchTokenizer(),
       budget: { maxBytes: 12_288, maxItems: maxSymbols }
     });
     return okEnvelope("context", context as unknown as Json);
@@ -690,58 +518,13 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     return this.practiceCheckpoints.practiceCheckpoint(root, input);
   }
 
-  async jobsEnqueueGitHook(root: string, input: RuntimeAgentJobEnqueueGitInput = {}): Promise<JsonEnvelope> {
-    return this.agentJobs.jobsEnqueueGitHook(root, input);
-  }
-
-  async jobsList(root: string, input: { statuses?: AgentJobV1["status"][] } = {}): Promise<JsonEnvelope> {
-    return this.agentJobs.jobsList(root, input);
-  }
-
-  async jobsStats(root: string, input: { now?: string } = {}): Promise<JsonEnvelope> {
-    return this.agentJobs.jobsStats(root, input);
-  }
-
-  async jobsClaim(root: string, input: RuntimeAgentJobClaimRpcInput): Promise<JsonEnvelope> {
-    return this.agentJobs.jobsClaim(root, input);
-  }
-
-  async jobsComplete(root: string, input: RuntimeAgentJobCompleteRpcInput): Promise<JsonEnvelope> {
-    return this.agentJobs.jobsComplete(root, input);
-  }
-
-  async jobsRetry(root: string, input: RuntimeAgentJobRetryRpcInput): Promise<JsonEnvelope> {
-    return this.agentJobs.jobsRetry(root, input);
-  }
-
-  async jobsCancel(root: string, input: RuntimeAgentJobCancelRpcInput): Promise<JsonEnvelope> {
-    return this.agentJobs.jobsCancel(root, input);
-  }
-
-  async auditRun(root: string, input: RuntimeAuditRunInput = {}): Promise<JsonEnvelope> {
-    return this.auditService.auditRun(root, input);
-  }
-
-  async auditList(root: string, input: { statuses?: ArchitectureAuditRunV1["status"][] } = {}): Promise<JsonEnvelope> {
-    return this.auditService.auditList(root, input);
-  }
-
-  async auditShow(root: string, runId: string): Promise<JsonEnvelope> {
-    return this.auditService.auditShow(root, runId);
-  }
-
-  async auditApprove(root: string, input: RuntimeAuditApproveInput): Promise<JsonEnvelope> {
-    return this.auditService.auditApprove(root, input);
-  }
-
   practices(root: string, input: PracticeCatalogCommandInput): JsonEnvelope {
     return this.practiceCheckpoints.practices(root, input);
   }
 
   practiceWaivers(root: string): JsonEnvelope {
-    try {
-    return this.practiceCheckpoints.practiceWaivers(root);
-    } catch (error) { throw publicOperationFailure(error); }
+    try { return this.practiceCheckpoints.practiceWaivers(root); }
+    catch (error) { throw publicOperationFailure(error); }
   }
 
   async planPracticeWaiver(root: string, input: RuntimePracticeWaiverInput): Promise<JsonEnvelope> {
@@ -762,9 +545,13 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
 
   async completeTask(root: string, input: RuntimeCompleteTaskInput = {}): Promise<JsonEnvelope> {
     try { assertNoCallerProvidedAttestationFields(input, "complete-task"); }
-    catch { return failureEnvelope("complete_task", knownFailure("AC_SCHEMA_INVALID", "complete-input-invalid")); }
+    catch { return publicFailureEnvelope("complete_task", "AC_SCHEMA_INVALID", "complete-input-invalid"); }
     try { return await this.completeTaskUnchecked(root, input); }
     catch (error) { return selectedProducerFailureEnvelope("complete_task", error, "complete"); }
+  }
+
+  async reviewTask(root: string, input: Parameters<LocalRuntimeClient["reviewTask"]>[1] = {}): Promise<JsonEnvelope> {
+    return this.completeTask(root, input);
   }
 
   private async completeTaskUnchecked(root: string, input: RuntimeCompleteTaskInput): Promise<JsonEnvelope> {
@@ -776,16 +563,13 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     }
     const session = await this.openSession(root);
     let currentHeadSha = input.headSha;
-    try {
-      currentHeadSha = readHeadSha(session.workspace.root);
-    } catch (error) {
-      if (!currentHeadSha) throw error;
-    }
-    const model = await this.readModelStore.validateModel(session.workspace);
+    try { currentHeadSha = readHeadSha(session.workspace.root); }
+    catch (error) { if (!currentHeadSha) throw error; }
+    const model = await this.modelStore.validateModel(session.workspace);
     const codeFacts = await this.codeFacts.sync({ workspace: session.workspace });
     const taskSessionId = input.taskSessionId ?? "task_runtime";
     const baseline = await this.readPracticeCheckpointBaseline(session.workspace.repositoryId, taskSessionId);
-    const practicePolicy = loadPracticeEnforcementPolicy(session.workspace.root);
+    const practicePolicy = loadPracticeEnforcementPolicySafe(session.workspace.root);
     const practiceEnforcement = shouldEvaluatePracticeEnforcement(practicePolicy)
       ? evaluatePracticeEnforcement({
         catalog: loadPracticeCatalog({ root: session.workspace.root }),
@@ -795,8 +579,8 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
           workspace: session.workspace,
           task: input.task ?? baseline?.task ?? taskSessionId,
           codeFacts: this.codeFacts,
-          modelStore: this.readModelStore,
-          architectureLedger: this.runtimeArchitectureLedgerContextPort(root),
+          modelStore: this.modelStore,
+          tokenizer: defaultJiebaSearchTokenizer(),
           budget: { maxBytes: 12_288, maxItems: 12 }
         })).practiceGuidance.matches,
         previousMatches: baseline?.matches,
@@ -815,25 +599,16 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
         architectureDebt = readCompleteTaskArchitectureDebt(session.workspace.root, practiceEnforcement);
       }
     } catch (error) {
-      if (error instanceof ArchitectureDebtReadError) return selectedProducerFailureEnvelope("complete_task", error, "complete");
-      // Same typed, retryable answer as the docs and projection paths (#258, #279): missing
-      // required code facts are an environment state, never projection drift.
-      if (error instanceof ProjectionCodeFactsUnavailableError) {
-        return selectedProducerFailureEnvelope("complete_task", error, "complete");
-      }
-      // A superseded or invalid manifest, or an undocumented footprint, is a typed precondition (#327).
-      if (error instanceof ProjectionPreconditionError) {
+      if (error instanceof ArchitectureDebtReadError || error instanceof ProjectionCodeFactsUnavailableError || error instanceof ProjectionPreconditionError) {
         return selectedProducerFailureEnvelope("complete_task", error, "complete");
       }
       throw error;
     }
     const sourceFiles = listGitVisibleFiles(session.workspace.root);
     const worktreeDigest = computeWorktreeDigest(session.workspace.root, sourceFiles);
-    // Constraints and the review policy are read through the model store port, so the ledger read
-    // mode sees the same model `validate` does.
-    const modelFiles = (await this.readModelStore.loadModel(session.workspace)).filter(isModelFile);
+    const modelFiles = (await this.modelStore.loadModel(session.workspace)).filter(isModelFile);
     const dependencyConstraints = evaluateReviewDependencyConstraints({ root: session.workspace.root, worktreeDigest, sourceFiles, modelFiles });
-    const reviewInput: CompleteTaskInput = {
+    const review = completeTaskGate({
       taskSessionId,
       posture: input.posture ?? "normal",
       headSha: input.headSha ?? currentHeadSha!,
@@ -852,53 +627,40 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
       ...(input.cleanupRequired === undefined ? {} : { cleanupRequired: input.cleanupRequired }),
       ...(input.cleanupCompleted === undefined ? {} : { cleanupCompleted: input.cleanupCompleted }),
       ...(practiceEnforcement === undefined ? {} : { practiceEnforcement })
-    };
-    const review = completeTaskGate(reviewInput);
+    });
     await this.localStore.saveReviewResult(review.reviewId, review);
     return okEnvelope("complete_task", review as unknown as Json);
   }
 
   private projectionHost(): ProjectionServiceHost {
-    return {
-      planUpdate: async (root, input) => {
-        const planned = await this.planUpdate(root, input);
-        // The exact draft object planUpdate just stored and returned; a later re-plan under the same id is another object.
-        const draft = planned.ok ? (planned.data as unknown as { draft?: ChangeSetDraft } | undefined)?.draft : undefined;
-        if (draft) this.projectionPlannedDrafts.add(draft);
-        return planned;
-      },
-      applyUpdate: (...args) => this.applyUpdate(...args),
-      listProjectionPriorCommittedApplies: (...args) => this.listProjectionPriorCommittedApplies(...args),
-      inspectProjectionApplyReceipt: (...args) => this.inspectProjectionApplyReceipt(...args),
-      readbackProjectionApply: (...args) => this.readbackProjectionApply(...args),
-      recoverProjectionApply: (...args) => this.recoverProjectionApply(...args)
-    };
+    return { planUpdate: (...args) => this.planUpdate(...args), applyUpdate: (...args) => this.applyUpdate(...args) };
   }
 
-  async docsProjection(root: string, input: RuntimeDocsProjectionInput): Promise<JsonEnvelope> {
+  async docsProjection(root: string, input: RuntimeDocsProjectionCommandOptions): Promise<JsonEnvelope> {
     try {
-    this.assertRunning();
-    try { validateDocsProjectionInput(input); }
-    catch (error) { return publicFailureEnvelope("docs", "AC_SCHEMA_INVALID", "projection-input-invalid"); }
-    return await runArchitectureDocsProjectionCommand(input, root, this.projectionHost());
+      this.assertRunning();
+      const { indexSynced, ...validationInput } = input;
+      try { validateDocsProjectionInput(validationInput); }
+      catch { return publicFailureEnvelope("docs", "AC_SCHEMA_INVALID", "projection-input-invalid"); }
+      return await runArchitectureDocsProjectionCommand({ ...validationInput, ...(indexSynced ? { indexSynced } : {}) }, root, this.projectionHost());
     } catch (error) { throw publicOperationFailure(error); }
   }
 
   async agentContextProjection(root: string, input: RuntimeAgentContextProjectionInput): Promise<JsonEnvelope> {
     try {
-    this.assertRunning();
-    try { validateAgentContextProjectionInput(input); }
-    catch (error) { return publicFailureEnvelope("agent-context", "AC_SCHEMA_INVALID", "projection-input-invalid"); }
-    return await runAgentContextProjectionCommand(input, root, this.projectionHost());
+      this.assertRunning();
+      try { validateAgentContextProjectionInput(input); }
+      catch { return publicFailureEnvelope("agent-context", "AC_SCHEMA_INVALID", "projection-input-invalid"); }
+      return await runAgentContextProjectionCommand(input, root, this.projectionHost());
     } catch (error) { throw publicOperationFailure(error); }
   }
 
   async projection(root: string, input: RuntimeProjectionInvocation): Promise<JsonEnvelope> {
     try {
-    this.assertRunning();
-    try { validateProjectionInvocation(input); }
-    catch (error) { return publicFailureEnvelope("projection", "AC_SCHEMA_INVALID", "projection-input-invalid"); }
-    return await runProjectionProtocolCommand(input, root, this.projectionHost());
+      this.assertRunning();
+      try { validateProjectionInvocation(input); }
+      catch { return publicFailureEnvelope("projection", "AC_SCHEMA_INVALID", "projection-input-invalid"); }
+      return await runProjectionProtocolCommand(input, root, this.projectionHost());
     } catch (error) { throw publicOperationFailure(error); }
   }
 
@@ -908,70 +670,6 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
 
   async applyUpdate(root: string, rawInput: RuntimeApplyUpdateInput): Promise<JsonEnvelope> {
     return this.changeSetAuthority.applyUpdate(root, rawInput);
-  }
-
-  async inspectProjectionApplyReceipt(root: string, lookupKey: string): Promise<JsonEnvelope> {
-    return this.projectionApplies.inspectProjectionApplyReceipt(root, lookupKey);
-  }
-
-  async listProjectionPriorCommittedApplies(root: string, requestId: string): Promise<JsonEnvelope> {
-    return this.projectionApplies.listProjectionPriorCommittedApplies(root, requestId);
-  }
-
-  async readbackProjectionApply(root: string, request: ProjectionRequestV1): Promise<JsonEnvelope> {
-    return this.projectionApplies.readbackProjectionApply(root, request);
-  }
-
-  async recoverProjectionApply(root: string, intent: ProjectionApplyRecoveryIntentV1): Promise<JsonEnvelope> {
-    return this.projectionApplies.recoverProjectionApply(root, intent);
-  }
-
-  /**
-   * Records an operator's acceptance of an ordered chain of committed YAML ChangeSets, without
-   * promoting ledger graph authority. Without `approved` it only previews the acceptance plan.
-   */
-  async acceptCommittedChange(root: string, rawInput: RuntimeAcceptCommittedChangeInput): Promise<JsonEnvelope> {
-    return this.changeSetAuthority.acceptCommittedChange(root, rawInput);
-  }
-
-  async changeSetReceipt(root: string, journalId: string): Promise<JsonEnvelope> {
-    this.assertRunning();
-    return exportChangeSetReceipt(this.localStore, root, journalId);
-  }
-
-
-  async ledgerState(root: string): Promise<JsonEnvelope> {
-    try { return publicOperationResult("ledgerState", await this.ledgerStateUnchecked(root)) as JsonEnvelope; }
-    catch (error) { throw publicOperationFailure(error); }
-  }
-
-  private async ledgerStateUnchecked(root: string): Promise<JsonEnvelope> {
-    this.assertRunning();
-    return okEnvelope("ledger.state", await this.architectureLedgerReadback(root) as unknown as Json);
-  }
-
-  async ledgerDrift(root: string): Promise<JsonEnvelope> {
-    try { return publicOperationResult("ledgerDrift", await this.ledgerDriftUnchecked(root)) as JsonEnvelope; }
-    catch (error) { throw publicOperationFailure(error); }
-  }
-
-  private async ledgerDriftUnchecked(root: string): Promise<JsonEnvelope> {
-    this.assertRunning();
-    const readback = await this.architectureLedgerReadback(root);
-    return okEnvelope("ledger.drift", {
-      schemaVersion: "archcontext.runtime-architecture-ledger-drift/v1",
-      architectureLedger: readback.architectureLedger,
-      repository: readback.repository,
-      worktree: readback.worktree,
-      ledger: readback.ledger,
-      yaml: readback.yaml,
-      drift: readback.drift,
-      reconcile: readback.reconcile
-    } as unknown as Json);
-  }
-
-  async book(root: string, input: RuntimeBookInput = {}): Promise<JsonEnvelope> {
-    return this.architectureBook.book(root, input);
   }
 
   async recommendations(root: string, input: RuntimeRecommendationInput): Promise<JsonEnvelope> {
@@ -994,98 +692,13 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     return this.recommendationsService.refactorVerify(root, rawInput);
   }
 
-  async ledgerProject(root: string, input: RuntimeLedgerProjectInput = { dryRun: true }): Promise<JsonEnvelope> {
-    return this.ledgerAdmin.ledgerProject(root, input);
-  }
-
-  async ledgerMigrate(root: string, input: RuntimeLedgerMigrateInput = { dryRun: true }): Promise<JsonEnvelope> {
-    return this.ledgerAdmin.ledgerMigrate(root, input);
-  }
-
-  async ledgerRollback(root: string, input: RuntimeLedgerRollbackInput = { dryRun: true }): Promise<JsonEnvelope> {
-    return this.ledgerAdmin.ledgerRollback(root, input);
-  }
-
-  async ledgerRebuild(root: string, input: RuntimeLedgerRebuildInput = {}): Promise<JsonEnvelope> {
-    return this.ledgerAdmin.ledgerRebuild(root, input);
-  }
-
-  private async architectureLedgerReadback(root: string) {
-    const scope = await this.architectureLedgerScope(root);
-    const files = listModelFiles(root);
-    const previousEvidenceState = await this.localStore.replayArchitectureLedgerEvidence(scope);
-    const yamlPlan = planYamlToArchitectureLedgerImport({
-      ...scope,
-      files,
-      previousEvidenceState,
-      createdAt: this.clock(),
-      command: "archctx ledger state"
-    });
-    const ledgerState = await this.localStore.readArchitectureLedgerState(scope);
-    const ledgerGraphDigest = architectureLedgerStateDigest(ledgerState);
-    const drift = compareArchitectureLedgerStateToYaml({
-      state: ledgerState,
-      files,
-      createdAt: this.clock(),
-      command: "archctx ledger drift --json"
-    });
-    const reconcile = reconcileArchitectureLedgerDrift({ drift });
-    const readAuthority = this.architectureLedger.readMode === "ledger" ? "ledger" : "yaml";
-    const state = readAuthority === "ledger" ? ledgerState : yamlPlan.state;
-    const graphDigest = readAuthority === "ledger" ? ledgerGraphDigest : yamlPlan.graphDigest;
-    return {
-      schemaVersion: "archcontext.runtime-architecture-ledger-state/v1",
-      architectureLedger: { ...this.architectureLedger, readAuthority },
-      repository: scope.repository,
-      worktree: scope.worktree,
-      readAuthority,
-      state,
-      graphDigest,
-      entityCount: state.entities.length,
-      relationCount: state.relations.length,
-      constraintCount: state.constraints.length,
-      ledger: {
-        graphDigest: ledgerGraphDigest,
-        entityCount: ledgerState.entities.length,
-        relationCount: ledgerState.relations.length,
-        constraintCount: ledgerState.constraints.length
-      },
-      yaml: {
-        graphDigest: yamlPlan.graphDigest,
-        sourceDigest: yamlPlan.sourceDigest,
-        importedCount: yamlPlan.imported.length,
-        ignoredFileCount: yamlPlan.ignoredFiles.length,
-        unsupportedFileCount: yamlPlan.unsupportedFiles.length
-      },
-      drift,
-      reconcile
-    };
-  }
-
-  private runtimeArchitectureLedgerContextPort(root: string): ArchitectureContextLedgerPort | undefined {
-    return this.running ? this.architectureBook.contextPort(root) : undefined;
-  }
-
-  private async architectureLedgerScope(root: string): Promise<ArchitectureLedgerScope> {
-    return this.localStore.resolveArchitectureLedgerScope(await this.architectureLedgerGitScope(root));
-  }
-
   private architectureLedgerProjectionGitScope(root: string): ArchitectureLedgerScope {
     const headSha = readHeadSha(root);
     const binding = bindRepository(root, headSha, listGitVisibleFiles(root));
     const paths = runtimeStatePaths(root);
     return {
-      repository: {
-        repositoryId: binding.repositoryId,
-        storageRepositoryId: paths.storageRepositoryId
-      },
-      worktree: {
-        workspaceId: paths.workspaceId,
-        storageWorkspaceId: paths.storageWorkspaceId,
-        branch: readCurrentBranch(root),
-        headSha,
-        worktreeDigest: binding.worktreeDigest
-      }
+      repository: { repositoryId: binding.repositoryId, storageRepositoryId: paths.storageRepositoryId },
+      worktree: { workspaceId: paths.workspaceId, storageWorkspaceId: paths.storageWorkspaceId, branch: readCurrentBranch(root), headSha, worktreeDigest: binding.worktreeDigest }
     };
   }
 
@@ -1093,7 +706,6 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     return (await this.architectureLedgerGitScopeWithFiles(root)).scope;
   }
 
-  /** The live scope plus the Git-visible files its `worktreeDigest` was computed over. */
   private async architectureLedgerGitScopeWithFiles(root: string, includeStructuralDigest = false): Promise<{
     scope: ArchitectureLedgerScope; sourceFiles: string[]; structuralWorktreeDigest?: string;
   }> {
@@ -1104,172 +716,86 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
       ? refactorWorktreeDigests(root, sourceFiles)
       : [computeWorktreeDigest(root, sourceFiles)];
     const scope: ArchitectureLedgerScope = {
-      repository: {
-        repositoryId: session.workspace.repositoryId,
-        storageRepositoryId: paths.storageRepositoryId
-      },
-      worktree: {
-        workspaceId: paths.workspaceId,
-        storageWorkspaceId: paths.storageWorkspaceId,
-        branch: readCurrentBranch(root),
-        headSha: session.workspace.headSha,
-        worktreeDigest
-      }
+      repository: { repositoryId: session.workspace.repositoryId, storageRepositoryId: paths.storageRepositoryId },
+      worktree: { workspaceId: paths.workspaceId, storageWorkspaceId: paths.storageWorkspaceId, branch: readCurrentBranch(root), headSha: session.workspace.headSha, worktreeDigest }
     };
     return { scope, sourceFiles, structuralWorktreeDigest };
   }
 
-  private assertFreshWorktree(root: string, expectedWorktreeDigest: string | undefined, command: string, domain: "ledger" | "refactor" = "refactor"): void {
-    if (!expectedWorktreeDigest) throw new FailureError(domain === "ledger" ? "AC_PRECONDITION_FAILED" : "AC_REFACTOR_STALE", domain === "ledger" ? "ledger-worktree-claim-required" : "worktree-claim-required");
+  private assertFreshWorktree(root: string, expectedWorktreeDigest: string | undefined, _command?: string): void {
+    if (!expectedWorktreeDigest) throw new FailureError("AC_REFACTOR_STALE", "worktree-claim-required");
     const current = computeWorktreeDigest(root, listGitVisibleFiles(root));
-    if (current !== expectedWorktreeDigest) throw new FailureError(domain === "ledger" ? "AC_PRECONDITION_FAILED" : "AC_REFACTOR_STALE", domain === "ledger" ? "ledger-worktree-claim-changed" : "worktree-claim-changed", {expectedWorktreeDigest, actualWorktreeDigest:current});
+    if (current !== expectedWorktreeDigest) throw new FailureError("AC_REFACTOR_STALE", "worktree-claim-changed", { expectedWorktreeDigest, actualWorktreeDigest: current });
   }
 
-  async repoAdd(root: string, name?: string): Promise<JsonEnvelope> {
-    return this.landscapes.repoAdd(root, name);
-  }
-
-  async repoList(): Promise<JsonEnvelope> {
-    return this.landscapes.repoList();
-  }
-
-  async repoRemove(repositoryId: string): Promise<JsonEnvelope> {
-    return this.landscapes.repoRemove(repositoryId);
-  }
-
-  async loadLandscape(landscape: Landscape): Promise<JsonEnvelope> {
-    return this.landscapes.loadLandscape(landscape);
-  }
-
-  async landscapeStatus(): Promise<JsonEnvelope> {
-    return this.landscapes.landscapeStatus();
-  }
+  async repoAdd(root: string, name?: string): Promise<JsonEnvelope> { return this.landscapes.repoAdd(root, name); }
+  async repoList(): Promise<JsonEnvelope> { return this.landscapes.repoList(); }
+  async repoRemove(repositoryId: string): Promise<JsonEnvelope> { return this.landscapes.repoRemove(repositoryId); }
+  async loadLandscape(landscape: Landscape): Promise<JsonEnvelope> { return this.landscapes.loadLandscape(landscape); }
+  async landscapeStatus(): Promise<JsonEnvelope> { return this.landscapes.landscapeStatus(); }
+  async contextLandscape(task: string, maxSymbols = 12): Promise<JsonEnvelope> { return this.landscapes.contextLandscape(task, maxSymbols); }
 
   explorerServiceContract(tokenTtlSeconds = 900): JsonEnvelope {
-    try { return publicOperationResult("explorerServiceContract", this.explorerServiceContractUnchecked(tokenTtlSeconds)) as JsonEnvelope; }
-    catch (error) { throw publicOperationFailure(error); }
+    try {
+      const contract: ExplorerServiceContract = {
+        schemaVersion: "archcontext.explorer-service/v1",
+        bindHost: "127.0.0.1",
+        protocol: "http-loopback",
+        optIn: true,
+        defaultEnabled: false,
+        tokenTtlSeconds,
+        readOnly: true,
+        allowedMethods: ["GET"],
+        egress: "none"
+      };
+      return okEnvelope("explorer.contract", contract as unknown as Json);
+    } catch (error) { throw publicOperationFailure(error); }
   }
 
-  private explorerServiceContractUnchecked(tokenTtlSeconds = 900): JsonEnvelope {
-    const contract: ExplorerServiceContract = {
-      schemaVersion: "archcontext.explorer-service/v1",
-      bindHost: "127.0.0.1",
-      protocol: "http-loopback",
-      optIn: true,
-      defaultEnabled: false,
-      tokenTtlSeconds,
-      readOnly: true,
-      allowedMethods: ["GET"],
-      egress: "none"
-    };
-    return okEnvelope("explorer.contract", contract as unknown as Json);
-  }
-
-  async explorerProjectionV2(root: string, query: ExplorerProjectionQueryV2): Promise<JsonEnvelope> {
-    return this.explorerProjections.explorerProjectionV2(root, query);
-  }
-
-  async explorerProjectionDelta(root: string, query: ExplorerDeltaQueryV2): Promise<JsonEnvelope> {
-    return this.explorerProjections.explorerProjectionDelta(root, query);
-  }
-
-  async startExplorer(root: string, options: ExplorerServerOptions = {}): Promise<JsonEnvelope> {
-    try { return publicOperationResult("startExplorer", await this.startExplorerUnchecked(root, options)) as JsonEnvelope; }
-    catch (error) { throw publicOperationFailure(error); }
-  }
-
-  private async startExplorerUnchecked(root: string, options: ExplorerServerOptions = {}): Promise<JsonEnvelope> {
-    return this.explorerServer.startExplorer(root, options);
-  }
-
-  async stopExplorer(): Promise<JsonEnvelope> {
-    try { return publicOperationResult("stopExplorer", await this.stopExplorerUnchecked()) as JsonEnvelope; }
-    catch (error) { throw publicOperationFailure(error); }
-  }
-
-  private async stopExplorerUnchecked(): Promise<JsonEnvelope> {
-    return this.explorerServer.stopExplorer();
-  }
-
-  async revokeExplorerToken(): Promise<JsonEnvelope> {
-    try { return publicOperationResult("revokeExplorerToken", await this.revokeExplorerTokenUnchecked()) as JsonEnvelope; }
-    catch (error) { throw publicOperationFailure(error); }
-  }
-
-  private async revokeExplorerTokenUnchecked(): Promise<JsonEnvelope> {
-    return this.explorerServer.revokeExplorerToken();
-  }
-
-  explorerStatus(): JsonEnvelope {
-    try { return publicOperationResult("explorerStatus", this.explorerStatusUnchecked()) as JsonEnvelope; }
-    catch (error) { throw publicOperationFailure(error); }
-  }
-
-  private explorerStatusUnchecked(): JsonEnvelope {
-    return this.explorerServer.explorerStatus();
-  }
-
-  private async closeExplorer(): Promise<void> {
-    return this.explorerServer.closeExplorer();
-  }
-
-  async contextLandscape(task: string, maxSymbols = 12): Promise<JsonEnvelope> {
-    return this.landscapes.contextLandscape(task, maxSymbols);
-  }
+  async explorerProjectionV2(root: string, query: ExplorerProjectionQueryV2): Promise<JsonEnvelope> { return this.explorerProjections.explorerProjectionV2(root, query); }
+  async explorerProjectionDelta(root: string, query: ExplorerDeltaQueryV2): Promise<JsonEnvelope> { return this.explorerProjections.explorerProjectionDelta(root, query); }
+  async startExplorer(root: string, options: ExplorerServerOptions = {}): Promise<JsonEnvelope> { return this.explorerServer.startExplorer(root, options); }
+  async stopExplorer(): Promise<JsonEnvelope> { return this.explorerServer.stopExplorer(); }
+  async revokeExplorerToken(): Promise<JsonEnvelope> { return this.explorerServer.revokeExplorerToken(); }
+  explorerStatus(): JsonEnvelope { return this.explorerServer.explorerStatus(); }
+  private async closeExplorer(): Promise<void> { return this.explorerServer.closeExplorer(); }
 
   async runtimeStatus(root?: string): Promise<JsonEnvelope> {
     try {
-    const status = this.status();
-    if (!root) return okEnvelope("status", status as unknown as Json);
-    const repositoryId = repositoryFingerprint(root);
-    const session = this.sessions.get(repositoryId);
-    // Ignored model paths are reported with their deciding rules before the model is lost (#399).
-    const ignoredModelPaths = ignoredArchitectureModelPaths(root);
-    return okEnvelope("status", {
-      ...status,
-      repositoryId,
-      headSha: session?.workspace.headSha ?? readHeadSha(root),
-      worktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root)),
-      ...(ignoredModelPaths.length === 0 ? {} : { architectureModelIgnoredPaths: ignoredModelPaths })
-    } as unknown as Json);
+      const status = this.status();
+      if (!root) return okEnvelope("status", status as unknown as Json);
+      const repositoryId = repositoryFingerprint(root);
+      const session = this.sessions.get(repositoryId);
+      const ignoredModelPaths = ignoredArchitectureModelPaths(root);
+      return okEnvelope("status", {
+        ...status,
+        repositoryId,
+        headSha: session?.workspace.headSha ?? readHeadSha(root),
+        worktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root)),
+        ...(ignoredModelPaths.length === 0 ? {} : { architectureModelIgnoredPaths: ignoredModelPaths })
+      } as unknown as Json);
     } catch (error) { throw publicOperationFailure(error); }
   }
 
   async openSession(root: string): Promise<RepositorySession> {
     try {
-    this.assertRunning();
-    const headSha = readHeadSha(root);
-    const binding = bindRepository(root, headSha, listGitVisibleFiles(root));
-    const workspace: WorkspaceRef = {
-      root: binding.root,
-      repositoryId: binding.repositoryId,
-      headSha
-    };
-    const snapshot: RepositorySnapshot = {
-      repositoryId: binding.repositoryId,
-      headSha,
-      worktreeDigest: binding.worktreeDigest
-    };
-    const snapshotId = await this.localStore.beginSnapshot(snapshot);
-    await this.localStore.commitSnapshot(snapshotId);
-    await this.localStore.saveRepositorySession({
-      repositoryId: binding.repositoryId,
-      root: binding.root,
-      headSha,
-      worktreeDigest: binding.worktreeDigest,
-      updatedAt: this.clock()
-    });
-    const validation = await this.readModelStore.validateModel(workspace).catch(() => undefined);
-    const session: RepositorySession = {
-      workspace,
-      snapshot,
-      queueScope: runtimeAgentJobQueueScope(binding.root),
-      modelDigest: validation?.modelDigest,
-      startedAt: this.clock()
-    };
-    this.sessions.set(binding.repositoryId, session);
-    this.evictOldSessions();
-    return session;
+      this.assertRunning();
+      const headSha = readHeadSha(root);
+      const binding = bindRepository(root, headSha, listGitVisibleFiles(root));
+      const workspace: WorkspaceRef = { root: binding.root, repositoryId: binding.repositoryId, headSha };
+      const snapshot: RepositorySnapshot = { repositoryId: binding.repositoryId, headSha, worktreeDigest: binding.worktreeDigest };
+      await this.localStore.saveRepositorySession({
+        repositoryId: binding.repositoryId,
+        root: binding.root,
+        headSha,
+        worktreeDigest: binding.worktreeDigest,
+        updatedAt: this.clock()
+      });
+      const validation = await this.modelStore.validateModel(workspace).catch(() => undefined);
+      const session: RepositorySession = { workspace, snapshot, modelDigest: validation?.modelDigest, startedAt: this.clock() };
+      this.sessions.set(binding.repositoryId, session);
+      this.evictOldSessions();
+      return session;
     } catch (error) { throw publicOperationFailure(error); }
   }
 
@@ -1278,17 +804,8 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
       if (!record.root || !existsSync(record.root)) continue;
       if (repositoryFingerprint(record.root) !== record.repositoryId) continue;
       this.sessions.set(record.repositoryId, {
-        workspace: {
-          root: record.root,
-          repositoryId: record.repositoryId,
-          headSha: record.headSha
-        },
-        snapshot: {
-          repositoryId: record.repositoryId,
-          headSha: record.headSha,
-          worktreeDigest: record.worktreeDigest
-        },
-        queueScope: runtimeAgentJobQueueScope(record.root),
+        workspace: { root: record.root, repositoryId: record.repositoryId, headSha: record.headSha },
+        snapshot: { repositoryId: record.repositoryId, headSha: record.headSha, worktreeDigest: record.worktreeDigest },
         startedAt: record.updatedAt
       });
       this.evictOldSessions();
@@ -1303,7 +820,7 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
     }
   }
 
-  private async readPracticeCheckpointBaseline(repositoryId: string, taskSessionId: string): Promise<PracticeCheckpointSnapshotV1 | undefined> {
+  private readPracticeCheckpointBaseline(repositoryId: string, taskSessionId: string): Promise<PracticeCheckpointSnapshotV1 | undefined> {
     return this.practiceCheckpoints.readPracticeCheckpointBaseline(repositoryId, taskSessionId);
   }
 
@@ -1312,52 +829,24 @@ export class ArchctxDaemon implements RuntimeDaemonClient {
   }
 
   private async withWriter<T>(fn: () => Promise<T>): Promise<T> {
-    if (this.unresolvedChangeSetJournals.length > 0) throw new ChangeSetRecoveryUnresolvedError(this.unresolvedChangeSetJournals);
     if (this.writerLocked) throw new FailureError("AC_PRECONDITION_FAILED", "runtime-writer-locked");
     this.writerLocked = true;
-    try {
-      // A failed post-operation read must not permit a later writer to trust the stale cache.
-      if (this.changeSetRecoveryRefreshRequired) this.refreshChangeSetRecovery();
-      if (this.unresolvedChangeSetJournals.length > 0) throw new ChangeSetRecoveryUnresolvedError(this.unresolvedChangeSetJournals);
-      return await fn();
-    } finally {
-      // The active operation has settled. A pending journal is now unresolved, not in flight.
-      // Publish its complete authority before releasing the writer; recovery remains startup-only.
-      this.changeSetRecoveryRefreshRequired = true;
-      try {
-        this.refreshChangeSetRecovery();
-      } catch {
-        // Preserve the original failure or committed result. The dirty flag gates the next writer
-        // and status until this read succeeds; neither may silently trust the previous snapshot.
-      } finally {
-        this.writerLocked = false;
-      }
+    try { return await fn(); }
+    finally { this.writerLocked = false; }
+  }
+}
+
+function loadPracticeEnforcementPolicySafe(root: string) {
+  return loadPracticeEnforcementPolicy(root);
+}
+
+function assertNoCallerProvidedAttestationFields(input: RuntimeCompleteTaskInput, label: string): void {
+  const candidate = input as Record<string, unknown>;
+  for (const key of ["headSha", "currentHeadSha", "worktreeDigest", "modelDigest", "codeFactsDigest", "reviewId", "result", "findings", "architectureDebt", "projectionDrift", "projectionFreshness", "practiceEnforcement", "dependencyConstraints"]) {
+    if (key in candidate && candidate[key] !== undefined && !(key === "headSha" && label === "complete-task")) {
+      throw new Error(`caller-provided attestation field ${key} is forbidden`);
     }
   }
-
-  private refreshChangeSetRecovery(): void {
-    this.unresolvedChangeSetJournals = this.localStore.listUnresolvedChangeSetJournals();
-    this.changeSetRecoveryRefreshRequired = false;
-  }
-
-  private async appendArchitectureEventsWithFeed(
-    root: string,
-    input: ArchitectureLedgerAppendInput,
-    journalId?: string
-  ): Promise<ArchitectureLedgerAppendResult> {
-    const result = journalId
-      ? await this.localStore.appendArchitectureEventsAndCommitChangeSet(journalId, input)
-      : await this.localStore.appendArchitectureEvents(input);
-    const scopes = new Map<string, ArchitectureLedgerScope>();
-    for (const event of [...result.appendedEvents, ...result.duplicateEvents]) {
-      const scope = { repository: event.repository, worktree: event.worktree };
-      scopes.set(`${event.repository.storageRepositoryId}:${event.worktree.storageWorkspaceId}:${event.worktree.branch}:${event.worktree.headSha}:${event.worktree.worktreeDigest}`, scope);
-    }
-    for (const scope of scopes.values()) await this.explorerProjections.processArchitectureChangeFeedAfterCommit(root, scope);
-    return result;
-  }
-
-
 }
 
 function shortDigest(digest: string): string {
@@ -1365,115 +854,49 @@ function shortDigest(digest: string): string {
 }
 
 function codeFactsDigest(snapshot: CodeFactsSnapshot): string {
-  return digestJson({
-    schemaVersion: "archcontext.code-facts-digest/v1",
-    provider: snapshot.provider,
-    version: snapshot.version,
-    schemaDigest: snapshot.schemaDigest,
-    workspaceDigest: snapshot.workspaceDigest
-  } as unknown as Json);
-}
-
-function runtimeAgentJobQueueScope(root: string): RuntimeAgentJobQueueScope {
-  const paths = runtimeStatePaths(root);
-  return {
-    repository: { storageRepositoryId: paths.storageRepositoryId },
-    worktree: { storageWorkspaceId: paths.storageWorkspaceId }
-  };
-}
-
-function architectureLedgerScopeForWorkspace(workspace: WorkspaceRef): ArchitectureLedgerScope {
-  const paths = runtimeStatePaths(workspace.root);
-  return {
-    repository: {
-      repositoryId: workspace.repositoryId,
-      storageRepositoryId: paths.storageRepositoryId
-    },
-    worktree: {
-      workspaceId: paths.workspaceId,
-      storageWorkspaceId: paths.storageWorkspaceId,
-      branch: readCurrentBranch(workspace.root),
-      headSha: workspace.headSha,
-      worktreeDigest: computeWorktreeDigest(workspace.root, listGitVisibleFiles(workspace.root))
-    }
-  };
+  return digestJson({ schemaVersion: "archcontext.code-facts-digest/v1", provider: snapshot.provider, version: snapshot.version, schemaDigest: snapshot.schemaDigest, workspaceDigest: snapshot.workspaceDigest } as unknown as Json);
 }
 
 function isModelFile(value: unknown): value is ModelFile {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const file = value as Partial<ModelFile>;
-  return typeof file.path === "string"
-    && typeof file.body === "string"
-    && typeof file.schemaVersion === "string"
-    && typeof file.digest === "string";
+  return typeof file.path === "string" && typeof file.body === "string" && typeof file.schemaVersion === "string" && typeof file.digest === "string";
 }
-
-function isArchitectureLedgerManagedModelPath(path: string): boolean {
-  return path.startsWith(".archcontext/model/nodes/")
-    || path.startsWith(".archcontext/model/relations/")
-    || path.startsWith(".archcontext/model/constraints/");
-}
-
 
 export async function createStartedDaemon(deps: RuntimeDeps = {}): Promise<ArchctxDaemon> {
   try {
-  const daemon = new ArchctxDaemon(deps);
-  await daemon.start();
-  return daemon;
+    const daemon = new ArchctxDaemon(deps);
+    await daemon.start();
+    return daemon;
   } catch (error) { throw publicOperationFailure(error); }
 }
 
 export function createProductionDaemon(options: ProductionRuntimeOptions = {}): ArchctxDaemon {
   try {
-  const deps: RuntimeDeps = {
-    localStorePath: options.localStorePath ?? defaultLocalStorePath(options.root),
-    maxRepoSessions: options.maxRepoSessions
-  };
-  assertProductionRuntimeDeps(deps);
-  return new ArchctxDaemon(deps, {
-    compositionMode: "production",
-    // Deferred into `start()`, behind store writer ownership (#160).
-    ...(options.localStorePath ? {} : { legacyLocalStoreMigrationRoot: options.root ?? process.cwd() })
-  });
+    const deps: RuntimeDeps = { localStorePath: options.localStorePath ?? defaultLocalStorePath(options.root), maxRepoSessions: options.maxRepoSessions };
+    assertProductionRuntimeDeps(deps);
+    return new ArchctxDaemon(deps, { compositionMode: "production" });
   } catch (error) { throw publicOperationFailure(error); }
 }
 
 export async function createStartedProductionDaemon(options: ProductionRuntimeOptions = {}): Promise<ArchctxDaemon> {
   try {
-  const daemon = createProductionDaemon(options);
-  await daemon.start();
-  return daemon;
+    const daemon = createProductionDaemon(options);
+    await daemon.start();
+    return daemon;
   } catch (error) { throw publicOperationFailure(error); }
 }
 
 export function assertProductionRuntimeDeps(deps: RuntimeDeps): void {
   const blocked = blockedProductionInjections(deps);
-  if (blocked.length > 0) {
-    throw new FailureError("AC_SCHEMA_INVALID", "production-injections-refused", {issueCount: blocked.length});
-  }
+  if (blocked.length > 0) throw new FailureError("AC_SCHEMA_INVALID", "production-injections-refused", { issueCount: blocked.length });
 }
 
-/**
- * Default `clock` used when a caller does not inject one via `RuntimeDeps.clock` (an explicit
- * `clock` injection is itself one of the `blockedProductionInjections` in production mode, so this
- * default — not an injected override — is what production actually runs on). Embedded/test
- * composition keeps the historical frozen-epoch default so the hundreds of existing tests that
- * construct a daemon without overriding `clock` stay deterministic; production composition (the
- * real `archctxd` process started by `createProductionDaemon`/`archctx daemon start`) gets a real
- * wall clock instead. Before this branch existed, production always fell through to the frozen
- * epoch default too, which is why real audit runs recorded `createdAt`/`startedAt`/`completedAt`/
- * `issuedAt` as `1970-01-01T00:00:00.000Z` with `durationMs: 0` — every `this.clock()` call
- * returned the exact same constant, not just a shared placeholder value.
- */
 export function runtimeDefaultClock(compositionMode: RuntimeCompositionMode): () => string {
   return compositionMode === "production" ? () => new Date().toISOString() : () => new Date(0).toISOString();
 }
 
-function runtimeCompositionReport(
-  deps: RuntimeDeps,
-  mode: RuntimeCompositionMode,
-  architectureLedger: RuntimeArchitectureLedgerModes
-): RuntimeCompositionReport {
+function runtimeCompositionReport(deps: RuntimeDeps, mode: RuntimeCompositionMode): RuntimeCompositionReport {
   const blocked = blockedProductionInjections(deps);
   return {
     mode,
@@ -1486,130 +909,23 @@ function runtimeCompositionReport(
       changeSetEngine: deps.changeSetEngine ? "injected" : "default",
       externalDocumentation: deps.externalDocumentation ? "injected" : "context7"
     },
-    architectureLedger,
     localStorePath: deps.localStorePath,
     blockedProductionInjections: blocked
   };
 }
 
-function runtimeArchitectureLedgerModes(input: RuntimeDeps["architectureLedger"] = {}): RuntimeArchitectureLedgerModes {
-  const rolloutMode = readRuntimeArchitectureLedgerRolloutMode(input.rolloutMode ?? process.env.ARCHCONTEXT_LEDGER_MODE ?? "yaml");
-  const defaults = architectureLedgerDefaultsForRolloutMode(rolloutMode);
-  const readMode = readRuntimeArchitectureLedgerReadMode(input.readMode ?? process.env.ARCHCONTEXT_LEDGER_READ_MODE ?? defaults.readMode);
-  const writeMode = readRuntimeArchitectureLedgerWriteMode(input.writeMode ?? process.env.ARCHCONTEXT_LEDGER_WRITE_MODE ?? defaults.writeMode);
-  return {
-    schemaVersion: "archcontext.runtime-architecture-ledger-modes/v1",
-    rolloutMode,
-    readMode,
-    writeMode,
-    readAuthority: architectureLedgerReadAuthority(readMode),
-    writeAuthority: writeMode,
-    phaseFlags: runtimeArchitectureLedgerPhaseFlags(rolloutMode, readMode, writeMode)
-  };
-}
-
-function runtimeArchitectureLedgerPhaseFlags(
-  rolloutMode: RuntimeArchitectureLedgerRolloutMode,
-  readMode: RuntimeArchitectureLedgerReadMode,
-  writeMode: RuntimeArchitectureLedgerWriteMode
-): RuntimeArchitectureLedgerPhaseFlags {
-  const supportedPhases: RuntimeArchitectureLedgerRolloutMode[] = ["yaml", "dual", "ledger-shadow", "ledger-authoritative"];
-  const activeIndex = supportedPhases.indexOf(rolloutMode);
-  return {
-    schemaVersion: "archcontext.runtime-architecture-ledger-phase-flags/v1",
-    activePhase: rolloutMode,
-    supportedPhases,
-    environment: {
-      ARCHCONTEXT_LEDGER_MODE: rolloutMode,
-      ARCHCONTEXT_LEDGER_READ_MODE: readMode,
-      ARCHCONTEXT_LEDGER_WRITE_MODE: writeMode
-    },
-    safeDowngrade: {
-      to: "yaml",
-      environment: {
-        ARCHCONTEXT_LEDGER_MODE: "yaml",
-        ARCHCONTEXT_LEDGER_READ_MODE: "yaml",
-        ARCHCONTEXT_LEDGER_WRITE_MODE: "yaml"
-      },
-      command: "archctx ledger rollback --to-yaml --write --expected-worktree-digest <current>"
-    },
-    promotionPath: activeIndex < 0 ? supportedPhases : supportedPhases.slice(activeIndex),
-    downgradePath: activeIndex < 0 ? ["yaml"] : supportedPhases.slice(0, activeIndex + 1).reverse()
-  };
-}
-
-function architectureLedgerDefaultsForRolloutMode(
-  mode: RuntimeArchitectureLedgerRolloutMode
-): Pick<RuntimeArchitectureLedgerModes, "readMode" | "writeMode"> {
-  switch (mode) {
-    case "yaml":
-      return { readMode: "yaml", writeMode: "yaml" };
-    case "dual":
-      return { readMode: "dual-compare", writeMode: "dual" };
-    case "ledger-shadow":
-      return { readMode: "ledger-shadow", writeMode: "dual" };
-    case "ledger-authoritative":
-      return { readMode: "ledger", writeMode: "ledger-with-projection" };
-  }
-}
-
-function readRuntimeArchitectureLedgerRolloutMode(value: string): RuntimeArchitectureLedgerRolloutMode {
-  if (value === "yaml" || value === "dual" || value === "ledger-shadow" || value === "ledger-authoritative") return value;
-  if (value === "ledger") return "ledger-authoritative";
-  throw new FailureError("AC_SCHEMA_INVALID","runtime-ledger-mode-invalid",{field:"rolloutMode"});
-}
-
-function readRuntimeArchitectureLedgerReadMode(value: string): RuntimeArchitectureLedgerReadMode {
-  if (value === "yaml" || value === "dual-compare" || value === "ledger-shadow" || value === "ledger") return value;
-  throw new FailureError("AC_SCHEMA_INVALID","runtime-ledger-mode-invalid",{field:"readMode"});
-}
-
-function readRuntimeArchitectureLedgerWriteMode(value: string): RuntimeArchitectureLedgerWriteMode {
-  if (value === "yaml" || value === "dual" || value === "ledger-with-projection") return value;
-  throw new FailureError("AC_SCHEMA_INVALID","runtime-ledger-mode-invalid",{field:"writeMode"});
-}
-
-function architectureLedgerReadAuthority(mode: RuntimeArchitectureLedgerReadMode): RuntimeArchitectureLedgerModes["readAuthority"] {
-  return mode === "ledger" ? "ledger" : "yaml";
-}
-
 function blockedProductionInjections(deps: RuntimeDeps): string[] {
-  return [
-    "codeFacts",
-    "codeGraphProviderFactory",
-    "modelStore",
-    "localStore",
-    "changeSetEngine",
-    "externalDocumentation",
-    "clock",
-    "investigationTransport",
-    "githubIssueExecutor"
-  ].filter((key) => key in deps);
+  return ["codeFacts", "codeGraphProviderFactory", "modelStore", "localStore", "changeSetEngine", "externalDocumentation", "clock"].filter((key) => key in deps);
 }
 
-/**
- * The projection half of the `complete` gate (ADR-0056 §2): one build over the committed profile,
- * with no isolation and no accepted change, yields both drift and freshness. It reads Git history
- * only when the committed architecture-history row cannot be carried forward: there is no row, or
- * history.md is missing or does not match it (`architectureHistoryCarryForwardBlocker`, ADR-0056
- * §8). A repository with no projection manifest has no projection to verify or keep fresh, so both
- * inputs are absent rather than a blocking finding. The flow
- * `flow.architecture-context.projection-render` names this function as its daemon source symbol.
- */
 function completeTaskProjectionDrift(root: string): { projectionDrift?: CompleteTaskProjectionDriftInput; projectionFreshness?: CompleteTaskProjectionFreshnessInput } {
   if (!existsSync(resolve(root, "docs/architecture/.projection-manifest.json"))) return {};
   const profile = loadArchitectureDocumentationProfile(root);
-  const loaded = loadArchitectureDocumentationInputs(root, profile);
-  const sourceDigest = architectureDocumentationSourceDigest({
-    model: loaded.model,
-    profile,
-    decisions: loaded.decisions
-  });
-  // Called only after `completeTaskUnchecked` ran `codeFacts.sync` on `root`: one sync per run
-  // (#584). The snapshot's post-sync freshness check still refuses an index behind the worktree.
+  const includeInstructions = loadArchitectureProjectionInstructionsEnabled(root);
+  const loaded = loadArchitectureDocumentationInputs(root, profile, { includeInstructions });
+  const sourceDigest = architectureDocumentationSourceDigest({ model: loaded.model, profile, decisions: loaded.decisions });
   const codeGraphInputs = prepareArchitectureDocumentationProjectionSnapshot(root, loaded.model, { indexSynced: true });
   assertProjectionCodeFactsAvailable(root, codeGraphInputs);
-  const provenance = codeGraphInputs.provenance;
   const plan = renderArchitectureDocumentationProjection({
     model: loaded.model,
     stateMachines: loadStateMachinesFromArchContext(root, loaded.model.nodes),
@@ -1620,8 +936,9 @@ function completeTaskProjectionDrift(root: string): { projectionDrift?: Complete
     sourceScaleSignals: measureCapabilitySourceScaleSignals(root, loaded.model, codeGraphInputs.footprints),
     importGraphs: codeGraphInputs.importGraphs,
     selectorEvidence: codeGraphInputs.selectorEvidence,
-    provenance,
+    provenance: codeGraphInputs.provenance,
     sourceDigest,
+    includeInstructions,
     ...architectureHistoryRenderInput(root, profile, loaded.existingFiles, false)
   });
   return {
@@ -1635,9 +952,8 @@ function completeTaskProjectionDrift(root: string): { projectionDrift?: Complete
       fileCount: plan.files.length,
       driftCount: plan.drift.diffs.length,
       rejectedCount: plan.rejected.length,
-      reasonCodes: [...new Set([...plan.drift.reasonCodes, ...plan.rejected.map((diff) => diff.reasonCode)])].sort()
+      reasonCodes: [...new Set([...plan.drift.reasonCodes, ...plan.rejected.map((d) => d.reasonCode)])].sort()
     },
     projectionFreshness: plan.freshness
   };
 }
-

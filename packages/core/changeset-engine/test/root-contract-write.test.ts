@@ -2,14 +2,46 @@ import { afterEach, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { digestJson, type Json } from "@archcontext/contracts";
+import { digestJson } from "@archcontext/contracts";
 import { initializeArchContextModel, YamlModelStore } from "../../../local-runtime/model-store-yaml/src/index";
-import { SqliteLocalStore } from "../../../local-runtime/local-store-sqlite/src/index";
 import { renderAgentContextProjection, loadAgentContextProjectionFiles, loadNativeModelFromArchContext, agentContextProjectionTargetPaths } from "../../projection-engine/src/index";
-import { ChangeSetEngine, type AgentContextScopePort, type ChangeOperation, type ChangeSetProjectionFile } from "../src/index";
+import { ChangeSetEngine, type AgentContextScopePort, type ChangeOperation, type ChangeSetJournalFile, type ChangeSetJournalPort, type ChangeSetProjectionFile } from "../src/index";
 
-const roots: string[] = [], stores: SqliteLocalStore[] = [];
-afterEach(() => { for (const store of stores.splice(0)) store.close(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
+class RecordingJournal implements ChangeSetJournalPort {
+  committed: ChangeSetJournalFile[][] = [];
+  pending = new Set<string>();
+  private draftFiles = new Map<string, ChangeSetJournalFile[]>();
+  private nextId = 0;
+
+  async beginChangeSet(): Promise<string> {
+    const id = `journal.${++this.nextId}`;
+    this.pending.add(id);
+    this.draftFiles.set(id, []);
+    return id;
+  }
+
+  async recordChangeSetFile(journalId: string, file: ChangeSetJournalFile): Promise<void> {
+    this.draftFiles.get(journalId)?.push(file);
+  }
+
+  async commitChangeSet(journalId: string): Promise<void> {
+    this.pending.delete(journalId);
+    const files = this.draftFiles.get(journalId);
+    if (files) this.committed.push(files);
+  }
+
+  async completeChangeSetCleanup(): Promise<void> {}
+
+  async abortChangeSet(journalId: string): Promise<void> {
+    this.pending.delete(journalId);
+    this.draftFiles.delete(journalId);
+  }
+
+  recoverPendingChangeSets(): number { return 0; }
+}
+
+const roots: string[] = [];
+afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 async function fixture() {
   const root = mkdtempSync(join(tmpdir(), "archctx-root-contract-")); roots.push(root);
   initializeArchContextModel(root, "Root Test");
@@ -22,7 +54,7 @@ async function fixture() {
     derive: () => new Set(agentContextProjectionTargetPaths(loadNativeModelFromArchContext(root)).map(target => target.path)),
     validateRootWrite: (_root, file) => { if (canonical().files.find(candidate => candidate.path === file.path)?.body !== file.body) throw new Error("canonical mismatch"); }
   };
-  const journal = new SqliteLocalStore(join(root, "journal.sqlite")); stores.push(journal); await journal.migrate();
+  const journal = new RecordingJournal();
   const engine = new ChangeSetEngine({ modelStore: new YamlModelStore(), projection: { planGeneratedProjection: () => [] }, journal, agentContextScope: scope });
   const operation: ChangeOperation = { op: "render_agent_context", expectedHash: "missing", projectionFiles: canonical().files.map(file => ({ path: file.path, body: file.body, expectedHash: digestJson({ body: human }) })) };
   const plan = (ops = [operation]) => engine.plan({ id: "changeset.root", base: { headSha: "test", worktreeDigest: digestJson({}), modelDigest: digestJson({}) }, reason: { taskSessionId: "task.root" }, operations: ops });
@@ -33,8 +65,8 @@ test("root failure after the first file restores both human contracts and aborts
   const { root, human, journal, engine, plan } = await fixture();
   await expect(engine.apply(root, plan(), { approved: true, faultAfterOperations: 1 })).rejects.toThrow("fault-injection");
   for (const path of ["AGENTS.md", "CLAUDE.md"]) expect(readFileSync(join(root, path), "utf8")).toBe(human);
-  expect(await journal.listCommittedChangeSetsForTaskSession(root, "task.root")).toEqual([]);
-  expect(journal.listUnresolvedChangeSetJournals()).toEqual([]);
+  expect(journal.committed).toEqual([]);
+  expect(journal.pending.size).toBe(0);
 });
 
 for (const variant of ["human", "generated", "missing", "stale", "symlink", "undeclared", "validator", "wrong-kind"] as const) test(`root rejects ${variant} write`, async () => {
@@ -59,7 +91,7 @@ test("root revalidates hash after async journal boundary and leaves concurrent h
   journal.recordChangeSetFile = async (id, file) => { await original(id, file); writeFileSync(join(root, file.path), "concurrent human edit\n"); };
   await expect(engine.apply(root, plan(), { approved: true })).rejects.toThrow();
   expect(readFileSync(join(root, "AGENTS.md"), "utf8")).toBe("concurrent human edit\n");
-  expect(await journal.listCommittedChangeSetsForTaskSession(root, "task.root")).toEqual([]);
+  expect(journal.committed).toEqual([]);
 });
 
 test("root refuses to create a missing contract, even with the exact canonical render (#580)", async () => {

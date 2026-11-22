@@ -4,7 +4,6 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  RECOMMENDATION_SCHEMA_VERSION,
   RECOMMENDATION_V3_SCHEMA_VERSION,
   REFACTOR_EVIDENCE_ID_LIST_LIMIT,
   REFACTOR_EVIDENCE_SPECIFIER_MAX_LENGTH,
@@ -13,6 +12,7 @@ import {
   recommendationV3InvariantIssues,
   refactorAssessmentDigest,
   refactorAssessmentInvariantIssues,
+  type ArchitectureEventV1,
   type Json,
   type JsonEnvelope,
   type ModuleStatisticsSnapshotV1,
@@ -30,13 +30,11 @@ import {
   emptyArchitectureLedgerEvidenceState,
   validateArchitectureLedgerEvent
 } from "@archcontext/core/architecture-ledger";
-import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
+import { computeWorktreeDigest } from "@archcontext/core/architecture-domain";
 import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import {
   RECOMMENDATION_SCHEDULER_ENGINE_VERSION,
-  planRecommendationRun,
   planRefactorRecommendationRun,
-  recommendationRunLedgerPayload,
   refactorRecommendationRunLedgerPayload
 } from "@archcontext/core/recommendation-engine";
 import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
@@ -65,8 +63,6 @@ import {
 import { readRefactorNamespace } from "../src/refactor-scan";
 import type { RefactorDecisionSetV1 } from "../src/refactor-decisions";
 import {
-  ArchctxRuntimeRpcServer,
-  RuntimeRpcClient,
   createStartedDaemon,
   type RuntimeRefactorRecordInput
 } from "../src/index";
@@ -153,73 +149,30 @@ function recordInput(root: string, assessmentDigest: string): RuntimeRefactorRec
   return { assessmentDigest, expectedWorktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root)) };
 }
 
+function storedRefactorEvents(store: TestLocalStore): ArchitectureEventV1[] {
+  return [...store.cache.entries()]
+    .filter(([key]) => key.startsWith("refactor_events\0"))
+    .flatMap(([, entry]) => entry.value as ArchitectureEventV1[]);
+}
+
+async function appendStoredRefactorEvents(
+  store: TestLocalStore,
+  root: string,
+  events: ArchitectureEventV1[]
+): Promise<void> {
+  const cacheKey = runtimeStatePaths(root).storageRepositoryId;
+  const current = (await store.readCacheEntry<ArchitectureEventV1[]>("refactor_events", cacheKey)) ?? [];
+  await store.writeCacheEntry("refactor_events", cacheKey, [...current, ...events]);
+}
+
 function recordedRecommendations(store: TestLocalStore): RecommendationV3[] {
-  return store.architectureEvents.flatMap((event) =>
+  return storedRefactorEvents(store).flatMap((event) =>
     ((event.payload as { recommendations?: RecommendationV3[] }).recommendations ?? [])
   );
 }
 
 function errorOf(envelope: JsonEnvelope): { code: string; message: string; reasonCode?: string; retryable?: boolean; details?: Record<string, unknown> } {
   return (envelope as { error?: { code: string; message: string; reasonCode?: string } }).error!;
-}
-
-/** Seeds one v2 practice recommendation so the migration and the practice resolve path have input. */
-async function seedV2Practice(store: TestLocalStore, root: string, now: string) {
-  const paths = runtimeStatePaths(root);
-  const repository = { repositoryId: repositoryFingerprint(root), storageRepositoryId: paths.storageRepositoryId };
-  const worktree = {
-    workspaceId: paths.workspaceId,
-    storageWorkspaceId: paths.storageWorkspaceId,
-    branch: gitOut(root, "branch", "--show-current") || "HEAD",
-    headSha: gitOut(root, "rev-parse", "HEAD"),
-    worktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
-  };
-  const plan = planRecommendationRun({
-    repository,
-    worktree,
-    triggerSource: "checkpoint",
-    policyMode: "advisory",
-    catalogDigest: digestJson({ fixture: "refactor-recording-catalog" } as unknown as Json),
-    inputCursor: {
-      source: "candidate-delta",
-      headDigest: digestJson({ head: "refactor-recording" } as unknown as Json),
-      headSha: worktree.headSha
-    },
-    candidates: [{
-      practiceId: "practice.runtime-boundary",
-      subject: "module.runtime-ledger",
-      confidence: "medium",
-      enforcement: "advisory",
-      evidenceBindingIds: ["binding.rf3.practice"],
-      explanation: ["Practice recommendation seeded before the v3 migration."],
-      baselineDigest: digestJson({ baseline: "refactor-recording" } as unknown as Json),
-      score: 40
-    }],
-    now
-  });
-  const graphDigest = digestJson({ fixture: "empty-architecture-graph" } as unknown as Json);
-  const inputDigest = digestJson({ runId: plan.run.runId } as unknown as Json);
-  await store.appendArchitectureEvents({
-    writer: "runtime-daemon",
-    events: [{
-      schemaVersion: "archcontext.architecture-event/v1",
-      eventId: `architecture_event.recommendation_run.${inputDigest.replace(/^sha256:/, "").slice(0, 16)}`,
-      eventType: "architecture.recommendation.run",
-      payloadVersion: "archcontext.recommendation-run/v1",
-      repository,
-      worktree,
-      baseDigest: graphDigest,
-      resultingDigest: graphDigest,
-      headSha: worktree.headSha,
-      actor: { kind: "daemon", id: "archctxd" },
-      source: "checkpoint",
-      timestamp: now,
-      idempotencyKey: `architecture-ledger-recommendation-run:${plan.run.runId}`,
-      provenance: { producer: "refactor-recording.test", command: "seedV2Practice", inputDigest },
-      payload: recommendationRunLedgerPayload(plan) as unknown as Json
-    }]
-  });
-  return plan.recommendations[0]!;
 }
 
 describe("RefactorAssessmentRegistry", () => {
@@ -266,7 +219,7 @@ describe("refactorRecord", () => {
       expect(data.recommendationIds.length).toBeGreaterThan(0);
       expect(data.catalogDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
 
-      const appended = store.architectureEventAppends.at(-1)!.events[0]!;
+      const appended = storedRefactorEvents(store).at(-1)!;
       expect(appended.source).toBe("refactor_scan");
       expect(appended.actor).toEqual({ kind: "daemon", id: "archctxd" });
       expect((appended.payload as any).operations).toEqual([]);
@@ -277,27 +230,6 @@ describe("refactorRecord", () => {
       }
       expect(JSON.stringify(data)).not.toContain("diff --git");
     } finally {
-      await daemon.stop();
-    }
-  });
-
-  test("is reachable through the RuntimeRpcClient dispatch table", async () => {
-    const root = createGitRepo();
-    const store = new TestLocalStore();
-    const daemon = await startDaemon(store);
-    const rpc = new ArchctxRuntimeRpcServer(daemon, { root, port: 0, token: "refactor-record-rpc-token" });
-    try {
-      await daemon.init(root, "Refactor Recording App");
-      const { digest } = registerAt(daemon, root);
-      const connection = await rpc.start();
-      const client = new RuntimeRpcClient(connection);
-
-      const result = await client.refactorRecord(root, recordInput(root, digest));
-
-      expect(result.ok).toBe(true);
-      expect((result.data as any).append.eventSource).toBe("refactor_scan");
-    } finally {
-      await rpc.stop();
       await daemon.stop();
     }
   });
@@ -334,8 +266,8 @@ describe("refactorRecord", () => {
       const first = await daemon.refactorRecord(root, recordInput(root, registerAt(daemon, root).digest));
       expect(first.ok).toBe(true);
       const ledgerWorktree = (first.data as any).worktree;
-      const history = JSON.stringify(store.architectureEvents);
-      const count = store.architectureEvents.length;
+      const history = JSON.stringify(storedRefactorEvents(store));
+      const count = storedRefactorEvents(store).length;
       writeFileSync(join(root, "README.md"), "# measured changed checkout\n");
       if (committed) commitAll(root, "advance after ledger recording");
       const head = gitOut(root, "rev-parse", "HEAD");
@@ -346,8 +278,8 @@ describe("refactorRecord", () => {
       expect(result.ok, JSON.stringify(result)).toBe(true);
       expect((result.data as any).worktree.headSha).toBe(head);
       expect((result.data as any).worktree.worktreeDigest).toBe(digest);
-      expect(store.architectureEvents.at(-1)!.worktree).toEqual(ledgerWorktree);
-      expect(JSON.stringify(store.architectureEvents.slice(0, count))).toBe(history);
+      expect(storedRefactorEvents(store).at(-1)!.worktree).toEqual((result.data as any).worktree);
+      expect(JSON.stringify(storedRefactorEvents(store).slice(0, count))).toBe(history);
       const repeated = await daemon.refactorRecord(root, input);
       expect(repeated.ok).toBe(true);
       expect((repeated.data as any).worktree).toEqual((result.data as any).worktree);
@@ -382,7 +314,7 @@ describe("refactorRecord", () => {
       expect((second.data as any).runId).not.toBe((first.data as any).runId);
       expect((third.data as any).runId).not.toBe((second.data as any).runId);
 
-      const scanEvents = store.architectureEvents.filter((event) => event.source === "refactor_scan");
+      const scanEvents = storedRefactorEvents(store).filter((event) => event.source === "refactor_scan");
       expect(scanEvents).toHaveLength(3);
       expect(recordedRecommendations(store).map((record) => record.recommendationId)).toEqual(recordedIds);
     } finally {
@@ -402,23 +334,20 @@ describe("refactorRecord", () => {
 
       // The resolve gate refuses this category, so the resolved lifecycle state is appended
       // directly: the assertion under test is the planner's regression link, not the gate.
-      const resolvedEvent = store.architectureEvents.at(-1)!;
-      await store.appendArchitectureEvents({
-        writer: "runtime-daemon",
-        events: [{
-          ...resolvedEvent,
-          eventId: `${resolvedEvent.eventId}.resolved`,
-          eventType: "architecture.recommendation.lifecycle",
-          idempotencyKey: `${resolvedEvent.idempotencyKey}:resolved`,
-          payload: {
-            operations: [],
-            recommendationRuns: [],
-            recommendations: [{ ...prior, status: "resolved", updatedAt: "2026-09-03T08:30:00.000Z" }],
-            feedback: [],
-            waivers: []
-          } as unknown as Json
-        }]
-      });
+      const resolvedEvent = storedRefactorEvents(store).at(-1)!;
+      await appendStoredRefactorEvents(store, root, [{
+        ...resolvedEvent,
+        eventId: `${resolvedEvent.eventId}.resolved`,
+        eventType: "architecture.recommendation.lifecycle",
+        idempotencyKey: `${resolvedEvent.idempotencyKey}:resolved`,
+        payload: {
+          operations: [],
+          recommendationRuns: [],
+          recommendations: [{ ...prior, status: "resolved", updatedAt: "2026-09-03T08:30:00.000Z" }],
+          feedback: [],
+          waivers: []
+        } as unknown as Json
+      }]);
 
       const second = await daemon.refactorRecord(root, recordInput(root, digest));
       const regressed = ((second.data as any).recommendations as RecommendationV3[])
@@ -443,7 +372,7 @@ describe("refactorRecord", () => {
       const recorded = await daemon.refactorRecord(root, recordInput(root, digest));
       const recommendationIds = (recorded.data as any).recommendationIds as string[];
 
-      const appended = store.architectureEvents.at(-1)!;
+      const appended = storedRefactorEvents(store).at(-1)!;
       const operations = (appended.payload as any).evidenceOperations as any[];
       expect(appended.payloadVersion).toBe("archcontext.architecture-evidence-lifecycle/v2");
       expect((appended.payload as any).evidenceItems).toBeUndefined();
@@ -516,7 +445,7 @@ describe("refactorRecord", () => {
       expect(result.ok).toBe(false);
       expect(errorOf(result).code).toBe("AC_SCHEMA_INVALID");
       expect(errorOf(result).reasonCode).toBe("refactor-assessment-missing");
-      expect(store.architectureEvents).toHaveLength(0);
+      expect(storedRefactorEvents(store)).toHaveLength(0);
     } finally {
       await daemon.stop();
     }
@@ -537,7 +466,7 @@ describe("refactorRecord", () => {
 
       expect(result.ok).toBe(false);
       expect(errorOf(result).code).toBe("AC_REFACTOR_STALE");
-      expect(store.architectureEvents).toHaveLength(0);
+      expect(storedRefactorEvents(store)).toHaveLength(0);
     } finally {
       await daemon.stop();
     }
@@ -563,7 +492,7 @@ describe("refactorRecord", () => {
 
       expect(result.ok).toBe(false);
       expect(errorOf(result).code).toBe("AC_REFACTOR_STALE");
-      expect(store.architectureEvents).toHaveLength(0);
+      expect(storedRefactorEvents(store)).toHaveLength(0);
     } finally {
       await daemon.stop();
     }
@@ -591,7 +520,7 @@ describe("refactorRecord", () => {
 
       expect(result.ok).toBe(false);
       expect(errorOf(result).code).toBe("AC_REFACTOR_PROPOSAL_UNAUTHORED");
-      expect(store.architectureEvents).toHaveLength(0);
+      expect(storedRefactorEvents(store)).toHaveLength(0);
     } finally {
       await daemon.stop();
     }
@@ -617,7 +546,7 @@ describe("refactorRecord", () => {
 
       expect(result.ok).toBe(false);
       expect(errorOf(result).code).toBe("AC_SCHEMA_INVALID");
-      expect(store.architectureEvents).toHaveLength(0);
+      expect(storedRefactorEvents(store)).toHaveLength(0);
     } finally {
       await daemon.stop();
     }
@@ -667,173 +596,6 @@ describe("recommendations resolve gate", () => {
       });
       expect(accepted.ok).toBe(true);
       expect((accepted.data as any).nextStatus).toBe("accepted");
-    } finally {
-      await daemon.stop();
-    }
-  });
-
-  test("a practice recommendation resolves only after the v3 migration", async () => {
-    const root = createGitRepo();
-    const store = new TestLocalStore();
-    const daemon = await startDaemon(store);
-    try {
-      await daemon.init(root, "Refactor Recording App");
-      const seeded = await seedV2Practice(store, root, "2026-09-03T07:50:00.000Z");
-
-      const beforeMigration = await daemon.recommendations(root, {
-        command: "resolve", approved: true,
-        recommendationId: seeded.recommendationId,
-        reason: "resolved after the practice was adopted",
-        now: "2026-09-03T09:03:00.000Z"
-      });
-      expect(beforeMigration.ok).toBe(false);
-      expect(errorOf(beforeMigration).code).toBe("AC_PRECONDITION_FAILED");
-      expect(errorOf(beforeMigration).reasonCode).toBe("recommendation-v2-not-migrated");
-
-      const migrated = await daemon.ledgerMigrate(root, {
-        recommendationV3: true,
-        dryRun: false,
-        expectedWorktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
-      });
-      expect(migrated.ok).toBe(true);
-      expect((migrated.data as any).upgradedCount).toBe(1);
-
-      const resolved = await daemon.recommendations(root, {
-        command: "resolve", approved: true,
-        recommendationId: seeded.recommendationId,
-        reason: "resolved after the practice was adopted",
-        now: "2026-09-03T09:04:00.000Z"
-      });
-      expect(resolved.ok).toBe(true);
-      expect((resolved.data as any).nextStatus).toBe("resolved");
-      expect((resolved.data as any).recommendation.schemaVersion).toBe(RECOMMENDATION_V3_SCHEMA_VERSION);
-    } finally {
-      await daemon.stop();
-    }
-  });
-});
-
-describe("ledger migrate --recommendation-v3", () => {
-  test("rejects both mode flags and requires one", async () => {
-    const root = createGitRepo();
-    const store = new TestLocalStore();
-    const daemon = await startDaemon(store);
-    try {
-      await daemon.init(root, "Refactor Recording App");
-
-      const both = await daemon.ledgerMigrate(root, { fromYaml: true, recommendationV3: true });
-      expect(both.ok).toBe(false);
-      expect(errorOf(both).reasonCode).toBe("ledger-input-invalid");
-
-      const neither = await daemon.ledgerMigrate(root, {});
-      expect(neither.ok).toBe(false);
-      expect(errorOf(neither).reasonCode).toBe("ledger-input-invalid");
-    } finally {
-      await daemon.stop();
-    }
-  });
-
-  test("keeps the rebuilt graphDigest identical and appends nothing on a second run", async () => {
-    const root = createGitRepo();
-    const store = new TestLocalStore();
-    const daemon = await startDaemon(store);
-    try {
-      await daemon.init(root, "Refactor Recording App");
-      await seedV2Practice(store, root, "2026-09-03T07:51:00.000Z");
-
-      const before = await daemon.ledgerRebuild(root, {
-        fromGit: true,
-        expectedWorktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
-      });
-      expect(before.ok).toBe(true);
-      const beforeDigest = (before.data as any).graphDigest as string;
-
-      const migrated = await daemon.ledgerMigrate(root, {
-        recommendationV3: true,
-        dryRun: false,
-        expectedWorktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
-      });
-      expect(migrated.ok).toBe(true);
-      expect((migrated.data as any).status).toBe("verified");
-      expect((migrated.data as any).append.appendedEventCount).toBe(1);
-      const migrationEvent = store.architectureEvents.find((event) => event.source === "migration")!;
-      expect((migrationEvent.payload as any).operations).toEqual([]);
-      expect((migrationEvent.payload as any).recommendations[0].schemaVersion).toBe(RECOMMENDATION_V3_SCHEMA_VERSION);
-
-      const after = await daemon.ledgerRebuild(root, {
-        fromGit: true,
-        expectedWorktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
-      });
-      expect(after.ok).toBe(true);
-      expect((after.data as any).graphDigest).toBe(beforeDigest);
-
-      const secondMigration = await daemon.ledgerMigrate(root, {
-        recommendationV3: true,
-        dryRun: false,
-        expectedWorktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
-      });
-      expect(secondMigration.ok).toBe(true);
-      expect((secondMigration.data as any).upgradedCount).toBe(0);
-      expect((secondMigration.data as any).status).toBe("up-to-date");
-      expect((secondMigration.data as any).append.appendedEventCount).toBe(0);
-      expect(store.architectureEvents.filter((event) => event.source === "migration")).toHaveLength(1);
-    } finally {
-      await daemon.stop();
-    }
-  });
-
-  test("migrates a practice recommendation that already has feedback rows", async () => {
-    const root = createGitRepo();
-    const store = new TestLocalStore();
-    const daemon = await startDaemon(store);
-    try {
-      await daemon.init(root, "Refactor Recording App");
-      const seeded = await seedV2Practice(store, root, "2026-09-03T07:53:00.000Z");
-
-      const acknowledged = await daemon.recommendations(root, {
-        command: "acknowledge", approved: true,
-        recommendationId: seeded.recommendationId,
-        reason: "acknowledged before the v3 migration",
-        now: "2026-09-03T07:54:00.000Z"
-      });
-      expect(acknowledged.ok).toBe(true);
-
-      // The migration re-persists a recommendation row that recommendation_feedback references
-      // ON DELETE RESTRICT; a delete-then-insert materializer fails the foreign key here.
-      const migrated = await daemon.ledgerMigrate(root, {
-        recommendationV3: true,
-        dryRun: false,
-        expectedWorktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
-      });
-
-      expect(migrated.ok).toBe(true);
-      expect((migrated.data as any).upgradedCount).toBe(1);
-      expect((migrated.data as any).status).toBe("verified");
-      const upgraded = recordedRecommendations(store).at(-1)!;
-      expect(upgraded.schemaVersion).toBe(RECOMMENDATION_V3_SCHEMA_VERSION);
-      expect(upgraded.status).toBe("acknowledged");
-    } finally {
-      await daemon.stop();
-    }
-  });
-
-  test("a dry run reports the plan without writing", async () => {
-    const root = createGitRepo();
-    const store = new TestLocalStore();
-    const daemon = await startDaemon(store);
-    try {
-      await daemon.init(root, "Refactor Recording App");
-      await seedV2Practice(store, root, "2026-09-03T07:52:00.000Z");
-      const eventCount = store.architectureEvents.length;
-
-      const planned = await daemon.ledgerMigrate(root, { recommendationV3: true, dryRun: true });
-
-      expect(planned.ok).toBe(true);
-      expect((planned.data as any).status).toBe("planned");
-      expect((planned.data as any).writes).toBe("none");
-      expect((planned.data as any).upgradedCount).toBe(1);
-      expect(store.architectureEvents).toHaveLength(eventCount);
-      expect(recordedRecommendations(store)[0]!.schemaVersion as string).toBe(RECOMMENDATION_SCHEMA_VERSION);
     } finally {
       await daemon.stop();
     }
@@ -1088,7 +850,7 @@ describe("refactor_scan event size", () => {
         details: { limitBytes: ARCHITECTURE_LEDGER_MAX_PERSISTED_JSON_BYTES }
       });
       expect(errorOf(result).details!.measuredBytes as number).toBeGreaterThan(ARCHITECTURE_LEDGER_MAX_PERSISTED_JSON_BYTES);
-      expect(store.architectureEvents).toHaveLength(0);
+      expect(storedRefactorEvents(store)).toHaveLength(0);
     } finally {
       await daemon.stop();
     }

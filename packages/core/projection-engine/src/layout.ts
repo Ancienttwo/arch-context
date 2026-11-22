@@ -2,7 +2,7 @@ import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { ARCHITECTURE_DOCS_PROJECTION_MANIFEST_PATH, ARCHITECTURE_DOCS_PROJECTION_MANIFEST_SCHEMA_VERSION, architectureDocsProjectionManifestIssues, architectureDocsProjectionManifestSchemaVersion, isSupersededArchitectureDocsProjectionManifestSchemaVersion, digestJson, isRepoRelativePosixPath, type ArchitectureHistoryReadReason, isRuntimeTopologyNodeKind, stableId, type ArchitectureDocsProjectionManifestV4, type Json, type ProjectionTargetV1 } from "@archcontext/contracts";
 import { ARCHITECTURE_HISTORY_PATH } from "./architecture-history";
-export { sourceIncludeAnchors as repoHarnessIncludeAnchors } from "./source-globs";
+export { sourceIncludeAnchors as repoHarnessIncludeAnchors } from "@archcontext/core/architecture-domain";
 
 export const REPO_HARNESS_PROJECTION_PROFILE = "repo-harness/v1" as const;
 export const ARCHITECTURE_DOCS_LAYOUT_VERSION = "archcontext.docs-layout/v1" as const;
@@ -143,8 +143,10 @@ export function resolveArchitectureDocumentationLayout(input: {
   nodes: ProjectionLayoutNode[];
   relations: ProjectionLayoutRelation[];
   profile?: ArchitectureProjectionProfile;
+  includeInstructions?: boolean;
 }): ArchitectureDocumentationLayout {
   const profile = input.profile ?? "default";
+  const includeInstructions = input.includeInstructions ?? true;
   const targetNodes = entitySummaryTargetNodes(input.nodes, profile);
   const entityTargets = targetNodes.map((node) => {
     const path = profile === REPO_HARNESS_PROJECTION_PROFILE
@@ -169,9 +171,10 @@ export function resolveArchitectureDocumentationLayout(input: {
   ));
   const topologyTargets = hasRuntimeTopologyNodes(input.nodes) ? RUNTIME_TOPOLOGY_TARGETS : [];
   // repo-harness/v1 requires `contractFiles` on every capability, so each contract file it
-  // designates outside the repository root is a row the projection writes (ADR-0056 §9). The default profile keeps
-  // `archctx agent-context` as their writer.
-  const agentContextTargets = profile === REPO_HARNESS_PROJECTION_PROFILE ? agentContextLayoutTargets(targetNodes) : [];
+  // designates outside the repository root is a row the projection writes (ADR-0056 §9), unless
+  // host-ownership isolation disables instruction-file projection (`includeInstructions: false`, #642).
+  // The default profile keeps `archctx agent-context` as their writer.
+  const agentContextTargets = profile === REPO_HARNESS_PROJECTION_PROFILE && includeInstructions ? agentContextLayoutTargets(targetNodes) : [];
   // repo-harness/v1 publishes one projection per fact class (repo-harness#1222 D9): the capability
   // documents, the runtime topology pair (its only projection, ADR-0049 §4), the architecture
   // history, and the manifest. The

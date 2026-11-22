@@ -231,7 +231,7 @@
           "additionalProperties": false,
           "required": ["kind", "id"],
           "properties": {
-            "kind": { "enum": ["entity", "relation", "constraint", "recommendation", "practice", "event", "snapshot", "subject", "candidate-delta"] },
+            "kind": { "enum": ["entity", "relation", "constraint", "recommendation", "practice", "event", "snapshot", "subject"] },
             "id": { "type": "string", "minLength": 1 }
           }
         },

@@ -12,22 +12,59 @@ import {
   moduleStatisticsSnapshotDigest,
   type ArchitectureRepositoryIdentityV1,
   type ArchitectureWorktreeIdentityV1,
+  type CoChangeDependencySummaryV1,
   type DependencyConstraintEvaluationV1,
   type DependencyConstraintReasonCode,
   type DependencyConstraintV1,
   type DependencyConstraintViolationV1,
   type DependencyLayerEdgeV1,
   type EvidenceCoverageLevelV2,
+  type GitCoChangeWindowV1,
   type Json,
   type ModuleStatisticsSnapshotV1,
   type ModuleStatisticsV1,
   type RefactorScaleReasonCode
 } from "@archcontext/contracts";
-import { nativeNodeSource, nodeSubtreeIds, type NativeModel, type NativeNode, type NativeRelation } from "@archcontext/core/projection-engine";
+import { nativeNodeSource, nodeSubtreeIds, type NativeModel, type NativeNode, type NativeRelation } from "@archcontext/core/architecture-domain";
 import { buildModuleGraph, type ModuleGraphEdgeCounts } from "./graph";
+import {
+  computeInstability,
+  detectCoChangeCoupling,
+  detectEntrypointBypasses,
+  detectLowCohesionGodFiles,
+  detectUnstableDependencies,
+  measureModuleTestCoverage,
+  type CoChangeCouplingFindingV1,
+  type CoreCallEdgeFactV1,
+  type CoreFileSymbolStructureFactV1,
+  type EntrypointBypassModuleFindingV1,
+  type GitCoChangeHistoryInputV1,
+  type LowCohesionModuleFindingV1,
+  type UnstableDependencyModuleFindingV1
+} from "./graph-intelligence";
 import { ancestorChain, resolveOwnership, type OwnershipIndex } from "./ownership";
 
 export { ownershipDelta, resolveOwnership, type OwnershipIndex, type OwnershipResolution } from "./ownership";
+export {
+  computeInstability,
+  detectCoChangeCoupling,
+  detectEntrypointBypasses,
+  detectLowCohesionGodFiles,
+  detectUnstableDependencies,
+  isTestPath,
+  measureModuleTestCoverage,
+  type CoChangeCouplingFindingV1,
+  type CoChangeThresholds,
+  type CoreCallEdgeFactV1,
+  type CoreFileSymbolStructureFactV1,
+  type CoreFileTopLevelSymbolFactV1,
+  type EntrypointBypassModuleFindingV1,
+  type GitCoChangeCommitInputV1,
+  type GitCoChangeHistoryInputV1,
+  type LowCohesionModuleFindingV1,
+  type LowCohesionThresholds,
+  type UnstableDependencyModuleFindingV1
+} from "./graph-intelligence";
 export {
   bidirectionalModulePairs,
   buildModuleGraph,
@@ -123,6 +160,16 @@ export interface ModuleStatisticsInputV1 {
    * as it was before constraints were evaluated.
    */
   constraints?: DependencyConstraintV1[];
+  structuralFacts?: {
+    coverage: EvidenceCoverageLevelV2;
+    reasonCodes: string[];
+    callEdges: CoreCallEdgeFactV1[];
+    callEdgeCount: number;
+    callEdgeLimit: number;
+    callEdgeLimitExceeded: boolean;
+    fileStructures: CoreFileSymbolStructureFactV1[];
+  };
+  gitHistory?: GitCoChangeHistoryInputV1;
   /** Caller-supplied; excluded from every digest, so it never perturbs snapshot identity. */
   createdAt: string;
 }
@@ -307,6 +354,15 @@ export interface CapabilityDependencyInputV1 {
   /** Keep edges whose imported file is owned by this node or a descendant. */
   into?: string;
   edgeLimit?: number;
+  /** Optional bounded cross-file symbol `calls` + `references` edges (#636). */
+  callFacts?: {
+    coverage: EvidenceCoverageLevelV2;
+    reasonCodes: string[];
+    edgeCount: number;
+    edgeLimit: number;
+    limitExceeded: boolean;
+    callEdges: readonly { fromPath: string; toPath: string }[];
+  };
 }
 
 /**
@@ -393,6 +449,49 @@ export function measureCapabilityDependencies(input: CapabilityDependencyInputV1
     attributedEdges.push({ fromPath: edge.from, toPath: edge.to, fromCapability: from.capability, toCapability: to.capability });
   }
 
+  let callsSummary: CapabilityDependenciesV1["calls"] = {
+    coverage: "unknown",
+    reasonCodes: [CAPABILITY_DEPENDENCIES_CALLS_UNAVAILABLE_REASON]
+  };
+  if (input.callFacts && input.callFacts.coverage !== "unknown") {
+    for (const cell of cells.values()) {
+      if (cell.calls === null) cell.calls = 0;
+    }
+    if (certification.measurable) {
+      for (const edge of input.callFacts.callEdges) {
+        if (!paths.has(edge.fromPath) || !paths.has(edge.toPath) || edge.fromPath === edge.toPath) continue;
+        if (!within(edge.fromPath, input.from) || !within(edge.toPath, input.into)) continue;
+        const from = attribute(edge.fromPath);
+        const to = attribute(edge.toPath);
+        if ("gap" in from || "gap" in to) continue;
+        const cellKey = JSON.stringify([from.capability, to.capability]);
+        let cell = cells.get(cellKey);
+        if (cell === undefined) {
+          const relationIds = [...new Set(declaringRelations.get(cellKey) ?? [])].sort(compare);
+          cell = {
+            from: from.capability,
+            to: to.capability,
+            imports: 0,
+            calls: 0,
+            declared: from.capability === to.capability || relationIds.length > 0,
+            relationIds
+          };
+          cells.set(cellKey, cell);
+        }
+        cell.calls = (cell.calls ?? 0) + 1;
+      }
+    }
+    callsSummary = {
+      coverage: certification.measurable ? input.callFacts.coverage : "unknown",
+      reasonCodes: certification.measurable
+        ? [...new Set(input.callFacts.reasonCodes)].sort(compare)
+        : ["code-facts-unavailable"],
+      edgeCount: input.callFacts.edgeCount,
+      edgeLimit: input.callFacts.edgeLimit,
+      limitExceeded: input.callFacts.limitExceeded
+    };
+  }
+
   const edgeLimit = input.edgeLimit ?? CAPABILITY_DEPENDENCIES_EDGE_LIMIT;
   attributedEdges.sort((left, right) => compare(left.fromPath, right.fromPath) || compare(left.toPath, right.toPath));
   const listed = attributedEdges.slice(0, edgeLimit);
@@ -413,7 +512,7 @@ export function measureCapabilityDependencies(input: CapabilityDependencyInputV1
       unresolvedCount,
       unattributed
     },
-    calls: { coverage: "unknown", reasonCodes: [CAPABILITY_DEPENDENCIES_CALLS_UNAVAILABLE_REASON] },
+    calls: callsSummary,
     edges: { limit: edgeLimit, count: attributedEdges.length, omittedCount: attributedEdges.length - listed.length, items: listed }
   };
 }
@@ -465,6 +564,11 @@ export interface ModuleStructureV1 {
   ownership: OwnershipIndex;
   /** The `forbid-dependency` violations each module's `directionViolationCount` counts. */
   directionViolations: DependencyConstraintViolationV1[];
+  lowCohesionFindings?: Map<string, LowCohesionModuleFindingV1>;
+  entrypointBypassFindings?: Map<string, EntrypointBypassModuleFindingV1>;
+  unstableDependencyFindings?: Map<string, UnstableDependencyModuleFindingV1>;
+  coChangeCouplings?: CoChangeCouplingFindingV1[];
+  gitHistoryWindow?: GitCoChangeWindowV1;
 }
 
 export interface ModuleStatisticsMeasurementV1 {
@@ -522,6 +626,33 @@ export function measureModuleStatistics(input: ModuleStatisticsInputV1): ModuleS
     ownersByPath
   );
 
+  const structuralFactsMeasured = input.structuralFacts !== undefined && measurable && input.structuralFacts.coverage !== "unknown";
+  const nodeInstabilities = new Map<string, { fanIn: number; instability: number | null }>();
+  for (const node of measuredNodes) {
+    const counts = graph.countsByNode.get(node.id)!;
+    const declared = (nativeNodeSource(node)?.include ?? []).length > 0;
+    nodeInstabilities.set(node.id, {
+      fanIn: counts.fanIn,
+      instability: coverage !== "unknown" && declared ? computeInstability(counts.fanIn, counts.fanOut) : null
+    });
+  }
+
+  const lowCohesionFindings = structuralFactsMeasured
+    ? detectLowCohesionGodFiles(input.structuralFacts!.fileStructures, ownership)
+    : undefined;
+  const entrypointBypassFindings = coverage !== "unknown"
+    ? detectEntrypointBypasses(measuredNodes, ownership, edges)
+    : undefined;
+  const unstableDependencyFindings = coverage !== "unknown"
+    ? detectUnstableDependencies(nodeInstabilities, graph.dependencies)
+    : undefined;
+  const coChange = detectCoChangeCoupling(
+    input.gitHistory
+      ? { ...input.gitHistory, anchorHeadSha: input.gitHistory.anchorHeadSha ?? input.worktree.headSha }
+      : undefined,
+    ownership
+  );
+
   const modules = measuredNodes.map((node) => buildModule({
     node,
     ownership,
@@ -529,7 +660,19 @@ export function measureModuleStatistics(input: ModuleStatisticsInputV1): ModuleS
     counts: graph.countsByNode.get(node.id)!,
     unresolvedImports: countUnresolvedImports(edges, ownership, node.id),
     graphMeasured: coverage !== "unknown",
-    directionViolationCount: directionViolations === undefined ? null : directionViolations.get(node.id) ?? 0
+    directionViolationCount: directionViolations === undefined ? null : directionViolations.get(node.id) ?? 0,
+    ...(structuralFactsMeasured
+      ? {
+        testCoverage: measureModuleTestCoverage(
+          ownership.filesByNode.get(node.id) ?? [],
+          edges,
+          input.structuralFacts!.callEdges
+        ),
+        cohesionFinding: lowCohesionFindings?.get(node.id)
+      }
+      : {}),
+    entrypointBypassCount: entrypointBypassFindings?.get(node.id)?.edges.length,
+    unstableDependencyCount: unstableDependencyFindings?.get(node.id)?.targets.length
   }));
 
   const codeFacts = {
@@ -544,7 +687,15 @@ export function measureModuleStatistics(input: ModuleStatisticsInputV1): ModuleS
     truncated: coverage === "unknown" ? true : input.truncated,
     edgeLimit: input.edgeLimit,
     ...(input.importNodeCount === undefined ? {} : { importNodeCount: input.importNodeCount }),
-    reasonCodes: reasonCodes({ coverage, truncated: input.truncated, importNodeLimitExceeded, measurable, modules, ownership })
+    reasonCodes: reasonCodes({
+      coverage,
+      truncated: input.truncated,
+      importNodeLimitExceeded,
+      measurable,
+      modules,
+      ownership,
+      hasStructuralFacts: structuralFactsMeasured
+    })
   };
 
   const draft: ModuleStatisticsSnapshotV1 = {
@@ -571,6 +722,7 @@ export function measureModuleStatistics(input: ModuleStatisticsInputV1): ModuleS
       // or registry-mediated calls, so no module can be reported as free of it.
       dynamicInvocationRiskCount: modules.length
     },
+    ...(coChange.window ? { coChangeDependencies: coChange.summaries, gitHistory: coChange.window } : {}),
     createdAt: input.createdAt,
     snapshotDigest: ""
   };
@@ -581,7 +733,12 @@ export function measureModuleStatistics(input: ModuleStatisticsInputV1): ModuleS
       snapshotDigest: snapshot.snapshotDigest,
       importEdges: edges,
       ownership,
-      directionViolations: directionEvaluation?.violations ?? []
+      directionViolations: directionEvaluation?.violations ?? [],
+      ...(lowCohesionFindings ? { lowCohesionFindings } : {}),
+      ...(entrypointBypassFindings ? { entrypointBypassFindings } : {}),
+      ...(unstableDependencyFindings ? { unstableDependencyFindings } : {}),
+      ...(coChange.findings.length > 0 ? { coChangeCouplings: coChange.findings } : {}),
+      ...(coChange.window ? { gitHistoryWindow: coChange.window } : {})
     }
   };
 }
@@ -650,6 +807,15 @@ function buildModule(context: {
   graphMeasured: boolean;
   /** `null` while no constraint is declared: without a declared direction nothing was measured. */
   directionViolationCount: number | null;
+  testCoverage?: {
+    testFileCount: number;
+    observedTestEdges: number;
+    callerCoverage: number | null;
+    coverageStatus: "measured" | "partial" | "unknown";
+  };
+  cohesionFinding?: LowCohesionModuleFindingV1;
+  entrypointBypassCount?: number;
+  unstableDependencyCount?: number;
 }): ModuleStatisticsV1 {
   const { node, ownership, linesByPath, counts, graphMeasured } = context;
   const source = nativeNodeSource(node);
@@ -657,6 +823,7 @@ function buildModule(context: {
   const footprintDeclared = include.length > 0;
   const files = (ownership.filesByNode.get(node.id) ?? []).map((path) => ({ path, lineCount: linesByPath.get(path) ?? 0 }));
   const ambiguousOwnership = files.some((file) => ownership.byPath.get(file.path)?.ambiguous === true);
+  const instability = computeInstability(counts.fanIn, counts.fanOut);
 
   const draft: ModuleStatisticsV1 = {
     nodeId: node.id,
@@ -677,17 +844,32 @@ function buildModule(context: {
       // Observed surfaces need runtime or call-graph evidence the import graph does not carry.
       observedEntrypoints: [],
       lifecycleOwners: [],
-      datastoreSubjects: []
+      datastoreSubjects: [],
+      ...(context.entrypointBypassCount !== undefined && context.entrypointBypassCount > 0
+        ? { entrypointBypassCount: context.entrypointBypassCount }
+        : {})
     },
     // A node that declared no footprint owns no files, so its graph was never measured; reporting
     // a zero-filled graph would claim an observation that did not happen.
     dependencyGraph: graphMeasured && footprintDeclared
-      ? { ...counts, instability: null, directionViolationCount: context.directionViolationCount }
+      ? {
+        ...counts,
+        instability,
+        directionViolationCount: context.directionViolationCount,
+        ...(context.unstableDependencyCount !== undefined && context.unstableDependencyCount > 0
+          ? { unstableDependencyCount: context.unstableDependencyCount }
+          : {})
+      }
       : null,
-    // v1 observes no test evidence at all: the node schema has no `source.tests`, so there is no
-    // declared test footprint to measure, and `callerCoverage` stays null because import edges
-    // cannot see dynamic invocation (see the package notes on decision (e)).
-    tests: { testFileCount: null, observedTestEdges: null, callerCoverage: null, coverageStatus: "unknown" },
+    ...(context.cohesionFinding
+      ? {
+        cohesion: {
+          lowCohesionFileCount: context.cohesionFinding.files.length,
+          measuredFileCount: context.cohesionFinding.measuredFileCount
+        }
+      }
+      : {}),
+    tests: context.testCoverage ?? { testFileCount: null, observedTestEdges: null, callerCoverage: null, coverageStatus: "unknown" },
     uncertainty: {
       unresolvedImports: context.unresolvedImports,
       dynamicInvocation: "unknown",
@@ -714,8 +896,11 @@ function reasonCodes(context: {
   measurable: boolean;
   modules: ModuleStatisticsV1[];
   ownership: OwnershipIndex;
+  hasStructuralFacts: boolean;
 }): RefactorScaleReasonCode[] {
-  const codes = new Set<RefactorScaleReasonCode>(["caller-coverage-unknown"]);
+  const codes = new Set<RefactorScaleReasonCode>();
+  const allMeasured = context.hasStructuralFacts && context.modules.some((m) => m.tests.callerCoverage !== null);
+  if (!allMeasured) codes.add("caller-coverage-unknown");
   if (!context.measurable) codes.add("code-facts-missing");
   if (context.truncated || context.coverage === "unknown") codes.add("code-facts-truncated");
   if (context.measurable && context.importNodeLimitExceeded) codes.add("code-facts-import-limit");

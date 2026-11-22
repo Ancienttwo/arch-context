@@ -4,7 +4,6 @@ import { ArchctxDaemon, createStartedDaemon } from "../src/index";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
 import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
-import { ChangeSetRecoveryUnresolvedError } from "../src/changeset-recovery-error";
 import { projectionFailureEnvelope } from "../src/projection-service";
 import { publicOperationFailure } from "../src/public-operation-failure";
 const privateText = "Authorization=private customer /private/repository";
@@ -30,7 +29,6 @@ test("generic apply preserves returned refusals and thrown unknown draft, withou
     const error = await daemon.applyUpdate("/unused", {id:"changeset.absent", approved:true, expectedWorktreeDigest:digest}).catch((error: unknown)=>error);
     strict(error,"AC_PRECONDITION_FAILED");
     expect(error.reasonCode).toBe("apply-draft-missing");
-    expect(store.listUnresolvedChangeSetJournals()).toEqual([]);
   } finally {await daemon.stop();}
 });
 test("projection unknown failures are safe and known failures retain all attributes", () => {
@@ -41,25 +39,15 @@ test("projection unknown failures are safe and known failures retain all attribu
   const known = new FailureError("AC_PRECONDITION_FAILED","projection-manifest-invalid",{}, {severity:"critical",retryable:false,action:"run-diagnostics"});
   expect(projectionFailureEnvelope("projection.run",known).error).toEqual(known.failure);
 });
-test("unresolved journals remain complete and sentinel identity survives public adaptation", () => {
-  const journals = [{journalId:"journal."+"a".repeat(300),changeSetId:"changeset."+"b".repeat(300),root:"/long/"+"r".repeat(400),reason:"recovery failed"}];
-  const error = new ChangeSetRecoveryUnresolvedError(journals);
-  expect(publicOperationFailure(error)).toBe(error);
-  strict(error,"AC_PRECONDITION_FAILED");
-  expect(error.unresolvedJournals).toBe(journals);
-  expect(error.details.unresolvedJournals).toEqual(journals);
-});
 test("all original partial public wrappers safely classify unexpected entry failures", async () => {
   const {daemon,store} = fixture();
   daemon.assertRunning = () => {throw new Error(privateText);};
   const cases: Array<[string,unknown[]]> = [
-    ["acceptCommittedChange",["/unused",{}]], ["ledgerProject",["/unused",{}]], ["ledgerMigrate",["/unused",{}]],
-    ["ledgerRollback",["/unused",{}]], ["ledgerRebuild",["/unused",{}]], ["recommendations",["/unused",{}]],
-    ["refactorRecord",["/unused",{}]], ["refactorVerify",["/unused",{}]], ["auditApprove",["/unused",{}]],
+    ["recommendations",["/unused",{}]],
+    ["refactorRecord",["/unused",{}]], ["refactorVerify",["/unused",{}]],
     ["docs",["/unused",{}]], ["applyUpdate",["/unused",{}]], ["planPracticeWaiver",["/unused",{}]],
     ["docsProjection",["/unused",{}]], ["agentContextProjection",["/unused",{}]], ["projection",["/unused",{}]],
-    ["mcpProjection",["/unused",{},true]], ["inspectProjectionApplyReceipt",["/unused",digest]],
-    ["listProjectionPriorCommittedApplies",["/unused",{}]], ["readbackProjectionApply",["/unused",{}]], ["recoverProjectionApply",["/unused",{}]]
+    ["mcpProjection",["/unused",{},true]]
   ];
   try {for (const [method,args] of cases) {
     const error = await Promise.resolve().then(()=>daemon[method](...args)).catch(error=>error);
@@ -99,23 +87,6 @@ test("stop retains explorer then finally cleanup and cleanup error priority", as
 });
 
 
-test("recovery sentinel metadata cannot execute getters or escape a raw failure",()=>{
- const error=new ChangeSetRecoveryUnresolvedError([]);let calls=0;
- Object.defineProperty(error,"failure",{get(){calls++;throw new Error(privateText);}});
- const failure=publicOperationFailure(error);strict(failure);
- expect(failureIssues(projectionFailureEnvelope("projection.run",error).error)).toEqual([]);
- expect(calls).toBe(0);
-});
-test("approved docs pin returns complete typed unresolved recovery authority",async()=>{
- const {ExternalDocumentationService}=await import("../src/external-documentation");
- const journals=[{journalId:"journal.pin",changeSetId:"changeset.pin",root:"/unused",reason:"failed recovery"}];
- const sentinel=new ChangeSetRecoveryUnresolvedError(journals);
- const service=new ExternalDocumentationService({assertRunning(){},async openSession(){return {workspace:{root:"/unused"}};},clock:()=>"2026-10-15T00:00:00.000Z",async withWriter(){throw sentinel;}} as any);
- const result=await service.docs("/unused",{command:"pin",libraryId:"/bun/bun",version:"1.0.0",approved:true});
- expect(result.error?.reasonCode).toBe("changeset-recovery-unresolved");
- expect(result.error?.details).toEqual({unresolvedJournals:journals});expect(failureIssues(result.error)).toEqual([]);
-});
-
 test("MCP stale snapshot keeps its proven field and precondition classification",async()=>{
  const {createInitializedGitRepo,removeTempRepo}=await import("./runtime-test-fixtures");
  const root=createInitializedGitRepo();const {daemon}=fixture();await daemon.start();
@@ -131,7 +102,7 @@ test("init, waiver list and status do not expose raw ordinary failures",async()=
  try {
   daemon.assertRunning=()=>{throw new Error(privateText);};
   for(const [method,args] of [["init",["/unused"]],["practiceWaivers",["/unused"]]] as Array<[string,unknown[]]>) strict(await Promise.resolve().then(()=>daemon[method](...args)).catch(error=>error));
-  daemon.explorerProjections.changeFeedStatus=()=>{throw new Error(privateText);};
+  daemon.sessions={get size(){return 0;},keys(){throw new Error(privateText);}};
   strict(await daemon.runtimeStatus().catch((error:unknown)=>error));
   let error:unknown;try{daemon.status();}catch(caught){error=caught;}strict(error);
  }finally{store.close();}
@@ -169,11 +140,11 @@ function publicWriterFiles(root: string): Record<string, string> {
 
 test("approved public docs pin preserves a racing descriptor preimage and returns its registered refusal", async () => {
   const { createInitializedGitRepo, removeTempRepo } = await import("./runtime-test-fixtures");
-  const { setDescriptorRelativeWriteTestHook } = await import("../../../core/changeset-engine/src/descriptor-relative-write");
+  const { setDescriptorRelativeWriteTestHook } = await import("@archcontext/local-runtime/descriptor-write");
   const { writeFileSync } = await import("node:fs");
   const { join } = await import("node:path");
   const root = createInitializedGitRepo();
-  const { daemon, store } = fixture();
+  const { daemon } = fixture();
   await daemon.start();
   const relative = ".archcontext/integrations/context7.lock.yaml";
   const external = JSON.stringify({ schemaVersion: "archcontext.context7-lockfile/v1", provider: "context7", libraries: [], marker: "racing writer" });
@@ -192,7 +163,6 @@ test("approved public docs pin preserves a racing descriptor preimage and return
     expect(failureIssues(result.error)).toEqual([]);
     expect(JSON.stringify(result)).not.toContain(root);
     expect(publicWriterFiles(root)).toEqual({ ...before, [relative]: external });
-    expect(store.changeSetJournals.size).toBe(0);
   } finally {
     setDescriptorRelativeWriteTestHook(undefined);
     await daemon.stop();
@@ -202,7 +172,7 @@ test("approved public docs pin preserves a racing descriptor preimage and return
 
 test("public init rolls back its created model and preserves a racing generated preimage with typed refusal", async () => {
   const { createGitRepo, removeTempRepo } = await import("./runtime-test-fixtures");
-  const { setDescriptorRelativeWriteTestHook } = await import("../../../core/changeset-engine/src/descriptor-relative-write");
+  const { setDescriptorRelativeWriteTestHook } = await import("@archcontext/local-runtime/descriptor-write");
   const { existsSync, writeFileSync } = await import("node:fs");
   const { join } = await import("node:path");
   const root = createGitRepo();
@@ -226,7 +196,6 @@ test("public init rolls back its created model and preserves a racing generated 
     expect(envelope.error).toEqual(knownFailure("AC_PRECONDITION_FAILED", "apply-preimage-changed", { issueCount: 1 }));
     expect(JSON.stringify(envelope)).not.toContain(root);
     expect(publicWriterFiles(root)).toEqual({ ...before, [relative]: external });
-    expect(store.changeSetJournals.size).toBe(0);
   } finally {
     setDescriptorRelativeWriteTestHook(undefined);
     await daemon.stop();
@@ -236,9 +205,9 @@ test("public init rolls back its created model and preserves a racing generated 
 
 test("unknown descriptor I/O with a lookalike diagnostic remains safe unclassified at public pin", async () => {
   const { createInitializedGitRepo, removeTempRepo } = await import("./runtime-test-fixtures");
-  const { setDescriptorRelativeWriteTestHook } = await import("../../../core/changeset-engine/src/descriptor-relative-write");
+  const { setDescriptorRelativeWriteTestHook } = await import("@archcontext/local-runtime/descriptor-write");
   const root = createInitializedGitRepo();
-  const { daemon, store } = fixture();
+  const { daemon } = fixture();
   await daemon.start();
   const before = publicWriterFiles(root);
   setDescriptorRelativeWriteTestHook(() => { throw new Error(`Expected hash mismatch: ${privateText}`); });
@@ -249,7 +218,6 @@ test("unknown descriptor I/O with a lookalike diagnostic remains safe unclassifi
     expect(failureIssues(result.error)).toEqual([]);
     expect(JSON.stringify(result)).not.toContain(privateText);
     expect(publicWriterFiles(root)).toEqual(before);
-    expect(store.changeSetJournals.size).toBe(0);
   } finally {
     setDescriptorRelativeWriteTestHook(undefined);
     await daemon.stop();

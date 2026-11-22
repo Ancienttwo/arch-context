@@ -1,0 +1,505 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archcontext.dev/schemas/runtime/refactor-simulate.schema.json",
+  "title": "RefactorSimulateV1",
+  "description": "Read-only move/cut impact simulation preview (#638, #643 Phase 2).",
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "beforeSnapshotDigest",
+    "modelDigest",
+    "codeFactsCoverage",
+    "moves",
+    "targetSubject",
+    "measurementStatus",
+    "unmeasuredReasons",
+    "metricsDelta",
+    "newlyIntroducedCycles",
+    "resolvedCycles",
+    "newlyIntroducedViolations",
+    "cutCandidates",
+    "simulationDigest",
+    "privacy"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "archcontext.runtime-refactor-simulate/v1"
+    },
+    "beforeSnapshotDigest": {
+      "pattern": "^sha256:[a-f0-9]{64}$",
+      "type": "string"
+    },
+    "modelDigest": {
+      "pattern": "^sha256:[a-f0-9]{64}$",
+      "type": "string"
+    },
+    "codeFactsCoverage": {
+      "type": "string",
+      "enum": [
+        "complete",
+        "partial",
+        "unknown"
+      ]
+    },
+    "moves": {
+      "type": "array",
+      "items": {
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "path",
+          "toNodeId"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "not": {
+              "anyOf": [
+                {
+                  "pattern": "^/"
+                },
+                {
+                  "pattern": "\\\\"
+                },
+                {
+                  "pattern": "(^|/)\\.\\.(/|$)"
+                }
+              ]
+            }
+          },
+          "toNodeId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "symbols": {
+            "uniqueItems": true,
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "targetSubject": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "measurementStatus": {
+      "type": "string",
+      "enum": [
+        "measured",
+        "unmeasured"
+      ]
+    },
+    "unmeasuredReasons": {
+      "uniqueItems": true,
+      "type": "array",
+      "items": {
+        "minLength": 1,
+        "maxLength": 1024,
+        "type": "string"
+      }
+    },
+    "metricsDelta": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "before",
+        "after",
+        "delta"
+      ],
+      "properties": {
+        "before": {
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "pairThinDirectionEdgeCount",
+            "crossModuleEdgeCount",
+            "crossModuleCycleCount",
+            "residualCycleCount",
+            "directionViolationCount"
+          ],
+          "properties": {
+            "pairThinDirectionEdgeCount": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "crossModuleEdgeCount": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "crossModuleCycleCount": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "residualCycleCount": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "directionViolationCount": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        },
+        "after": {
+          "anyOf": [
+            {
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "pairThinDirectionEdgeCount",
+                "crossModuleEdgeCount",
+                "crossModuleCycleCount",
+                "residualCycleCount",
+                "directionViolationCount"
+              ],
+              "properties": {
+                "pairThinDirectionEdgeCount": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "crossModuleEdgeCount": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "crossModuleCycleCount": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "residualCycleCount": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "directionViolationCount": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "delta": {
+          "anyOf": [
+            {
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "pairThinDirectionEdgeCount",
+                "crossModuleEdgeCount",
+                "crossModuleCycleCount",
+                "residualCycleCount",
+                "directionViolationCount"
+              ],
+              "properties": {
+                "pairThinDirectionEdgeCount": {
+                  "type": "integer"
+                },
+                "crossModuleEdgeCount": {
+                  "type": "integer"
+                },
+                "crossModuleCycleCount": {
+                  "type": "integer"
+                },
+                "residualCycleCount": {
+                  "type": "integer"
+                },
+                "directionViolationCount": {
+                  "type": "integer"
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "newlyIntroducedCycles": {
+      "type": "array",
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      }
+    },
+    "resolvedCycles": {
+      "type": "array",
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      }
+    },
+    "newlyIntroducedViolations": {
+      "type": "array",
+      "items": {
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "constraintId",
+          "fromPath",
+          "toPath",
+          "fromNode",
+          "toNode",
+          "severity"
+        ],
+        "properties": {
+          "constraintId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "fromPath": {
+            "type": "string",
+            "minLength": 1,
+            "not": {
+              "anyOf": [
+                {
+                  "pattern": "^/"
+                },
+                {
+                  "pattern": "\\\\"
+                },
+                {
+                  "pattern": "(^|/)\\.\\.(/|$)"
+                }
+              ]
+            }
+          },
+          "toPath": {
+            "type": "string",
+            "minLength": 1,
+            "not": {
+              "anyOf": [
+                {
+                  "pattern": "^/"
+                },
+                {
+                  "pattern": "\\\\"
+                },
+                {
+                  "pattern": "(^|/)\\.\\.(/|$)"
+                }
+              ]
+            }
+          },
+          "fromNode": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "toNode": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "severity": {
+            "enum": [
+              "notice",
+              "warning",
+              "error",
+              "critical"
+            ]
+          },
+          "fromLayer": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "toLayer": {
+            "minLength": 1,
+            "type": "string"
+          }
+        }
+      }
+    },
+    "cutCandidates": {
+      "type": "array",
+      "items": {
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "strategy",
+          "measured",
+          "measurementStatus",
+          "summary",
+          "moves",
+          "thinDirectionEdgeDelta",
+          "crossModuleCycleDelta",
+          "directionViolationDelta",
+          "newlyIntroducedViolationCount",
+          "breaksPair",
+          "caveats"
+        ],
+        "properties": {
+          "strategy": {
+            "type": "string",
+            "enum": [
+              "move-source-file",
+              "move-target-file",
+              "extract-shared-leaf",
+              "invert-interface"
+            ]
+          },
+          "measured": {
+            "type": "boolean"
+          },
+          "measurementStatus": {
+            "type": "string",
+            "enum": [
+              "measured",
+              "unmeasured"
+            ]
+          },
+          "summary": {
+            "minLength": 1,
+            "maxLength": 1024,
+            "type": "string"
+          },
+          "moves": {
+            "type": "array",
+            "items": {
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "path",
+                "toNodeId"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "not": {
+                    "anyOf": [
+                      {
+                        "pattern": "^/"
+                      },
+                      {
+                        "pattern": "\\\\"
+                      },
+                      {
+                        "pattern": "(^|/)\\.\\.(/|$)"
+                      }
+                    ]
+                  }
+                },
+                "toNodeId": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "symbols": {
+                  "uniqueItems": true,
+                  "minItems": 1,
+                  "type": "array",
+                  "items": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "thinDirectionEdgeDelta": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "crossModuleCycleDelta": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "directionViolationDelta": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "newlyIntroducedViolationCount": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "breaksPair": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "caveats": {
+            "uniqueItems": true,
+            "type": "array",
+            "items": {
+              "minLength": 1,
+              "maxLength": 1024,
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "simulationDigest": {
+      "pattern": "^sha256:[a-f0-9]{64}$",
+      "type": "string"
+    },
+    "privacy": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "writes",
+        "rawSourcePersisted",
+        "rawDiffPersisted",
+        "promptPersisted"
+      ],
+      "properties": {
+        "writes": {
+          "const": "none"
+        },
+        "rawSourcePersisted": {
+          "const": false
+        },
+        "rawDiffPersisted": {
+          "const": false
+        },
+        "promptPersisted": {
+          "const": false
+        }
+      }
+    }
+  }
+}

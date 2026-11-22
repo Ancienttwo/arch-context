@@ -2,48 +2,172 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://archcontext.dev/schemas/runtime/archctx-capabilities.schema.json",
   "title": "ArchctxCapabilitiesV1",
-  "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "package", "protocols", "renderers", "features"],
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "package",
+    "protocols",
+    "renderers",
+    "features"
+  ],
   "properties": {
-    "schemaVersion": { "const": "archcontext.capabilities/v1" },
+    "schemaVersion": {
+      "const": "archcontext.capabilities/v1"
+    },
     "package": {
-      "type": "object",
       "additionalProperties": false,
-      "required": ["name", "version"],
+      "type": "object",
+      "required": [
+        "name",
+        "version"
+      ],
       "properties": {
-        "name": { "const": "archctx" },
-        "version": { "type": "string", "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$" }
+        "name": {
+          "const": "archctx"
+        },
+        "version": {
+          "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
+          "type": "string"
+        }
       }
     },
     "protocols": {
-      "type": "object",
       "additionalProperties": false,
-      "required": ["projectionRequest", "projectionResult", "architectureRefreshSignal"],
+      "type": "object",
+      "required": [
+        "projectionRequest",
+        "projectionResult",
+        "architectureRefreshSignal"
+      ],
       "properties": {
-        "projectionRequest": { "const": "archcontext.projection-request/v1" },
-        "projectionResult": { "const": "archcontext.projection-result/v3" },
-        "architectureRefreshSignal": { "const": "archcontext.architecture-refresh-signal/v2" }
+        "projectionRequest": {
+          "const": "archcontext.projection-request/v1"
+        },
+        "projectionResult": {
+          "const": "archcontext.projection-result/v3"
+        },
+        "architectureRefreshSignal": {
+          "const": "archcontext.architecture-refresh-signal/v2"
+        }
       }
     },
     "renderers": {
-      "type": "object",
       "additionalProperties": false,
-      "required": ["architectureDocs", "agentContext"],
+      "type": "object",
+      "required": [
+        "architectureDocs",
+        "agentContext"
+      ],
       "properties": {
-        "architectureDocs": { "const": "archcontext.docs-renderer/v6" },
-        "agentContext": { "const": "archcontext.agent-context-renderer/v2" }
+        "architectureDocs": {
+          "const": "archcontext.docs-renderer/v6"
+        },
+        "agentContext": {
+          "const": "archcontext.agent-context-renderer/v2"
+        }
       }
     },
     "features": {
-      "type": "array",
-      "minItems": 3,
       "uniqueItems": true,
+      "minItems": 3,
+      "type": "array",
       "items": {
-        "type": "string",
         "pattern": "^[a-z0-9]+(-[a-z0-9]+)*-v[0-9]+$",
         "description": "One feature flag: a lowercase kebab-case name that ends in a version suffix (-v1, -v2, ...). The pattern is open, so a validator built from this schema accepts flags that a later archctx adds. A consumer must ignore a flag it does not know. examples lists the flags this schema version knows.",
-        "examples": ["architecture-change-capabilities-v1", "architecture-debt-v1", "architecture-docs-renderer-v2", "architecture-refresh-signal-v1", "capability-dependencies-declared-v1", "capability-dependencies-v1", "changeset-entity-operations-v1", "changeset-ownership-delta-v1", "code-facts-unavailable-error-v1", "docs-anchors-v1", "flow-selector-check-v1", "module-statistics-v1", "native-context-export-v1", "projection-apply-readback-v1", "projection-apply-receipt-v1", "projection-apply-recovery-v1", "projection-apply-replay-restore-v1", "projection-apply-replay-v1", "projection-architecture-debt-v1", "projection-capability-isolation-v1", "projection-change-classification-v2", "projection-check-freshness-v2", "projection-freshness-v2", "projection-manifest-contract-v4", "projection-observed-major-change-acceptance-v1", "projection-orphan-review-v1", "projection-preview-v1", "projection-prior-committed-applies-v1", "projection-protocol-v2", "projection-publish-v1", "projection-slice-v1", "projection-snapshot-v1", "projection-verify-pr-v1", "recommendation-scan-decision-v1", "recommendation-v3", "refactor-assessment-v1", "refactor-observation-evidence-v1", "refactor-resolution-v1", "refactor-scan-limits-v1", "refactor-scan-untracked-count-v1"]
+        "examples": [
+          "architecture-change-capabilities-v1",
+          "architecture-debt-v1",
+          "architecture-docs-renderer-v2",
+          "architecture-refresh-signal-v1",
+          "capability-dependencies-declared-v1",
+          "capability-dependencies-v1",
+          "changeset-entity-operations-v1",
+          "changeset-ownership-delta-v1",
+          "cli-check-v1",
+          "code-facts-unavailable-error-v1",
+          "deps-calls-matrix-v1",
+          "docs-anchors-v1",
+          "flow-selector-check-v1",
+          "host-ownership-isolation-v1",
+          "index-seed-v1",
+          "module-statistics-v1",
+          "native-context-export-v1",
+          "projection-apply-receipt-v1",
+          "projection-apply-replay-restore-v1",
+          "projection-apply-replay-v1",
+          "projection-architecture-debt-v1",
+          "projection-capability-isolation-v1",
+          "projection-change-classification-v2",
+          "projection-check-freshness-v2",
+          "projection-freshness-v2",
+          "projection-manifest-contract-v4",
+          "projection-observed-major-change-acceptance-v1",
+          "projection-orphan-review-v1",
+          "projection-preview-v1",
+          "projection-prior-committed-applies-v1",
+          "projection-protocol-v2",
+          "projection-publish-v1",
+          "projection-slice-v1",
+          "projection-snapshot-v1",
+          "projection-verify-pr-v1",
+          "recommendation-scan-decision-v1",
+          "recommendation-v3",
+          "refactor-assessment-v1",
+          "refactor-observation-evidence-v1",
+          "refactor-radar-v2",
+          "refactor-resolution-v1",
+          "refactor-scan-limits-v1",
+          "refactor-scan-untracked-count-v1",
+          "refactor-simulate-v1",
+          "refactor-symbol-kill-list-v1"
+        ],
+        "type": "string"
+      }
+    },
+    "codeFacts": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "state",
+        "codeGraphVersion",
+        "issues"
+      ],
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": [
+            "ready",
+            "not-ready",
+            "index-missing",
+            "unavailable"
+          ]
+        },
+        "codeGraphVersion": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "issues": {
+          "type": "array",
+          "items": {
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "code",
+              "message"
+            ],
+            "properties": {
+              "code": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "message": {
+                "minLength": 1,
+                "type": "string"
+              }
+            }
+          }
+        }
       }
     }
   }

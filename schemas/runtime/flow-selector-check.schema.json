@@ -3,62 +3,160 @@
   "$id": "https://archcontext.dev/schemas/runtime/flow-selector-check.schema.json",
   "title": "ArchitectureFlowSelectorCheckV1",
   "description": "The data of `archctx flows check`: the P2 flow proof of every capability that declares a flow, and the proof status of every declared entrypoint-to-sink selector, computed without rendering. Consumers detect it through the flow-selector-check-v1 capability.",
-  "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "ok", "codeGraph", "summary", "selectors", "capabilities"],
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "ok",
+    "codeGraph",
+    "summary",
+    "selectors",
+    "capabilities"
+  ],
   "properties": {
-    "schemaVersion": { "const": "archcontext.flow-selector-check/v1" },
-    "ok": { "type": "boolean", "description": "True when no capability that declares a flow has an unprovable P2 proof." },
+    "schemaVersion": {
+      "const": "archcontext.flow-selector-check/v1"
+    },
+    "ok": {
+      "description": "True when no capability that declares a flow has an unprovable P2 proof.",
+      "type": "boolean"
+    },
     "codeGraph": {
-      "type": "object",
       "additionalProperties": false,
-      "required": ["availability", "version"],
+      "type": "object",
+      "required": [
+        "availability",
+        "version"
+      ],
       "properties": {
-        "availability": { "enum": ["ready", "unavailable"] },
-        "version": { "type": "string", "minLength": 1 }
+        "availability": {
+          "enum": [
+            "ready",
+            "unavailable"
+          ]
+        },
+        "version": {
+          "minLength": 1,
+          "type": "string"
+        }
       }
     },
     "summary": {
-      "type": "object",
       "additionalProperties": false,
-      "required": ["selectors", "proven", "unproven", "usedUnproven"],
+      "type": "object",
+      "required": [
+        "selectors",
+        "proven",
+        "unproven",
+        "usedUnproven"
+      ],
       "properties": {
-        "selectors": { "type": "integer", "minimum": 0 },
-        "proven": { "type": "integer", "minimum": 0 },
-        "unproven": { "type": "integer", "minimum": 0 },
-        "usedUnproven": { "type": "integer", "minimum": 0, "description": "Unproven selectors that a required-flow step names." }
+        "selectors": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "proven": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "unproven": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "usedUnproven": {
+          "minimum": 0,
+          "description": "Unproven selectors that a required-flow step names.",
+          "type": "integer"
+        }
       }
     },
     "selectors": {
       "type": "array",
       "items": {
-        "type": "object",
         "additionalProperties": false,
-        "required": ["nodeId", "entrypointId", "sourcePath", "sourceSymbol", "sinkId", "sinkPath", "sinkSymbol", "status", "callSites", "referenceSites", "rejectedBuiltinCallSites", "flowSteps"],
+        "type": "object",
+        "required": [
+          "nodeId",
+          "entrypointId",
+          "sourcePath",
+          "sourceSymbol",
+          "sinkId",
+          "sinkPath",
+          "sinkSymbol",
+          "status",
+          "callSites",
+          "referenceSites",
+          "rejectedBuiltinCallSites",
+          "flowSteps"
+        ],
         "properties": {
-          "nodeId": { "type": "string", "minLength": 1 },
-          "entrypointId": { "type": "string", "minLength": 1 },
-          "sourcePath": { "type": "string", "minLength": 1 },
-          "sourceSymbol": { "type": "string", "minLength": 1 },
-          "sinkId": { "type": "string", "minLength": 1 },
-          "sinkPath": { "type": "string", "minLength": 1 },
-          "sinkSymbol": { "type": "string", "minLength": 1 },
-          "status": {
-            "enum": ["ambiguous-symbol", "evidence-missing", "evidence-truncated", "false-builtin-call", "no-direct-call", "only-references", "proven"],
-            "description": "Only proven binds a flow step."
+          "nodeId": {
+            "minLength": 1,
+            "type": "string"
           },
-          "callSites": { "$ref": "#/$defs/sites" },
-          "referenceSites": { "$ref": "#/$defs/sites" },
-          "rejectedBuiltinCallSites": { "$ref": "#/$defs/sites" },
+          "entrypointId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "sourcePath": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "sourceSymbol": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "sinkId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "sinkPath": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "sinkSymbol": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "status": {
+            "description": "Only proven binds a flow step.",
+            "enum": [
+              "ambiguous-symbol",
+              "evidence-missing",
+              "evidence-truncated",
+              "false-builtin-call",
+              "no-direct-call",
+              "only-references",
+              "proven"
+            ]
+          },
+          "callSites": {
+            "$ref": "#/$defs/sites"
+          },
+          "referenceSites": {
+            "$ref": "#/$defs/sites"
+          },
+          "rejectedBuiltinCallSites": {
+            "$ref": "#/$defs/sites"
+          },
           "flowSteps": {
             "type": "array",
             "items": {
-              "type": "object",
               "additionalProperties": false,
-              "required": ["flowId", "stepId"],
+              "type": "object",
+              "required": [
+                "flowId",
+                "stepId"
+              ],
               "properties": {
-                "flowId": { "type": "string", "minLength": 1 },
-                "stepId": { "type": "string", "minLength": 1 }
+                "flowId": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "stepId": {
+                  "minLength": 1,
+                  "type": "string"
+                }
               }
             }
           }
@@ -68,23 +166,50 @@
     "capabilities": {
       "type": "array",
       "items": {
-        "type": "object",
         "additionalProperties": false,
-        "required": ["capabilityId", "p2Status", "diagnostics"],
+        "type": "object",
+        "required": [
+          "capabilityId",
+          "p2Status",
+          "diagnostics"
+        ],
         "properties": {
-          "capabilityId": { "type": "string", "minLength": 1 },
-          "p2Status": { "enum": ["not-applicable", "proven", "unprovable"] },
+          "capabilityId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "p2Status": {
+            "enum": [
+              "not-applicable",
+              "proven",
+              "unprovable"
+            ]
+          },
           "diagnostics": {
             "type": "array",
             "items": {
-              "type": "object",
               "additionalProperties": false,
-              "required": ["code", "detail"],
+              "type": "object",
+              "required": [
+                "code",
+                "detail"
+              ],
               "properties": {
-                "code": { "type": "string", "minLength": 1 },
-                "flowId": { "type": "string", "minLength": 1 },
-                "stepId": { "type": "string", "minLength": 1 },
-                "detail": { "type": "string" }
+                "code": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "flowId": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "stepId": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "detail": {
+                  "type": "string"
+                }
               }
             }
           }
@@ -96,12 +221,20 @@
     "sites": {
       "type": "array",
       "items": {
-        "type": "object",
         "additionalProperties": false,
-        "required": ["path"],
+        "type": "object",
+        "required": [
+          "path"
+        ],
         "properties": {
-          "path": { "type": "string", "minLength": 1 },
-          "line": { "type": "integer", "minimum": 1 }
+          "path": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "line": {
+            "minimum": 1,
+            "type": "integer"
+          }
         }
       }
     }

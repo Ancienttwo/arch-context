@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { NativeNode, NativeRelation } from "@archcontext/core/projection-engine";
+import type { NativeNode, NativeRelation } from "@archcontext/core/architecture-domain";
 import { measureCapabilityDependencies, type CapabilityDependencyInputV1 } from "../src/index";
 import { WORKTREE_DIGEST, digestOf } from "./factories";
 

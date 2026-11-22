@@ -39,7 +39,7 @@ describe("local product first-experience E2E", () => {
     });
   }, LOCAL_PRODUCT_E2E_TIMEOUT_MS);
 
-  test("installed archctx rejects sibling repository input before starting the daemon", async () => {
+  test("installed archctx rejects sibling repository input without creating repository truth", async () => {
     expect(existsSync(ARCHCTX_BIN)).toBe(true);
     const workspace = mkdtempSync(join(tmpdir(), "archctx-multirepo-reject-e2e-"));
     const repo = join(workspace, "primary");
@@ -62,17 +62,13 @@ describe("local product first-experience E2E", () => {
       expect(denied.ok).toBe(false);
       expect(denied.error.code).toBe("AC_CAPABILITY_UNSUPPORTED");
       expect(denied.error.action).toBe("stay-within-single-repository");
-
-      const daemonStatus = await runArchctx(repo, "daemon", "status");
-      expect(daemonStatus.ok).toBe(true);
-      expect(daemonStatus.data.running).toBe(false);
+      expect(existsSync(join(repo, ".archcontext"))).toBe(false);
     } finally {
-      await stopDaemonAndWait(repo);
       removeTempRoot(workspace);
     }
   }, LOCAL_PRODUCT_E2E_TIMEOUT_MS);
 
-  test("installed explicit practice checkpoint updates and reverts practice deltas through the daemon", async () => {
+  test("installed explicit practice checkpoint updates and reverts practice deltas in-process", async () => {
     expect(existsSync(ARCHCTX_BIN)).toBe(true);
     const workspace = mkdtempSync(join(tmpdir(), "archctx-hook-delta-e2e-"));
     const repo = join(workspace, "single-repo-basic");
@@ -151,7 +147,6 @@ describe("local product first-experience E2E", () => {
         deleted: 1
       });
     } finally {
-      await stopDaemonAndWait(repo);
       removeTempRoot(workspace);
     }
   }, LOCAL_PRODUCT_E2E_TIMEOUT_MS);
@@ -205,7 +200,6 @@ describe("local product first-experience E2E", () => {
         deleted: 0
       });
     } finally {
-      await stopDaemonAndWait(repo);
       removeTempRoot(workspace);
     }
   }, LOCAL_PRODUCT_E2E_TIMEOUT_MS);
@@ -253,17 +247,14 @@ async function runFirstExperience(
       }
     });
 
-    const mcpStatus = await runArchctx(repo, "mcp", "status", "--host", "codex");
-    expect(mcpStatus.ok).toBe(true);
-    expect(mcpStatus.data.config.mcpServers.archcontext).toEqual({ command: "archctx", args: ["mcp"] });
-
     const init = await runArchctx(repo, "init", "--name", input.productName);
     expect(init.ok).toBe(true);
     expect(existsSync(join(repo, ".archcontext", "model"))).toBe(true);
 
     const sync = await runArchctx(repo, "sync", "--changed", input.changedPath);
     expect(sync.ok).toBe(true);
-    expect(sync.data.codeFactsDigest).toMatch(/^sha256:/);
+    expect(sync.data.schemaVersion).toBe("archcontext.sync/v2");
+    expect(sync.data.modelDigest).toMatch(/^sha256:/);
 
     const prepared = await runArchctx(repo, "prepare", "--task", input.task, "--max-items", "2");
     expect(prepared.ok).toBe(true);
@@ -294,7 +285,6 @@ async function runFirstExperience(
     expect(complete.ok).toBe(true);
     expect(complete.data.schemaVersion).toBe("archcontext.review/v1");
   } finally {
-    await stopDaemonAndWait(repo);
     removeTempRoot(workspace);
   }
 }
@@ -384,21 +374,6 @@ function resolveCodeGraphBin(): string {
     ? [join(BIN_DIR, "codegraph.cmd"), join(BIN_DIR, "codegraph.exe"), join(BIN_DIR, "codegraph")]
     : [join(BIN_DIR, "codegraph")];
   return candidates.find((candidate) => existsSync(candidate)) ?? "codegraph";
-}
-
-async function stopDaemonAndWait(root: string): Promise<void> {
-  await runArchctx(root, "daemon", "stop").catch(() => undefined);
-  await expectFileRemoved(join(root, ".archcontext", ".local", "archctxd.json")).catch(() => undefined);
-  await expectFileRemoved(join(root, ".archcontext", ".local", "archctxd.lock")).catch(() => undefined);
-}
-
-async function expectFileRemoved(path: string): Promise<void> {
-  const deadline = Date.now() + 5_000;
-  while (Date.now() < deadline) {
-    if (!existsSync(path)) return;
-    await new Promise((resolvePromise) => setTimeout(resolvePromise, 50));
-  }
-  throw new Error(`Timed out waiting for file removal: ${path}`);
 }
 
 function removeTempRoot(root: string): void {

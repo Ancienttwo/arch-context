@@ -4,14 +4,48 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { toEnvelope, digestJson, validateJsonSchema, type Json } from "@archcontext/contracts";
 import { initializeArchContextModel, YamlModelStore } from "../../../local-runtime/model-store-yaml/src/index";
-import { SqliteLocalStore, committedChangeSetFileOperation } from "../../../local-runtime/local-store-sqlite/src/index";
-import { ChangeSetEngine, MANIFEST_UPDATE_OPERATION_SCHEMA, MANIFEST_UPDATE_PATH, planManifestFieldsOperation, type ChangeOperation } from "../src/index";
+import { ChangeSetEngine, MANIFEST_UPDATE_OPERATION_SCHEMA, MANIFEST_UPDATE_PATH, PLAN_OPERATIONS_SCHEMA, planManifestFieldsOperation, type ChangeOperation, type ChangeSetJournalFile, type ChangeSetJournalPort } from "../src/index";
 import { renderManifestFieldsUpdate } from "../src/manifest-update";
-import { MCP_TOOL_INPUT_SCHEMAS } from "../../../surfaces/mcp-local/src/tool-schemas";
+
+class RecordingJournal implements ChangeSetJournalPort {
+  committed = new Map<string, { root: string; files: { path: string; operation: "delete" | "write"; hash: string }[] }>();
+  pending = new Set<string>();
+  private draftFiles = new Map<string, { root: string; files: ChangeSetJournalFile[] }>();
+  private nextId = 0;
+
+  async beginChangeSet(root: string): Promise<string> {
+    const id = `journal.${++this.nextId}`;
+    this.pending.add(id);
+    this.draftFiles.set(id, { root, files: [] });
+    return id;
+  }
+
+  async recordChangeSetFile(journalId: string, file: ChangeSetJournalFile): Promise<void> {
+    this.draftFiles.get(journalId)?.files.push(file);
+  }
+
+  async commitChangeSet(journalId: string): Promise<void> {
+    this.pending.delete(journalId);
+    const entry = this.draftFiles.get(journalId);
+    if (!entry) return;
+    this.committed.set(journalId, {
+      root: entry.root,
+      files: entry.files.map((file) => ({ path: file.path, operation: "write", hash: file.bodyHash }))
+    });
+  }
+
+  async completeChangeSetCleanup(): Promise<void> {}
+
+  async abortChangeSet(journalId: string): Promise<void> {
+    this.pending.delete(journalId);
+    this.draftFiles.delete(journalId);
+  }
+
+  recoverPendingChangeSets(): number { return 0; }
+}
 
 const roots: string[] = [];
-const stores: SqliteLocalStore[] = [];
-afterEach(() => { for (const store of stores.splice(0)) store.close(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
+afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 async function fixture() {
   const root = mkdtempSync(join(tmpdir(), "archctx-manifest-")); roots.push(root);
   initializeArchContextModel(root, "Manifest Test");
@@ -19,7 +53,7 @@ async function fixture() {
   const path = join(root, MANIFEST_UPDATE_PATH);
   const before = readFileSync(path, "utf8").replace('decisions: "docs/adr"', 'decisions: ".archcontext/decisions"');
   writeFileSync(path, before);
-  const journal = new SqliteLocalStore(join(root, "journal.sqlite")); stores.push(journal); await journal.migrate();
+  const journal = new RecordingJournal();
   const engine = new ChangeSetEngine({ modelStore: new YamlModelStore(), journal, projection: { planGeneratedProjection() { throw new Error("manifest update must not rebuild projections"); } } });
   const operation = planManifestFieldsOperation(root, { "content.decisions": "docs/adr" });
   const plan = (operations = [operation]) => engine.plan({ id: "changeset.manifest", base: { headSha: "test", worktreeDigest: digestJson({}), modelDigest: digestJson({}) }, reason: { taskSessionId: "task.manifest" }, operations });
@@ -37,32 +71,17 @@ test("manifest ChangeSet preserves unrelated settings and projections, with dura
   const after = before.replace('decisions: ".archcontext/decisions"', 'decisions: "docs/adr"');
   expect(readFileSync(path, "utf8")).toBe(after);
   expect(readFileSync(marker, "utf8")).toBe("untouched\n");
-  expect((await journal.listCommittedChangeSetsForTaskSession(root, "task.manifest"))[0].files).toEqual([{ path: MANIFEST_UPDATE_PATH, operation: "write", hash: digestJson({ body: after }) }]);
+  expect([...journal.committed.values()][0]?.files).toEqual([{ path: MANIFEST_UPDATE_PATH, operation: "write", hash: digestJson({ body: after }) }]);
   expect(existsSync(`${path}.archctx-backup`)).toBe(false);
-  expect(() => committedChangeSetFileOperation("unknown", "journal", MANIFEST_UPDATE_PATH)).toThrow("malformed");
 });
 
 test("manifest write failure rolls back exact bytes and creates no committed claim", async () => {
   const { root, path, before, journal, engine, plan } = await fixture();
   await expect(engine.apply(root, plan(), { approved: true, faultAfterOperations: 1 })).rejects.toThrow("fault-injection");
   expect(readFileSync(path, "utf8")).toBe(before);
-  expect(await journal.listCommittedChangeSetsForTaskSession(root, "task.manifest")).toEqual([]);
-  expect(journal.listUnresolvedChangeSetJournals()).toEqual([]);
+  expect(journal.committed.size).toBe(0);
+  expect(journal.pending.size).toBe(0);
   expect(existsSync(`${path}.archctx-backup`)).toBe(false);
-});
-
-test("pending manifest journal recovery restores the preimage after restart", async () => {
-  const { root, path, before, journal, plan } = await fixture();
-  const id = await journal.beginChangeSet(root, plan());
-  const backupPath = `${path}.archctx-backup`;
-  const body = renderManifestFieldsUpdate(before, { "content.decisions": "docs/adr" });
-  await journal.recordChangeSetFile(id, { path: MANIFEST_UPDATE_PATH, backupPath, existed: true, operation: "update_manifest_fields", bodyHash: digestJson({ body }) });
-  renameSync(path, backupPath); writeFileSync(path, body);
-  journal.close(); stores.splice(stores.indexOf(journal), 1);
-  const reopened = new SqliteLocalStore(join(root, "journal.sqlite")); stores.push(reopened); await reopened.migrate();
-  expect(reopened.recoverPendingChangeSets()).toBe(1);
-  expect(readFileSync(path, "utf8")).toBe(before);
-  expect(await reopened.listCommittedChangeSetsForTaskSession(root, "task.manifest")).toEqual([]);
 });
 
 const invalid: Record<string, unknown>[] = [
@@ -78,7 +97,7 @@ for (const patch of invalid) test(`manifest rejects unsupported operation ${JSON
   expect(engine.preview(root, draft).allowed).toBe(false);
   await expect(engine.apply(root, draft, { approved: true })).rejects.toThrow();
   expect(readFileSync(path, "utf8")).toBe(before);
-  expect(journal.listUnresolvedChangeSetJournals()).toEqual([]);
+  expect(journal.pending.size).toBe(0);
 });
 
 test("manifest scope cannot widen a mixed draft or generic operations", async () => {
@@ -139,13 +158,12 @@ test("manifest YAML edit preserves comments and unrelated settings and rejects a
   ]) expect(() => renderManifestFieldsUpdate(bad, { "content.decisions": "docs/adr" })).toThrow();
 });
 
-test("manifest operation schema is shared by MCP and the checked runtime schema projection", async () => {
+test("manifest operation schema is shared by ChangeSet plan schema and the checked runtime schema projection", async () => {
   const { operation } = await fixture();
   const runtime = JSON.parse(readFileSync(resolve(import.meta.dir, "../../../../schemas/runtime/changeset.schema.json"), "utf8"));
   expect(runtime.properties.operations.items.oneOf[1]).toEqual(MANIFEST_UPDATE_OPERATION_SCHEMA);
-  const schema = MCP_TOOL_INPUT_SCHEMAS.archcontext_plan_update;
-  expect(validateJsonSchema(schema, { root: "/repo", id: "changeset.manifest", operations: [operation] } as unknown as Json).valid).toBe(true);
-  for (const patch of invalid) expect(validateJsonSchema(schema, { root: "/repo", id: "changeset.manifest", operations: [{ ...operation, ...patch }] } as unknown as Json).valid).toBe(false);
+  expect(validateJsonSchema(PLAN_OPERATIONS_SCHEMA, [operation] as unknown as Json).valid).toBe(true);
+  for (const patch of invalid) expect(validateJsonSchema(PLAN_OPERATIONS_SCHEMA, [{ ...operation, ...patch }] as unknown as Json).valid).toBe(false);
 });
 
 test("ordered layers are planned and applied through the manifest ChangeSet without an ADR directory", async () => {

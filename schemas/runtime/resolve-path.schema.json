@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archcontext.dev/schemas/runtime/resolve-path.schema.json",
+  "title": "ResolvePathsBatchResultV1",
+  "description": "Batch ownership resolution output for `archctx resolve --paths-from`.",
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "results"
+  ],
+  "properties": {
+    "results": {
+      "type": "array",
+      "items": {
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "path",
+          "matched",
+          "ambiguous",
+          "owningCapabilityId"
+        ],
+        "properties": {
+          "path": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "matched": {
+            "type": "boolean"
+          },
+          "ambiguous": {
+            "type": "boolean"
+          },
+          "owningCapabilityId": {
+            "minLength": 1,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "stableId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "kind": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "source": {
+            "type": "object"
+          },
+          "extensions": {
+            "type": "object"
+          },
+          "candidates": {
+            "type": "array",
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

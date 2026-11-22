@@ -2,8 +2,8 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://archctx.repoharness.com/schemas/runtime/architecture-debt.schema.json",
   "title": "ArchitectureDebtReportV1",
-  "type": "object",
   "additionalProperties": false,
+  "type": "object",
   "required": [
     "schemaVersion",
     "scope",
@@ -19,8 +19,8 @@
       "const": "archcontext.architecture-debt/v1"
     },
     "scope": {
-      "type": "object",
       "additionalProperties": false,
+      "type": "object",
       "required": [
         "kind",
         "changedPaths",
@@ -34,21 +34,21 @@
           ]
         },
         "changedPaths": {
-          "type": "array",
           "uniqueItems": true,
+          "type": "array",
           "items": {
-            "type": "string",
             "minLength": 1,
-            "maxLength": 1024
+            "maxLength": 1024,
+            "type": "string"
           }
         },
         "capabilityIds": {
-          "type": "array",
           "uniqueItems": true,
+          "type": "array",
           "items": {
-            "type": "string",
             "minLength": 1,
-            "maxLength": 1024
+            "maxLength": 1024,
+            "type": "string"
           }
         }
       }
@@ -61,21 +61,21 @@
       ]
     },
     "coverageReasonCodes": {
-      "type": "array",
       "uniqueItems": true,
+      "type": "array",
       "items": {
-        "type": "string",
         "minLength": 1,
-        "maxLength": 1024
+        "maxLength": 1024,
+        "type": "string"
       }
     },
     "checks": {
-      "type": "array",
       "minItems": 6,
       "maxItems": 6,
+      "type": "array",
       "items": {
-        "type": "object",
         "additionalProperties": false,
+        "type": "object",
         "required": [
           "check",
           "coverage",
@@ -100,12 +100,12 @@
             ]
           },
           "reasonCodes": {
-            "type": "array",
             "uniqueItems": true,
+            "type": "array",
             "items": {
-              "type": "string",
               "minLength": 1,
-              "maxLength": 1024
+              "maxLength": 1024,
+              "type": "string"
             }
           }
         }
@@ -114,8 +114,8 @@
     "items": {
       "type": "array",
       "items": {
-        "type": "object",
         "additionalProperties": false,
+        "type": "object",
         "required": [
           "id",
           "kind",
@@ -128,8 +128,8 @@
         ],
         "properties": {
           "id": {
-            "type": "string",
-            "pattern": "^debt\\.[a-f0-9]{64}$"
+            "pattern": "^debt\\.[a-f0-9]{64}$",
+            "type": "string"
           },
           "kind": {
             "enum": [
@@ -144,41 +144,41 @@
             ]
           },
           "nodeIds": {
-            "type": "array",
             "uniqueItems": true,
+            "type": "array",
             "items": {
-              "type": "string",
               "minLength": 1,
-              "maxLength": 1024
+              "maxLength": 1024,
+              "type": "string"
             }
           },
           "capabilityIds": {
-            "type": "array",
             "uniqueItems": true,
+            "type": "array",
             "items": {
-              "type": "string",
               "minLength": 1,
-              "maxLength": 1024
+              "maxLength": 1024,
+              "type": "string"
             }
           },
           "paths": {
-            "type": "array",
             "uniqueItems": true,
+            "type": "array",
             "items": {
-              "type": "string",
               "minLength": 1,
-              "maxLength": 1024
+              "maxLength": 1024,
+              "type": "string"
             }
           },
           "reasonCode": {
-            "type": "string",
             "minLength": 1,
-            "maxLength": 1024
+            "maxLength": 1024,
+            "type": "string"
           },
           "action": {
-            "type": "string",
             "minLength": 1,
-            "maxLength": 1024
+            "maxLength": 1024,
+            "type": "string"
           },
           "details": {
             "type": "object",
@@ -186,20 +186,20 @@
             "additionalProperties": {
               "oneOf": [
                 {
-                  "type": "string",
                   "minLength": 1,
-                  "maxLength": 1024
+                  "maxLength": 1024,
+                  "type": "string"
                 },
                 {
                   "type": "integer"
                 },
                 {
-                  "type": "array",
                   "uniqueItems": true,
+                  "type": "array",
                   "items": {
-                    "type": "string",
                     "minLength": 1,
-                    "maxLength": 1024
+                    "maxLength": 1024,
+                    "type": "string"
                   }
                 }
               ]
@@ -209,17 +209,17 @@
       }
     },
     "actionsRequired": {
-      "type": "array",
       "uniqueItems": true,
+      "type": "array",
       "items": {
-        "type": "string",
         "minLength": 1,
-        "maxLength": 1024
+        "maxLength": 1024,
+        "type": "string"
       }
     },
     "digest": {
-      "type": "string",
-      "pattern": "^sha256:[a-f0-9]{64}$"
+      "pattern": "^sha256:[a-f0-9]{64}$",
+      "type": "string"
     }
   }
 }

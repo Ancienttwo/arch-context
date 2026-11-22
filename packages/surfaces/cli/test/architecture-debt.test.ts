@@ -14,7 +14,6 @@ import { CodeGraphSdkProvider, codeGraphBaseDirectory } from "@archcontext/local
 import { indexCodeGraphFixture } from "../../../local-runtime/codegraph-adapter/test/real-index";
 import { runArchitectureDebtDeltaCommand } from "../src/architecture-debt-delta";
 import { runCli } from "../src/main";
-import { McpLocalServer } from "@archcontext/surfaces/mcp-local";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -58,9 +57,6 @@ async function read(root: string, paths: string[]) {
     expect(result.requestId).toBe("checkpoint");
     const debt = await runCli("debt", args, root, { runtimeClient: noRuntime });
     expect(debt.data).toEqual(result.data);
-    const server = new McpLocalServer({ runtimeResolver: () => { throw new Error("checkpoint reached runtime resolver"); } });
-    const mcp = await server.callTool("archcontext_checkpoint", { root, changedPaths: paths });
-    expect(mcp.content as unknown).toEqual(result);
     expect(result.ok, JSON.stringify(result)).toBe(true);
     expect(tree(root)).toBe(before);
     expect(readdirSync(state)).toEqual(["sentinel"]);
@@ -448,18 +444,12 @@ esac
 
 test("former checkpoint fields are rejected before any runtime access", async () => {
   const { root } = fixture();
-  const fields = ["taskSessionId", "task", "event", "toolCallId", "expectedHeadSha", "expectedWorktreeDigest", "maxBytes", "maxItems"];
-  const server = new McpLocalServer({ runtimeResolver: () => { throw new Error("invalid reader input reached runtime"); } });
-  for (const field of fields) {
-    const result = await server.callTool("archcontext_checkpoint", { root, [field]: field.startsWith("max") ? 12 : "old" });
-    expect(result.content).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID" } });
-  }
   for (const flag of ["--task-session-id", "--task", "--event", "--tool-call-id", "--expected-head-sha", "--head-sha", "--expected-worktree-digest", "--max-bytes", "--max-items", "--path", "--changed"]) {
     expect(await runCli("checkpoint", [flag, "old"], root, { runtimeClient: noRuntime })).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID" } });
     if (flag !== "--event") expect(await runCli("hook", ["checkpoint", flag, "old"], root, { runtimeClient: noRuntime })).toMatchObject({ ok: false, error: { code: "AC_SCHEMA_INVALID" } });
   }
-  const missing = await server.callTool("archcontext_checkpoint", { root: join(root, "absent"), changedPaths: ["../outside"] });
-  expect(missing.content).toMatchObject({ ok: false });
+  const missing = await runCli("checkpoint", ["--changed-path", "../outside"], join(root, "absent"), { runtimeClient: noRuntime });
+  expect(missing).toMatchObject({ ok: false });
 });
 
 test("hook read preserves the debt report and a typed unknown failure without state access", async () => {
@@ -618,8 +608,6 @@ test("D6-A anchors refusal retains code/action/reason/details through raw, CLI, 
     const result = await runCli(command, [], root, { runtimeClient: noRuntime });
     expect("error" in result ? result.error : undefined).toEqual(producer);
   }
-  const mcp = await new McpLocalServer({ runtimeResolver: () => { throw new Error("read started runtime"); } }).callTool("archcontext_checkpoint", { root });
-  expect((mcp.content as any).error).toEqual(producer);
   const hook = await runCli("hook", ["checkpoint"], root, { runtimeClient: noRuntime });
   expect(hook).toMatchObject({ ok: true, data: { accepted: false, failOpen: true, coverage: "unknown", error: producer } });
   expect(tree(root)).toBe(before);

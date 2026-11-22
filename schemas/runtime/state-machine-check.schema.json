@@ -3,64 +3,178 @@
   "$id": "https://archcontext.dev/schemas/runtime/state-machine-check.schema.json",
   "title": "StateMachineCheckV1",
   "description": "The data of `archctx state-machines check`: for every declared state machine, the size of its reachable global state space, the result of each declared rule, the built-in breaks and the status of each code anchor. The same model gives the same bytes.",
-  "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "machines"],
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "machines"
+  ],
   "properties": {
-    "schemaVersion": { "const": "archcontext.state-machine-check/v1" },
+    "schemaVersion": {
+      "const": "archcontext.state-machine-check/v1"
+    },
     "machines": {
       "description": "Sorted by machine id.",
       "type": "array",
       "items": {
-        "type": "object",
         "additionalProperties": false,
-        "required": ["id", "capabilityId", "reachableStates", "transitions", "rules", "breaks", "anchors"],
+        "type": "object",
+        "required": [
+          "id",
+          "capabilityId",
+          "reachableStates",
+          "transitions",
+          "rules",
+          "breaks",
+          "anchors"
+        ],
         "properties": {
-          "id": { "type": "string", "pattern": "^state-machine\\.[a-z][a-z0-9-]*(\\.[a-z0-9][a-z0-9-]*)*$" },
-          "capabilityId": { "type": "string", "pattern": "^capability\\.[a-z][a-z0-9-]*(\\.[a-z0-9][a-z0-9-]*)*$" },
-          "reachableStates": { "type": "integer", "minimum": 1 },
-          "transitions": { "type": "integer", "minimum": 0, "description": "Pairs of a reachable global state and an enabled step that changes it." },
+          "id": {
+            "pattern": "^state-machine\\.[a-z][a-z0-9-]*(\\.[a-z0-9][a-z0-9-]*)*$",
+            "type": "string"
+          },
+          "capabilityId": {
+            "pattern": "^capability\\.[a-z][a-z0-9-]*(\\.[a-z0-9][a-z0-9-]*)*$",
+            "type": "string"
+          },
+          "reachableStates": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "transitions": {
+            "minimum": 0,
+            "description": "Pairs of a reachable global state and an enabled step that changes it.",
+            "type": "integer"
+          },
           "rules": {
             "description": "In declaration order.",
             "type": "array",
             "items": {
-              "type": "object",
               "additionalProperties": false,
-              "required": ["id", "kind", "status"],
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "status": {
+                        "enum": [
+                          "broken",
+                          "finding-open"
+                        ]
+                      }
+                    }
+                  },
+                  "then": {
+                    "required": [
+                      "state",
+                      "path"
+                    ],
+                    "not": {
+                      "required": [
+                        "protectedBy"
+                      ]
+                    }
+                  },
+                  "else": {
+                    "not": {
+                      "anyOf": [
+                        {
+                          "required": [
+                            "state"
+                          ]
+                        },
+                        {
+                          "required": [
+                            "path"
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "status": {
+                        "enum": [
+                          "finding-open",
+                          "finding-resolved"
+                        ]
+                      }
+                    }
+                  },
+                  "then": {
+                    "required": [
+                      "tracking"
+                    ]
+                  },
+                  "else": {
+                    "not": {
+                      "required": [
+                        "tracking"
+                      ]
+                    }
+                  }
+                }
+              ],
+              "type": "object",
+              "required": [
+                "id",
+                "kind",
+                "status"
+              ],
               "properties": {
-                "id": { "$ref": "#/$defs/localId" },
-                "kind": { "enum": ["never", "final"] },
-                "status": { "enum": ["holds", "broken", "finding-open", "finding-resolved"] },
-                "tracking": { "type": "string", "pattern": "^https://[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)*(?::[0-9]{1,5})?(?:[/?#][^\\s]*)?$" },
-                "state": { "$ref": "#/$defs/globalState" },
-                "path": { "$ref": "#/$defs/path" },
+                "id": {
+                  "$ref": "#/$defs/localId"
+                },
+                "kind": {
+                  "enum": [
+                    "never",
+                    "final"
+                  ]
+                },
+                "status": {
+                  "enum": [
+                    "holds",
+                    "broken",
+                    "finding-open",
+                    "finding-resolved"
+                  ]
+                },
+                "tracking": {
+                  "pattern": "^https://[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)*(?::[0-9]{1,5})?(?:[/?#][^\\s]*)?$",
+                  "type": "string"
+                },
+                "state": {
+                  "$ref": "#/$defs/globalState"
+                },
+                "path": {
+                  "$ref": "#/$defs/path"
+                },
                 "protectedBy": {
                   "description": "The guards whose removal breaks this holding rule, in declaration order of the guards.",
                   "type": "array",
                   "items": {
-                    "type": "object",
                     "additionalProperties": false,
-                    "required": ["event", "step", "region"],
+                    "type": "object",
+                    "required": [
+                      "event",
+                      "step",
+                      "region"
+                    ],
                     "properties": {
-                      "event": { "$ref": "#/$defs/localId" },
-                      "step": { "$ref": "#/$defs/stepIndex" },
-                      "region": { "$ref": "#/$defs/localId" }
+                      "event": {
+                        "$ref": "#/$defs/localId"
+                      },
+                      "step": {
+                        "$ref": "#/$defs/stepIndex"
+                      },
+                      "region": {
+                        "$ref": "#/$defs/localId"
+                      }
                     }
                   }
                 }
-              },
-              "allOf": [
-                {
-                  "if": { "properties": { "status": { "enum": ["broken", "finding-open"] } } },
-                  "then": { "required": ["state", "path"], "not": { "required": ["protectedBy"] } },
-                  "else": { "not": { "anyOf": [{ "required": ["state"] }, { "required": ["path"] }] } }
-                },
-                {
-                  "if": { "properties": { "status": { "enum": ["finding-open", "finding-resolved"] } } },
-                  "then": { "required": ["tracking"] },
-                  "else": { "not": { "required": ["tracking"] } }
-                }
-              ]
+              }
             }
           },
           "breaks": {
@@ -69,34 +183,69 @@
             "items": {
               "oneOf": [
                 {
-                  "type": "object",
                   "additionalProperties": false,
-                  "required": ["kind", "region", "state"],
+                  "type": "object",
+                  "required": [
+                    "kind",
+                    "region",
+                    "state"
+                  ],
                   "properties": {
-                    "kind": { "const": "unreachable-state" },
-                    "region": { "$ref": "#/$defs/localId" },
-                    "state": { "$ref": "#/$defs/localId" }
+                    "kind": {
+                      "const": "unreachable-state"
+                    },
+                    "region": {
+                      "$ref": "#/$defs/localId"
+                    },
+                    "state": {
+                      "$ref": "#/$defs/localId"
+                    }
                   }
                 },
                 {
-                  "type": "object",
                   "additionalProperties": false,
-                  "required": ["kind", "event", "step"],
+                  "type": "object",
+                  "required": [
+                    "kind",
+                    "event",
+                    "step"
+                  ],
                   "properties": {
-                    "kind": { "const": "dead-step" },
-                    "event": { "$ref": "#/$defs/localId" },
-                    "step": { "$ref": "#/$defs/stepIndex" }
+                    "kind": {
+                      "const": "dead-step"
+                    },
+                    "event": {
+                      "$ref": "#/$defs/localId"
+                    },
+                    "step": {
+                      "$ref": "#/$defs/stepIndex"
+                    }
                   }
                 },
                 {
-                  "type": "object",
                   "additionalProperties": false,
-                  "required": ["kind", "state", "path", "count"],
+                  "type": "object",
+                  "required": [
+                    "kind",
+                    "state",
+                    "path",
+                    "count"
+                  ],
                   "properties": {
-                    "kind": { "const": "deadlock" },
-                    "state": { "$ref": "#/$defs/globalState" },
-                    "path": { "$ref": "#/$defs/path" },
-                    "count": { "type": "integer", "minimum": 1, "description": "The number of deadlocked reachable global states." }
+                    "kind": {
+                      "const": "deadlock"
+                    },
+                    "state": {
+                      "$ref": "#/$defs/globalState"
+                    },
+                    "path": {
+                      "$ref": "#/$defs/path"
+                    },
+                    "count": {
+                      "minimum": 1,
+                      "description": "The number of deadlocked reachable global states.",
+                      "type": "integer"
+                    }
                   }
                 }
               ]
@@ -106,48 +255,149 @@
             "description": "Every code source of a region or an event, regions first, then events, each in declaration order, with its status against the current file.",
             "type": "array",
             "items": {
-              "type": "object",
               "additionalProperties": false,
-              "required": ["owner", "ownerId", "path", "status"],
+              "allOf": [
+                {
+                  "if": {
+                    "required": [
+                      "symbol",
+                      "digest"
+                    ]
+                  },
+                  "then": {
+                    "required": [
+                      "callees"
+                    ]
+                  },
+                  "else": {
+                    "not": {
+                      "required": [
+                        "callees"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "status": {
+                        "enum": [
+                          "anchor-unconfirmed",
+                          "anchor-changed",
+                          "confirmed"
+                        ]
+                      }
+                    }
+                  },
+                  "then": {
+                    "required": [
+                      "digest"
+                    ]
+                  },
+                  "else": {
+                    "not": {
+                      "required": [
+                        "digest"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "status": {
+                        "const": "unchecked"
+                      }
+                    }
+                  },
+                  "then": {
+                    "required": [
+                      "reason",
+                      "symbol"
+                    ]
+                  },
+                  "else": {
+                    "not": {
+                      "required": [
+                        "reason"
+                      ]
+                    }
+                  }
+                }
+              ],
+              "type": "object",
+              "required": [
+                "owner",
+                "ownerId",
+                "path",
+                "status"
+              ],
               "properties": {
-                "owner": { "enum": ["region", "event"] },
-                "ownerId": { "$ref": "#/$defs/localId" },
-                "path": { "type": "string", "minLength": 1 },
-                "symbol": { "type": "string", "minLength": 1 },
-                "status": { "enum": ["anchor-missing-path", "anchor-language-unsupported", "anchor-missing-symbol", "anchor-ambiguous-symbol", "unchecked", "anchor-unconfirmed", "anchor-changed", "confirmed"] },
-                "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "description": "The file content, or a JSON array of the lines of the one matching declaration and of each direct callee, with CRLF read as LF." },
+                "owner": {
+                  "enum": [
+                    "region",
+                    "event"
+                  ]
+                },
+                "ownerId": {
+                  "$ref": "#/$defs/localId"
+                },
+                "path": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "symbol": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "status": {
+                  "enum": [
+                    "anchor-missing-path",
+                    "anchor-language-unsupported",
+                    "anchor-missing-symbol",
+                    "anchor-ambiguous-symbol",
+                    "unchecked",
+                    "anchor-unconfirmed",
+                    "anchor-changed",
+                    "confirmed"
+                  ]
+                },
+                "digest": {
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "description": "The file content, or a JSON array of the lines of the one matching declaration and of each direct callee, with CRLF read as LF.",
+                  "type": "string"
+                },
                 "callees": {
                   "description": "The direct callees that the digest of a symbol anchor covers, in digest order.",
                   "type": "array",
                   "items": {
-                    "type": "object",
                     "additionalProperties": false,
-                    "required": ["path", "qualifiedName"],
+                    "type": "object",
+                    "required": [
+                      "path",
+                      "qualifiedName"
+                    ],
                     "properties": {
-                      "path": { "type": "string", "minLength": 1 },
-                      "qualifiedName": { "type": "string", "minLength": 1 }
+                      "path": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "qualifiedName": {
+                        "minLength": 1,
+                        "type": "string"
+                      }
                     }
                   }
                 },
-                "reason": { "enum": ["index-missing", "index-open-failed", "index-stale"], "description": "Why the symbol reader is unavailable, or that the index does not hold the current content of the anchor's file or of a callee's file." }
-              },
-              "allOf": [
-                {
-                  "if": { "required": ["symbol", "digest"] },
-                  "then": { "required": ["callees"] },
-                  "else": { "not": { "required": ["callees"] } }
-                },
-                {
-                  "if": { "properties": { "status": { "enum": ["anchor-unconfirmed", "anchor-changed", "confirmed"] } } },
-                  "then": { "required": ["digest"] },
-                  "else": { "not": { "required": ["digest"] } }
-                },
-                {
-                  "if": { "properties": { "status": { "const": "unchecked" } } },
-                  "then": { "required": ["reason", "symbol"] },
-                  "else": { "not": { "required": ["reason"] } }
+                "reason": {
+                  "description": "Why the symbol reader is unavailable, or that the index does not hold the current content of the anchor's file or of a callee's file.",
+                  "enum": [
+                    "index-missing",
+                    "index-open-failed",
+                    "index-stale"
+                  ]
                 }
-              ]
+              }
             }
           }
         }
@@ -155,25 +405,43 @@
     }
   },
   "$defs": {
-    "localId": { "type": "string", "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$" },
-    "stepIndex": { "type": "integer", "minimum": 1, "description": "The 1-based index of the step in its event." },
+    "localId": {
+      "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
+      "type": "string"
+    },
+    "stepIndex": {
+      "minimum": 1,
+      "description": "The 1-based index of the step in its event.",
+      "type": "integer"
+    },
     "globalState": {
       "description": "One state per region, keyed by region id in declaration order.",
       "type": "object",
       "minProperties": 1,
-      "propertyNames": { "$ref": "#/$defs/localId" },
-      "additionalProperties": { "$ref": "#/$defs/localId" }
+      "propertyNames": {
+        "$ref": "#/$defs/localId"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/localId"
+      }
     },
     "path": {
       "description": "The shortest sequence of fired steps from the initial global state.",
       "type": "array",
       "items": {
-        "type": "object",
         "additionalProperties": false,
-        "required": ["event", "step"],
+        "type": "object",
+        "required": [
+          "event",
+          "step"
+        ],
         "properties": {
-          "event": { "$ref": "#/$defs/localId" },
-          "step": { "$ref": "#/$defs/stepIndex" }
+          "event": {
+            "$ref": "#/$defs/localId"
+          },
+          "step": {
+            "$ref": "#/$defs/stepIndex"
+          }
         }
       }
     }

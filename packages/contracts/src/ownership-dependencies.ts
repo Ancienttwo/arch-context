@@ -1,4 +1,19 @@
 import type { EvidenceCoverageLevelV2 } from "./ledger";
+import {
+  Const,
+  CountSchema,
+  GitCommitShaSchema,
+  NonEmptyStringSchema,
+  NullableType,
+  PositiveIntSchema,
+  RawEnum,
+  SchemaDocument,
+  Sha256DigestSchema,
+  StrictObject,
+  Type,
+  UniqueStringArray,
+  type Static
+} from "./schema-kit";
 
 // --- ChangeSet ownership delta (plan preview) ---
 //
@@ -71,7 +86,10 @@ export type ChangeSetOwnershipDeltaV1 = ChangeSetOwnershipDeltaComputedV1 | Chan
 export const CAPABILITY_DEPENDENCIES_SCHEMA_VERSION = "archcontext.capability-dependencies/v1" as const;
 /** Default number of file-level edges `archctx deps` lists. `edges.count` always holds the full total. */
 export const CAPABILITY_DEPENDENCIES_EDGE_LIMIT = 200;
-/** The CodeGraph adapter has no bounded repository-wide call-edge read, so calls are not counted. */
+/** Bounded repository-wide symbol call edge limit for `archctx deps` (#636). */
+export const CAPABILITY_DEPENDENCIES_CALL_EDGE_LIMIT = 128_000;
+export const CAPABILITY_DEPENDENCIES_CALL_LIMIT_REASON = "code-facts-call-limit" as const;
+/** Fallback reason when callers invoke `measureCapabilityDependencies` without call facts. */
 export const CAPABILITY_DEPENDENCIES_CALLS_UNAVAILABLE_REASON = "call-edges-not-exposed" as const;
 /**
  * The relation kinds that declare an import dependency: every `archcontext.relation/v1` kind in
@@ -104,8 +122,8 @@ export interface CapabilityDependencyCellV1 {
   to: string;
   /** Distinct file-to-file import edges from `from` into `to`. */
   imports: number;
-  /** Always `null` in v1: call edges are not read (see `calls`). */
-  calls: null;
+  /** Bounded symbol `calls` + `references` edges from `from` into `to`, or `null` when unavailable (#636). */
+  calls: number | null;
   /**
    * Whether the model declares this dependency (rule: CAPABILITY_DEPENDENCY_DECLARING_RELATION_KINDS).
    * A cell with `from === to` stays inside one capability and needs no relation: it is always
@@ -161,9 +179,101 @@ export interface CapabilityDependenciesV1 {
     unattributed: { unownedEndpoint: number; contestedEndpoint: number; noCapabilityEndpoint: number };
   };
   calls: {
-    coverage: "unknown";
-    reasonCodes: [typeof CAPABILITY_DEPENDENCIES_CALLS_UNAVAILABLE_REASON];
+    coverage: EvidenceCoverageLevelV2;
+    reasonCodes: string[];
+    edgeCount?: number;
+    edgeLimit?: number;
+    limitExceeded?: boolean;
   };
   /** Attributed file-level edges behind `matrix`, sorted by path. */
   edges: { limit: number; count: number; omittedCount: number; items: CapabilityDependencyEdgeV1[] };
 }
+
+export const CapabilityDependenciesBodySchema = StrictObject({
+  schemaVersion: Const(CAPABILITY_DEPENDENCIES_SCHEMA_VERSION),
+  ownershipRule: Const("parent-chain"),
+  filter: StrictObject({
+    from: NullableType("string"),
+    into: NullableType("string")
+  }),
+  capabilities: UniqueStringArray(NonEmptyStringSchema),
+  matrix: Type.Array(
+    StrictObject(
+      {
+        from: NonEmptyStringSchema,
+        to: NonEmptyStringSchema,
+        imports: CountSchema,
+        calls: NullableType("integer", { minimum: 0 }),
+        declared: Type.Boolean({
+          description:
+            "A relation of a declaring kind (every kind but deployed-on, spawns, runs-in and mounts) runs from a node that rolls up to `from` into a node that rolls up to `to`. A cell with from equal to to is always declared and lists no relation ids."
+        }),
+        relationIds: UniqueStringArray(NonEmptyStringSchema, {
+          description: "The declaring relation ids, sorted. Non-empty exactly when a cross-capability cell is declared."
+        })
+      },
+      {
+        if: { properties: { relationIds: { minItems: 1 } } },
+        then: { properties: { declared: { const: true } } }
+      }
+    )
+  ),
+  imports: StrictObject({
+    coverage: RawEnum(["complete", "partial"] as const),
+    reasonCodes: UniqueStringArray(RawEnum(["code-facts-import-limit", "code-facts-truncated"] as const)),
+    truncated: Type.Boolean(),
+    importNodeCount: NullableType("integer", { minimum: 0 }),
+    importNodeLimit: PositiveIntSchema,
+    importNodeLimitExceeded: Type.Boolean(),
+    edgeCount: CountSchema,
+    unresolvedCount: CountSchema,
+    unattributed: StrictObject({
+      unownedEndpoint: CountSchema,
+      contestedEndpoint: CountSchema,
+      noCapabilityEndpoint: CountSchema
+    })
+  }),
+  calls: StrictObject({
+    coverage: RawEnum(["complete", "partial", "unknown"] as const),
+    reasonCodes: UniqueStringArray(
+      RawEnum([
+        CAPABILITY_DEPENDENCIES_CALLS_UNAVAILABLE_REASON,
+        CAPABILITY_DEPENDENCIES_CALL_LIMIT_REASON,
+        "code-facts-truncated",
+        "code-facts-unavailable"
+      ] as const)
+    ),
+    edgeCount: Type.Optional(CountSchema),
+    edgeLimit: Type.Optional(PositiveIntSchema),
+    limitExceeded: Type.Optional(Type.Boolean())
+  }),
+  edges: StrictObject({
+    limit: CountSchema,
+    count: CountSchema,
+    omittedCount: CountSchema,
+    items: Type.Array(
+      StrictObject({
+        fromPath: NonEmptyStringSchema,
+        toPath: NonEmptyStringSchema,
+        fromCapability: NonEmptyStringSchema,
+        toCapability: NonEmptyStringSchema
+      })
+    )
+  }),
+  worktree: StrictObject({
+    headSha: GitCommitShaSchema,
+    worktreeDigest: Sha256DigestSchema
+  }),
+  privacy: StrictObject({
+    writes: Const("none")
+  })
+});
+
+export const CapabilityDependenciesSchema = SchemaDocument({
+  $id: "https://archcontext.dev/schemas/runtime/capability-dependencies.schema.json",
+  title: "CapabilityDependenciesV1",
+  description:
+    "The data of `archctx deps`: a read-only capability x capability import matrix. Owners come from the parent-chain rule `refactor scan` uses, rolled up to the nearest capability. Each cell says whether a model relation declares it. Call counts are not available in v1. Without code facts that attest to the measured tree, deps refuses with AC_CODE_FACTS_UNAVAILABLE instead of returning this data.",
+  schema: CapabilityDependenciesBodySchema
+});
+export type CapabilityDependenciesReportV1 = Static<typeof CapabilityDependenciesSchema>;

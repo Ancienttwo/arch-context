@@ -12,6 +12,7 @@ import {
   type RefactorAssessmentV1
 } from "@archcontext/contracts";
 import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
+import { runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
 import { initializeArchContextModel, listModelFiles, YamlModelStore } from "@archcontext/local-runtime/model-store-yaml";
@@ -101,6 +102,11 @@ function scanData(envelope: JsonEnvelope): ScanData {
 
 function errorOf(envelope: JsonEnvelope): { code: string; message: string; reasonCode?: string } {
   return (envelope as { error?: { code: string; message: string; reasonCode?: string } }).error!;
+}
+
+async function cachedRefactorEventsLength(store: TestLocalStore, root: string): Promise<number> {
+  const events = await store.readCacheEntry<unknown[]>("refactor_events", runtimeStatePaths(root).storageRepositoryId);
+  return Array.isArray(events) ? events.length : 0;
 }
 
 function candidateFor(scan: ScanData, subject: string): RecommendationV3 {
@@ -218,9 +224,9 @@ describe("refactor decisions travel through Git (ADR-0046)", () => {
         expect((verify as unknown as { error: { details: { recordCommand: string } } }).error.details.recordCommand).toContain(`--id ${id}`);
         const resolve = await daemonB.recommendations(b, { command: "resolve", approved: true, recommendationId: id, reason: "Done.", evidenceDigest: `sha256:${"1".repeat(64)}` });
         expect(errorOf(resolve)).toMatchObject({ code: "AC_REFACTOR_EVIDENCE_REQUIRED", reasonCode: "git-decision-not-recorded" });
-        expect(storeB.architectureEventAppends).toHaveLength(0);
+        expect(await cachedRefactorEventsLength(storeB, b)).toBe(0);
 
-        // reject: the same generation is recorded in B's ledger and the Git file is rewritten.
+        // reject: the same generation is recorded in B's cache and the Git file is rewritten.
         const rejected = await daemonB.recommendations(b, { command: "reject", approved: true, recommendationId: id, reason: "Not here after all." });
         expect(rejected.ok, JSON.stringify(rejected)).toBe(true);
         expect(rejected.data).toMatchObject({ recommendationId: id, previousStatus: "accepted", nextStatus: "rejected", decisionFile: decisionPath });
@@ -273,11 +279,11 @@ describe("refactor decisions travel through Git (ADR-0046)", () => {
         const resolvedPath = `${DECISIONS}/${deferred.recommendationId}.json`;
         const resolvedDecision = JSON.parse(readFileSync(join(b, resolvedPath), "utf8")) as Record<string, unknown>;
         writeFileSync(join(b, resolvedPath), `${JSON.stringify({ ...resolvedDecision, status: "resolved" }, null, 2)}\n`);
-        const appends = storeB.architectureEventAppends.length;
+        const eventsBefore = await cachedRefactorEventsLength(storeB, b);
         const verifyResolved = await daemonB.refactorVerify(b, { schemaVersion: REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION, recommendationId: deferred.recommendationId }) as unknown as Refusal;
         expect(verifyResolved.error.reasonCode).toBe("git-decision-not-recorded");
         expect(verifyResolved.error.details).toEqual({ recommendationId: deferred.recommendationId, decisionStatus: "resolved", recordCommand: null, verifyCommand: null });
-        expect(storeB.architectureEventAppends).toHaveLength(appends);
+        expect(await cachedRefactorEventsLength(storeB, b)).toBe(eventsBefore);
         git(b, "checkout", "--", resolvedPath);
 
         // Following the suggestion records the generation here and leaves the Git status as it was.
@@ -318,13 +324,13 @@ describe("refactor decisions travel through Git (ADR-0046)", () => {
       expect(regenerated!.relations).toEqual({ regressesFrom: candidate.recommendationId });
       // Deciding the audit id would write a Git decision for a superseded generation: refused,
       // naming the generation the scan emits, and nothing is written or appended.
-      const appendsBefore = store.architectureEventAppends.length;
+      const eventsBefore = await cachedRefactorEventsLength(store, root);
       const decideAudit = async () => daemon.recommendations(root, { command: "accept", approved: true, recommendationId: candidate.recommendationId, reason: "Old id." });
       const beforeRecord = await decideAudit();
       expect(errorOf(beforeRecord)).toMatchObject({ code: "AC_REFACTOR_STALE", reasonCode: "ledger-audit-generation" });
       expect((beforeRecord as unknown as { error: { details: unknown } }).error.details).toEqual({ currentRecommendationId: regenerated!.recommendationId, currentRecorded: false });
       expect(decisionFiles(root)).toEqual([]);
-      expect(store.architectureEventAppends).toHaveLength(appendsBefore);
+      expect(await cachedRefactorEventsLength(store, root)).toBe(eventsBefore);
       // The new generation is recorded beside the old one.
       const recorded = await daemon.refactorRecord(root, { assessmentDigest: rescanned.assessment.assessmentDigest, expectedWorktreeDigest: rescanned.worktree.worktreeDigest });
       expect(recorded.ok, JSON.stringify(recorded)).toBe(true);
@@ -347,18 +353,6 @@ describe("refactor decisions travel through Git (ADR-0046)", () => {
       const rejectedList = await listedIds("rejected");
       expect(rejectedList.listed).not.toContain(candidate.recommendationId);
       expect(rejectedList.audit).toEqual([candidate.recommendationId]);
-      const book = await daemon.book(root, { command: "recommendations", openOnly: true });
-      expect(book.ok, JSON.stringify(book)).toBe(true);
-      const bookIds = (book.data as { recommendations: { recommendationId: string }[] }).recommendations.map((entry) => entry.recommendationId);
-      expect(bookIds).toContain(regenerated!.recommendationId);
-      expect(bookIds).not.toContain(candidate.recommendationId);
-      expect((book.data as { ledgerAuditRecommendationIds: string[] }).ledgerAuditRecommendationIds).toEqual([]);
-      // Without --open the book returns every record, and labels the audit one as such.
-      const fullBook = await daemon.book(root, { command: "recommendations" });
-      expect(fullBook.ok, JSON.stringify(fullBook)).toBe(true);
-      const full = fullBook.data as { recommendations: { recommendationId: string }[]; ledgerAuditRecommendationIds: string[] };
-      expect(full.recommendations.map((entry) => entry.recommendationId)).toEqual(expect.arrayContaining([candidate.recommendationId, regenerated!.recommendationId]));
-      expect(full.ledgerAuditRecommendationIds).toEqual([candidate.recommendationId]);
 
       // Once the current generation is recorded, the refusal says so; still nothing is written.
       const afterRecord = await decideAudit();
@@ -404,7 +398,7 @@ describe("refactor decision write boundary", () => {
       const refused = await daemon.recommendations(root, { command: "defer", source: "mcp", recommendationId: candidateFor(scan, "module.decide-a").recommendationId, reason: "Later." });
       expect(errorOf(refused).code).toBe("AC_USER_CONFIRMATION_REQUIRED");
       expect(decisionFiles(root)).toEqual([]);
-      expect(store.architectureEventAppends).toHaveLength(0);
+      expect(await cachedRefactorEventsLength(store, root)).toBe(0);
     } finally {
       await daemon.stop();
     }
@@ -425,10 +419,11 @@ describe("refactor decision write boundary", () => {
     }
   });
 
-  test("a ledger append failure inside the ChangeSet rolls the decision file back", async () => {
+  test("a cache append failure inside the ChangeSet rolls the decision file back", async () => {
     class FailingAppendStore extends TestLocalStore {
-      override async appendArchitectureEventsAndCommitChangeSet(): Promise<never> {
-        throw new Error("injected ledger append failure");
+      override async writeCacheEntry(namespace: string, cacheKey: string, value: unknown): Promise<void> {
+        if (namespace === "refactor_events") throw new Error("injected refactor_events cache write failure");
+        return super.writeCacheEntry(namespace, cacheKey, value);
       }
     }
     const root = createRepo();
@@ -440,8 +435,7 @@ describe("refactor decision write boundary", () => {
         .rejects.toMatchObject({ code: "AC_UNCLASSIFIED_FAILURE", reasonCode: "failure-unclassified" });
       expect(decisionFiles(root)).toEqual([]);
       expect(git(root, "status", "--porcelain")).toBe("");
-      expect(store.architectureEventAppends).toHaveLength(0);
-      expect([...store.changeSetJournals.values()].map((journal) => journal.status)).toEqual(["aborted"]);
+      expect(await cachedRefactorEventsLength(store, root)).toBe(0);
       // The writer lock was released: the next decision reaches the append again instead of
       // failing on a held lock.
       await expect(daemon.recommendations(root, { command: "reject", approved: true, recommendationId: candidateFor(scan, "module.decide-b").recommendationId, reason: "Intentional." }))
@@ -458,15 +452,13 @@ describe("refactor decision write boundary", () => {
     const daemon = await startDaemon(store);
     try {
       const scan = scanData(await daemon.refactorScan(root));
-      // No nested `withWriter`: the decision completes, one journal committed with its events.
-      const decided = await daemon.recommendations(root, { command: "waive", approved: true, recommendationId: candidateFor(scan, "module.decide-a").recommendationId, reason: "Accepted risk." });
+      const decidedId = candidateFor(scan, "module.decide-a").recommendationId;
+      const decided = await daemon.recommendations(root, { command: "waive", approved: true, recommendationId: decidedId, reason: "Accepted risk." });
       expect(decided.ok, JSON.stringify(decided)).toBe(true);
-      const journals = [...store.changeSetJournals.values()];
-      expect(journals.map((journal) => journal.status)).toEqual(["committed"]);
-      expect(journals[0]!.files.map((file) => [file.path, file.operation])).toEqual([[`${DECISIONS}/${candidateFor(scan, "module.decide-a").recommendationId}.json`, "write_refactor_decision"]]);
-      expect(journals[0]!.ledger?.append?.appendedEvents.length).toBe(2);
-      const authority = (daemon as unknown as { changeSetAuthority: { applyRefactorDecisionWithinWriter: (root: string, input: unknown) => Promise<unknown> } }).changeSetAuthority;
-      await expect(authority.applyRefactorDecisionWithinWriter(root, { writes: [], events: [] })).rejects.toThrow("requires the runtime writer lock");
+      expect(decisionFiles(root)).toEqual([`${decidedId}.json`]);
+      expect(await cachedRefactorEventsLength(store, root)).toBe(2);
+      const authority = (daemon as unknown as { changeSetAuthority: { applyRefactorDecisionWithinWriter: (root: string, writes: unknown[]) => Promise<unknown> } }).changeSetAuthority;
+      await expect(authority.applyRefactorDecisionWithinWriter(root, [])).rejects.toThrow("requires the runtime writer lock");
     } finally {
       await daemon.stop();
     }

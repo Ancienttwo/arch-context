@@ -25,7 +25,7 @@ import {
   resolveOwnership,
   type ModuleStatisticsTrackedFileV1
 } from "@archcontext/core/module-statistics";
-import type { NativeModel } from "@archcontext/core/projection-engine";
+import type { NativeModel } from "@archcontext/core/architecture-domain";
 
 const DIGEST_PREFIX_LENGTH = "sha256:".length;
 const OUTCOME_ID_LENGTH = 16;
@@ -50,6 +50,8 @@ const OUTCOME_ID_LENGTH = 16;
 export const REFACTOR_RESOLUTION_METRICS = [
   "killList.path.present",
   "killList.relation.present",
+  "killList.symbol.present",
+  "module.cohesion.flaggedFileCount",
   "module.dependencyGraph.cycleCount",
   "module.dependencyGraph.directionViolationCount",
   "module.dependencyGraph.fanIn",
@@ -58,6 +60,8 @@ export const REFACTOR_RESOLUTION_METRICS = [
   "module.dependencyGraph.instability",
   "module.dependencyGraph.internalEdgeCount",
   "module.dependencyGraph.outboundModuleEdges",
+  "module.dependencyGraph.unstableDependencyCount",
+  "module.entrypointBypassCount",
   "module.footprint.fileCount",
   "module.footprint.lineCount",
   "module.footprintDeclared",
@@ -66,6 +70,7 @@ export const REFACTOR_RESOLUTION_METRICS = [
   "module.tests.testFileCount",
   "module.uncertainty.ambiguousOwnership",
   "module.uncertainty.unresolvedImports",
+  "moduleDependencies.coChangePairCount",
   "moduleDependencies.pairThinDirectionEdgeCount",
   "moduleDependencies.residualCycleMemberCount",
   "repositorySummary.crossModuleCycleCount",
@@ -91,12 +96,20 @@ export const REFACTOR_RESOLUTION_RESIDUAL_CODES = [
   "baseline-digest-mismatch",
   "baseline-snapshot-scope-mismatch",
   "baseline-snapshot-unverifiable",
+  "co-change-window-decay-without-structural-closure",
+  "git-history-incomplete",
+  "kill-list-symbol-present",
   "kill-list-symbol-unverifiable",
   "no-required-outcome",
   "outcome-subject-absent"
 ] as const;
 
 export type RefactorResolutionResidualCode = (typeof REFACTOR_RESOLUTION_RESIDUAL_CODES)[number];
+
+export interface SymbolKillListResolutionFactV1 {
+  status: "present" | "absent" | "unknown";
+  reasonCode?: string;
+}
 
 export interface RefactorResolutionInputV1 {
   /** The ledger-latest record being verified. `practice` carries no measurable outcome and throws. */
@@ -116,6 +129,8 @@ export interface RefactorResolutionInputV1 {
    * it: a file list that cannot reproduce them describes some other tree.
    */
   afterTrackedFiles: readonly ModuleStatisticsTrackedFileV1[];
+  /** Optional 3-state symbol kill-list checks from CodeGraph (#636 P2 Invariant #1). */
+  afterSymbolKillList?: ReadonlyMap<string, SymbolKillListResolutionFactV1>;
   executionEvidenceRefs?: readonly RefactorExecutionEvidenceRefV1[];
   /** Caller-supplied clock. The evaluator reads none, so two evaluations agree on every digest. */
   verifiedAt: string;
@@ -144,13 +159,17 @@ const OBSERVATION_OUTCOME_METRICS: Readonly<Record<RefactorObservationKind, {
   scope: ObservationOutcomeScope;
 }>> = {
   // A pair is closed when one direction is gone; other cycles its modules sit on are not its fact.
+  "co-change-coupling": { metric: "moduleDependencies.coChangePairCount", operator: "absent", scope: "members" },
   "cycle": { metric: "moduleDependencies.pairThinDirectionEdgeCount", operator: "absent", scope: "members" },
   "residual-cycle": { metric: "moduleDependencies.residualCycleMemberCount", operator: "absent", scope: "members" },
   "direction-violation": { metric: "module.dependencyGraph.directionViolationCount", operator: "absent", scope: "module" },
+  "entrypoint-bypass": { metric: "module.entrypointBypassCount", operator: "absent", scope: "module" },
   "evidence-gap": { metric: "repositorySummary.unresolvedImportCount", operator: "absent", scope: "repository" },
+  "low-cohesion-god-file": { metric: "module.cohesion.flaggedFileCount", operator: "absent", scope: "module" },
   "ownership-ambiguous": { metric: "module.uncertainty.ambiguousOwnership", operator: "absent", scope: "module" },
   "undeclared-footprint": { metric: "module.footprintDeclared", operator: "present", scope: "module" },
-  "unowned-paths": { metric: "repositorySummary.unownedFileCount", operator: "absent", scope: "repository" }
+  "unowned-paths": { metric: "repositorySummary.unownedFileCount", operator: "absent", scope: "repository" },
+  "unstable-dependency": { metric: "module.dependencyGraph.unstableDependencyCount", operator: "absent", scope: "module" }
 };
 
 /** Lower is better under `absent`/`less_than`; higher is better under `present`/`greater_than`. */
@@ -192,6 +211,13 @@ export function readSnapshotMetric(
   if (metric.startsWith("killList.")) return null;
   if (metric.startsWith("moduleDependencies.")) {
     if (snapshot.codeFacts.coverage === "unknown" || memberNodeIds === undefined) return null;
+    if (metric === "moduleDependencies.coChangePairCount") {
+      if (!snapshot.gitHistory || snapshot.gitHistory.coverageStatus !== "complete") return null;
+      const members = new Set(memberNodeIds);
+      return (snapshot.coChangeDependencies ?? [])
+        .filter((entry) => members.has(entry.fromNodeId) && members.has(entry.toNodeId))
+        .reduce((total, entry) => total + entry.pairCount, 0);
+    }
     if (metric === "moduleDependencies.residualCycleMemberCount") {
       return residualCycleMemberCount(memberNodeIds, snapshot.moduleDependencies);
     }
@@ -208,6 +234,10 @@ export function readSnapshotMetric(
   const module = snapshot.modules.find((candidate) => candidate.nodeId === nodeId);
   if (!module) return null;
   switch (metric) {
+    case "module.cohesion.flaggedFileCount":
+      return module.cohesion?.lowCohesionFileCount ?? null;
+    case "module.entrypointBypassCount":
+      return module.surfaces.entrypointBypassCount ?? 0;
     case "module.footprintDeclared":
       return module.footprintDeclared ? 1 : 0;
     case "module.footprint.fileCount":
@@ -230,6 +260,8 @@ export function readSnapshotMetric(
       return module.dependencyGraph?.instability ?? null;
     case "module.dependencyGraph.directionViolationCount":
       return module.dependencyGraph?.directionViolationCount ?? null;
+    case "module.dependencyGraph.unstableDependencyCount":
+      return module.dependencyGraph ? (module.dependencyGraph.unstableDependencyCount ?? 0) : null;
     case "module.tests.testFileCount":
       return module.tests.testFileCount;
     case "module.tests.observedTestEdges":
@@ -348,7 +380,8 @@ export function evaluateResolution(input: RefactorResolutionInputV1): RefactorRe
     ? (recommendation.payload as RefactorProposalPayloadV1).killList
     : [];
   const residuals: RefactorResidualV1[] = [];
-  const expectedOutcomes = sortOutcomes(dedupeOutcomes([...authored, ...killListOutcomes(killList, residuals)]));
+  const killResult = killListOutcomes(killList, residuals, input.afterSymbolKillList);
+  const expectedOutcomes = sortOutcomes(dedupeOutcomes([...authored, ...killResult.outcomes]));
 
   const baselineDigestMismatch = input.beforeSnapshotDigest !== baselineSnapshotDigestOf(recommendation);
   if (baselineDigestMismatch) {
@@ -411,10 +444,57 @@ export function evaluateResolution(input: RefactorResolutionInputV1): RefactorRe
     observeOutcome(outcome, input, scopeMismatch ? undefined : before, residuals)
   );
 
-  const requiredSymbolKill = killList.some((entry) => entry.kind === "symbol" && entry.required);
+  const isCoChangeRecommendation =
+    (recommendation.category === "structural_observation" &&
+      (recommendation.payload as StructuralObservationPayloadV1).kind === "co-change-coupling") ||
+    expectedOutcomes.some((outcome) => outcome.metric === "moduleDependencies.coChangePairCount");
+  let coChangeStale = false;
+  if (isCoChangeRecommendation) {
+    if (!input.afterSnapshot.gitHistory || input.afterSnapshot.gitHistory.coverageStatus !== "complete") {
+      coChangeStale = true;
+      residuals.push({
+        code: "git-history-incomplete",
+        subject: recommendation.recommendationId,
+        severity: "error"
+      });
+    } else if (before !== undefined) {
+      const coChangeOutcome = expectedOutcomes.find((outcome) => outcome.metric === "moduleDependencies.coChangePairCount");
+      const observedCoChange = coChangeOutcome
+        ? observedOutcomes.find((entry) => entry.outcomeId === coChangeOutcome.outcomeId)
+        : undefined;
+      if (observedCoChange?.observedValue === 0 && coChangeOutcome?.memberNodeIds) {
+        const members = coChangeOutcome.memberNodeIds;
+        const memberSet = new Set(members);
+        const allStillPresent = members.every((id) => input.afterSnapshot.modules.some((m) => m.nodeId === id));
+        if (allStillPresent) {
+          const sumMemberEdges = (snap: ModuleStatisticsSnapshotV1) =>
+            snap.moduleDependencies
+              .filter((edge) => memberSet.has(edge.fromNodeId) && memberSet.has(edge.toNodeId))
+              .reduce((total, edge) => total + edge.distinctFileEdgeCount, 0);
+          const beforeEdges = sumMemberEdges(before);
+          const afterEdges = sumMemberEdges(input.afterSnapshot);
+          const footprintChanged = members.some((id) => {
+            const bMod = before.modules.find((m) => m.nodeId === id);
+            const aMod = input.afterSnapshot.modules.find((m) => m.nodeId === id);
+            return bMod?.footprint?.sourceFilesDigest !== aMod?.footprint?.sourceFilesDigest;
+          });
+          if (!footprintChanged && afterEdges >= beforeEdges) {
+            coChangeStale = true;
+            residuals.push({
+              code: "co-change-window-decay-without-structural-closure",
+              subject: recommendation.recommendationId,
+              severity: "error"
+            });
+          }
+        }
+      }
+    }
+  }
+
+  const unresolvedRequiredSymbolKill = killResult.unresolvedRequiredSymbolKill;
   const disposition = decideDisposition({
-    stale: baselineDigestMismatch || scopeMismatch || coverageIncomplete || !indexCoversWorktree || requiredSymbolKill
-      || !modelBound || !trackedFilesBound,
+    stale: baselineDigestMismatch || scopeMismatch || coverageIncomplete || !indexCoversWorktree ||
+      unresolvedRequiredSymbolKill || coChangeStale || !modelBound || !trackedFilesBound,
     expectedOutcomes,
     observedOutcomes,
     residuals
@@ -495,16 +575,31 @@ function baselineSnapshotDigestOf(recommendation: RecommendationV3): string {
  */
 function killListOutcomes(
   killList: readonly RefactorKillListEntryV1[],
-  residuals: RefactorResidualV1[]
-): RefactorTargetOutcomeV1[] {
+  residuals: RefactorResidualV1[],
+  afterSymbolKillList?: ReadonlyMap<string, SymbolKillListResolutionFactV1>
+): { outcomes: RefactorTargetOutcomeV1[]; unresolvedRequiredSymbolKill: boolean } {
   const outcomes: RefactorTargetOutcomeV1[] = [];
+  let unresolvedRequiredSymbolKill = false;
   for (const entry of killList) {
     if (entry.kind === "symbol") {
-      residuals.push({
-        code: "kill-list-symbol-unverifiable",
-        subject: entry.selectorId,
-        severity: entry.required ? "error" : "warning"
-      });
+      const fact = afterSymbolKillList?.get(entry.selectorId);
+      if (!fact || fact.status === "unknown") {
+        if (entry.required) unresolvedRequiredSymbolKill = true;
+        residuals.push({
+          code: "kill-list-symbol-unverifiable",
+          subject: entry.selectorId,
+          severity: entry.required ? "error" : "warning"
+        });
+        continue;
+      }
+      outcomes.push(sealOutcome({
+        metric: "killList.symbol.present",
+        subjectSelectorId: entry.selectorId,
+        nodeId: null,
+        operator: "absent",
+        value: null,
+        required: entry.required
+      }));
       continue;
     }
     outcomes.push(sealOutcome({
@@ -516,7 +611,7 @@ function killListOutcomes(
       required: entry.required
     }));
   }
-  return outcomes;
+  return { outcomes, unresolvedRequiredSymbolKill };
 }
 
 function observeOutcome(
@@ -526,6 +621,23 @@ function observeOutcome(
   residuals: RefactorResidualV1[]
 ): RefactorObservedOutcomeV1 {
   const metric = outcome.metric as RefactorResolutionMetric;
+  if (metric === "killList.symbol.present") {
+    const fact = input.afterSymbolKillList?.get(outcome.subjectSelectorId);
+    const present = fact?.status === "present" ? 1 : 0;
+    if (present === 1) {
+      residuals.push({
+        code: "kill-list-symbol-present",
+        subject: outcome.subjectSelectorId,
+        severity: outcome.required ? "error" : "warning"
+      });
+    }
+    return {
+      outcomeId: outcome.outcomeId,
+      observedValue: present,
+      satisfied: outcomeSatisfied(outcome, present),
+      direction: "unknown"
+    };
+  }
   if (metric === "killList.path.present" || metric === "killList.relation.present") {
     const present = metric === "killList.path.present"
       ? input.afterTrackedFiles.some((file) => file.path === outcome.subjectSelectorId)

@@ -1,4 +1,19 @@
 import { digestJson, type ArchContextError, type Json } from "./schema";
+import {
+  BoundedStringSchema,
+  Const,
+  GitOidSchema,
+  OneOf,
+  RawEnum,
+  Ref,
+  SchemaDocument,
+  Sha256DigestSchema,
+  StrictObject,
+  Type,
+  TypedUnsafe,
+  UniqueStringArray,
+  type Static
+} from "./schema-kit";
 
 /** Measured architecture work, distinct from generated-file freshness and source byte stamps. */
 export const ARCHITECTURE_DEBT_SCHEMA_VERSION = "archcontext.architecture-debt/v1" as const;
@@ -7,56 +22,128 @@ export type ArchitectureDebtKind = typeof ARCHITECTURE_DEBT_KINDS[number];
 export const ARCHITECTURE_DEBT_CHECKS = ["ownership", "anchors", "dependencies", "flows", "state-machines", "practices"] as const;
 export type ArchitectureDebtCheck = typeof ARCHITECTURE_DEBT_CHECKS[number];
 
-export interface ArchitectureDebtItemV1 {
+const DEBT_SCHEMA_ID = "https://archctx.repoharness.com/schemas/runtime/architecture-debt.schema.json";
+
+const DebtCoverageSchema = RawEnum(["complete", "partial", "unknown"] as const);
+
+const DebtDetailValueSchema = OneOf([
+  BoundedStringSchema,
+  Type.Integer(),
+  UniqueStringArray(BoundedStringSchema)
+]);
+
+export const ArchitectureDebtItemSchema = StrictObject({
   /** Content identity, independent of absolute root, branch, timestamps and source byte stamps. */
-  id: string;
-  kind: ArchitectureDebtKind;
+  id: Type.String({ pattern: "^debt\\.[a-f0-9]{64}$" }),
+  kind: RawEnum(ARCHITECTURE_DEBT_KINDS),
   /** Canonical producer identities. Empty for a source path with no owner. */
-  nodeIds: string[];
-  capabilityIds: string[];
-  paths: string[];
-  reasonCode: string;
-  action: string;
+  nodeIds: UniqueStringArray(BoundedStringSchema),
+  capabilityIds: UniqueStringArray(BoundedStringSchema),
+  paths: UniqueStringArray(BoundedStringSchema),
+  reasonCode: BoundedStringSchema,
+  action: BoundedStringSchema,
   /** Bounded metadata only; never source bodies or arbitrary provider output. */
-  details: Record<string, string | number | string[]>;
-}
+  details: TypedUnsafe<Record<string, string | number | string[]>>({
+    type: "object",
+    maxProperties: 12,
+    additionalProperties: DebtDetailValueSchema
+  })
+});
 
-export interface ArchitectureDebtCheckV1 {
-  check: ArchitectureDebtCheck;
-  coverage: "complete" | "partial" | "unknown";
-  reasonCodes: string[];
-}
+export const ArchitectureDebtCheckSchema = StrictObject({
+  check: RawEnum(ARCHITECTURE_DEBT_CHECKS),
+  coverage: DebtCoverageSchema,
+  reasonCodes: UniqueStringArray(BoundedStringSchema)
+});
 
-export interface ArchitectureDebtReportV1 {
-  schemaVersion: typeof ARCHITECTURE_DEBT_SCHEMA_VERSION;
-  scope: { kind: "repository" | "changed-paths"; changedPaths: string[]; capabilityIds: string[] };
+export const ArchitectureDebtReportBodySchema = StrictObject({
+  schemaVersion: Const(ARCHITECTURE_DEBT_SCHEMA_VERSION),
+  scope: StrictObject({
+    kind: RawEnum(["repository", "changed-paths"] as const),
+    changedPaths: UniqueStringArray(BoundedStringSchema),
+    capabilityIds: UniqueStringArray(BoundedStringSchema)
+  }),
   /** A partial/unknown report with no items does not prove absence of debt. */
-  coverage: "complete" | "partial" | "unknown";
-  coverageReasonCodes: string[];
-  checks: ArchitectureDebtCheckV1[];
-  items: ArchitectureDebtItemV1[];
-  actionsRequired: string[];
+  coverage: DebtCoverageSchema,
+  coverageReasonCodes: UniqueStringArray(BoundedStringSchema),
+  checks: Type.Array(ArchitectureDebtCheckSchema, { minItems: 6, maxItems: 6 }),
+  items: Type.Array(ArchitectureDebtItemSchema),
+  actionsRequired: UniqueStringArray(BoundedStringSchema),
   /** Binds the entire debt report. Checkpoint's existing resultDigest binds practice guidance only. */
-  digest: string;
-}
+  digest: Sha256DigestSchema
+});
+
+export const ArchitectureDebtReportSchema = SchemaDocument({
+  $id: DEBT_SCHEMA_ID,
+  title: "ArchitectureDebtReportV1",
+  schema: ArchitectureDebtReportBodySchema
+});
+
+export type ArchitectureDebtItemV1 = Static<typeof ArchitectureDebtItemSchema>;
+export type ArchitectureDebtCheckV1 = Static<typeof ArchitectureDebtCheckSchema>;
+export type ArchitectureDebtReportV1 = Static<typeof ArchitectureDebtReportSchema>;
 
 export const ARCHITECTURE_DEBT_DELTA_SCHEMA_VERSION = "archcontext.architecture-debt-delta/v1" as const;
 
-export interface ArchitectureDebtDeltaReportV1 {
-  schemaVersion: typeof ARCHITECTURE_DEBT_DELTA_SCHEMA_VERSION;
+export const ArchitectureDebtDeltaReportBodySchema = StrictObject({
+  schemaVersion: Const(ARCHITECTURE_DEBT_DELTA_SCHEMA_VERSION),
   /** The current working tree, anchored to its checked-out commit. */
-  head: { sha: string; debt: ArchitectureDebtReportV1 };
-  base: {
-    ref: string;
-    sha: string;
-    debtDigest: string;
-    coverage: ArchitectureDebtReportV1["coverage"];
-    coverageReasonCodes: string[];
-  };
+  head: StrictObject({
+    sha: Ref<string>("#/$defs/commitSha"),
+    debt: Ref<ArchitectureDebtReportV1>("architecture-debt.schema.json")
+  }),
+  base: StrictObject({
+    ref: Type.String({ minLength: 1 }),
+    sha: Ref<string>("#/$defs/commitSha"),
+    debtDigest: Ref<string>("architecture-debt.schema.json#/properties/digest"),
+    coverage: Ref<ArchitectureDebtReportV1["coverage"]>("architecture-debt.schema.json#/properties/coverage"),
+    coverageReasonCodes: Ref<string[]>("architecture-debt.schema.json#/properties/coverageReasonCodes")
+  }),
   /** Ordered by item ID. An absence requires complete coverage from the opposing check. */
-  introduced: ArchitectureDebtItemV1[];
-  resolvedIds: string[];
-}
+  introduced: Type.Array(Ref<ArchitectureDebtItemV1>("architecture-debt.schema.json#/properties/items/items"), {
+    description: "Items ordered by item ID.",
+    uniqueItems: true
+  }),
+  resolvedIds: Type.Array(Ref<string>("architecture-debt.schema.json#/properties/items/items/properties/id"), {
+    description: "Resolved item IDs in ascending order.",
+    uniqueItems: true
+  })
+});
+
+export const ArchitectureDebtDeltaReportSchema = SchemaDocument({
+  $id: "https://archctx.repoharness.com/schemas/runtime/architecture-debt-delta.schema.json",
+  title: "ArchitectureDebtDeltaReportV1",
+  schema: ArchitectureDebtDeltaReportBodySchema,
+  $defs: {
+    commitSha: GitOidSchema
+  }
+});
+
+export type ArchitectureDebtDeltaReportV1 = Static<typeof ArchitectureDebtDeltaReportSchema>;
+
+export const ArchitectureDebtHookLogSchema = StrictObject({
+  schemaVersion: Const("archcontext.hook-log/v1"),
+  event: Type.String({ minLength: 1 }),
+  elapsedMs: Type.Number({ minimum: 0 }),
+  pathCount: Type.Integer({ minimum: 0 }),
+  changedPathDigest: Type.String({ pattern: "^sha256:[0-9a-f]{64}$" }),
+  reasonCode: Type.String({ minLength: 1 }),
+  failOpen: Const(false),
+  egress: Const("none"),
+  network: Const("forbidden")
+});
+
+export const ArchitectureDebtHookCheckpointBodySchema = StrictObject({
+  schemaVersion: Const("archcontext.hook-debt-checkpoint/v1"),
+  debt: Ref<typeof ArchitectureDebtReportSchema>("architecture-debt.schema.json"),
+  hookLog: ArchitectureDebtHookLogSchema
+});
+
+export const ArchitectureDebtHookCheckpointSchema = SchemaDocument({
+  $id: "https://archctx.repoharness.com/schemas/runtime/hook-debt-checkpoint.schema.json",
+  title: "ArchitectureDebtHookCheckpointV1",
+  schema: ArchitectureDebtHookCheckpointBodySchema
+});
 
 export interface ArchitectureDebtHookLogV1 {
   schemaVersion: "archcontext.hook-log/v1";

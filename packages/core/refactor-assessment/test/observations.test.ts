@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { REFACTOR_EVIDENCE_SPECIFIER_MAX_LENGTH, REFACTOR_OBSERVATION_EVIDENCE_LIMIT, refactorAssessmentInvariantIssues, refactorScanInvariantIssues, type Json } from "@archcontext/contracts";
-import type { NativeModel } from "@archcontext/core/projection-engine";
+import type { NativeModel } from "@archcontext/core/architecture-domain";
 import { assessRefactor } from "../src/index";
 import {
   CONTESTED_MODEL,

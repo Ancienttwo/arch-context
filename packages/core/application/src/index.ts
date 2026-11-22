@@ -15,6 +15,7 @@ import {
 } from "@archcontext/contracts";
 import type { ArchitecturePressure, PressureSignal } from "@archcontext/core/pressure-engine";
 import { computeRefactorConfidence, createProofPoint, decidePosture } from "@archcontext/core/refactor-decision";
+import type { SearchTokenizer } from "@archcontext/core/retrieval";
 import { completeTaskGate } from "@archcontext/core/review-engine";
 
 export interface PrepareTaskInput {
@@ -27,6 +28,7 @@ export interface PrepareTaskInput {
   callerCoverage?: number;
   testsAvailable?: boolean;
   rollbackAvailable?: boolean;
+  tokenizer?: SearchTokenizer;
 }
 
 export interface CheckpointTaskInput {
@@ -45,6 +47,7 @@ export interface CheckpointTaskInput {
   modelStore: ModelStorePort;
   architectureLedger?: ArchitectureContextLedgerPort;
   budget?: ContextBudget;
+  tokenizer?: SearchTokenizer;
 }
 
 export async function prepareTask(input: PrepareTaskInput) {
@@ -64,7 +67,8 @@ export async function prepareTask(input: PrepareTaskInput) {
       callerCoverage: input.callerCoverage,
       testsAvailable: input.testsAvailable,
       rollbackAvailable: input.rollbackAvailable
-    }
+    },
+    ...(input.tokenizer === undefined ? {} : { tokenizer: input.tokenizer })
   });
   const pressure: ArchitecturePressure = {
     level: context.architecturePressure.level,
@@ -106,7 +110,8 @@ export async function checkpointTask(input: CheckpointTaskInput): Promise<Practi
     modelStore: input.modelStore,
     architectureLedger: input.architectureLedger,
     budget: input.budget ?? { maxBytes: 12_288, maxItems: 12 },
-    changedPaths: input.changedPaths ?? []
+    changedPaths: input.changedPaths ?? [],
+    ...(input.tokenizer === undefined ? {} : { tokenizer: input.tokenizer })
   });
   const worktreeDigest = computeWorktreeDigest(input.workspace.root, input.worktreeFiles);
   const nextSnapshot: PracticeCheckpointSnapshotV1 = {

@@ -1,11 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { LOCAL_EGRESS_CHANNELS, localEgressAdmission, localEgressMode, withLocalEgress } from "../../egress-admission/src/index";
 import { localEgressStatus } from "../src/egress";
-import { createNodeInvestigationTransport } from "../src/investigation-transport";
-import { createNodeGithubIssueExecutor } from "../src/github-issue-executor";
 import { Context7ExternalDocumentationAdapter } from "../../context7-adapter/src/index";
 import { disableCodeGraphTelemetryByDefault } from "../../codegraph-adapter/src/index";
 import { runCli } from "../../../surfaces/cli/src/main";
@@ -24,23 +19,6 @@ test("all known channels use one deny authority; invalid mode/channel never exec
   }
   expect(localEgressMode({})).toBe("configured");
   expect(() => withLocalEgress("unknown" as any, () => { throw new Error("executed"); }, {})).toThrow("egress-channel-invalid");
-});
-
-test("real investigator transport is denied before a harmless child can write a marker", async () => {
-  process.env.ARCHCONTEXT_EGRESS_MODE = "local-only";
-  const root = mkdtempSync(join(tmpdir(), "archctx-egress-")); const marker = join(root, "spawned");
-  try {
-    await expect(createNodeInvestigationTransport()({ runnerPort: "claude-code", runnerId: "runner.test", command: process.execPath, args: ["-e", 'require("node:fs").writeFileSync(process.argv[1], "spawned")', marker], stdin: "{}" })).rejects.toThrow("egress-denied: agent-audit");
-    expect(existsSync(marker)).toBe(false);
-  } finally { rmSync(root, { recursive: true, force: true }); }
-});
-
-test("real gh read and write transports are refused before invoking gh", async () => {
-  process.env.ARCHCONTEXT_EGRESS_MODE = "local-only";
-  const executor = createNodeGithubIssueExecutor(); const env = { GH_TOKEN: "fixture-not-a-credential" };
-  await expect(executor.repoView("fixture/repo", env)).rejects.toThrow("egress-denied: github-issue-publishing");
-  await expect(executor.listRecentIssues("fixture/repo", env)).rejects.toThrow("egress-denied: github-issue-publishing");
-  await expect(executor.createIssue({ repo: "fixture/repo", title: "fixture", bodyFile: "/missing", env })).rejects.toThrow("egress-denied: github-issue-publishing");
 });
 
 test("enabled Context7 adapters cannot override local-only or invoke injected transports", async () => {
@@ -65,8 +43,8 @@ test("CLI npm lookup denies explicit requests under local-only and invalid polic
 });
 
 test("report shows policy denial for enabled features, CLI npm intent and telemetry", () => {
-  const env = { ARCHCONTEXT_EGRESS_MODE: "local-only", ARCHCONTEXT_CONTEXT7_ENABLED: "1", DO_NOT_TRACK: "0", PUBLISH_AUTH: "fixture" };
-  const live = { auditEnabled: true, auditUserConsent: true, githubIssuesTokenEnv: "PUBLISH_AUTH", updateCheckRequested: true, projectionPublishRequested: true };
+  const env = { ARCHCONTEXT_EGRESS_MODE: "local-only", ARCHCONTEXT_CONTEXT7_ENABLED: "1", DO_NOT_TRACK: "0" };
+  const live = { updateCheckRequested: true, projectionPublishRequested: true };
   const blocked = localEgressStatus(env, live);
   expect(blocked).toMatchObject({ policyMode: "local-only", enforcement: "application-admission", effectiveOutbound: "local-only" });
   expect(blocked.nonLocalEgress.map(c => c.channel).sort()).toEqual([...LOCAL_EGRESS_CHANNELS].sort());

@@ -5,7 +5,6 @@ import { Context7ProviderError } from "@archcontext/local-runtime/context7-adapt
 import { LocalEgressPolicyError } from "@archcontext/local-runtime/egress-admission";
 import { GitVisibleFilesUnavailableError } from "@archcontext/local-runtime/git-adapter";
 import { ExplorerProjectionCompileError } from "./explorer-projection";
-import { ChangeSetRecoveryUnresolvedError } from "./changeset-recovery-error";
 
 const surfaceId = (value: string): string => typeof value === "string" && /^[a-zA-Z0-9_.:-]{1,128}$/.test(value) ? value : "public.operation";
 function own(error: object, field: string): unknown {
@@ -19,15 +18,6 @@ export function publicFailureEnvelope(requestId: string, code: FailureCode, reas
   catch { return toEnvelope(surfaceId(requestId), undefined, "failure-metadata") as JsonEnvelope; }
 }
 export function publicOperationFailure(error: unknown): FailureError<FailureCode> {
-  // Recovery remains the same typed sentinel with its original complete journal authority.
-  let recovery: ChangeSetRecoveryUnresolvedError | undefined;
-  try { if (error instanceof ChangeSetRecoveryUnresolvedError) recovery = error; }
-  catch { return new FailureError("AC_UNCLASSIFIED_FAILURE", "failure-unclassified", {stage: "failure-metadata"}); }
-  if (recovery) {
-    const validated = toEnvelope("public.operation", recovery, "public-operation").error;
-    if (validated.code === "AC_PRECONDITION_FAILED" && validated.reasonCode === "changeset-recovery-unresolved") return recovery;
-    return new FailureError(validated.code, validated.reasonCode, validated.details, validated);
-  }
   let failure;
   try {
     if (error instanceof FailureError) failure = toEnvelope("public.operation", error, "public-operation").error;

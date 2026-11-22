@@ -2,11 +2,9 @@ import { rmSync, tempRepo, removeTempRepo, createStartedTestDaemon } from "./run
 import { afterAll, describe, expect, spyOn, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import { digestJson, type ExplorerProjectionV2, type JsonEnvelope } from "@archcontext/contracts";
-import { planYamlToArchitectureLedgerRebuild } from "@archcontext/core/architecture-ledger";
-import { DEFAULT_EXPLORER_PROJECTION_CACHE_POLICY, SqliteLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
-import { listModelFiles } from "@archcontext/local-runtime/model-store-yaml";
+import { join } from "node:path";
+import { type ExplorerProjectionV2, type JsonEnvelope } from "@archcontext/contracts";
+import { SqliteLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
 import { ArchctxDaemon } from "../src/index";
 
@@ -20,10 +18,10 @@ afterAll(() => {
 });
 
 describe("daemon Explorer server", () => {
-  test("Explorer loopback service is token-gated, read-only, and revocable", async () => {
+  test("Explorer loopback service is token-gated, read-only, caches manifests in kv_cache, and revokes cleanly", async () => {
     const root = tempRepo();
     try {
-      const localStore = new TestLocalStore(DEFAULT_EXPLORER_PROJECTION_CACHE_POLICY, () => "2026-06-20T00:00:00.000Z");
+      const localStore = new TestLocalStore(() => "2026-06-20T00:00:00.000Z");
       const daemon = await createStartedTestDaemon({ localStore, clock: () => "2026-06-20T00:00:00.000Z" });
       await daemon.init(root, "Explorer App");
       await daemon.prepare(root, "change the Explorer runtime boundary", 12_288, 12, "task.explorer-current");
@@ -65,24 +63,14 @@ describe("daemon Explorer server", () => {
       expect(bodyV2.data.page.budget).toEqual({ maxNodes: 5, maxRelations: 5 });
       expect(JSON.stringify(bodyV2.data)).not.toContain("sourceBody");
       expect(bodyV2.data.capabilities).toMatchObject({ readOnly: true, mutationMode: "forbidden", egress: "none" });
+
       const repeatedProjectionV2 = await fetch(`${data.url}projection/v2?maxNodes=5&maxRelations=5`, {
         headers: { Authorization: `Bearer ${data.token}` }
       });
       expect(repeatedProjectionV2.status).toBe(200);
       expect(((await repeatedProjectionV2.json()) as any).data.projectionDigest).toBe(bodyV2.data.projectionDigest);
-      expect(localStore.explorerManifestCacheHits).toBe(1);
-      expect(localStore.explorerRuntimeMetrics).toEqual(expect.arrayContaining([
-        expect.objectContaining({ metricName: "cache-rebuild", reasonCode: "manifest-miss", value: 1 }),
-        expect.objectContaining({ metricName: "compile-time-ms", reasonCode: "projection-compile" })
-      ]));
-      const testCacheStats = await localStore.readExplorerProjectionCacheStats({
-        repository: bodyV2.data.inputManifest.repository,
-        worktree: bodyV2.data.inputManifest.worktree
-      });
-      expect(testCacheStats.metrics).toEqual(expect.arrayContaining([
-        expect.objectContaining({ metricName: "cache-hit", reasonCode: "manifest-read", sampleCount: 1 }),
-        expect.objectContaining({ metricName: "cache-rebuild", reasonCode: "manifest-miss", sampleCount: 1 })
-      ]));
+      const manifestEntries = await localStore.listCacheEntries("explorer_projection_manifest");
+      expect(manifestEntries.length).toBeGreaterThanOrEqual(1);
 
       for (const view of ["data-flow", "external-integrations"] as const) {
         const typedView = await fetch(`${data.url}projection/v2?view=${view}&maxNodes=5&maxRelations=5`, {
@@ -125,150 +113,9 @@ describe("daemon Explorer server", () => {
       });
       expect(deniedBudget.status).toBe(400);
 
-      const runtimeStatus = await daemon.runtimeStatus(root);
-      const migrated = await daemon.ledgerMigrate(root, {
-        fromYaml: true,
-        dryRun: false,
-        expectedWorktreeDigest: (runtimeStatus.data as any).worktreeDigest
-      });
-      expect(migrated.ok).toBe(true);
-      const authorityProjectionResponse = await fetch(`${data.url}projection/v2?maxNodes=5&maxRelations=5`, {
-        headers: { Authorization: `Bearer ${data.token}` }
-      });
-      expect(authorityProjectionResponse.status).toBe(200);
-      const authorityProjection = await authorityProjectionResponse.json() as any;
-      expect(authorityProjection.data.cursor.authorityCursor).toBeTruthy();
-      const bookStatus = await daemon.book(root, { command: "status" });
-      const eventId = (bookStatus.data as any).freshness.ledgerCursor.lastEventId;
-      expect(eventId).toBeTruthy();
-      const delta = await fetch(`${data.url}delta?baseEventId=${encodeURIComponent(eventId)}&headEventId=${encodeURIComponent(eventId)}&baseProjectionDigest=${encodeURIComponent(authorityProjection.data.projectionDigest)}&headProjectionDigest=${encodeURIComponent(authorityProjection.data.projectionDigest)}`, {
-        headers: { Authorization: `Bearer ${data.token}` }
-      });
-      expect(delta.status).toBe(200);
-      expect(((await delta.json()) as any).data.counts).toEqual({ "architecture-fact": 0, evidence: 0, projection: 0 });
-      expect(localStore.explorerCacheMetadata.get(authorityProjection.data.projectionDigest)).toMatchObject({ pinReason: "delta-head" });
       const malformedDelta = await daemon.explorerProjectionDelta(root, {} as any);
       expect(malformedDelta.ok).toBe(false);
       expect((malformedDelta.error as any).reasonCode).toBe("invalid-delta-query");
-      const missingEventDelta = await fetch(`${data.url}delta?baseEventId=arch_event.missing&headEventId=${encodeURIComponent(eventId)}&baseProjectionDigest=${encodeURIComponent(authorityProjection.data.projectionDigest)}&headProjectionDigest=${encodeURIComponent(authorityProjection.data.projectionDigest)}`, {
-        headers: { Authorization: `Bearer ${data.token}` }
-      });
-      expect(missingEventDelta.status).toBe(409);
-      expect(((await missingEventDelta.json()) as any).error.reasonCode).toBe("authority-event-missing");
-
-      const authorityCursor = authorityProjection.data.cursor.authorityCursor;
-      const observedSymbolId = authorityProjection.data.occurrences
-        .flatMap((occurrence: any) => occurrence.provenance.observedSymbolIds)[0];
-      const targetEntityId = authorityProjection.data.occurrences
-        .flatMap((occurrence: any) => occurrence.provenance.declaredEntityIds)[0];
-      expect(observedSymbolId).toBeTruthy();
-      expect(targetEntityId).toBeTruthy();
-      const explorerAnchor = await localStore.createArchitectureLedgerSnapshot({
-        repository: authorityCursor.repository,
-        worktree: authorityCursor.worktree,
-        sourceMode: "dual",
-        projectionDigest: authorityProjection.data.projectionDigest,
-        inputDigests: { modelDigest: authorityCursor.graphDigest },
-        createdAt: "2026-06-20T00:00:00.500Z"
-      });
-      expect(explorerAnchor.schemaVersion).toBe("archcontext.architecture-snapshot/v2");
-      const evidenceItem = {
-        schemaVersion: "archcontext.evidence-item/v2",
-        evidenceId: "evidence.explorer-lifecycle",
-        kind: "architecture-declaration",
-        strength: "verified",
-        polarity: "positive",
-        origin: "runtime-daemon",
-        subject: targetEntityId,
-        selector: { kind: "symbol", id: observedSymbolId, symbolId: observedSymbolId },
-        summary: "Explorer lifecycle binding",
-        coverage: { level: "complete", scope: targetEntityId },
-        supports: ["checkpoint"],
-        provenance: { producer: "runtime-daemon.test", command: "test Explorer lifecycle", inputDigest: digestJson({ observedSymbolId, targetEntityId } as any) },
-        createdAt: "2026-06-20T00:00:01.000Z",
-        digest: digestJson({ evidenceId: "evidence.explorer-lifecycle", observedSymbolId, targetEntityId } as any)
-      };
-      const evidenceBinding = {
-        schemaVersion: "archcontext.evidence-binding/v1",
-        bindingId: "binding.explorer-lifecycle",
-        evidenceId: evidenceItem.evidenceId,
-        target: { kind: "entity", id: targetEntityId },
-        bindingReason: "direct-selector",
-        authorityEffect: "checkpoint-eligible",
-        createdAt: "2026-06-20T00:00:01.000Z",
-        provenance: evidenceItem.provenance
-      };
-      await localStore.appendArchitectureEvents({
-        writer: "runtime-daemon",
-        events: [{
-          schemaVersion: "archcontext.architecture-event/v1",
-          eventId: "arch_event.explorer_lifecycle",
-          eventType: "architecture.evidence.lifecycle",
-          payloadVersion: "archcontext.architecture-evidence-lifecycle/v2",
-          repository: authorityCursor.repository,
-          worktree: authorityCursor.worktree,
-          baseDigest: authorityCursor.graphDigest,
-          resultingDigest: authorityCursor.graphDigest,
-          headSha: authorityCursor.worktree.headSha,
-          actor: { kind: "daemon", id: "archctxd.test" },
-          source: "apply_update",
-          timestamp: "2026-06-20T00:00:01.000Z",
-          idempotencyKey: "explorer-evidence-lifecycle",
-          provenance: evidenceItem.provenance,
-          payload: {
-            summary: "Create Explorer evidence binding",
-            evidenceOperations: [
-              { target: "item", action: "create", evidenceId: evidenceItem.evidenceId, value: evidenceItem },
-              { target: "binding", action: "create", bindingId: evidenceBinding.bindingId, value: evidenceBinding }
-            ]
-          }
-        } as any]
-      });
-      const lifecycleFeedRecord = localStore.architectureChangeFeed.at(-1)!;
-      expect(lifecycleFeedRecord.eventId).toBe("arch_event.explorer_lifecycle");
-      expect(Math.max(...[...localStore.architectureChangeFeedConsumers.values()].map((consumer) => consumer.checkpoint), 0)).toBeLessThan(lifecycleFeedRecord.feedSequence);
-      const lifecycleProjectionResponse = await fetch(`${data.url}projection/v2?maxNodes=5&maxRelations=5`, {
-        headers: { Authorization: `Bearer ${data.token}` }
-      });
-      expect(lifecycleProjectionResponse.status).toBe(200);
-      const lifecycleProjection = await lifecycleProjectionResponse.json() as any;
-      expect(lifecycleProjection.data.inputManifest.bindingsDigest).not.toBe(authorityProjection.data.inputManifest.bindingsDigest);
-      expect(lifecycleProjection.data.occurrences.some((occurrence: any) => occurrence.provenance.evidenceBindingIds.includes(evidenceBinding.bindingId))).toBe(true);
-      expect(lifecycleProjection.data.occurrences.some((occurrence: any) => occurrence.backlinks.changedByEventIds.includes("arch_event.explorer_lifecycle"))).toBe(true);
-      expect(lifecycleProjection.data.occurrences.some((occurrence: any) => occurrence.inspector.historyEvents.some((event: any) => event.eventId === "arch_event.explorer_lifecycle"))).toBe(true);
-      expect(localStore.invalidatedExplorerProjections.has(authorityProjection.data.projectionDigest)).toBe(true);
-      expect(Math.max(...[...localStore.architectureChangeFeedConsumers.values()].map((consumer) => consumer.checkpoint), 0)).toBe(lifecycleFeedRecord.feedSequence);
-      const anchoredLifecycleReplay = await localStore.replayArchitectureLedger({ repository: authorityCursor.repository, worktree: authorityCursor.worktree });
-      expect(anchoredLifecycleReplay.replay.anchorSnapshotId).toBe(explorerAnchor.snapshotId);
-      expect(anchoredLifecycleReplay.replay.tailEventCount).toBe(1);
-      const lifecycleEventId = lifecycleProjection.data.cursor.authorityCursor.eventId;
-      const lifecycleDelta = await fetch(`${data.url}delta?baseEventId=${encodeURIComponent(eventId)}&headEventId=${encodeURIComponent(lifecycleEventId)}&baseProjectionDigest=${encodeURIComponent(authorityProjection.data.projectionDigest)}&headProjectionDigest=${encodeURIComponent(lifecycleProjection.data.projectionDigest)}`, {
-        headers: { Authorization: `Bearer ${data.token}` }
-      });
-      expect(lifecycleDelta.status).toBe(200);
-      expect(((await lifecycleDelta.json()) as any).data.counts.evidence).toBe(2);
-      const mismatchedCursor = await fetch(`${data.url}delta?baseEventId=${encodeURIComponent(eventId)}&headEventId=${encodeURIComponent(lifecycleEventId)}&baseProjectionDigest=${encodeURIComponent(lifecycleProjection.data.projectionDigest)}&headProjectionDigest=${encodeURIComponent(lifecycleProjection.data.projectionDigest)}`, {
-        headers: { Authorization: `Bearer ${data.token}` }
-      });
-      expect(mismatchedCursor.status).toBe(409);
-      expect(((await mismatchedCursor.json()) as any).error.reasonCode).toBe("projection-authority-mismatch");
-      const reversedCursor = await fetch(`${data.url}delta?baseEventId=${encodeURIComponent(lifecycleEventId)}&headEventId=${encodeURIComponent(eventId)}&baseProjectionDigest=${encodeURIComponent(lifecycleProjection.data.projectionDigest)}&headProjectionDigest=${encodeURIComponent(authorityProjection.data.projectionDigest)}`, {
-        headers: { Authorization: `Bearer ${data.token}` }
-      });
-      expect(reversedCursor.status).toBe(409);
-      expect(((await reversedCursor.json()) as any).error.reasonCode).toBe("authority-cursor-reversed");
-
-      const detailProjection = await fetch(`${data.url}projection/v2?level=detail&maxNodes=5&maxRelations=5`, {
-        headers: { Authorization: `Bearer ${data.token}` }
-      });
-      const detailBody = await detailProjection.json() as any;
-      const projectionOnlyDelta = await fetch(`${data.url}delta?baseEventId=${encodeURIComponent(lifecycleEventId)}&headEventId=${encodeURIComponent(lifecycleEventId)}&baseProjectionDigest=${encodeURIComponent(lifecycleProjection.data.projectionDigest)}&headProjectionDigest=${encodeURIComponent(detailBody.data.projectionDigest)}`, {
-        headers: { Authorization: `Bearer ${data.token}` }
-      });
-      expect(projectionOnlyDelta.status).toBe(409);
-      const projectionOnlyDeltaBody = await projectionOnlyDelta.json() as any;
-      expect(projectionOnlyDeltaBody.error.reasonCode).toBe("projection-manifest-incompatible");
-      expect(projectionOnlyDeltaBody.error.reasonCode).toBe("projection-manifest-incompatible");
 
       const sseAbort = new AbortController();
       const sse = await fetch(`${data.url}events`, { headers: { Authorization: `Bearer ${data.token}` }, signal: sseAbort.signal });
@@ -288,49 +135,6 @@ describe("daemon Explorer server", () => {
       expect(projectionInvalidationText).toContain("viewDefinitionDigest");
       expect(projectionInvalidationText).toContain("projectionDigest");
       expect(projectionInvalidationText).not.toContain("sourceBody");
-      const updatedEvidenceItem = {
-        ...evidenceItem,
-        summary: "Explorer lifecycle binding updated",
-        digest: digestJson({ evidenceId: evidenceItem.evidenceId, summary: "Explorer lifecycle binding updated" } as any)
-      };
-      await localStore.appendArchitectureEvents({
-        writer: "runtime-daemon",
-        events: [{
-          schemaVersion: "archcontext.architecture-event/v1",
-          eventId: "arch_event.explorer_lifecycle_update",
-          eventType: "architecture.evidence.lifecycle",
-          payloadVersion: "archcontext.architecture-evidence-lifecycle/v2",
-          repository: authorityCursor.repository,
-          worktree: authorityCursor.worktree,
-          baseDigest: authorityCursor.graphDigest,
-          resultingDigest: authorityCursor.graphDigest,
-          headSha: authorityCursor.worktree.headSha,
-          actor: { kind: "daemon", id: "archctxd.test" },
-          source: "apply_update",
-          timestamp: "2026-06-20T00:00:02.000Z",
-          idempotencyKey: "explorer-evidence-lifecycle-update",
-          provenance: evidenceItem.provenance,
-          payload: {
-            summary: "Update Explorer evidence item",
-            evidenceOperations: [
-              { target: "item", action: "update", evidenceId: updatedEvidenceItem.evidenceId, previousDigest: digestJson(evidenceItem as any), value: updatedEvidenceItem }
-            ]
-          }
-        } as any]
-      });
-      await fetch(`${data.url}projection/v2?level=overview&maxNodes=5&maxRelations=5`, { headers: { Authorization: `Bearer ${data.token}` } });
-      const eventChunk = await Promise.race([
-        reader.read(),
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Explorer SSE invalidation timeout")), 2_000))
-      ]);
-      const eventText = new TextDecoder().decode(eventChunk.value);
-      expect(eventText).toContain("authority-changed");
-      expect(eventText).toContain("feedSequence");
-      expect(eventText).toContain("subjectsDigest");
-      expect(eventText).not.toContain("summary");
-      expect(eventText).not.toContain("payload");
-      expect(eventText).not.toContain("sourceBody");
-      expect(eventText).not.toContain("src/");
       sseAbort.abort();
 
       const staleV2 = await fetch(`${data.url}projection/v2?expectedHeadSha=${"f".repeat(40)}&expectedWorktreeDigest=${encodeURIComponent(bodyV2.data.cursor.worktree.worktreeDigest)}&expectedGraphDigest=${encodeURIComponent(bodyV2.data.cursor.graphDigest)}`, {
@@ -362,23 +166,16 @@ describe("daemon Explorer server", () => {
     }
   });
 
-  test("Explorer compares unpinned projections across a same-scope graph change", async () => {
+  test("Explorer compares projections across a YAML model change via SQLite cache", async () => {
     const root = tempRepo();
     const stateDir = mkdtempSync(join(RUNTIME_TEST_STATE_ROOT, "delta-"));
     let now = "2026-06-20T00:00:00.000Z";
     const clock = () => now;
-    const localStore = new SqliteLocalStore(join(stateDir, "runtime.sqlite"), DEFAULT_EXPLORER_PROJECTION_CACHE_POLICY, clock);
+    const localStore = new SqliteLocalStore(join(stateDir, "runtime.sqlite"));
     let daemon: ArchctxDaemon | undefined;
     try {
-      daemon = await createStartedTestDaemon({ localStore, clock, architectureLedger: { rolloutMode: "ledger-authoritative" } });
+      daemon = await createStartedTestDaemon({ localStore, clock });
       await daemon.init(root, "Explorer Graph Delta App");
-      const runtimeStatus = await daemon.runtimeStatus(root);
-      const migrated = await daemon.ledgerMigrate(root, {
-        fromYaml: true,
-        dryRun: false,
-        expectedWorktreeDigest: (runtimeStatus.data as { worktreeDigest: string }).worktreeDigest
-      });
-      expect(migrated.ok).toBe(true);
       const started = await daemon.startExplorer(root, { port: 0, tokenTtlSeconds: 60 });
       expect(started.ok).toBe(true);
       const { url, token } = started.data as { url: string; token: string };
@@ -391,57 +188,38 @@ describe("daemon Explorer server", () => {
 
       const base = await readProjection();
       expect(base.occurrences.length).toBeGreaterThan(0);
-      const baseCursor = base.cursor.authorityCursor!;
-      expect(baseCursor.eventSequence).toBe(1);
-      const scope = { repository: baseCursor.repository, worktree: baseCursor.worktree };
-      const manifest = { ...scope, manifestDigest: base.inputManifest.manifestDigest };
-      await expect(localStore.readExplorerProjectionByManifest(manifest)).resolves.toEqual(base);
 
       now = "2026-06-20T00:00:01.000Z";
       const entityId = "module.delta-head";
       const path = `.archcontext/model/nodes/${entityId}.yaml`;
-      const schemaVersion = "archcontext.node/v2";
-      const body = `schemaVersion: ${schemaVersion}
+      const body = `schemaVersion: archcontext.node/v2
 id: ${entityId}
 kind: module
 name: New module
 status: active
 summary: Add an Explorer module
 `;
-      const { event } = planYamlToArchitectureLedgerRebuild({
-        ...scope,
-        // Plan the changed graph in memory so both events use the same checkout and worktree digest.
-        files: [...listModelFiles(root), { path, schemaVersion, body, digest: digestJson({ path, body }) }],
-        previousState: await localStore.readArchitectureLedgerState(scope),
-        previousEvidenceState: await localStore.replayArchitectureLedgerEvidence(scope),
-        createdAt: now
-      });
-      expect(event.resultingDigest).not.toBe(event.baseDigest);
-      await localStore.appendArchitectureEvents({ writer: "runtime-daemon", events: [event] });
+      writeFileSync(join(root, path), body, "utf8");
 
       const head = await readProjection();
-      expect(head.cursor.authorityCursor).toMatchObject({ ...scope, eventId: event.eventId, eventSequence: 2, graphDigest: event.resultingDigest });
       expect(head.projectionDigest).not.toBe(base.projectionDigest);
-      await expect(localStore.readExplorerProjectionByManifest(manifest)).resolves.toBeUndefined();
-      await expect(localStore.readExplorerProjectionCacheStats(scope)).resolves.toMatchObject({ pinnedEntryCount: 0 });
 
       const params = new URLSearchParams({
-        baseEventId: baseCursor.eventId,
-        headEventId: event.eventId,
+        baseEventId: "git.base",
+        headEventId: "git.head",
         baseProjectionDigest: base.projectionDigest,
         headProjectionDigest: head.projectionDigest
       });
       const delta = await fetch(`${url}delta?${params}`, { headers });
+      expect(delta.status).toBe(200);
       expect(await delta.json()).toMatchObject({
         ok: true,
         data: {
-          base: { eventId: baseCursor.eventId, projectionDigest: base.projectionDigest },
-          head: { eventId: event.eventId, projectionDigest: head.projectionDigest },
+          base: { eventId: "git.base", projectionDigest: base.projectionDigest },
+          head: { eventId: "git.head", projectionDigest: head.projectionDigest },
           factChanges: [{ subjectId: `entity:${entityId}`, change: "added" }]
         }
       });
-      expect(delta.status).toBe(200);
-      await expect(localStore.readExplorerProjectionCacheStats(scope)).resolves.toMatchObject({ entryCount: 2, invalidatedEntryCount: 1 });
     } finally {
       await daemon?.stop();
       localStore.close();
@@ -518,8 +296,8 @@ summary: Add an Explorer module
       const body = await response.text();
       expect(body).not.toContain("TOP_SECRET_BODY");
       expect(body).not.toContain("should-not-leak");
-      expect(body).not.toContain("malformed.yaml");
       await daemon.stopExplorer();
+      await daemon.stop();
     } finally {
       removeTempRepo(root);
     }

@@ -798,11 +798,11 @@ describe("@archcontext/core/architecture-ledger evidence lifecycle", () => {
 
   test("replays legacy evidence as immutable creates and rejects conflicts", () => {
     const item = evidenceItem("Owns API");
-    const first = evidenceEvent("legacy-one", "archcontext.architecture-candidate-delta/v1", { evidenceItems: [item] });
-    const identical = evidenceEvent("legacy-two", "archcontext.architecture-candidate-delta/v1", { evidenceItems: [item] });
+    const first = evidenceEvent("legacy-one", "archcontext.legacy-evidence/v1", { evidenceItems: [item] });
+    const identical = evidenceEvent("legacy-two", "archcontext.legacy-evidence/v1", { evidenceItems: [item] });
     expect(replayArchitectureLedgerEvidenceState([first, identical]).evidenceItems).toEqual([item]);
 
-    const conflicting = evidenceEvent("legacy-conflict", "archcontext.architecture-candidate-delta/v1", {
+    const conflicting = evidenceEvent("legacy-conflict", "archcontext.legacy-evidence/v1", {
       evidenceItems: [{ ...item, summary: "Conflicting summary" }]
     });
     expect(() => replayArchitectureLedgerEvidenceState([first, conflicting])).toThrow("conflicting-legacy-create");

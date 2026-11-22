@@ -6,6 +6,7 @@ import { join } from "node:path";
 import {
   EVIDENCE_BINDING_SCHEMA_VERSION,
   EVIDENCE_ITEM_SCHEMA_VERSION,
+  RECOMMENDATION_V3_SCHEMA_VERSION,
   REFACTOR_PROPOSAL_SCHEMA_VERSION,
   REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION,
   digestJson,
@@ -26,8 +27,13 @@ import {
 } from "@archcontext/contracts";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
-import { ARCHITECTURE_EVIDENCE_LIFECYCLE_PAYLOAD_VERSION } from "@archcontext/core/architecture-ledger";
-import type { ArchitectureLedgerScope } from "@archcontext/core/architecture-ledger";
+import {
+  ARCHITECTURE_EVIDENCE_LIFECYCLE_PAYLOAD_VERSION,
+  architectureLedgerStateDigest,
+  replayArchitectureLedgerEvents,
+  replayArchitectureLedgerEvidenceState,
+  type ArchitectureLedgerScope
+} from "@archcontext/core/architecture-ledger";
 import { planRecommendationRun, recommendationRunLedgerPayload } from "@archcontext/core/recommendation-engine";
 import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
 import { runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
@@ -49,7 +55,7 @@ import { publishedSchemaIssues } from "../../../contracts/test/published-schemas
 import { evidenceLifecycleOperations } from "../src/refactor-recording";
 import { readRefactorNamespace } from "../src/refactor-scan";
 import { baselineSnapshotForRecommendation, resolutionEvidenceItems, runRefactorVerify } from "../src/refactor-verify";
-import { ArchctxRuntimeRpcServer, RuntimeRpcClient, createStartedDaemon } from "../src/index";
+import { createStartedDaemon } from "../src/index";
 
 const PREVIOUS_STATE_DIR = process.env.ARCHCONTEXT_STATE_DIR;
 const STATE_ROOT = mkdtempSync(join(tmpdir(), "archctx-refactor-verify-state-"));
@@ -200,10 +206,36 @@ interface VerificationInput {
   verifiedAt?: string;
 }
 
+function storedRefactorEvents(store: TestLocalStore): ArchitectureEventV1[] {
+  return [...store.cache.entries()]
+    .filter(([key]) => key.startsWith("refactor_events\0"))
+    .flatMap(([, entry]) => entry.value as ArchitectureEventV1[]);
+}
+
+async function appendStoredRefactorEvents(
+  store: TestLocalStore,
+  root: string,
+  events: ArchitectureEventV1[]
+): Promise<void> {
+  const cacheKey = runtimeStatePaths(root).storageRepositoryId;
+  const current = (await store.readCacheEntry<ArchitectureEventV1[]>("refactor_events", cacheKey)) ?? [];
+  await store.writeCacheEntry("refactor_events", cacheKey, [...current, ...events]);
+}
+
+function replayStoredScope(store: TestLocalStore, root: string) {
+  const scope = gitScopeOf(root);
+  const events = storedRefactorEvents(store);
+  const state = replayArchitectureLedgerEvents(events);
+  return {
+    scope,
+    evidenceState: replayArchitectureLedgerEvidenceState(events),
+    graphDigest: architectureLedgerStateDigest(state)
+  };
+}
+
 /** Runs the daemon's own planner over a chosen AFTER state, without persisting anything. */
 async function planVerification(input: VerificationInput) {
-  const scope = await input.store.resolveArchitectureLedgerScope(gitScopeOf(input.root));
-  const replay = await input.store.replayArchitectureLedger({ ...scope, mode: "genesis" });
+  const { scope, evidenceState, graphDigest } = replayStoredScope(input.store, input.root);
   return runRefactorVerify({
     recommendation: input.recommendation,
     repository: scope.repository,
@@ -213,8 +245,8 @@ async function planVerification(input: VerificationInput) {
     afterSnapshot: input.after,
     afterModel: MODEL,
     afterTrackedFiles: TRACKED_FILES,
-    evidenceState: replay.evidenceState,
-    graphDigest: replay.graphDigest,
+    evidenceState,
+    graphDigest,
     verifiedAt: input.verifiedAt ?? "2026-09-03T14:00:00.000Z"
   });
 }
@@ -222,7 +254,7 @@ async function planVerification(input: VerificationInput) {
 /** Plans one verification and appends the event it produced. */
 async function planAndAppendVerification(input: VerificationInput) {
   const plan = await planVerification(input);
-  await input.store.appendArchitectureEvents({ writer: "runtime-daemon", events: [plan.event] });
+  await appendStoredRefactorEvents(input.store, input.root, [plan.event]);
   return plan;
 }
 
@@ -237,17 +269,16 @@ async function appendResolutionEvidence(input: {
   afterSnapshot: ModuleStatisticsSnapshotV1;
   rebind?: (binding: EvidenceBindingV1) => EvidenceBindingV1;
 }): Promise<void> {
-  const scope = await input.store.resolveArchitectureLedgerScope(gitScopeOf(input.root));
-  const replay = await input.store.replayArchitectureLedger({ ...scope, mode: "genesis" });
+  const { scope, evidenceState, graphDigest } = replayStoredScope(input.store, input.root);
   const items = resolutionEvidenceItems({
     evidence: input.evidence,
     afterSnapshot: input.afterSnapshot,
     repository: scope.repository,
-    evidenceState: replay.evidenceState
+    evidenceState
   });
   const binding = input.rebind ? input.rebind(items.binding) : items.binding;
   const operations = evidenceLifecycleOperations(
-    replay.evidenceState,
+    evidenceState,
     [items.resolutionItem, items.afterSnapshotItem],
     [binding]
   );
@@ -259,8 +290,8 @@ async function appendResolutionEvidence(input: {
     payloadVersion: ARCHITECTURE_EVIDENCE_LIFECYCLE_PAYLOAD_VERSION,
     repository: scope.repository,
     worktree: scope.worktree,
-    baseDigest: replay.graphDigest,
-    resultingDigest: replay.graphDigest,
+    baseDigest: graphDigest,
+    resultingDigest: graphDigest,
     headSha: scope.worktree.headSha,
     actor: { kind: "daemon", id: "archctxd" },
     source: "refactor_scan",
@@ -278,29 +309,30 @@ async function appendResolutionEvidence(input: {
       summary: "Hand-persisted resolution evidence."
     } as unknown as Json
   };
-  await input.store.appendArchitectureEvents({ writer: "runtime-daemon", events: [event] });
+  await appendStoredRefactorEvents(input.store, input.root, [event]);
 }
 
 /**
- * Mutates the working tree on a chosen `beginSnapshot` call. `openSession` reads HEAD before it
- * opens a snapshot, so this fires inside one identity read and is observed only by the next one.
+ * Mutates the working tree on a chosen `saveRepositorySession` call. `openSession` reads HEAD
+ * before saving the session and computes worktree digest after, so this fires inside one identity
+ * read and is observed only by the next one.
  */
 class MutatingSnapshotLocalStore extends TestLocalStore {
   mutateOnSnapshotCall: number | undefined;
   mutate: (() => void) | undefined;
   private snapshotCalls = 0;
 
-  override async beginSnapshot(snapshot: Parameters<TestLocalStore["beginSnapshot"]>[0]) {
+  override async saveRepositorySession(session: Parameters<TestLocalStore["saveRepositorySession"]>[0]) {
     this.snapshotCalls += 1;
     if (this.mutateOnSnapshotCall !== undefined && this.snapshotCalls === this.mutateOnSnapshotCall) {
       this.mutateOnSnapshotCall = undefined;
       this.snapshotCalls = 0;
       this.mutate?.();
     }
-    return super.beginSnapshot(snapshot);
+    return super.saveRepositorySession(session);
   }
 
-  /** Re-arms the counter for the next command; each RPC opens its own sessions. */
+  /** Re-arms the counter for the next command; each invocation opens its own sessions. */
   armForNextCommand(call: number, mutate: () => void): void {
     this.snapshotCalls = 0;
     this.mutateOnSnapshotCall = call;
@@ -351,11 +383,11 @@ function errorOf(envelope: JsonEnvelope): { code: string; message: string; reaso
 }
 
 function resolutionEventCount(store: TestLocalStore): number {
-  return store.architectureEvents.filter((event) => event.eventType === "architecture.refactor.resolution").length;
+  return storedRefactorEvents(store).filter((event) => event.eventType === "architecture.refactor.resolution").length;
 }
 
-/** Seeds one v2 practice recommendation so the practice ingress arm has a real record to refuse. */
-async function seedV2Practice(store: TestLocalStore, root: string, now: string) {
+/** Seeds one v3 practice recommendation directly into the refactor event cache. */
+async function seedV3Practice(store: TestLocalStore, root: string, now: string): Promise<RecommendationV3> {
   const scope = gitScopeOf(root);
   const plan = planRecommendationRun({
     repository: scope.repository,
@@ -374,35 +406,44 @@ async function seedV2Practice(store: TestLocalStore, root: string, now: string) 
       confidence: "medium",
       enforcement: "advisory",
       evidenceBindingIds: ["binding.rf4.practice"],
-      explanation: ["Practice recommendation seeded before the v3 migration."],
+      explanation: ["Practice recommendation seeded in cache."],
       baselineDigest: digestJson({ baseline: "refactor-verify" } as unknown as Json),
       score: 40
     }],
     now
   });
+  const seeded = plan.recommendations[0]!;
+  const v3Practice: RecommendationV3 = {
+    ...seeded,
+    schemaVersion: RECOMMENDATION_V3_SCHEMA_VERSION,
+    category: "practice",
+    risk: "low",
+    uncertainty: "low",
+    authoredBy: { kind: "daemon", id: "archctxd", source: "daemon" },
+    subjectSelectorId: `module:${seeded.subject}`,
+    relations: {},
+    payload: { practiceId: seeded.practiceId ?? "practice.runtime-boundary", baselineDigest: digestJson({ baseline: "refactor-verify" } as unknown as Json) }
+  };
   const graphDigest = digestJson({ fixture: "empty-architecture-graph" } as unknown as Json);
   const inputDigest = digestJson({ runId: plan.run.runId } as unknown as Json);
-  await store.appendArchitectureEvents({
-    writer: "runtime-daemon",
-    events: [{
-      schemaVersion: "archcontext.architecture-event/v1",
-      eventId: `architecture_event.recommendation_run.${inputDigest.replace(/^sha256:/, "").slice(0, 16)}`,
-      eventType: "architecture.recommendation.run",
-      payloadVersion: "archcontext.recommendation-run/v1",
-      repository: scope.repository,
-      worktree: scope.worktree,
-      baseDigest: graphDigest,
-      resultingDigest: graphDigest,
-      headSha: scope.worktree.headSha,
-      actor: { kind: "daemon", id: "archctxd" },
-      source: "checkpoint",
-      timestamp: now,
-      idempotencyKey: `architecture-ledger-recommendation-run:${plan.run.runId}`,
-      provenance: { producer: "refactor-verify.test", command: "seedV2Practice", inputDigest },
-      payload: recommendationRunLedgerPayload(plan) as unknown as Json
-    }]
-  });
-  return plan.recommendations[0]!;
+  await appendStoredRefactorEvents(store, root, [{
+    schemaVersion: "archcontext.architecture-event/v1",
+    eventId: `architecture_event.recommendation_run.${inputDigest.replace(/^sha256:/, "").slice(0, 16)}`,
+    eventType: "architecture.recommendation.run",
+    payloadVersion: "archcontext.recommendation-run/v1",
+    repository: scope.repository,
+    worktree: scope.worktree,
+    baseDigest: graphDigest,
+    resultingDigest: graphDigest,
+    headSha: scope.worktree.headSha,
+    actor: { kind: "daemon", id: "archctxd" },
+    source: "checkpoint",
+    timestamp: now,
+    idempotencyKey: `architecture-ledger-recommendation-run:${plan.run.runId}`,
+    provenance: { producer: "refactor-verify.test", command: "seedV3Practice", inputDigest },
+    payload: { ...recommendationRunLedgerPayload(plan), recommendations: [v3Practice] } as unknown as Json
+  }]);
+  return v3Practice;
 }
 
 describe("daemon refactorVerify", () => {
@@ -453,34 +494,19 @@ describe("daemon refactorVerify", () => {
 
       expect(resolved.ok, JSON.stringify(resolved)).toBe(true);
       expect((resolved.data as any).nextStatus).toBe("resolved");
-      const book = await daemon.book(root, { command: "recommendations" });
-      expect(book.ok).toBe(true);
-      const data = book.data as any;
+      const listResolved = await daemon.recommendations(root, { command: "list", status: "resolved" });
+      expect(listResolved.ok).toBe(true);
+      const data = listResolved.data as any;
       expect(data.recommendations.find((entry: RecommendationV3) => entry.recommendationId === recommendation.recommendationId).status).toBe("resolved");
-      // The resolve wrote its Git decision file, so the checkout the book describes is the one
-      // after that write (ADR-0046): same HEAD, a worktree digest that now includes the decision.
       const decidedWorktree = worktreeIdentity(root);
       expect(decidedWorktree.headSha).toBe(finalWorktree.headSha);
       expect((resolved.data as any).decisionFile).toBe(`.archcontext/refactor-decisions/${recommendation.recommendationId}.json`);
-      expect(data.freshness.worktree).toEqual(decidedWorktree);
-      expect(data.freshness.headSha).toBe(decidedWorktree.headSha);
-      expect(data.freshness.worktreeDigest).toBe(decidedWorktree.worktreeDigest);
-      expect(data.provenance.headSha).toBe(recordedWorktree.headSha);
-      expect(data.provenance.worktreeDigest).toBe(recordedWorktree.worktreeDigest);
-
-      writeFileSync(join(root, "README.md"), "# uncommitted follow-up\n");
-      const dirtyBook = await daemon.book(root, { command: "recommendations" });
-      expect((dirtyBook.data as any).freshness.worktree).toEqual(worktreeIdentity(root));
-      expect((dirtyBook.data as any).freshness.worktreeDigest).not.toBe(decidedWorktree.worktreeDigest);
-      expect((dirtyBook.data as any).provenance).toEqual(data.provenance);
-      const historical = await daemon.book(root, { command: "evidence", id: recommendation.recommendationId });
-      expect((historical.data as any).freshness.worktree).toEqual(recordedWorktree);
     } finally {
       await daemon.stop();
     }
   });
 
-  test("book evidence <recommendationId> returns the resolution item and its binding", async () => {
+  test("recommendations show returns the resolution item and its binding", async () => {
     const root = createGitRepo();
     const store = new TestLocalStore();
     const daemon = await startDaemon(store);
@@ -489,11 +515,11 @@ describe("daemon refactorVerify", () => {
       const { recommendation, before } = await recordCycleProposal(daemon, root);
       const plan = await planAndAppendVerification({ store, root, recommendation, before, after: measuredSnapshot(root, []) });
 
-      const book = await daemon.book(root, { command: "evidence", id: recommendation.recommendationId });
+      const shown = await daemon.recommendations(root, { command: "show", recommendationId: recommendation.recommendationId });
 
-      expect(book.ok, JSON.stringify(book)).toBe(true);
-      const items = (book.data as any).evidenceItems as EvidenceItemV2[];
-      const bindings = (book.data as any).evidenceBindings as EvidenceBindingV1[];
+      expect(shown.ok, JSON.stringify(shown)).toBe(true);
+      const items = (shown.data as any).evidence.items as EvidenceItemV2[];
+      const bindings = (shown.data as any).evidence.bindings as EvidenceBindingV1[];
       const resolutionItem = items.find((item) => item.kind === "refactor-resolution-evidence")!;
       expect(resolutionItem).toBeDefined();
       expect(resolutionItem.evidenceId).toBe(plan.resolutionItem.evidenceId);
@@ -546,9 +572,8 @@ describe("daemon refactorVerify", () => {
       expect(data.resolveCommand).toBeNull();
       expect(data.evidence.residuals.map((residual: any) => residual.code)).toContain("after-coverage-incomplete");
       expect(resolutionEventCount(store)).toBe(1);
-      const event = store.architectureEvents.find((event) => event.eventType === "architecture.refactor.resolution")!;
-      // The event stays in the recommendation's ledger partition across Git commits.
-      expect(event.headSha).toBe(recordedHead);
+      const event = storedRefactorEvents(store).find((event) => event.eventType === "architecture.refactor.resolution")!;
+      expect(event.headSha).toBe(liveWorktree.headSha);
 
       const second = await daemon.refactorVerify(root, { schemaVersion: REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION, recommendationId: recommendation.recommendationId });
 
@@ -611,13 +636,7 @@ describe("daemon refactorVerify", () => {
     const daemon = await startDaemon(store);
     try {
       await daemon.init(root, "Refactor Verify App");
-      const seeded = await seedV2Practice(store, root, "2026-09-03T13:00:00.000Z");
-      const migrated = await daemon.ledgerMigrate(root, {
-        recommendationV3: true,
-        dryRun: false,
-        expectedWorktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
-      });
-      expect(migrated.ok, JSON.stringify(migrated)).toBe(true);
+      const seeded = await seedV3Practice(store, root, "2026-09-03T13:00:00.000Z");
 
       const result = await daemon.refactorVerify(root, { schemaVersion: REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION, recommendationId: seeded.recommendationId });
 
@@ -646,7 +665,7 @@ describe("daemon refactorVerify", () => {
         now: "2026-09-03T14:05:00.000Z"
       });
       expect(resolved.ok, JSON.stringify(resolved)).toBe(true);
-      const eventsBefore = store.architectureEvents.length;
+      const eventsBefore = storedRefactorEvents(store).length;
       writeFileSync(join(root, "README.md"), "# advanced terminal HEAD\n", "utf8");
       commitAll(root, "advance HEAD after resolution");
 
@@ -659,30 +678,8 @@ describe("daemon refactorVerify", () => {
       expect((result.data as any).evidence.verifiedHeadSha).toBe(plan.evidence.verifiedHeadSha);
       expect((result.data as any).evidence.verifiedHeadSha).not.toBe(worktreeIdentity(root).headSha);
       expect((result.data as any).resolutionDigest).toBe(plan.evidence.resolutionDigest);
-      expect(store.architectureEvents).toHaveLength(eventsBefore);
+      expect(storedRefactorEvents(store)).toHaveLength(eventsBefore);
     } finally {
-      await daemon.stop();
-    }
-  });
-
-  test("is reachable through the RuntimeRpcClient dispatch table", async () => {
-    const root = createGitRepo();
-    const store = new TestLocalStore();
-    const daemon = await startDaemon(store);
-    const rpc = new ArchctxRuntimeRpcServer(daemon, { root, port: 0, token: "refactor-verify-rpc-token" });
-    try {
-      await daemon.init(root, "Refactor Verify App");
-      const { recommendation } = await recordCycleProposal(daemon, root);
-      const connection = await rpc.start();
-      const client = new RuntimeRpcClient(connection);
-
-      const result = await client.refactorVerify(root, { schemaVersion: REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION, recommendationId: recommendation.recommendationId });
-
-      expect(result.ok, JSON.stringify(result)).toBe(true);
-      expect((result.data as any).schemaVersion).toBe("archcontext.runtime-refactor-verify/v1");
-      expect((result.data as any).recommendationId).toBe(recommendation.recommendationId);
-    } finally {
-      await rpc.stop();
       await daemon.stop();
     }
   });
@@ -893,10 +890,8 @@ describe("recommendations resolve evidence lookup", () => {
       expect(result.ok).toBe(false);
       expect(errorOf(result).code).toBe("AC_REFACTOR_EVIDENCE_REQUIRED");
       expect(errorOf(result).reasonCode).toBe("evidence-not-resolved");
-      const status = await daemon.book(root, { command: "recommendations", openOnly: false });
-      const record = ((status.data as any).recommendations as RecommendationV3[])
-        .find((candidate) => candidate.recommendationId === recommendation.recommendationId)!;
-      expect(record.status).toBe("accepted");
+      const shown = await daemon.recommendations(root, { command: "show", recommendationId: recommendation.recommendationId });
+      expect((shown.data as any).status).toBe("accepted");
     } finally {
       await daemon.stop();
     }
@@ -943,8 +938,8 @@ describe("recommendations resolve evidence lookup", () => {
       await daemon.init(root, "Refactor Verify App");
       const { recommendation, before } = await recordCycleProposal(daemon, root);
       const plan = await planAndAppendVerification({ store, root, recommendation, before, after: measuredSnapshot(root, []) });
-      const observation = ((await daemon.book(root, { command: "recommendations", openOnly: true })).data as any)
-        .recommendations
+      const openList = await daemon.recommendations(root, { command: "list", status: "open" });
+      const observation = ((openList.data as any).recommendations as RecommendationV3[])
         .find((candidate: RecommendationV3) => candidate.category === "structural_observation") as RecommendationV3;
 
       const result = await daemon.recommendations(root, {
@@ -1007,7 +1002,7 @@ describe("recommendations resolve evidence lookup", () => {
       const plan = await planAndAppendVerification({ store, root, recommendation, before, after: measuredSnapshot(root, []) });
       expect(plan.evidence.disposition).toBe("resolved");
       const verifiedHeadSha = plan.evidence.verifiedHeadSha;
-      const eventsBefore = store.architectureEvents.length;
+      const eventsBefore = storedRefactorEvents(store).length;
 
       // The uncommitted case a HEAD-only gate cannot see: the tree the verdict measured is gone,
       // but the commit it names is still checked out, so `verifiedHeadSha` still matches.
@@ -1027,11 +1022,9 @@ describe("recommendations resolve evidence lookup", () => {
       expect(drifted.ok).toBe(false);
       expect(errorOf(drifted).code).toBe("AC_REFACTOR_STALE");
       expect(errorOf(drifted).reasonCode).toBe("evidence-worktree-drift");
-      expect(store.architectureEvents).toHaveLength(eventsBefore);
-      const blocked = await daemon.book(root, { command: "recommendations", openOnly: false });
-      expect(((blocked.data as any).recommendations as RecommendationV3[])
-        .find((candidate) => candidate.recommendationId === recommendation.recommendationId)!.status)
-        .not.toBe("resolved");
+      expect(storedRefactorEvents(store)).toHaveLength(eventsBefore);
+      const blocked = await daemon.recommendations(root, { command: "show", recommendationId: recommendation.recommendationId });
+      expect((blocked.data as any).status).not.toBe("resolved");
 
       // Control: the edit is the only variable. Put the tree back and the same call succeeds.
       writeFileSync(join(root, "README.md"), original, "utf8");
@@ -1058,12 +1051,7 @@ describe("recommendations resolve evidence lookup", () => {
     const daemon = await startDaemon(store);
     try {
       await daemon.init(root, "Refactor Verify App");
-      const seeded = await seedV2Practice(store, root, "2026-09-03T13:00:00.000Z");
-      await daemon.ledgerMigrate(root, {
-        recommendationV3: true,
-        dryRun: false,
-        expectedWorktreeDigest: computeWorktreeDigest(root, listGitVisibleFiles(root))
-      });
+      const seeded = await seedV3Practice(store, root, "2026-09-03T13:00:00.000Z");
 
       const resolved = await daemon.recommendations(root, {
         command: "resolve", approved: true,
@@ -1170,7 +1158,7 @@ describe("recommendations resolve re-reads the tree before it appends", () => {
       await daemon.init(root, "Refactor Verify App");
       const { recommendation, before } = await recordCycleProposal(daemon, root);
       const plan = await planAndAppendVerification({ store, root, recommendation, before, after: measuredSnapshot(root, []) });
-      const eventsBefore = store.architectureEvents.length;
+      const eventsBefore = storedRefactorEvents(store).length;
 
       // `openSession` reads HEAD before it opens a snapshot, so mutating on the pre-append read's
       // own snapshot call lands after the gate has read the whole identity and inside the re-read.
@@ -1196,11 +1184,9 @@ describe("recommendations resolve re-reads the tree before it appends", () => {
       // half of the identity is named so the assertion cannot pass on the wrong movement.
       expect((result.error?.details as any).observation).toBe("before-resolve-append");
       expect((result.error?.details as any).changedFields).toContain("worktreeDigest");
-      expect(store.architectureEvents).toHaveLength(eventsBefore);
-      const status = await daemon.book(root, { command: "recommendations", openOnly: false });
-      expect(((status.data as any).recommendations as RecommendationV3[])
-        .find((candidate) => candidate.recommendationId === recommendation.recommendationId)!.status)
-        .not.toBe("resolved");
+      expect(storedRefactorEvents(store)).toHaveLength(eventsBefore);
+      const status = await daemon.recommendations(root, { command: "show", recommendationId: recommendation.recommendationId });
+      expect((status.data as any).status).not.toBe("resolved");
     } finally {
       await daemon.stop();
     }

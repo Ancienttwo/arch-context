@@ -22,7 +22,7 @@ import {
 import { ARCHITECTURE_EVIDENCE_LIFECYCLE_PAYLOAD_VERSION } from "@archcontext/core/architecture-ledger";
 import type { ModuleStatisticsTrackedFileV1 } from "@archcontext/core/module-statistics";
 import type { NativeModel } from "@archcontext/core/projection-engine";
-import { evaluateResolution, refactorOutcomeVocabularyIssues } from "@archcontext/core/refactor-assessment";
+import { evaluateResolution, refactorOutcomeVocabularyIssues, type SymbolKillListResolutionFactV1 } from "@archcontext/core/refactor-assessment";
 import { CODEGRAPH_IMPORT_NODE_READ_LIMIT } from "@archcontext/local-runtime/codegraph-adapter";
 import { evidenceLifecycleOperations } from "./refactor-recording";
 
@@ -30,7 +30,7 @@ export const REFACTOR_RESOLUTION_EVENT_TYPE = "architecture.refactor.resolution"
 export const REFACTOR_RESOLUTION_EVIDENCE_KIND = "refactor-resolution-evidence" as const;
 export const MODULE_STATISTICS_SNAPSHOT_EVIDENCE_KIND = "module-statistics-snapshot" as const;
 
-export type { RuntimeRefactorVerifyInput } from "./rpc-types";
+export type { RuntimeRefactorVerifyInput } from "./runtime-types";
 
 export interface RefactorVerifyInputV1 {
   recommendation: RecommendationV3;
@@ -44,6 +44,7 @@ export interface RefactorVerifyInputV1 {
   afterSnapshot: ModuleStatisticsSnapshotV1;
   afterModel: NativeModel;
   afterTrackedFiles: readonly ModuleStatisticsTrackedFileV1[];
+  afterSymbolKillList?: ReadonlyMap<string, SymbolKillListResolutionFactV1>;
   executionEvidenceRefs?: readonly RefactorExecutionEvidenceRefV1[];
   evidenceState: EvidenceStateAtCursorV1;
   graphDigest: string;
@@ -76,6 +77,7 @@ export function runRefactorVerify(input: RefactorVerifyInputV1): RefactorVerifyP
     afterSnapshot: input.afterSnapshot,
     afterModel: input.afterModel,
     afterTrackedFiles: input.afterTrackedFiles,
+    ...(input.afterSymbolKillList ? { afterSymbolKillList: input.afterSymbolKillList } : {}),
     ...(input.executionEvidenceRefs ? { executionEvidenceRefs: input.executionEvidenceRefs } : {}),
     verifiedAt: input.verifiedAt
   });

@@ -14,7 +14,9 @@ import { declareOptionalCodeFacts } from "@archcontext/local-runtime/test/codegr
 import { CapabilityDependenciesError, readCapabilityDependencies } from "../src/index";
 import { projectionWorkspaceId } from "../src/projection-inputs";
 import { projectionArchitectureDebt } from "../src/projection-architecture-debt";
-import { runProjectionCheckCommand, runProjectionProtocolCommand, type ProjectionServiceHost } from "../src/projection-service";
+import { runProjectionCheckCommand } from "../src/projection-check";
+import { runProjectionProtocolCommand } from "../src/projection-protocol";
+import { type ProjectionServiceHost } from "../src/projection-service";
 import { publishedSchemaIssues } from "../../../contracts/test/published-schemas";
 import { rmSync } from "./runtime-test-fixtures";
 
@@ -76,10 +78,8 @@ function projectionResult(envelope: JsonEnvelope): ProjectionResultV3 {
   return envelope.data as unknown as ProjectionResultV3;
 }
 
-/** `plan` needs only the journal lookup from the daemon; nothing was committed under this requestId. */
-const NO_PRIOR_APPLIES = {
-  listProjectionPriorCommittedApplies: async () => okEnvelope("projection.prior-committed-applies", { applies: [] })
-} as unknown as ProjectionServiceHost;
+/** Unused projection host placeholder kept typed cleanly for fixture helpers. */
+const NO_PRIOR_APPLIES = {} as unknown as ProjectionServiceHost;
 
 function depsCode(read: () => unknown): { code: string; reasonCode?: string } {
   try {
@@ -142,8 +142,10 @@ describe("undeclared cross-capability dependencies (#326)", () => {
     expect(taskDebt.items.map(item => ({ reasonCode: item.reasonCode, fromCapabilityId: item.details.fromCapabilityId,
       toCapabilityId: item.details.toCapabilityId, importEdgeCount: item.details.importEdgeCount }))).toEqual(check.architectureDebt!.items);
     expect(publishedSchemaIssues("runtime/capability-dependencies.schema.json", JSON.parse(JSON.stringify(deps)))).toEqual([]);
-    expect(deps.matrix.find((cell) => cell.from === "capability.shop.checkout" && cell.to === "capability.shop.billing"))
-      .toEqual({ from: "capability.shop.checkout", to: "capability.shop.billing", imports: 1, calls: null, declared: false, relationIds: [] });
+    const cell = deps.matrix.find((entry) => entry.from === "capability.shop.checkout" && entry.to === "capability.shop.billing");
+    expect(cell).toMatchObject({ from: "capability.shop.checkout", to: "capability.shop.billing", imports: 1, declared: false, relationIds: [] });
+    expect(typeof cell?.calls).toBe("number");
+    expect(deps.calls.coverage).toBe("complete");
   }, TIMEOUT_MS);
 
   test("a relation from checkout to billing removes the debt and declares the cell", async () => {
