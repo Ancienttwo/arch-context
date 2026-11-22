@@ -12,11 +12,12 @@ import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { CodeGraphAdapter, codeGraphCliInvocation } from "@archcontext/local-runtime/codegraph-adapter";
 import { MockCodeGraphProvider, declareOptionalCodeFacts } from "@archcontext/local-runtime/test/codegraph-factories";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
-import { createStartedDaemon, type RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-daemon";
+import { createStartedDaemon, type ArchctxDaemon, type RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-daemon";
 import { SqliteLocalStore, runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { ARCHCONTEXT_PRODUCT_VERSION, ARCHCTX_FEATURES, archctxCapabilities, digestJson, productVersionManifest, validateJsonSchema, projectionResultInvariantIssues, stableYaml, type AcceptedArchitectureChangeReferenceV1, type JsonEnvelope, type ProjectionRequestV1, type ProjectionResultV3 } from "@archcontext/contracts";
 import { CLI_COMMAND_FLAGS, resolveCommandExitCode, runCapabilitiesCommand, runCli } from "../src/main";
+import { createCliRuntime, type CliRuntimeHandle } from "../src/cli-types";
 
 const REPOSITORY_ROOT = resolve(import.meta.dir, "../../../..");
 const CLI_ENTRY = join(REPOSITORY_ROOT, "packages/surfaces/cli/src/main.ts");
@@ -1394,6 +1395,29 @@ async function withEnv<T>(patch: Record<string, string | undefined>, run: () => 
 }
 
 describe("archctx CLI", () => {
+  test("a product command without injected doubles runs on the production composition; an injected double stays embedded", async () => {
+    // The embedded composition freezes its clock at the epoch, so a product command built on it
+    // writes 1970 into waivers and refactor decisions and never expires a waiver.
+    const root = gitTempRoot("archctx-cli-composition-");
+    const previousStateDir = process.env.ARCHCONTEXT_STATE_DIR;
+    process.env.ARCHCONTEXT_STATE_DIR = testStateRoot(root);
+    const handles: CliRuntimeHandle[] = [];
+    try {
+      const product = await createCliRuntime(root, {});
+      handles.push(product);
+      expect((product.client as ArchctxDaemon).compositionReport()).toMatchObject({ mode: "production", productionSafe: true });
+
+      const embedded = await createCliRuntime(root, { localStore: new TestLocalStore() });
+      handles.push(embedded);
+      expect((embedded.client as ArchctxDaemon).compositionReport().mode).toBe("embedded");
+    } finally {
+      for (const handle of handles) await handle.close().catch(() => undefined);
+      if (previousStateDir === undefined) delete process.env.ARCHCONTEXT_STATE_DIR;
+      else process.env.ARCHCONTEXT_STATE_DIR = previousStateDir;
+      removeTempRoot(root);
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
   test("CLI delegates init and context to the runtime", async () => {
     const root = gitTempRoot("archctx-cli-");
     writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");

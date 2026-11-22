@@ -6,8 +6,7 @@ import { computeWorktreeDigest } from "@archcontext/core/architecture-domain";
 import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { assertAdrReferenceOperation, type AdrReferenceReplacement, type ChangeOperation } from "@archcontext/core/changeset-engine";
 import { canonicalize, type Json } from "@archcontext/contracts";
-import { defaultLocalStorePath } from "@archcontext/local-runtime/local-store-sqlite";
-import { createStartedDaemon } from "@archcontext/local-runtime/runtime-daemon";
+import { createStartedProductionDaemon } from "@archcontext/local-runtime/runtime-daemon";
 
 export const MODEL_PROPOSAL_SCHEMA_VERSION = "archcontext.model-proposal/v1" as const;
 export const MODEL_PROPOSAL_RECEIPT_SCHEMA_VERSION = "archcontext.model-proposal-receipt/v1" as const;
@@ -128,7 +127,7 @@ async function main(args: string[]) {
     if (!expectedWorktreeDigest) throw new Error("approved apply requires --expected-worktree-digest");
     if (computeWorktreeDigest(repo, listGitVisibleFiles(repo)) !== expectedWorktreeDigest) throw new Error("worktree changed after proposal preview");
   }
-  const daemon = await createStartedDaemon({ localStorePath: defaultLocalStorePath(repo) });
+  const daemon = await createStartedProductionDaemon({ root: repo });
   try {
     const planned = await daemon.planUpdate(repo, {
       id: proposal.changeSetId,
