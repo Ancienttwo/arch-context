@@ -1,5 +1,12 @@
-import { REFACTOR_NAMESPACE_PATTERN } from "./refactor";
-import { isRepoRelativePosixPath } from "./schema";
+import {
+  REFACTOR_NAMESPACE_PATTERN,
+  REFACTOR_OBSERVATION_KINDS,
+  REFACTOR_DETECTOR_EXTRA_KINDS,
+  REFACTOR_KILL_LIST_SYMBOL_TARGET_REGEX,
+  formatRefactorKillListSymbolTarget,
+  parseRefactorKillListSymbolTarget,
+  isValidRefactorKillListSymbolTarget
+} from "./refactor";
 import {
   AnyOf,
   BoundedStringSchema,
@@ -21,9 +28,17 @@ import {
   type Static
 } from "./schema-kit";
 
+export {
+  REFACTOR_KILL_LIST_SYMBOL_TARGET_REGEX,
+  formatRefactorKillListSymbolTarget,
+  parseRefactorKillListSymbolTarget,
+  isValidRefactorKillListSymbolTarget
+};
+
 export const REFACTOR_SCAN_V2_SCHEMA_VERSION = "archcontext.refactor-scan/v2" as const;
 export const REFACTOR_VERIFY_V2_SCHEMA_VERSION = "archcontext.refactor-verify/v2" as const;
-export const REFACTOR_SIMULATE_V1_SCHEMA_VERSION = "archcontext.refactor-simulate/v1" as const;
+export const REFACTOR_SIMULATION_REQUEST_SCHEMA_VERSION = "archcontext.refactor-simulation-request/v1" as const;
+export const REFACTOR_SIMULATE_V1_SCHEMA_VERSION = "archcontext.runtime-refactor-simulate/v1" as const;
 
 export const V2_REFACTOR_DETECTOR_KINDS = [
   "file-cycle",
@@ -41,48 +56,56 @@ export const V2_REFACTOR_DETECTOR_KINDS = [
 export type V2RefactorDetectorKind = (typeof V2_REFACTOR_DETECTOR_KINDS)[number];
 
 export const ALL_REFACTOR_DECISION_KINDS = [
-  "cycle",
-  "direction-violation",
-  "evidence-gap",
-  "ownership-ambiguous",
-  "residual-cycle",
-  "undeclared-footprint",
-  "unowned-paths",
-  ...V2_REFACTOR_DETECTOR_KINDS
-] as const;
+  ...REFACTOR_OBSERVATION_KINDS,
+  ...REFACTOR_DETECTOR_EXTRA_KINDS
+].sort() as readonly (
+  | (typeof REFACTOR_OBSERVATION_KINDS)[number]
+  | (typeof REFACTOR_DETECTOR_EXTRA_KINDS)[number]
+)[];
+
+const RefactorDecisionScopeSchema = OneOf([
+  StrictObject({ kind: Const("repository") }),
+  StrictObject({ kind: Const("node"), nodeId: NonEmptyStringSchema }),
+  StrictObject({ kind: Const("paths"), paths: UniqueStringArray(RepoPathSchema, { minItems: 1 }) })
+]);
+
+const RefactorDecisionOutcomeSchema = StrictObject({
+  outcomeId: NonEmptyStringSchema,
+  metric: NonEmptyStringSchema,
+  subjectSelectorId: NonEmptyStringSchema,
+  nodeId: NullableType("string"),
+  memberNodeIds: Type.Optional(UniqueStringArray(NonEmptyStringSchema, { minItems: 2 })),
+  operator: StringEnum(["absent", "equals", "greater_than", "less_than", "present"] as const),
+  value: AnyOf([Type.Number(), Type.Null()]),
+  required: Type.Boolean()
+});
 
 export const ISO_TIMESTAMP_REGEX = "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?(Z|[+-]\\d{2}:\\d{2})$";
 export const GRAPH_LINE_TEXT_REGEX = "^\\S(?:[^\\u0000-\\u001f\\u007f]*\\S)?$";
-
-/**
- * #636 / #643: Symbolic kill-list targets use `path#symbol`, where `path` is a safe repo-relative
- * POSIX path and `symbol` is a non-empty identifier without whitespace or control characters.
- */
-export const REFACTOR_KILL_LIST_SYMBOL_TARGET_REGEX = "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^#\\s\\\\\\u0000-\\u001f\\u007f]+#[^\\s\\u0000-\\u001f\\u007f]+$";
-
-export function formatRefactorKillListSymbolTarget(path: string, symbol: string): string {
-  return `${path}#${symbol}`;
-}
-
-export function parseRefactorKillListSymbolTarget(target: string): { path: string; symbol: string } | undefined {
-  const hashIndex = target.indexOf("#");
-  if (hashIndex <= 0 || hashIndex === target.length - 1) return undefined;
-  if (target.indexOf("#", hashIndex + 1) !== -1) return undefined;
-  const path = target.slice(0, hashIndex);
-  const symbol = target.slice(hashIndex + 1);
-  if (!isRepoRelativePosixPath(path) || /[\s\u0000-\u001f\u007f]/.test(path)) return undefined;
-  if (/[\s\u0000-\u001f\u007f]/.test(symbol) || symbol.length === 0) return undefined;
-  return { path, symbol };
-}
-
-export function isValidRefactorKillListSymbolTarget(target: string): boolean {
-  return parseRefactorKillListSymbolTarget(target) !== undefined;
-}
 
 const ObservationMetricValueSchema = AnyOf([
   Type.Null(),
   Type.Number()
 ]);
+
+export const RefactorKillListTargetV2Schema = OneOf([
+  StrictObject({
+    kind: Const("path"),
+    target: RepoPathSchema,
+    required: Type.Boolean()
+  }),
+  StrictObject({
+    kind: Const("relation"),
+    target: NonEmptyStringSchema,
+    required: Type.Boolean()
+  }),
+  StrictObject({
+    kind: Const("symbol"),
+    target: Type.String({ pattern: REFACTOR_KILL_LIST_SYMBOL_TARGET_REGEX }),
+    required: Type.Boolean()
+  })
+]);
+export type RefactorKillListTargetV2 = Static<typeof RefactorKillListTargetV2Schema>;
 
 export const RefactorDecisionFileBodySchema = StrictObject({
   schemaVersion: Const("archcontext.refactor-decision/v1"),
@@ -93,7 +116,7 @@ export const RefactorDecisionFileBodySchema = StrictObject({
   category: StringEnum(["refactor_proposal", "structural_observation"] as const),
   kind: AnyOf([
     Type.Null(),
-    StringEnum(ALL_REFACTOR_DECISION_KINDS)
+    StringEnum(ALL_REFACTOR_DECISION_KINDS as unknown as readonly [string, ...string[]])
   ]),
   subject: StrictObject({
     selectorKind: StringEnum(["node", "repository"] as const),
@@ -149,7 +172,11 @@ export const RefactorDecisionFileBodySchema = StrictObject({
   }),
   snapshotDigest: Type.Optional(Sha256DigestSchema),
   evidenceDigest: Type.Optional(Sha256DigestSchema),
-  resolutionDigest: Type.Optional(Sha256DigestSchema)
+  resolutionDigest: Type.Optional(Sha256DigestSchema),
+  scope: Type.Optional(RefactorDecisionScopeSchema),
+  importNodeLimit: Type.Optional(Type.Integer({ minimum: 1 })),
+  targetOutcomes: Type.Optional(Type.Array(RefactorDecisionOutcomeSchema)),
+  killList: Type.Optional(Type.Array(RefactorKillListTargetV2Schema))
 });
 
 export const RefactorDecisionFileSchema = SchemaDocument({
@@ -160,25 +187,6 @@ export const RefactorDecisionFileSchema = SchemaDocument({
   schema: RefactorDecisionFileBodySchema
 });
 export type RefactorDecisionFileV1 = Static<typeof RefactorDecisionFileSchema>;
-
-export const RefactorKillListTargetV2Schema = OneOf([
-  StrictObject({
-    kind: Const("path"),
-    target: RepoPathSchema,
-    required: Type.Boolean()
-  }),
-  StrictObject({
-    kind: Const("relation"),
-    target: NonEmptyStringSchema,
-    required: Type.Boolean()
-  }),
-  StrictObject({
-    kind: Const("symbol"),
-    target: Type.String({ pattern: REFACTOR_KILL_LIST_SYMBOL_TARGET_REGEX }),
-    required: Type.Boolean()
-  })
-]);
-export type RefactorKillListTargetV2 = Static<typeof RefactorKillListTargetV2Schema>;
 
 export const RefactorScanFindingV2Schema = StrictObject({
   recommendationId: Type.String({ pattern: "^recommendation\\.[a-f0-9]{16}$" }),
@@ -269,7 +277,14 @@ export const RefactorVerifyV2BodySchema = StrictObject({
       satisfied: Type.Boolean()
     })
   ),
-  blockingReasons: UniqueStringArray(BoundedStringSchema)
+  blockingReasons: UniqueStringArray(BoundedStringSchema),
+  historicalReceipt: Type.Optional(
+    StrictObject({
+      status: StringEnum(["acknowledged", "accepted", "deferred", "rejected", "resolved", "waived"] as const),
+      headSha: GitCommitShaSchema,
+      resolutionDigest: NullableType("string", { pattern: "^sha256:[a-f0-9]{64}$" })
+    })
+  )
 });
 
 export const RefactorVerifyV2Schema = SchemaDocument({
@@ -280,24 +295,88 @@ export const RefactorVerifyV2Schema = SchemaDocument({
 });
 export type RefactorVerifyV2 = Static<typeof RefactorVerifyV2Schema>;
 
+export const RefactorSimulationMoveSchema = StrictObject({
+  path: RepoPathSchema,
+  toNodeId: NonEmptyStringSchema,
+  symbols: Type.Optional(UniqueStringArray(NonEmptyStringSchema, { minItems: 1 }))
+});
+export type RefactorSimulationMoveV1 = Static<typeof RefactorSimulationMoveSchema>;
+
+export interface RefactorSimulationRequestV1 {
+  schemaVersion?: typeof REFACTOR_SIMULATION_REQUEST_SCHEMA_VERSION;
+  moves?: RefactorSimulationMoveV1[];
+  targetSubject?: string;
+  expectedHeadSha?: string;
+  expectedWorktreeDigest?: string;
+  importNodeLimit?: number;
+}
+
+const RefactorSimulationMetricsSnapshotSchema = StrictObject({
+  pairThinDirectionEdgeCount: CountSchema,
+  crossModuleEdgeCount: CountSchema,
+  crossModuleCycleCount: CountSchema,
+  residualCycleCount: CountSchema,
+  directionViolationCount: CountSchema
+});
+
+const RefactorSimulationMetricsDeltaValuesSchema = StrictObject({
+  pairThinDirectionEdgeCount: Type.Integer(),
+  crossModuleEdgeCount: Type.Integer(),
+  crossModuleCycleCount: Type.Integer(),
+  residualCycleCount: Type.Integer(),
+  directionViolationCount: Type.Integer()
+});
+
+const RefactorSimulationViolationSchema = StrictObject({
+  constraintId: NonEmptyStringSchema,
+  fromPath: RepoPathSchema,
+  toPath: RepoPathSchema,
+  fromNode: NonEmptyStringSchema,
+  toNode: NonEmptyStringSchema,
+  severity: RawEnum(["notice", "warning", "error", "critical"] as const),
+  fromLayer: Type.Optional(NonEmptyStringSchema),
+  toLayer: Type.Optional(NonEmptyStringSchema)
+});
+
+const RefactorSimulationCutCandidateSchema = StrictObject({
+  strategy: StringEnum(["move-source-file", "move-target-file", "extract-shared-leaf", "invert-interface"] as const),
+  measured: Type.Boolean(),
+  measurementStatus: StringEnum(["measured", "unmeasured"] as const),
+  summary: BoundedStringSchema,
+  moves: Type.Array(RefactorSimulationMoveSchema),
+  thinDirectionEdgeDelta: AnyOf([Type.Integer(), Type.Null()]),
+  crossModuleCycleDelta: AnyOf([Type.Integer(), Type.Null()]),
+  directionViolationDelta: AnyOf([Type.Integer(), Type.Null()]),
+  newlyIntroducedViolationCount: AnyOf([CountSchema, Type.Null()]),
+  breaksPair: AnyOf([Type.Boolean(), Type.Null()]),
+  caveats: UniqueStringArray(BoundedStringSchema)
+});
+
 export const RefactorSimulateV1BodySchema = StrictObject({
   schemaVersion: Const(REFACTOR_SIMULATE_V1_SCHEMA_VERSION),
-  headSha: GitCommitShaSchema,
-  operation: OneOf([
-    StrictObject({ kind: Const("cut-edge"), from: RepoPathSchema, to: RepoPathSchema }),
-    StrictObject({ kind: Const("move-path"), from: RepoPathSchema, targetNodeId: NonEmptyStringSchema })
-  ]),
-  before: StrictObject({
-    cycleCount: CountSchema,
-    undeclaredEdgeCount: CountSchema
+  beforeSnapshotDigest: Sha256DigestSchema,
+  modelDigest: Sha256DigestSchema,
+  codeFactsCoverage: StringEnum(["complete", "partial", "unknown"] as const),
+  moves: Type.Array(RefactorSimulationMoveSchema),
+  targetSubject: AnyOf([Type.String({ minLength: 1 }), Type.Null()]),
+  measurementStatus: StringEnum(["measured", "unmeasured"] as const),
+  unmeasuredReasons: UniqueStringArray(BoundedStringSchema),
+  metricsDelta: StrictObject({
+    before: RefactorSimulationMetricsSnapshotSchema,
+    after: AnyOf([RefactorSimulationMetricsSnapshotSchema, Type.Null()]),
+    delta: AnyOf([RefactorSimulationMetricsDeltaValuesSchema, Type.Null()])
   }),
-  after: StrictObject({
-    cycleCount: NullableType("integer", { minimum: 0 }),
-    undeclaredEdgeCount: NullableType("integer", { minimum: 0 })
-  }),
-  coverage: StringEnum(["static-graph-only", "partial", "unavailable"] as const),
-  caveats: UniqueStringArray(BoundedStringSchema),
-  readOnly: Const(true)
+  newlyIntroducedCycles: Type.Array(NonEmptyStringSchema),
+  resolvedCycles: Type.Array(NonEmptyStringSchema),
+  newlyIntroducedViolations: Type.Array(RefactorSimulationViolationSchema),
+  cutCandidates: Type.Array(RefactorSimulationCutCandidateSchema),
+  simulationDigest: Sha256DigestSchema,
+  privacy: StrictObject({
+    writes: Const("none"),
+    rawSourcePersisted: Const(false),
+    rawDiffPersisted: Const(false),
+    promptPersisted: Const(false)
+  })
 });
 
 export const RefactorSimulateV1Schema = SchemaDocument({
@@ -307,3 +386,4 @@ export const RefactorSimulateV1Schema = SchemaDocument({
   schema: RefactorSimulateV1BodySchema
 });
 export type RefactorSimulateV1 = Static<typeof RefactorSimulateV1Schema>;
+export type RefactorSimulationResultV1 = RefactorSimulateV1;

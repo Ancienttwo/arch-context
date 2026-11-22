@@ -114,8 +114,55 @@ export const CLI_COMMAND_FLAGS: Readonly<Record<string, CliFlagSpec & { subcomma
   "refactor": {
     value: ["--assessment-digest", "--expected-worktree-digest", "--import-node-limit", "--request-json"],
     boolean: ["--selection"],
-    subcommands: { scan: { value: ["--import-node-limit", "--node", "--path", "--request-json"], boolean: [] } }
+    subcommands: {
+      scan: { value: ["--import-node-limit", "--node", "--path", "--request-json"], boolean: [] },
+      simulate: {
+        value: [
+          "--expected-head-sha",
+          "--expected-worktree-digest",
+          "--import-node-limit",
+          "--move",
+          "--request-file",
+          "--request-json",
+          "--target"
+        ],
+        boolean: []
+      }
+    }
   },
+  "scan": {
+    value: ["--import-node-limit", "--node", "--path", "--paths", "--scope"],
+    boolean: [],
+    subcommands: {
+      simulate: {
+        value: [
+          "--expected-head-sha",
+          "--expected-worktree-digest",
+          "--import-node-limit",
+          "--move",
+          "--request-file",
+          "--request-json",
+          "--target"
+        ],
+        boolean: []
+      }
+    }
+  },
+  "decide": {
+    value: [],
+    boolean: [],
+    subcommands: {
+      list: { value: ["--import-node-limit", "--status"], boolean: [] },
+      show: { value: ["--id", "--import-node-limit", "--recommendation-id"], boolean: [] },
+      accept: { value: ["--actor", "--id", "--import-node-limit", "--kill-path", "--kill-relation", "--kill-symbol", "--reason", "--recommendation-id"], boolean: [] },
+      defer: { value: ["--actor", "--id", "--import-node-limit", "--reason", "--recommendation-id"], boolean: [] },
+      reject: { value: ["--actor", "--id", "--import-node-limit", "--reason", "--recommendation-id"], boolean: [] },
+      waive: { value: ["--actor", "--id", "--import-node-limit", "--reason", "--recommendation-id"], boolean: [] },
+      acknowledge: { value: ["--actor", "--id", "--import-node-limit", "--reason", "--recommendation-id"], boolean: [] },
+      resolve: { value: ["--actor", "--id", "--import-node-limit", "--reason", "--recommendation-id", "--resolution-digest"], boolean: [] }
+    }
+  },
+  "verify": { value: ["--id", "--import-node-limit", "--recommendation-id"], boolean: [] },
   "repo": { value: ["--name", "--repository-id", "--root"], boolean: [] },
   "resolve": { value: ["--path", "--paths-from"], boolean: [] },
   "impact": { value: ["--base", "--head", "--depth", "--paths-from"], boolean: [] },

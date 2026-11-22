@@ -103,6 +103,7 @@ export const ARCHCTX_FEATURES = [
   "changeset-ownership-delta-v1",
   "cli-check-v1",
   "code-facts-unavailable-error-v1",
+  "deps-calls-matrix-v1",
   "docs-anchors-v1",
   "flow-selector-check-v1",
   "host-ownership-isolation-v1",
@@ -131,9 +132,12 @@ export const ARCHCTX_FEATURES = [
   "recommendation-v3",
   "refactor-assessment-v1",
   "refactor-observation-evidence-v1",
+  "refactor-radar-v2",
   "refactor-resolution-v1",
   "refactor-scan-limits-v1",
-  "refactor-scan-untracked-count-v1"
+  "refactor-scan-untracked-count-v1",
+  "refactor-simulate-v1",
+  "refactor-symbol-kill-list-v1"
 ] as const;
 
 /**

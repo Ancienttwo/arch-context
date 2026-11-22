@@ -2,6 +2,7 @@ import { publicFailureEnvelope, publicOperationErrorEnvelope, publicOperationFai
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { findRepositoryRoot, readTrackedSourceFiles } from "@archcontext/local-runtime/git-adapter";
+import { verifySymbolKillList } from "@archcontext/local-runtime/codegraph-adapter";
 import { runtimeStatePaths, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { loadNativeModelFromArchContext } from "@archcontext/core/projection-engine";
 import {
@@ -605,11 +606,6 @@ export class RecommendationsService {
     }
     const candidate = measured.result.proposedRecommendations.find((entry) => entry.recommendationId === recommendationId);
     if (!candidate) return recommendationNotFound("show", recommendationId, "recorded-or-scanned");
-    // A candidate is shown under the identity a decision on it would record; a run that cannot be
-    // recorded cannot be decided, so its candidate is refused the way the decision would be.
-    if (!measured.result.recording.recordable) {
-      return refactorRunTooLargeEnvelope("recommendations.show", measured.result.recording);
-    }
     const bindings = measured.result.evidenceBindings
       .filter((binding) => binding.target.kind === "recommendation" && binding.target.id === recommendationId)
       .sort((left, right) => left.bindingId.localeCompare(right.bindingId));
@@ -622,17 +618,26 @@ export class RecommendationsService {
       items: evidenceItemsFor(measured.result.evidenceItems, bindings),
       baseline: { status: "measured", snapshotDigest: measured.result.snapshot.snapshotDigest, snapshot: measured.result.snapshot },
       decisions: [],
-      worktree: { headSha: measured.gitScope.worktree.headSha, worktreeDigest: measured.gitScope.worktree.worktreeDigest }
+      worktree: { headSha: measured.gitScope.worktree.headSha, worktreeDigest: measured.gitScope.worktree.worktreeDigest },
+      ...(!measured.result.recording.recordable
+        ? {
+          recording: {
+            recorded: false,
+            recordable: false,
+            reasonCode: measured.result.recording.reasonCode,
+            measuredBytes: measured.result.recording.measuredBytes,
+            limitBytes: measured.result.recording.limitBytes
+          }
+        }
+        : {})
     });
   }
 
   /**
-   * Every recommendation whose latest record has `status`, read from the ledger alone. Unlike
-   * `book recommendations` there is no item or byte budget: a consumer that reads decisions must
-   * see all of them, so nothing is cut and `count` is the whole answer. Read-only.
+   * Every recommendation whose latest record has `status`, or all statuses when `status` is omitted. Read-only.
    */
   private async listRecommendations(repositoryRoot: string, status: string | undefined): Promise<JsonEnvelope> {
-    if (status === undefined || !(RECOMMENDATION_STATUSES as readonly string[]).includes(status)) {
+    if (status !== undefined && !(RECOMMENDATION_STATUSES as readonly string[]).includes(status)) {
       return publicFailureEnvelope("recommendations.list", "AC_SCHEMA_INVALID", "recommendations-input-invalid", {});
     }
     const scope = await this.context.architectureLedgerScope(repositoryRoot);
@@ -651,19 +656,19 @@ export class RecommendationsService {
     // subject's status, only reported under `ledgerAudit` with the status the ledger recorded.
     const views = latest.map((recommendation) => refactorStatusView(recommendation, decisions));
     const recommendations = views
-      .filter((view) => view.authority !== "ledger-audit" && view.record.status === status)
+      .filter((view) => view.authority !== "ledger-audit" && (status === undefined || view.record.status === status))
       .map((view) => view.record);
     const ledgerAudit = views
-      .filter((view) => view.authority === "ledger-audit" && view.record.status === status)
+      .filter((view) => view.authority === "ledger-audit" && (status === undefined || view.record.status === status))
       .map((view) => view.record);
     const recorded = new Set(latest.map((recommendation) => recommendation.recommendationId));
     // Decisions this checkout carries for ids this workspace's ledger never recorded (another
     // worktree or branch decided them and the decision came through Git).
     const gitOnlyDecisions = (decisions?.decisions ?? [])
-      .filter((decision) => decision.status === status && !recorded.has(decision.recommendationId));
+      .filter((decision) => (status === undefined || decision.status === status) && !recorded.has(decision.recommendationId));
     return okEnvelope("recommendations.list", {
       schemaVersion: "archcontext.runtime-recommendation-list/v1",
-      status,
+      status: status ?? "all",
       count: recommendations.length + gitOnlyDecisions.length,
       recommendations,
       decisions: gitOnlyDecisions,
@@ -1224,6 +1229,19 @@ export class RecommendationsService {
         if (error instanceof RefactorScanError) return publicOperationErrorEnvelope("refactor.verify", error);
         return publicOperationErrorEnvelope("refactor.verify", error);
       }
+      const afterTrackedFiles = readTrackedSourceFiles(repositoryRoot);
+      const symbolTargets = recommendation.category === "refactor_proposal"
+        ? recommendation.payload.killList.filter((entry) => entry.kind === "symbol").map((entry) => entry.selectorId)
+        : [];
+      const codeFactsReady = scan.snapshot.codeFacts.coverage !== "unknown" &&
+        scan.snapshot.codeFacts.indexedWorktreeDigest === scan.snapshot.worktree.worktreeDigest;
+      const symbolChecks = symbolTargets.length > 0
+        ? verifySymbolKillList(repositoryRoot, symbolTargets, {
+          codeFactsReady,
+          trackedFiles: new Set(afterTrackedFiles.map((file) => file.path))
+        })
+        : [];
+      const afterSymbolKillList = new Map(symbolChecks.map((check) => [check.target, check] as const));
       let plan: ReturnType<typeof runRefactorVerify>;
       try {
         plan = runRefactorVerify({
@@ -1238,7 +1256,8 @@ export class RecommendationsService {
           // silently diverge from the scan: `evaluateResolution` binds both to the snapshot's
           // `modelDigest` and footprint digests and reports `stale` when they disagree.
           afterModel: loadNativeModelFromArchContext(repositoryRoot),
-          afterTrackedFiles: readTrackedSourceFiles(repositoryRoot),
+          afterTrackedFiles,
+          ...(afterSymbolKillList.size > 0 ? { afterSymbolKillList } : {}),
           ...(input.executionEvidenceRefs ? { executionEvidenceRefs: input.executionEvidenceRefs } : {}),
           evidenceState: replay.evidenceState,
           graphDigest: replay.graphDigest,
@@ -1588,6 +1607,7 @@ function recommendationShowEnvelope(input: {
   decisions: RecommendationFeedbackV1[];
   /** The tree a scan candidate was measured at; `null` for a recorded recommendation. */
   worktree: { headSha: string; worktreeDigest: string } | null;
+  recording?: { recorded: boolean; recordable: boolean; reasonCode: string | null; measuredBytes: number; limitBytes: number };
 }): JsonEnvelope {
   const recommendation = input.recommendation as RecommendationV2 | RecommendationV3 | null;
   const affectedNodeIds = recommendation !== null && "category" in recommendation && recommendation.category !== "practice"
@@ -1611,6 +1631,7 @@ function recommendationShowEnvelope(input: {
     affectedModules,
     decisions: input.decisions,
     worktree: input.worktree,
+    ...(input.recording ? { recording: input.recording } : {}),
     privacy: {
       writes: "none",
       rawSourcePersisted: false,

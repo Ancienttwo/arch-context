@@ -7,6 +7,7 @@ import { bindRepository, matchesGlob, type GitTrackedTreeEntry, type RepositoryB
 import { digestJson, FailureError, type Json } from "@archcontext/contracts";
 import { isGitRevisionArgument, localGitEnv, readGitBlobTree, readGitBlobs, readOnlyGit } from "./blob-reader";
 export * from "./blob-reader";
+export * from "./co-change";
 
 /** One `git cat-file --batch` carries every measured blob; a repository-sized tree needs the headroom. */
 const GIT_CAT_FILE_MAX_BYTES = 512 * 1024 * 1024;
@@ -124,6 +125,64 @@ export function listGitVisibleFiles(root: string, pathspec?: string): string[] {
 export function hasSkippedWorktreePaths(root: string): boolean {
   const entries = readOnlyGit(root, "ls-files", ["--cached", "-t", "-z", "--"], { maxBytes: 256 * 1024 * 1024 });
   return entries.toString("utf8").split("\0").some(entry => entry.startsWith("S ") && !existsSync(join(root, entry.slice(2))));
+}
+
+export interface SkippedWorktreeEntry {
+  path: string;
+  objectId: string;
+}
+
+/** Lists skip-worktree (`S `) index entries matching `pathOrPrefix` (#643 Comment 5). */
+export function listSkippedWorktreeEntries(root: string, pathOrPrefix: string): SkippedWorktreeEntry[] {
+  const raw = readOnlyGit(root, "ls-files", ["--cached", "--stage", "-t", "-z", "--", pathOrPrefix], {
+    maxBytes: 64 * 1024 * 1024
+  }).toString("utf8");
+  const entries: SkippedWorktreeEntry[] = [];
+  for (const line of raw.split("\0")) {
+    if (!line.startsWith("S ")) continue;
+    const tab = line.indexOf("\t");
+    if (tab < 0) continue;
+    const meta = line.slice(2, tab).split(/\s+/);
+    const objectId = meta[1];
+    const path = line.slice(tab + 1);
+    if (objectId && path) entries.push({ path, objectId });
+  }
+  return entries.sort((left, right) => left.path.localeCompare(right.path));
+}
+
+export function listSkippedWorktreePaths(root: string, pathOrPrefix: string): string[] {
+  return listSkippedWorktreeEntries(root, pathOrPrefix).map((entry) => entry.path);
+}
+
+/** True when `repoPath` itself or its hidden parent directory is marked skip-worktree in the index. */
+export function isPathHiddenBySparseCheckout(root: string, repoPath: string): boolean {
+  if (listSkippedWorktreeEntries(root, repoPath).length > 0) return true;
+  if (!existsSync(join(root, repoPath))) {
+    const parentDir = dirname(repoPath);
+    if (parentDir !== "." && !existsSync(join(root, parentDir)) && listSkippedWorktreeEntries(root, parentDir).length > 0) {
+      return true;
+    }
+    const rootSegment = repoPath.split("/")[0];
+    if (rootSegment && rootSegment !== repoPath && !existsSync(join(root, rootSegment)) && listSkippedWorktreeEntries(root, rootSegment).length > 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Reads skip-worktree blobs under `directoryPrefix` directly from the Git object database without
+ * modifying sparse checkout rules or materializing working-tree files (#643 Comment 5).
+ */
+export function readSkippedWorktreeBlobs(root: string, directoryPrefix: string): Map<string, string> {
+  const entries = listSkippedWorktreeEntries(root, directoryPrefix);
+  const decoded = new Map<string, string>();
+  if (entries.length === 0) return decoded;
+  const blobs = readGitBlobs(root, entries.map((entry) => ({ objectId: entry.objectId })));
+  for (let index = 0; index < entries.length; index += 1) {
+    decoded.set(entries[index]!.path, blobs[index]!.toString("utf8"));
+  }
+  return decoded;
 }
 
 /** A repo-relative path that the repository's ignore rules exclude, and the rule that excludes it. */

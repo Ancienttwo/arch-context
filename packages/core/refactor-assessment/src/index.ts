@@ -43,8 +43,10 @@ export {
   type DeriveObservationOutcomesInputV1,
   type RefactorResolutionInputV1,
   type RefactorResolutionMetric,
-  type RefactorResolutionResidualCode
+  type RefactorResolutionResidualCode,
+  type SymbolKillListResolutionFactV1
 } from "./resolution";
+export { simulateRefactorPlan, type SimulateRefactorPlanInputV1 } from "./simulate";
 
 const DIGEST_PREFIX_LENGTH = "sha256:".length;
 const SIGNAL_ID_LENGTH = 16;
@@ -60,6 +62,10 @@ const PRESSURE_WEIGHTS: Readonly<Record<RefactorObservationKind, number>> = {
   cycle: 25,
   "residual-cycle": 25,
   "direction-violation": 25,
+  "entrypoint-bypass": 20,
+  "low-cohesion-god-file": 15,
+  "unstable-dependency": 15,
+  "co-change-coupling": 15,
   "ownership-ambiguous": 15,
   "unowned-paths": 15,
   "evidence-gap": 5,
@@ -81,13 +87,17 @@ const PRESSURE_WEIGHTS: Readonly<Record<RefactorObservationKind, number>> = {
  * the same members makes it worse.
  */
 export const REFACTOR_OBSERVATION_SEVERITY_METRICS: Readonly<Record<RefactorObservationKind, readonly string[]>> = {
+  "co-change-coupling": ["coChangePairCount"],
   cycle: ["thinDirectionEdgeCount"],
   "residual-cycle": ["cycleEdgeCount"],
   "direction-violation": ["directionViolationCount"],
+  "entrypoint-bypass": ["entrypointBypassCount"],
   "evidence-gap": [],
+  "low-cohesion-god-file": ["flaggedFileCount"],
   "ownership-ambiguous": [],
   "undeclared-footprint": [],
-  "unowned-paths": ["unownedFileCount"]
+  "unowned-paths": ["unownedFileCount"],
+  "unstable-dependency": ["unstableDependencyCount"]
 };
 
 /**
@@ -303,6 +313,42 @@ export function buildObservations(
         evidence: evidence.directionViolation(module.nodeId)
       });
     }
+    if ((module.cohesion?.lowCohesionFileCount ?? 0) > 0) {
+      drafts.push({
+        kind: "low-cohesion-god-file",
+        subjectSelectorId: module.nodeId,
+        affectedNodeIds: [module.nodeId],
+        metrics: { flaggedFileCount: module.cohesion!.lowCohesionFileCount },
+        evidence: evidence.lowCohesionGodFile(module.nodeId)
+      });
+    }
+    if ((module.surfaces.entrypointBypassCount ?? 0) > 0) {
+      drafts.push({
+        kind: "entrypoint-bypass",
+        subjectSelectorId: module.nodeId,
+        affectedNodeIds: [module.nodeId],
+        metrics: { entrypointBypassCount: module.surfaces.entrypointBypassCount! },
+        evidence: evidence.entrypointBypass(module.nodeId)
+      });
+    }
+    if ((module.dependencyGraph?.unstableDependencyCount ?? 0) > 0) {
+      drafts.push({
+        kind: "unstable-dependency",
+        subjectSelectorId: module.nodeId,
+        affectedNodeIds: [module.nodeId],
+        metrics: { unstableDependencyCount: module.dependencyGraph!.unstableDependencyCount! },
+        evidence: evidence.unstableDependency(module.nodeId)
+      });
+    }
+  }
+  for (const finding of structure.coChangeCouplings ?? []) {
+    drafts.push({
+      kind: "co-change-coupling",
+      subjectSelectorId: refactorPairSubject(finding.memberNodeIds),
+      affectedNodeIds: [...finding.memberNodeIds],
+      metrics: { coChangePairCount: finding.pairs.length },
+      evidence: evidence.coChangeCoupling(finding)
+    });
   }
 
   // The metric is the repository-scoped count; the paths themselves ride in the bounded evidence.

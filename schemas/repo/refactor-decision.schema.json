@@ -58,24 +58,24 @@
         {
           "type": "string",
           "enum": [
-            "cycle",
-            "direction-violation",
-            "evidence-gap",
-            "ownership-ambiguous",
-            "residual-cycle",
-            "undeclared-footprint",
-            "unowned-paths",
-            "file-cycle",
+            "co-change-coupling",
             "component-cycle",
+            "cycle",
+            "dead-public-export",
+            "direction-violation",
+            "entrypoint-bypass",
+            "evidence-gap",
+            "file-cycle",
             "god-file",
             "low-cohesion-god-file",
-            "entrypoint-bypass",
-            "undeclared-dependency",
+            "ownership-ambiguous",
             "purity-violation",
-            "dead-public-export",
-            "unstable-dependency",
+            "residual-cycle",
             "shotgun-surgery-hotspot",
-            "co-change-coupling"
+            "undeclared-dependency",
+            "undeclared-footprint",
+            "unowned-paths",
+            "unstable-dependency"
           ]
         }
       ]
@@ -241,6 +241,229 @@
     "resolutionDigest": {
       "pattern": "^sha256:[a-f0-9]{64}$",
       "type": "string"
+    },
+    "scope": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "const": "repository"
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "kind",
+            "nodeId"
+          ],
+          "properties": {
+            "kind": {
+              "const": "node"
+            },
+            "nodeId": {
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "kind",
+            "paths"
+          ],
+          "properties": {
+            "kind": {
+              "const": "paths"
+            },
+            "paths": {
+              "uniqueItems": true,
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "not": {
+                  "anyOf": [
+                    {
+                      "pattern": "^/"
+                    },
+                    {
+                      "pattern": "\\\\"
+                    },
+                    {
+                      "pattern": "(^|/)\\.\\.(/|$)"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "importNodeLimit": {
+      "minimum": 1,
+      "type": "integer"
+    },
+    "targetOutcomes": {
+      "type": "array",
+      "items": {
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "outcomeId",
+          "metric",
+          "subjectSelectorId",
+          "nodeId",
+          "operator",
+          "value",
+          "required"
+        ],
+        "properties": {
+          "outcomeId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "metric": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "subjectSelectorId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "nodeId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "memberNodeIds": {
+            "uniqueItems": true,
+            "minItems": 2,
+            "type": "array",
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "operator": {
+            "type": "string",
+            "enum": [
+              "absent",
+              "equals",
+              "greater_than",
+              "less_than",
+              "present"
+            ]
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "required": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "killList": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "kind",
+              "target",
+              "required"
+            ],
+            "properties": {
+              "kind": {
+                "const": "path"
+              },
+              "target": {
+                "type": "string",
+                "minLength": 1,
+                "not": {
+                  "anyOf": [
+                    {
+                      "pattern": "^/"
+                    },
+                    {
+                      "pattern": "\\\\"
+                    },
+                    {
+                      "pattern": "(^|/)\\.\\.(/|$)"
+                    }
+                  ]
+                }
+              },
+              "required": {
+                "type": "boolean"
+              }
+            }
+          },
+          {
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "kind",
+              "target",
+              "required"
+            ],
+            "properties": {
+              "kind": {
+                "const": "relation"
+              },
+              "target": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "required": {
+                "type": "boolean"
+              }
+            }
+          },
+          {
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "kind",
+              "target",
+              "required"
+            ],
+            "properties": {
+              "kind": {
+                "const": "symbol"
+              },
+              "target": {
+                "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^#\\s\\\\\\u0000-\\u001f\\u007f]+#[^\\s\\u0000-\\u001f\\u007f]+$",
+                "type": "string"
+              },
+              "required": {
+                "type": "boolean"
+              }
+            }
+          }
+        ]
+      }
     }
   }
 }

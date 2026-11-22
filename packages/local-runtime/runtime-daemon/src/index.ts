@@ -120,6 +120,15 @@ export { PROJECTION_PR_BODY_MARKER, PROJECTION_WRITER_DEFAULT_BASE, PROJECTION_W
 export { runDocsAnchorsCommand } from "./docs-anchors";
 export { runRuntimeVerifyCommand } from "./verify";
 export { CapabilityDependenciesError, readCapabilityDependencies, type CapabilityDependenciesRequestV1, type CapabilityDependenciesResultV1 } from "./capability-dependencies";
+export {
+  runDecideV2,
+  runRefactorSimulate,
+  runScanV2,
+  runVerifyV2,
+  type RunDecideV2Input,
+  type RunScanV2Options,
+  type V2DecideAction
+} from "./refactor-radar-v2";
 export { runConstraintCheckCommand } from "./constraints-check";
 export { runFlowSelectorCheckCommand } from "./flow-selector-check";
 export { runStateMachineCheckCommand } from "./state-machine-check";

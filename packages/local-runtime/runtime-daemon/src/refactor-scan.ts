@@ -41,9 +41,17 @@ import {
   codeGraphIndexAvailable,
   packagedCodeGraphRuntimeDigest,
   pinnedCodeGraphProvider,
+  readRepositoryStructuralFacts,
   repositoryImportPairs
 } from "@archcontext/local-runtime/codegraph-adapter";
-import { normalizePackageExports, readHeadCommitterDate, readTrackedSourceFiles, readTrackedTreeEntries, readWorkspacePackages } from "@archcontext/local-runtime/git-adapter";
+import {
+  normalizePackageExports,
+  readGitCoChangeHistory,
+  readHeadCommitterDate,
+  readTrackedSourceFiles,
+  readTrackedTreeEntries,
+  readWorkspacePackages
+} from "@archcontext/local-runtime/git-adapter";
 import { listModelFiles, listNativeModelPaths } from "@archcontext/local-runtime/model-store-yaml";
 import { isRefactorRecommendation, refactorStatusView, type RefactorDecisionSetV1 } from "./refactor-decisions";
 import { latestRecommendationsById, planRefactorRunWithRecording, previousRecommendationsFromAuthority, type RefactorRunRecordingV1 } from "./refactor-recording";
@@ -101,6 +109,7 @@ export interface RefactorScanResultV1 {
   requestId: string;
   /** The manifest `product.id` the refactor selectors of this scan are scoped by (ADR-0046). */
   namespace: string;
+  modelNodes: NativeNode[];
   snapshot: ModuleStatisticsSnapshotV1;
   assessment: RefactorAssessmentV1;
   /** Present exactly when the request carried one, with `unresolvedTargets` resolved. */
@@ -178,37 +187,19 @@ export function runRefactorScan(input: RefactorScanInputV1): RefactorScanResultV
 
   const scope = input.request.scope.kind === "repository" ? undefined : input.request.scope;
   const workspacePackages = declaredWorkspacePackages(input.root);
-  const scoped = scope === undefined ? undefined : scanScope(input.root, model.nodes, scope, workspacePackages);
-  const codeFacts = readCodeFacts(input.root, input.worktree.worktreeDigest, scoped?.trackedPaths ?? input.sourceFiles, edgeLimit, scoped?.imports);
-  const directImports = codeFacts.availability === "ready" ? codeFacts.pairs : [];
-  const trackedFiles = readTrackedSourceFiles(input.root, scoped === undefined ? {} : {
-    paths: new Set([
-      ...scoped.imports.paths,
-      ...directImports.flatMap((pair) => pair.to === null ? [pair.from] : [pair.from, pair.to])
-    ])
-  });
-
-  const { snapshot, structure } = measureModuleStatistics({
-    model,
-    scope,
+  const measured = measureRefactorSnapshot({
+    root: input.root,
     repository: input.repository,
     worktree: input.worktree,
-    trackedFiles,
-    importEdges: codeFacts.pairs,
-    workspacePackages,
-    truncated: codeFacts.truncated,
-    edgeLimit,
-    importNodeCount: codeFacts.importNodeCount,
-    importNodeLimitExceeded: codeFacts.importNodeLimitExceeded,
-    codeFacts: {
-      version: codeFacts.version,
-      binaryDigest: codeFacts.binaryDigest,
-      availability: codeFacts.availability,
-      indexedWorktreeDigest: codeFacts.indexedWorktreeDigest
-    },
+    sourceFiles: input.sourceFiles,
+    model,
     constraints,
+    workspacePackages,
+    scope,
+    edgeLimit,
     createdAt
   });
+  const { snapshot, structure, trackedFiles } = measured;
 
   let assessed: ReturnType<typeof assessRefactor>;
   try {
@@ -250,11 +241,12 @@ export function runRefactorScan(input: RefactorScanInputV1): RefactorScanResultV
   return {
     requestId,
     namespace,
+    modelNodes: model.nodes,
     snapshot,
     assessment: assessed.assessment,
     ...(assessed.proposal ? { proposal: assessed.proposal } : {}),
     proposedRecommendations: plan.recommendations,
-    openRecommendations: openRefactorRecommendations(input.previousRecommendations, input.decisions, scoped?.targetNodeIds),
+    openRecommendations: openRefactorRecommendations(input.previousRecommendations, input.decisions, measured.targetNodeIds),
     evidenceItems: plan.evidenceItems,
     evidenceBindings: plan.evidenceBindings,
     suppressed: plan.suppressed,
@@ -589,6 +581,76 @@ function readCodeFacts(
     availability: imports.availability,
     indexedWorktreeDigest: imports.indexedWorktreeDigest,
     ...attestation
+  };
+}
+
+/** Shared measurement builder reused by v1 scan, v2 scan, v2 verify, and simulate without SQLite. */
+export function measureRefactorSnapshot(input: {
+  root: string;
+  repository: ArchitectureRepositoryIdentityV1;
+  worktree: ArchitectureWorktreeIdentityV1;
+  sourceFiles: readonly string[];
+  model?: ReturnType<typeof loadNativeModelFromArchContext>;
+  constraints?: DependencyConstraintV1[];
+  workspacePackages?: ReturnType<typeof declaredWorkspacePackages>;
+  scope?: NonNullable<ModuleStatisticsSnapshotV1["scope"]>;
+  edgeLimit?: number;
+  createdAt?: string;
+}) {
+  const model = input.model ?? loadModel(input.root);
+  const constraints = input.constraints ?? readDependencyConstraints(listModelFiles(input.root)).constraints;
+  const workspacePackages = input.workspacePackages ?? declaredWorkspacePackages(input.root);
+  const edgeLimit = input.edgeLimit ?? CODEGRAPH_IMPORT_NODE_READ_LIMIT;
+  const createdAt = input.createdAt ?? readHeadCommitterDate(input.root);
+  const scoped = input.scope === undefined ? undefined : scanScope(input.root, model.nodes, input.scope, workspacePackages);
+  const codeFacts = readCodeFacts(input.root, input.worktree.worktreeDigest, scoped?.trackedPaths ?? input.sourceFiles, edgeLimit, scoped?.imports);
+  const directImports = codeFacts.availability === "ready" ? codeFacts.pairs : [];
+  const trackedFiles = readTrackedSourceFiles(input.root, scoped === undefined ? {} : {
+    paths: new Set([
+      ...scoped.imports.paths,
+      ...directImports.flatMap((pair) => pair.to === null ? [pair.from] : [pair.from, pair.to])
+    ])
+  });
+  const structuralFacts = codeFacts.availability === "ready" && codeFacts.indexedWorktreeDigest === input.worktree.worktreeDigest
+    ? readRepositoryStructuralFacts(input.root, trackedFiles.map((file) => file.path))
+    : undefined;
+  const gitHistory = readGitCoChangeHistory(input.root);
+
+  const { snapshot, structure } = measureModuleStatistics({
+    model,
+    scope: input.scope,
+    repository: input.repository,
+    worktree: input.worktree,
+    trackedFiles,
+    importEdges: codeFacts.pairs,
+    workspacePackages,
+    truncated: codeFacts.truncated,
+    edgeLimit,
+    importNodeCount: codeFacts.importNodeCount,
+    importNodeLimitExceeded: codeFacts.importNodeLimitExceeded,
+    codeFacts: {
+      version: codeFacts.version,
+      binaryDigest: codeFacts.binaryDigest,
+      availability: codeFacts.availability,
+      indexedWorktreeDigest: codeFacts.indexedWorktreeDigest
+    },
+    constraints,
+    ...(structuralFacts ? { structuralFacts } : {}),
+    gitHistory,
+    createdAt
+  });
+
+  return {
+    model,
+    constraints,
+    workspacePackages,
+    codeFacts,
+    trackedFiles,
+    edgeLimit,
+    createdAt,
+    snapshot,
+    structure,
+    targetNodeIds: scoped?.targetNodeIds
   };
 }
 

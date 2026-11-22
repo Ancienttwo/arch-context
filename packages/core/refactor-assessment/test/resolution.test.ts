@@ -149,7 +149,7 @@ function residualCodes(evidence: { residuals: { code: string }[] }): string[] {
 describe("REFACTOR_RESOLUTION_METRICS", () => {
   test("is a closed, sorted, unique vocabulary of pure field paths", () => {
     expect([...REFACTOR_RESOLUTION_METRICS]).toEqual([...new Set(REFACTOR_RESOLUTION_METRICS)].sort());
-    expect(REFACTOR_RESOLUTION_METRICS).toHaveLength(30);
+    expect(REFACTOR_RESOLUTION_METRICS).toHaveLength(35);
     for (const metric of REFACTOR_RESOLUTION_METRICS) {
       expect(metric).not.toContain("<");
       expect(metric.startsWith("repositorySummary.") || metric.startsWith("module.") || metric.startsWith("moduleDependencies.") || metric.startsWith("killList."))
@@ -624,5 +624,116 @@ describe("evaluateResolution direction", () => {
   test("is unchanged when the measured value did not move", () => {
     const evidence = evaluate({ afterSnapshot: BEFORE, beforeSnapshot: BEFORE });
     expect(evidence.observedOutcomes[0]!.direction).toBe("unchanged");
+  });
+
+  test("3-state symbol killList enforces present/absent/unknown without collapsing unverified symbols (#636 P2 #1)", () => {
+    const proposal = proposalRecommendation({
+      targetOutcomes: [outcome({ metric: "repositorySummary.crossModuleCycleCount" })],
+      killList: [{ kind: "symbol", selectorId: "src/c/z.ts#legacyFn", required: true }]
+    });
+
+    const present = evaluate({
+      recommendation: proposal,
+      beforeSnapshot: BEFORE,
+      afterSymbolKillList: new Map([["src/c/z.ts#legacyFn", { status: "present" }]])
+    });
+    expect(present.disposition).toBe("partially_resolved");
+    expect(residualCodes(present)).toContain("kill-list-symbol-present");
+
+    const absent = evaluate({
+      recommendation: proposal,
+      beforeSnapshot: BEFORE,
+      afterSymbolKillList: new Map([["src/c/z.ts#legacyFn", { status: "absent" }]])
+    });
+    expect(absent.disposition).toBe("resolved");
+
+    const unknown = evaluate({
+      recommendation: proposal,
+      beforeSnapshot: BEFORE,
+      afterSymbolKillList: new Map([["src/c/z.ts#legacyFn", { status: "unknown", reasonCode: "kill-list-symbol-ambiguous" }]])
+    });
+    expect(unknown.disposition).toBe("stale");
+    expect(residualCodes(unknown)).toContain("kill-list-symbol-unverifiable");
+  });
+
+  test("co-change-coupling fails closed on shallow history and sliding-window decay without structural closure (#637 P2 #2)", () => {
+    const coBefore = makeSnapshot({
+      importEdges: CYCLE_EDGES,
+      gitHistory: {
+        coverageStatus: "complete",
+        windowLimit: 200,
+        minHistoryCommits: 5,
+        maxFilesPerCommit: 20,
+        observedCommitCount: 6,
+        skippedBulkCommitCount: 0,
+        commits: Array.from({ length: 5 }, (_, index) => ({
+          commitSha: `${index}`.repeat(40),
+          paths: ["src/m/a/x.ts", "src/c/z.ts"]
+        }))
+      }
+    });
+    const baseObs = observationRecommendation(
+      deriveObservationOutcomes({
+        kind: "co-change-coupling",
+        subjectSelectorId: "pair:component.a|module.c",
+        affectedNodeIds: ["component.a", "module.c"]
+      })
+    ) as Extract<RecommendationV3, { category: "structural_observation" }>;
+    const obs: RecommendationV3 = {
+      ...baseObs,
+      payload: {
+        ...baseObs.payload,
+        kind: "co-change-coupling",
+        baselineSnapshotDigest: coBefore.snapshotDigest
+      }
+    };
+
+    const shallowAfter = makeSnapshot({
+      importEdges: CYCLE_EDGES,
+      gitHistory: {
+        coverageStatus: "shallow",
+        windowLimit: 200,
+        minHistoryCommits: 5,
+        maxFilesPerCommit: 20,
+        observedCommitCount: 0,
+        skippedBulkCommitCount: 0,
+        commits: []
+      }
+    });
+    const shallowRes = evaluateResolution({
+      recommendation: obs,
+      beforeSnapshotDigest: coBefore.snapshotDigest,
+      beforeSnapshot: coBefore,
+      afterSnapshot: shallowAfter,
+      afterModel: MODEL,
+      afterTrackedFiles: TRACKED_FILES,
+      verifiedAt: VERIFIED_AT
+    });
+    expect(shallowRes.disposition).toBe("stale");
+    expect(residualCodes(shallowRes)).toContain("git-history-incomplete");
+
+    const decayedWindowOnly = makeSnapshot({
+      importEdges: CYCLE_EDGES,
+      gitHistory: {
+        coverageStatus: "complete",
+        windowLimit: 200,
+        minHistoryCommits: 5,
+        maxFilesPerCommit: 20,
+        observedCommitCount: 10,
+        skippedBulkCommitCount: 0,
+        commits: []
+      }
+    });
+    const decayRes = evaluateResolution({
+      recommendation: obs,
+      beforeSnapshotDigest: coBefore.snapshotDigest,
+      beforeSnapshot: coBefore,
+      afterSnapshot: decayedWindowOnly,
+      afterModel: MODEL,
+      afterTrackedFiles: TRACKED_FILES,
+      verifiedAt: VERIFIED_AT
+    });
+    expect(decayRes.disposition).toBe("stale");
+    expect(residualCodes(decayRes)).toContain("co-change-window-decay-without-structural-closure");
   });
 });

@@ -89,6 +89,18 @@ export {
   type CodeGraphSymbolReader,
   type CodeGraphSymbolReaderResult
 } from "./selector-index";
+export {
+  readRepositoryStructuralFacts,
+  verifySymbolKillList,
+  type FileSymbolStructureFactV1,
+  type FileTopLevelSymbolFactV1,
+  type IndexedFileFactV1,
+  type ReadRepositoryStructuralFactsOptions,
+  type RepositoryCallEdgeFactV1,
+  type RepositoryStructuralFactsV1,
+  type SymbolKillListCheckV1,
+  type VerifySymbolKillListOptions
+} from "./structural-facts";
 
 /** One worktree's last verified index: the identity of its database then, its workspace, and its snapshot. */
 interface VerifiedCodeFacts {

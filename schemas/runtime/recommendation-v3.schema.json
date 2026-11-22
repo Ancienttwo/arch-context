@@ -681,6 +681,164 @@
               "type": "boolean"
             }
           }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "files",
+            "totalCount",
+            "truncated"
+          ],
+          "properties": {
+            "kind": {
+              "const": "low-cohesion-god-file"
+            },
+            "files": {
+              "type": "array",
+              "maxItems": 20,
+              "items": {
+                "$ref": "#/$defs/evidenceLowCohesionFile"
+              }
+            },
+            "totalCount": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "declaredEntrypointPaths",
+            "edges",
+            "totalCount",
+            "truncated"
+          ],
+          "properties": {
+            "kind": {
+              "const": "entrypoint-bypass"
+            },
+            "declaredEntrypointPaths": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/repoRelativePath"
+              }
+            },
+            "edges": {
+              "type": "array",
+              "maxItems": 20,
+              "items": {
+                "$ref": "#/$defs/evidenceImportEdge"
+              }
+            },
+            "totalCount": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "sourceFanIn",
+            "sourceInstability",
+            "targets",
+            "totalCount",
+            "truncated"
+          ],
+          "properties": {
+            "kind": {
+              "const": "unstable-dependency"
+            },
+            "sourceFanIn": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "sourceInstability": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "targets": {
+              "type": "array",
+              "maxItems": 20,
+              "items": {
+                "$ref": "#/$defs/evidenceUnstableTarget"
+              }
+            },
+            "totalCount": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "memberNodeIds",
+            "coverageStatus",
+            "windowLimit",
+            "observedCommitCount",
+            "pairs",
+            "totalCount",
+            "truncated"
+          ],
+          "properties": {
+            "kind": {
+              "const": "co-change-coupling"
+            },
+            "memberNodeIds": {
+              "$ref": "#/$defs/evidenceIdList"
+            },
+            "coverageStatus": {
+              "enum": [
+                "complete",
+                "shallow",
+                "insufficient-history",
+                "unavailable"
+              ]
+            },
+            "windowLimit": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "observedCommitCount": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "pairs": {
+              "type": "array",
+              "maxItems": 20,
+              "items": {
+                "$ref": "#/$defs/evidenceCoChangePair"
+              }
+            },
+            "totalCount": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          }
         }
       ]
     },
@@ -1011,13 +1169,17 @@
         },
         "kind": {
           "enum": [
+            "co-change-coupling",
             "cycle",
             "direction-violation",
+            "entrypoint-bypass",
             "evidence-gap",
+            "low-cohesion-god-file",
             "ownership-ambiguous",
             "residual-cycle",
             "undeclared-footprint",
-            "unowned-paths"
+            "unowned-paths",
+            "unstable-dependency"
           ]
         },
         "affectedNodeIds": {
@@ -1050,6 +1212,26 @@
         }
       },
       "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "co-change-coupling"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "properties": {
+                  "kind": {
+                    "const": "co-change-coupling"
+                  }
+                }
+              }
+            }
+          }
+        },
         {
           "if": {
             "properties": {
@@ -1094,6 +1276,26 @@
           "if": {
             "properties": {
               "kind": {
+                "const": "entrypoint-bypass"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "properties": {
+                  "kind": {
+                    "const": "entrypoint-bypass"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
                 "const": "evidence-gap"
               }
             }
@@ -1104,6 +1306,26 @@
                 "properties": {
                   "kind": {
                     "const": "evidence-gap"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "low-cohesion-god-file"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "properties": {
+                  "kind": {
+                    "const": "low-cohesion-god-file"
                   }
                 }
               }
@@ -1164,6 +1386,26 @@
                 "properties": {
                   "kind": {
                     "const": "undeclared-footprint"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "unstable-dependency"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "properties": {
+                  "kind": {
+                    "const": "unstable-dependency"
                   }
                 }
               }
@@ -1266,6 +1508,135 @@
           "items": {
             "$ref": "#/$defs/killListEntry"
           }
+        }
+      }
+    },
+    "evidenceLowCohesionCluster": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "symbols",
+        "startLine",
+        "endLine",
+        "intraClusterEdges",
+        "crossClusterEdges"
+      ],
+      "properties": {
+        "symbols": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "startLine": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "endLine": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "intraClusterEdges": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "crossClusterEdges": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "evidenceLowCohesionFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "lineCount",
+        "topLevelSymbolCount",
+        "clusterCount",
+        "clusters"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/repoRelativePath"
+        },
+        "lineCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "topLevelSymbolCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "clusterCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "clusters": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidenceLowCohesionCluster"
+          }
+        }
+      }
+    },
+    "evidenceUnstableTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "targetNodeId",
+        "targetInstability",
+        "delta",
+        "edgeCount"
+      ],
+      "properties": {
+        "targetNodeId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "targetInstability": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "delta": {
+          "type": "number",
+          "minimum": -1,
+          "maximum": 1
+        },
+        "edgeCount": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "evidenceCoChangePair": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pathA",
+        "pathB",
+        "coChangeCount",
+        "jaccard"
+      ],
+      "properties": {
+        "pathA": {
+          "$ref": "#/$defs/repoRelativePath"
+        },
+        "pathB": {
+          "$ref": "#/$defs/repoRelativePath"
+        },
+        "coChangeCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "jaccard": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
         }
       }
     }

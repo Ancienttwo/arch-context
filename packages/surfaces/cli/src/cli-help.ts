@@ -96,7 +96,7 @@ export const CLI_DEPS_HELP = {
   rule: "Each file gets its owners from the parent-chain rule refactor scan uses. Each owner rolls up to the nearest kind: capability node on its parent chain. An edge counts in data.matrix only when both files roll up to exactly one capability. Other edges count in data.imports.unattributed by cause.",
   filters: "--from <node-id> keeps edges whose importing file the node or a descendant owns. --into <node-id> keeps edges whose imported file the node or a descendant owns. An unknown node id is AC_SCHEMA_INVALID.",
   imports: "data.imports reports coverage, reasonCodes, truncated, importNodeCount, importNodeLimit and importNodeLimitExceeded from the CodeGraph import read. A missing or stale index gives coverage unknown and an empty matrix. --import-node-limit sets the read cap (default 64000).",
-  calls: "Call counts are not available in v1. data.calls.coverage is unknown with reason call-edges-not-exposed, and every cell has calls: null.",
+  calls: "Bounded repository-wide cross-file symbol `calls` and `references` counts up to 128000 edges (reason code code-facts-call-limit on partial reads, or call-edges-not-exposed when omitted).",
   edges: "data.edges lists the attributed file-level edges behind the matrix, sorted by path, up to --edge-limit (default 200). data.edges.count is the full total."
 };
 
@@ -118,8 +118,8 @@ export const CLI_HASH_HELP = {
 
 export const CLI_HELP_COMMANDS = [
   "capabilities", "projection", "init", "index", "sync", "validate", "check", "model",
-  "context", "status", "repo", "landscape", "recommendations", "refactor", "explore",
-  "prepare", "practices", "checkpoint", "hook", "hooks", "plan", "apply", "hash",
+  "context", "status", "repo", "landscape", "recommendations", "refactor", "scan", "decide",
+  "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "plan", "apply", "hash",
   "review", "complete", "manifest", "install", "uninstall", "doctor", "update",
   "paths", "export", "resolve", "impact", "verify", "history", "flows",
   "state-machines", "deps", "constraints", "debt"
@@ -299,7 +299,23 @@ export function cliHelpEnvelope(command: string, args: string[]): JsonEnvelope {
       description: "Measure structure and return fresh candidates alongside open refactor recommendations. Node scans include descendants. Node and path scans read selected files and their direct import neighbors.",
       snapshotDigest: "Pass data.snapshotDigest to recommendations accept, defer or reject while the snapshot is available in the local store."
     });
+    if (subcommand === "simulate") return okEnvelope("help", {
+      usage: "archctx refactor simulate [--move <path:toNodeId[:sym1,sym2]>]... [--target <subject>] [--request-file <path>] [--import-node-limit <n>] [--json]",
+      description: "Read-only impact simulation preview (#638): computes cycle and direction-violation deltas for whole-file moves; reports honest unmeasured status for symbol subsets and extract/invert strategies.",
+      writes: "none"
+    });
     break;
+  case "scan":
+    return okEnvelope("help", {
+      usage: "archctx scan [--scope repository|node|paths] [--node <nodeId>] [--path <file>...] [--import-node-limit <n>] [--json]",
+      description: "Pure-Git Stage 5 refactor radar scan (#643): runs AST/symbol cohesion, entrypoint-bypass, instability, cycle, purity, and bounded Git co-change detectors with zero daemon or SQLite ledger writes.",
+      writes: "none"
+    });
+  case "decide":
+    return okEnvelope("help", {
+      usage: "archctx decide <list|show|accept|defer|reject|waive|acknowledge|resolve> [<id>] [--status <status>] [--reason <text>] [--kill-symbol <path#sym>] [--resolution-digest <sha256>] [--json]",
+      description: "Pure-Git decision authority (#643): lists, inspects, records, and resolves human refactor decisions in .archcontext/refactor-decisions/ with clean-clone verification metadata."
+    });
   case "recommendations":
     if (subcommand === "accept" || subcommand === "defer" || subcommand === "reject") return okEnvelope("help", {
       usage: `archctx recommendations ${subcommand} --id <recommendationId> --reason <text> [--snapshot-digest <sha256:digest>]`,

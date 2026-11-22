@@ -86,7 +86,10 @@ export type ChangeSetOwnershipDeltaV1 = ChangeSetOwnershipDeltaComputedV1 | Chan
 export const CAPABILITY_DEPENDENCIES_SCHEMA_VERSION = "archcontext.capability-dependencies/v1" as const;
 /** Default number of file-level edges `archctx deps` lists. `edges.count` always holds the full total. */
 export const CAPABILITY_DEPENDENCIES_EDGE_LIMIT = 200;
-/** The CodeGraph adapter has no bounded repository-wide call-edge read, so calls are not counted. */
+/** Bounded repository-wide symbol call edge limit for `archctx deps` (#636). */
+export const CAPABILITY_DEPENDENCIES_CALL_EDGE_LIMIT = 128_000;
+export const CAPABILITY_DEPENDENCIES_CALL_LIMIT_REASON = "code-facts-call-limit" as const;
+/** Fallback reason when callers invoke `measureCapabilityDependencies` without call facts. */
 export const CAPABILITY_DEPENDENCIES_CALLS_UNAVAILABLE_REASON = "call-edges-not-exposed" as const;
 /**
  * The relation kinds that declare an import dependency: every `archcontext.relation/v1` kind in
@@ -119,8 +122,8 @@ export interface CapabilityDependencyCellV1 {
   to: string;
   /** Distinct file-to-file import edges from `from` into `to`. */
   imports: number;
-  /** Always `null` in v1: call edges are not read (see `calls`). */
-  calls: null;
+  /** Bounded symbol `calls` + `references` edges from `from` into `to`, or `null` when unavailable (#636). */
+  calls: number | null;
   /**
    * Whether the model declares this dependency (rule: CAPABILITY_DEPENDENCY_DECLARING_RELATION_KINDS).
    * A cell with `from === to` stays inside one capability and needs no relation: it is always
@@ -176,8 +179,11 @@ export interface CapabilityDependenciesV1 {
     unattributed: { unownedEndpoint: number; contestedEndpoint: number; noCapabilityEndpoint: number };
   };
   calls: {
-    coverage: "unknown";
-    reasonCodes: [typeof CAPABILITY_DEPENDENCIES_CALLS_UNAVAILABLE_REASON];
+    coverage: EvidenceCoverageLevelV2;
+    reasonCodes: string[];
+    edgeCount?: number;
+    edgeLimit?: number;
+    limitExceeded?: boolean;
   };
   /** Attributed file-level edges behind `matrix`, sorted by path. */
   edges: { limit: number; count: number; omittedCount: number; items: CapabilityDependencyEdgeV1[] };
@@ -196,8 +202,8 @@ export const CapabilityDependenciesBodySchema = StrictObject({
       {
         from: NonEmptyStringSchema,
         to: NonEmptyStringSchema,
-        imports: PositiveIntSchema,
-        calls: Type.Null(),
+        imports: CountSchema,
+        calls: NullableType("integer", { minimum: 0 }),
         declared: Type.Boolean({
           description:
             "A relation of a declaring kind (every kind but deployed-on, spawns, runs-in and mounts) runs from a node that rolls up to `from` into a node that rolls up to `to`. A cell with from equal to to is always declared and lists no relation ids."
@@ -228,8 +234,18 @@ export const CapabilityDependenciesBodySchema = StrictObject({
     })
   }),
   calls: StrictObject({
-    coverage: Const("unknown"),
-    reasonCodes: Type.Array(Const(CAPABILITY_DEPENDENCIES_CALLS_UNAVAILABLE_REASON), { minItems: 1, maxItems: 1 })
+    coverage: RawEnum(["complete", "partial", "unknown"] as const),
+    reasonCodes: UniqueStringArray(
+      RawEnum([
+        CAPABILITY_DEPENDENCIES_CALLS_UNAVAILABLE_REASON,
+        CAPABILITY_DEPENDENCIES_CALL_LIMIT_REASON,
+        "code-facts-truncated",
+        "code-facts-unavailable"
+      ] as const)
+    ),
+    edgeCount: Type.Optional(CountSchema),
+    edgeLimit: Type.Optional(PositiveIntSchema),
+    limitExceeded: Type.Optional(Type.Boolean())
   }),
   edges: StrictObject({
     limit: CountSchema,

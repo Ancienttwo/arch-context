@@ -12,7 +12,11 @@ import {
   type RefactorEvidenceUnresolvedImportV1,
   type RefactorObservationEvidenceV1
 } from "@archcontext/contracts";
-import type { ModuleStatisticsImportEdgeV1, ModuleStructureV1 } from "@archcontext/core/module-statistics";
+import type {
+  CoChangeCouplingFindingV1,
+  ModuleStatisticsImportEdgeV1,
+  ModuleStructureV1
+} from "@archcontext/core/module-statistics";
 import { nativeNodeSource, type NativeModel } from "@archcontext/core/architecture-domain";
 
 /**
@@ -181,6 +185,60 @@ export class ObservationEvidenceBuilder {
 
   private owners(path: string): string[] {
     return [...(this.structure.ownership.byPath.get(path)?.owners ?? [])].sort(compareText);
+  }
+
+  lowCohesionGodFile(nodeId: string): RefactorObservationEvidenceV1 {
+    const files = this.structure.lowCohesionFindings?.get(nodeId)?.files ?? [];
+    const sample = boundedSample(files, (left, right) => compareText(left.path, right.path));
+    return {
+      kind: "low-cohesion-god-file",
+      files: sample.entries,
+      totalCount: sample.totalCount,
+      truncated: sample.truncated
+    };
+  }
+
+  entrypointBypass(nodeId: string): RefactorObservationEvidenceV1 {
+    const finding = this.structure.entrypointBypassFindings?.get(nodeId);
+    const declaredEntrypointPaths = [...new Set(finding?.declaredEntrypointPaths ?? [])].sort(compareText);
+    const sample = boundedSample(finding?.edges ?? [], compareRefactorEvidenceImportEdges);
+    return {
+      kind: "entrypoint-bypass",
+      declaredEntrypointPaths,
+      edges: sample.entries,
+      totalCount: sample.totalCount,
+      truncated: sample.truncated
+    };
+  }
+
+  unstableDependency(nodeId: string): RefactorObservationEvidenceV1 {
+    const finding = this.structure.unstableDependencyFindings?.get(nodeId);
+    const sample = boundedSample(finding?.targets ?? [], (left, right) => compareText(left.targetNodeId, right.targetNodeId));
+    return {
+      kind: "unstable-dependency",
+      sourceFanIn: finding?.sourceFanIn ?? 0,
+      sourceInstability: finding?.sourceInstability ?? 0,
+      targets: sample.entries,
+      totalCount: sample.totalCount,
+      truncated: sample.truncated
+    };
+  }
+
+  coChangeCoupling(finding: CoChangeCouplingFindingV1): RefactorObservationEvidenceV1 {
+    const sample = boundedSample(
+      finding.pairs,
+      (left, right) => compareText(left.pathA, right.pathA) || compareText(left.pathB, right.pathB)
+    );
+    return {
+      kind: "co-change-coupling",
+      memberNodeIds: boundedIds(finding.memberNodeIds).ids,
+      coverageStatus: finding.coverageStatus,
+      windowLimit: finding.windowLimit,
+      observedCommitCount: finding.observedCommitCount,
+      pairs: sample.entries,
+      totalCount: sample.totalCount,
+      truncated: sample.truncated
+    };
   }
 }
 

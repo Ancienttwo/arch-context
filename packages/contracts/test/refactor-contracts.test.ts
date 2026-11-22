@@ -1562,6 +1562,60 @@ describe("refactor JSON schemas", () => {
     "evidence-gap": {
       metrics: { unresolvedImportCount: 1, edgeLimit: 5000 },
       evidence: { kind: "evidence-gap", coverage: "partial", reasonCodes: ["code-facts-truncated"], unresolvedImports: [{ fromPath: "src/a.ts", fromLine: null, specifier: "./missing" }], totalCount: 1, truncated: false }
+    },
+    "low-cohesion-god-file": {
+      metrics: { flaggedFileCount: 1 },
+      evidence: {
+        kind: "low-cohesion-god-file",
+        files: [
+          {
+            path: "packages/core/src/god.ts",
+            lineCount: 520,
+            topLevelSymbolCount: 10,
+            clusterCount: 2,
+            clusters: [
+              { symbols: ["alpha", "beta"], startLine: 1, endLine: 250, intraClusterEdges: 1, crossClusterEdges: 0 },
+              { symbols: ["delta", "gamma"], startLine: 260, endLine: 520, intraClusterEdges: 1, crossClusterEdges: 0 }
+            ]
+          }
+        ],
+        totalCount: 1,
+        truncated: false
+      }
+    },
+    "entrypoint-bypass": {
+      metrics: { entrypointBypassCount: 1 },
+      evidence: {
+        kind: "entrypoint-bypass",
+        declaredEntrypointPaths: ["packages/core/src/index.ts"],
+        edges: [makeEdge()],
+        totalCount: 1,
+        truncated: false
+      }
+    },
+    "unstable-dependency": {
+      metrics: { unstableDependencyCount: 1 },
+      evidence: {
+        kind: "unstable-dependency",
+        sourceFanIn: 4,
+        sourceInstability: 0.2,
+        targets: [{ targetNodeId: "component.leaf", targetInstability: 0.85, delta: 0.65, edgeCount: 2 }],
+        totalCount: 1,
+        truncated: false
+      }
+    },
+    "co-change-coupling": {
+      metrics: { coChangePairCount: 1 },
+      evidence: {
+        kind: "co-change-coupling",
+        memberNodeIds: ["component.a", "component.b"],
+        coverageStatus: "complete",
+        windowLimit: 200,
+        observedCommitCount: 20,
+        pairs: [{ pathA: "packages/a/src/index.ts", pathB: "packages/b/src/index.ts", coChangeCount: 5, jaccard: 0.625 }],
+        totalCount: 1,
+        truncated: false
+      }
     }
   };
 

@@ -16,6 +16,7 @@ import {
   refactorFlagValue,
   refactorScanScopeFlags
 } from "../cli-flags";
+import { runRefactorSimulateCommand } from "./radar";
 
 export async function runExploreCommand(args: string[], cwd: string, runtime: () => Promise<RuntimeDaemonClient>) {
   const subcommand = args[0] ?? "status";
@@ -128,8 +129,9 @@ function recommendationsImportNodeLimitError(subcommand: string) {
 
 export async function runRefactorCommand(args: string[], cwd: string, runtime: () => Promise<RuntimeDaemonClient>) {
   const subcommand = args[0] ?? "scan";
+  if (subcommand === "simulate") return runRefactorSimulateCommand(args.slice(1), cwd);
   if (subcommand !== "scan" && subcommand !== "record" && subcommand !== "verify") {
-    return errorEnvelope("refactor", "AC_SCHEMA_INVALID", "refactor requires scan|record|verify");
+    return errorEnvelope("refactor", "AC_SCHEMA_INVALID", "refactor requires scan|record|verify|simulate");
   }
   const surface = `refactor.${subcommand}`;
   try {

@@ -1224,7 +1224,9 @@ describe("refactor scan limits", () => {
       }));
       const candidate = data.proposedRecommendations[0]!.recommendationId;
       expectTooLarge(await daemon.recommendations(root, { command: "defer", approved: true, recommendationId: candidate, reason: "Later." }));
-      expectTooLarge(await daemon.recommendations(root, { command: "show", recommendationId: candidate }));
+      const shownTooLarge = await daemon.recommendations(root, { command: "show", recommendationId: candidate });
+      expect(shownTooLarge.ok, JSON.stringify(shownTooLarge)).toBe(true);
+      expect((shownTooLarge.data as { recording?: { recordable: boolean } }).recording?.recordable).toBe(false);
       expect(store.refactorEventAppends).toHaveLength(0);
     } finally {
       await daemon.stop();
@@ -1290,11 +1292,14 @@ describe("recommendation decisions and listing", () => {
       const decided = await daemon.recommendations(root, { command: "list", status: "rejected" });
       expect(decided.data).toMatchObject({ count: 1, recommendations: [{ recommendationId: rejected, status: "rejected" }] });
 
-      for (const input of [{ command: "list" as const }, { command: "list" as const, status: "closed" as never }]) {
-        const invalid = await daemon.recommendations(root, input);
-        expect(invalid.ok).toBe(false);
-        expect(errorOf(invalid).code).toBe("AC_SCHEMA_INVALID");
-      }
+      const allStatuses = await daemon.recommendations(root, { command: "list" });
+      expect(allStatuses.ok, JSON.stringify(allStatuses)).toBe(true);
+      expect((allStatuses.data as { status: string; count: number }).status).toBe("all");
+      expect((allStatuses.data as { count: number }).count).toBe(25);
+
+      const invalid = await daemon.recommendations(root, { command: "list", status: "closed" as never });
+      expect(invalid.ok).toBe(false);
+      expect(errorOf(invalid).code).toBe("AC_SCHEMA_INVALID");
     } finally {
       await daemon.stop();
     }

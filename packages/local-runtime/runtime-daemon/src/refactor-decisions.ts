@@ -1,6 +1,7 @@
 import { existsSync, lstatSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  FailureError,
   REFACTOR_DECISION_DIRECTORY,
   REFACTOR_EVIDENCE_ID_LIST_LIMIT,
   REFACTOR_RECOMMENDATION_FINGERPRINT_SCHEMA_VERSION,
@@ -14,11 +15,18 @@ import {
   type ArchitectureActorKind,
   type Json,
   type RecommendationV3,
+  type RefactorDecisionKillTargetV1,
   type RefactorDecisionStatus,
   type RefactorDecisionV1,
-  type RefactorStatusAuthority
+  type RefactorScopeV1,
+  type RefactorStatusAuthority,
+  type RefactorTargetOutcomeV1
 } from "@archcontext/contracts";
-import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
+import {
+  isPathHiddenBySparseCheckout,
+  listGitVisibleFiles,
+  readSkippedWorktreeBlobs
+} from "@archcontext/local-runtime/git-adapter";
 import { refactorSubjectSelectorId } from "@archcontext/core/architecture-delta";
 import type { RecommendationLedgerRecordV1 } from "@archcontext/core/architecture-ledger";
 import { assertPathHasNoSymlinkSegments } from "@archcontext/core/changeset-engine";
@@ -61,13 +69,14 @@ const CHANGESET_TRANSIENT_DECISION_NAME = /^recommendation\.[a-f0-9]{16}\.json\.
  */
 export function readRefactorDecisionSet(root: string): RefactorDecisionSetV1 {
   const namespace = readRefactorNamespace(root);
-  const decisions: RefactorDecisionV1[] = [];
+  const decisionsByPath = new Map<string, RefactorDecisionV1>();
   let absoluteDirectory: string;
   try {
     absoluteDirectory = assertPathHasNoSymlinkSegments(root, REFACTOR_DECISION_DIRECTORY);
   } catch (error) {
     throw decisionReadError(error instanceof Error ? error.message : String(error));
   }
+  const prefix = `${REFACTOR_DECISION_DIRECTORY}/`;
   if (existsSync(absoluteDirectory)) {
     if (!lstatSync(absoluteDirectory).isDirectory()) throw decisionReadError(`${REFACTOR_DECISION_DIRECTORY} must be a directory`);
     // Git lists regular files only, so symlinks and directories are refused from the directory itself.
@@ -81,7 +90,6 @@ export function readRefactorDecisionSet(root: string): RefactorDecisionSetV1 {
     } catch (error) {
       throw decisionReadError(`the Git-visible file list is unavailable: ${error instanceof Error ? error.message : String(error)}`);
     }
-    const prefix = `${REFACTOR_DECISION_DIRECTORY}/`;
     // A decision-named file Git ignores would be a decision every other checkout silently lacks:
     // the repository must not ignore its own decisions.
     const visibleNames = new Set(visible.filter((path) => path.startsWith(prefix)).map((path) => path.slice(prefix.length)));
@@ -106,9 +114,39 @@ export function readRefactorDecisionSet(root: string): RefactorDecisionSetV1 {
       }
       const identityIssues = refactorDecisionIdentityIssues(decision, namespace);
       if (identityIssues.length > 0) throw decisionReadError(`${path}: ${identityIssues.join("; ")}`);
-      decisions.push(decision);
+      decisionsByPath.set(path, decision);
     }
   }
+
+  // Sparse-checkout hidden (`S `) decision files are read directly from Git blobs without mutating the worktree (#643 Comment 5).
+  let skippedBlobs = new Map<string, string>();
+  try {
+    skippedBlobs = readSkippedWorktreeBlobs(root, REFACTOR_DECISION_DIRECTORY);
+  } catch (error) {
+    if (existsSync(join(root, ".git"))) {
+      throw decisionReadError(`the sparse-checkout decision blob list is unavailable: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    skippedBlobs = new Map<string, string>();
+  }
+  for (const [path, body] of [...skippedBlobs.entries()].sort(([left], [right]) => compareText(left, right))) {
+    if (decisionsByPath.has(path) || !path.startsWith(prefix)) continue;
+    const name = path.slice(prefix.length);
+    if (CHANGESET_TRANSIENT_DECISION_NAME.test(name)) continue;
+    if (name.includes("/")) throw decisionReadError(`${path} must sit directly in ${REFACTOR_DECISION_DIRECTORY}`);
+    let decision: RefactorDecisionV1;
+    try {
+      decision = parseRefactorDecisionFile(path, body);
+    } catch (error) {
+      throw decisionReadError(error instanceof Error ? error.message : String(error));
+    }
+    const identityIssues = refactorDecisionIdentityIssues(decision, namespace);
+    if (identityIssues.length > 0) throw decisionReadError(`${path}: ${identityIssues.join("; ")}`);
+    decisionsByPath.set(path, decision);
+  }
+
+  const decisions = [...decisionsByPath.values()].sort((left, right) =>
+    compareText(left.recommendationId, right.recommendationId)
+  );
   return {
     namespace,
     decisions,
@@ -165,6 +203,13 @@ export interface BuildRefactorDecisionInput {
   actor: { kind: ArchitectureActorKind; id: string };
   decidedAt: string;
   headSha: string;
+  snapshotDigest?: string;
+  evidenceDigest?: string;
+  resolutionDigest?: string;
+  scope?: RefactorScopeV1;
+  importNodeLimit?: number;
+  targetOutcomes?: RefactorTargetOutcomeV1[];
+  killList?: RefactorDecisionKillTargetV1[];
 }
 
 /**
@@ -218,7 +263,14 @@ export function buildRefactorDecision(input: BuildRefactorDecisionInput): Refact
       headSha: input.headSha,
       assessmentDigest: payload.assessmentDigest,
       baselineSnapshotDigest: payload.baselineSnapshotDigest
-    }
+    },
+    ...(input.snapshotDigest !== undefined ? { snapshotDigest: input.snapshotDigest } : {}),
+    ...(input.evidenceDigest !== undefined ? { evidenceDigest: input.evidenceDigest } : {}),
+    ...(input.resolutionDigest !== undefined ? { resolutionDigest: input.resolutionDigest } : {}),
+    ...(input.scope !== undefined ? { scope: input.scope } : {}),
+    ...(input.importNodeLimit !== undefined ? { importNodeLimit: input.importNodeLimit } : {}),
+    ...(input.targetOutcomes !== undefined ? { targetOutcomes: input.targetOutcomes } : {}),
+    ...(input.killList !== undefined ? { killList: input.killList } : {})
   };
   const issues = [...refactorDecisionInvariantIssues(decision), ...refactorDecisionIdentityIssues(decision, input.namespace)];
   if (issues.length > 0) throw decisionWriteError(issues.join("; "));
@@ -228,6 +280,13 @@ export function buildRefactorDecision(input: BuildRefactorDecisionInput): Refact
 /** The ChangeSet write of one decision file: path, the current preimage hash and the canonical body. */
 export function refactorDecisionWrite(root: string, decision: RefactorDecisionV1): { path: string; expectedHash: string; body: string } {
   const path = refactorDecisionPath(decision.recommendationId);
+  try {
+    if (isPathHiddenBySparseCheckout(root, path)) {
+      throw new FailureError("AC_PRECONDITION_FAILED", "refactor-decision-sparse-write-refused", { path });
+    }
+  } catch (error) {
+    if (error instanceof FailureError) throw error;
+  }
   const absolute = assertPathHasNoSymlinkSegments(root, path);
   const expectedHash = existsSync(absolute) ? digestJson({ body: readFileSync(absolute, "utf8") }) : "missing";
   return { path, expectedHash, body: serializeRefactorDecision(decision) };

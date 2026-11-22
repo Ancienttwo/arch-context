@@ -140,8 +140,10 @@ describe("undeclared cross-capability dependencies (#326)", () => {
     expect(taskDebt.items.map(item => ({ reasonCode: item.reasonCode, fromCapabilityId: item.details.fromCapabilityId,
       toCapabilityId: item.details.toCapabilityId, importEdgeCount: item.details.importEdgeCount }))).toEqual(check.architectureDebt!.items);
     expect(publishedSchemaIssues("runtime/capability-dependencies.schema.json", JSON.parse(JSON.stringify(deps)))).toEqual([]);
-    expect(deps.matrix.find((cell) => cell.from === "capability.shop.checkout" && cell.to === "capability.shop.billing"))
-      .toEqual({ from: "capability.shop.checkout", to: "capability.shop.billing", imports: 1, calls: null, declared: false, relationIds: [] });
+    const cell = deps.matrix.find((entry) => entry.from === "capability.shop.checkout" && entry.to === "capability.shop.billing");
+    expect(cell).toMatchObject({ from: "capability.shop.checkout", to: "capability.shop.billing", imports: 1, declared: false, relationIds: [] });
+    expect(typeof cell?.calls).toBe("number");
+    expect(deps.calls.coverage).toBe("complete");
   }, TIMEOUT_MS);
 
   test("a relation from checkout to billing removes the debt and declares the cell", async () => {

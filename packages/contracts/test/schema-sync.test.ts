@@ -155,21 +155,90 @@ describe("single-source TypeBox schema registry", () => {
       ).issues
     ).toEqual([]);
 
+    const simulateValid = {
+      schemaVersion: "archcontext.runtime-refactor-simulate/v1",
+      beforeSnapshotDigest: zeroDigest,
+      modelDigest: zeroDigest,
+      codeFactsCoverage: "complete",
+      moves: [{ path: "src/a.ts", toNodeId: "component.b" }],
+      targetSubject: "component.a<->component.b",
+      measurementStatus: "measured",
+      unmeasuredReasons: [],
+      metricsDelta: {
+        before: {
+          pairThinDirectionEdgeCount: 1,
+          crossModuleEdgeCount: 2,
+          crossModuleCycleCount: 1,
+          residualCycleCount: 1,
+          directionViolationCount: 0
+        },
+        after: {
+          pairThinDirectionEdgeCount: 0,
+          crossModuleEdgeCount: 1,
+          crossModuleCycleCount: 0,
+          residualCycleCount: 0,
+          directionViolationCount: 0
+        },
+        delta: {
+          pairThinDirectionEdgeCount: -1,
+          crossModuleEdgeCount: -1,
+          crossModuleCycleCount: -1,
+          residualCycleCount: -1,
+          directionViolationCount: 0
+        }
+      },
+      newlyIntroducedCycles: [],
+      resolvedCycles: ["component.a<->component.b"],
+      newlyIntroducedViolations: [],
+      cutCandidates: [
+        {
+          strategy: "move-source-file",
+          measured: true,
+          measurementStatus: "measured",
+          summary: "Move src/a.ts to component.b",
+          moves: [{ path: "src/a.ts", toNodeId: "component.b" }],
+          thinDirectionEdgeDelta: -1,
+          crossModuleCycleDelta: -1,
+          directionViolationDelta: 0,
+          newlyIntroducedViolationCount: 0,
+          breaksPair: true,
+          caveats: []
+        },
+        {
+          strategy: "extract-shared-leaf",
+          measured: false,
+          measurementStatus: "unmeasured",
+          summary: "Extract shared leaf helper without rewriting imports",
+          moves: [],
+          thinDirectionEdgeDelta: null,
+          crossModuleCycleDelta: null,
+          directionViolationDelta: null,
+          newlyIntroducedViolationCount: null,
+          breaksPair: null,
+          caveats: ["Requires synthesizing a new module and rewriting import edges."]
+        }
+      ],
+      simulationDigest: zeroDigest,
+      privacy: {
+        writes: "none",
+        rawSourcePersisted: false,
+        rawDiffPersisted: false,
+        promptPersisted: false
+      }
+    } as Json;
     expect(
       validateJsonSchema(
         CONTRACT_SCHEMA_REGISTRY["schemas/runtime/refactor-simulate.schema.json"] as any,
-        {
-          schemaVersion: "archcontext.refactor-simulate/v1",
-          headSha: zeroSha,
-          operation: { kind: "cut-edge", from: "src/a.ts", to: "src/b.ts" },
-          before: { cycleCount: 1, undeclaredEdgeCount: 1 },
-          after: { cycleCount: 0, undeclaredEdgeCount: 0 },
-          coverage: "static-graph-only",
-          caveats: ["Dynamic imports are excluded from static edge cut simulation."],
-          readOnly: true
-        } as Json,
+        simulateValid,
         { resolveSchema }
       ).issues
     ).toEqual([]);
+    expect(
+      validateJsonSchema(
+        CONTRACT_SCHEMA_REGISTRY["schemas/runtime/refactor-simulate.schema.json"] as any,
+        { ...simulateValid as Record<string, unknown>, privacy: { writes: "disk", rawSourcePersisted: false, rawDiffPersisted: false, promptPersisted: false } } as Json,
+        { resolveSchema }
+      ).valid
+    ).toBe(false);
   });
 });

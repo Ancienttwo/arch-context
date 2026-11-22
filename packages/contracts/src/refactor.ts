@@ -97,13 +97,26 @@ export const REFACTOR_SCALE_REASON_CODES = [
  * survives cutting the thin direction of every pair (ADR-0046).
  */
 export const REFACTOR_OBSERVATION_KINDS = [
+  "co-change-coupling",
   "cycle",
   "direction-violation",
+  "entrypoint-bypass",
   "evidence-gap",
+  "low-cohesion-god-file",
   "ownership-ambiguous",
   "residual-cycle",
   "undeclared-footprint",
-  "unowned-paths"
+  "unowned-paths",
+  "unstable-dependency"
+] as const;
+export const REFACTOR_DETECTOR_EXTRA_KINDS = [
+  "component-cycle",
+  "dead-public-export",
+  "file-cycle",
+  "god-file",
+  "purity-violation",
+  "shotgun-surgery-hotspot",
+  "undeclared-dependency"
 ] as const;
 export const REFACTOR_RESOLUTION_DISPOSITIONS = [
   "not_improved",
@@ -275,6 +288,7 @@ export interface ModuleStatisticsV1 {
     observedEntrypoints: string[];
     lifecycleOwners: string[];
     datastoreSubjects: string[];
+    entrypointBypassCount?: number;
   };
   dependencyGraph: {
     internalEdgeCount: number;
@@ -286,7 +300,12 @@ export interface ModuleStatisticsV1 {
     cycleCount: number;
     instability: number | null;
     directionViolationCount: number | null;
+    unstableDependencyCount?: number;
   } | null;
+  cohesion?: {
+    lowCohesionFileCount: number;
+    measuredFileCount: number;
+  };
   /**
    * `callerCoverage` is a graph-boundary resolution ratio (the share of the
    * module's inbound call boundary the index could resolve), not a test
@@ -319,6 +338,26 @@ export interface ModuleDependencyV1 {
   fromNodeId: string;
   toNodeId: string;
   distinctFileEdgeCount: number;
+}
+
+export interface GitCoChangeWindowV1 {
+  anchorHeadSha: string;
+  windowLimit: number;
+  observedCommitCount: number;
+  eligibleCommitCount: number;
+  maxFilesPerCommit: number;
+  isShallow: boolean;
+  reachedHistoryRoot: boolean;
+  coverageStatus: "complete" | "shallow" | "insufficient-history" | "unavailable";
+  reasonCodes: string[];
+}
+
+export interface CoChangeDependencySummaryV1 {
+  fromNodeId: string;
+  toNodeId: string;
+  pairCount: number;
+  maxCoChangeCount: number;
+  maxJaccard: number;
 }
 
 export interface ModuleStatisticsSnapshotV1 {
@@ -367,6 +406,8 @@ export interface ModuleStatisticsSnapshotV1 {
     unresolvedImportCount: number;
     dynamicInvocationRiskCount: number;
   };
+  coChangeDependencies?: CoChangeDependencySummaryV1[];
+  gitHistory?: GitCoChangeWindowV1;
   createdAt: string;
   snapshotDigest: string;
   extensions?: Record<string, Json>;
@@ -455,6 +496,36 @@ export interface RefactorEvidencePairDirectionV1 {
   sampledCount: number;
 }
 
+export interface RefactorEvidenceLowCohesionClusterV1 {
+  symbols: string[];
+  startLine: number;
+  endLine: number;
+  intraClusterEdges: number;
+  crossClusterEdges: number;
+}
+
+export interface RefactorEvidenceLowCohesionFileV1 {
+  path: string;
+  lineCount: number;
+  topLevelSymbolCount: number;
+  clusterCount: number;
+  clusters: RefactorEvidenceLowCohesionClusterV1[];
+}
+
+export interface RefactorEvidenceUnstableTargetV1 {
+  targetNodeId: string;
+  targetInstability: number;
+  delta: number;
+  edgeCount: number;
+}
+
+export interface RefactorEvidenceCoChangePairV1 {
+  pathA: string;
+  pathB: string;
+  coChangeCount: number;
+  jaccard: number;
+}
+
 export type RefactorObservationEvidenceV1 =
   | ({
     kind: "cycle";
@@ -478,6 +549,22 @@ export type RefactorObservationEvidenceV1 =
     coverage: EvidenceCoverageLevelV2;
     reasonCodes: RefactorScaleReasonCode[];
     unresolvedImports: RefactorEvidenceUnresolvedImportV1[];
+  } & RefactorEvidenceSampleV1)
+  | ({ kind: "low-cohesion-god-file"; files: RefactorEvidenceLowCohesionFileV1[] } & RefactorEvidenceSampleV1)
+  | ({ kind: "entrypoint-bypass"; declaredEntrypointPaths: string[]; edges: RefactorEvidenceImportEdgeV1[] } & RefactorEvidenceSampleV1)
+  | ({
+    kind: "unstable-dependency";
+    sourceFanIn: number;
+    sourceInstability: number;
+    targets: RefactorEvidenceUnstableTargetV1[];
+  } & RefactorEvidenceSampleV1)
+  | ({
+    kind: "co-change-coupling";
+    memberNodeIds: string[];
+    coverageStatus: "complete" | "shallow" | "insufficient-history" | "unavailable";
+    windowLimit: number;
+    observedCommitCount: number;
+    pairs: RefactorEvidenceCoChangePairV1[];
   } & RefactorEvidenceSampleV1);
 
 export interface RefactorObservationV1 {
@@ -1103,6 +1190,59 @@ export function refactorObservationEvidenceIssues(observation: RefactorObservati
         issues.push(`${label}.totalCount must equal metrics.unresolvedImportCount`);
       }
       break;
+    case "low-cohesion-god-file":
+      sample(evidence.files, "files");
+      ordered(evidence.files, "files", (left, right) => compareText(left.path, right.path));
+      for (const entry of evidence.files) {
+        issues.push(...repoPathIssues(`${label}.files.path`, entry.path));
+        if (!Number.isInteger(entry.lineCount) || entry.lineCount < 0) issues.push(`${label}.files.lineCount must be a non-negative integer`);
+        if (!Number.isInteger(entry.topLevelSymbolCount) || entry.topLevelSymbolCount < 0) issues.push(`${label}.files.topLevelSymbolCount must be a non-negative integer`);
+        if (!Number.isInteger(entry.clusterCount) || entry.clusterCount < 0) issues.push(`${label}.files.clusterCount must be a non-negative integer`);
+        for (const cluster of entry.clusters) {
+          issues.push(...sortedUniqueIssues(`${label}.files.clusters.symbols`, cluster.symbols));
+          if (!Number.isInteger(cluster.startLine) || cluster.startLine < 1 || !Number.isInteger(cluster.endLine) || cluster.endLine < cluster.startLine) {
+            issues.push(`${label}.files.clusters line range is invalid`);
+          }
+          if (!Number.isInteger(cluster.intraClusterEdges) || cluster.intraClusterEdges < 0 || !Number.isInteger(cluster.crossClusterEdges) || cluster.crossClusterEdges < 0) {
+            issues.push(`${label}.files.clusters edge counts must be non-negative integers`);
+          }
+        }
+      }
+      break;
+    case "entrypoint-bypass":
+      issues.push(...sortedUniqueIssues(`${label}.declaredEntrypointPaths`, evidence.declaredEntrypointPaths));
+      for (const path of evidence.declaredEntrypointPaths) issues.push(...repoPathIssues(`${label}.declaredEntrypointPaths`, path));
+      sample(evidence.edges, "edges");
+      ordered(evidence.edges, "edges", compareRefactorEvidenceImportEdges);
+      for (const edge of evidence.edges) edgeIssues(edge, "edges");
+      break;
+    case "unstable-dependency":
+      if (!Number.isInteger(evidence.sourceFanIn) || evidence.sourceFanIn < 0) issues.push(`${label}.sourceFanIn must be a non-negative integer`);
+      issues.push(...ratioIssues(`${label}.sourceInstability`, evidence.sourceInstability));
+      sample(evidence.targets, "targets");
+      ordered(evidence.targets, "targets", (left, right) => compareText(left.targetNodeId, right.targetNodeId));
+      for (const target of evidence.targets) {
+        if (target.targetNodeId.trim() === "") issues.push(`${label}.targets.targetNodeId must not be empty`);
+        issues.push(...ratioIssues(`${label}.targets.targetInstability`, target.targetInstability));
+        if (!Number.isFinite(target.delta) || target.delta < -1 || target.delta > 1) issues.push(`${label}.targets.delta must be between -1 and 1`);
+        if (!Number.isInteger(target.edgeCount) || target.edgeCount < 1) issues.push(`${label}.targets.edgeCount must be a positive integer`);
+      }
+      break;
+    case "co-change-coupling":
+      idList(evidence.memberNodeIds, evidence.memberNodeIds.length, "memberNodeIds", "memberNodeCount");
+      if (!["complete", "shallow", "insufficient-history", "unavailable"].includes(evidence.coverageStatus)) {
+        issues.push(`${label}.coverageStatus is invalid`);
+      }
+      if (!Number.isInteger(evidence.windowLimit) || evidence.windowLimit < 1) issues.push(`${label}.windowLimit must be a positive integer`);
+      if (!Number.isInteger(evidence.observedCommitCount) || evidence.observedCommitCount < 0) issues.push(`${label}.observedCommitCount must be a non-negative integer`);
+      sample(evidence.pairs, "pairs");
+      ordered(evidence.pairs, "pairs", (left, right) => compareText(left.pathA, right.pathA) || compareText(left.pathB, right.pathB));
+      for (const pair of evidence.pairs) {
+        issues.push(...repoPathIssues(`${label}.pairs.pathA`, pair.pathA), ...repoPathIssues(`${label}.pairs.pathB`, pair.pathB));
+        if (!Number.isInteger(pair.coChangeCount) || pair.coChangeCount < 1) issues.push(`${label}.pairs.coChangeCount must be a positive integer`);
+        issues.push(...ratioIssues(`${label}.pairs.jaccard`, pair.jaccard));
+      }
+      break;
     default:
       issues.push(`${label}.kind is unsupported`);
   }
@@ -1558,6 +1698,31 @@ export const REFACTOR_DECISION_SCHEMA_VERSION = "archcontext.refactor-decision/v
 export const REFACTOR_DECISION_DIRECTORY = ".archcontext/refactor-decisions" as const;
 export const REFACTOR_DECISION_FILE_PATTERN = /^\.archcontext\/refactor-decisions\/(recommendation\.[a-f0-9]{16})\.json$/;
 export const REFACTOR_RECOMMENDATION_ID_PATTERN = /^recommendation\.[a-f0-9]{16}$/;
+
+/**
+ * #636 / #643: Symbolic kill-list targets use `path#symbol`, where `path` is a safe repo-relative
+ * POSIX path and `symbol` is a non-empty identifier without whitespace or control characters.
+ */
+export const REFACTOR_KILL_LIST_SYMBOL_TARGET_REGEX = "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^#\\s\\\\\\u0000-\\u001f\\u007f]+#[^\\s\\u0000-\\u001f\\u007f]+$";
+
+export function formatRefactorKillListSymbolTarget(path: string, symbol: string): string {
+  return `${path}#${symbol}`;
+}
+
+export function parseRefactorKillListSymbolTarget(target: string): { path: string; symbol: string } | undefined {
+  const hashIndex = target.indexOf("#");
+  if (hashIndex <= 0 || hashIndex === target.length - 1) return undefined;
+  if (target.indexOf("#", hashIndex + 1) !== -1) return undefined;
+  const path = target.slice(0, hashIndex);
+  const symbol = target.slice(hashIndex + 1);
+  if (!isRepoRelativePosixPath(path) || /[\s\u0000-\u001f\u007f]/.test(path)) return undefined;
+  if (/[\s\u0000-\u001f\u007f]/.test(symbol) || symbol.length === 0) return undefined;
+  return { path, symbol };
+}
+
+export function isValidRefactorKillListSymbolTarget(target: string): boolean {
+  return parseRefactorKillListSymbolTarget(target) !== undefined;
+}
 /** The six human statuses. `open` is a machine status and is never a decision. */
 export const REFACTOR_DECISION_STATUSES = ["acknowledged", "accepted", "deferred", "rejected", "resolved", "waived"] as const;
 export const REFACTOR_DECISION_REASON_MAX_LENGTH = 1024;
@@ -1575,6 +1740,12 @@ export type RefactorDecisionStatus = (typeof REFACTOR_DECISION_STATUSES)[number]
  * `.archcontext/refactor-decisions/<recommendationId>.json` (ADR-0046). It carries identity and the
  * decided measurement only: no absolute path, storage id, source, diff or evidence body.
  */
+export interface RefactorDecisionKillTargetV1 {
+  kind: RefactorKillListKind;
+  target: string;
+  required: boolean;
+}
+
 export interface RefactorDecisionV1 {
   schemaVersion: typeof REFACTOR_DECISION_SCHEMA_VERSION;
   /** The manifest `product.id` the subject selector is scoped by. */
@@ -1583,8 +1754,8 @@ export interface RefactorDecisionV1 {
   fingerprint: string;
   fingerprintSchemaVersion: typeof REFACTOR_RECOMMENDATION_FINGERPRINT_SCHEMA_VERSION;
   category: "refactor_proposal" | "structural_observation";
-  /** The observation kind; `null` for a refactor proposal. */
-  kind: RefactorObservationKind | null;
+  /** The observation or v2 detector kind; `null` for a refactor proposal. */
+  kind: RefactorObservationKind | (typeof REFACTOR_DETECTOR_EXTRA_KINDS)[number] | null;
   subject: {
     selectorKind: ArchitectureSubjectSelectorKind;
     stableKey: string;
@@ -1607,6 +1778,13 @@ export interface RefactorDecisionV1 {
     assessmentDigest: string;
     baselineSnapshotDigest: string;
   };
+  snapshotDigest?: string;
+  evidenceDigest?: string;
+  resolutionDigest?: string;
+  scope?: RefactorScopeV1;
+  importNodeLimit?: number;
+  targetOutcomes?: RefactorTargetOutcomeV1[];
+  killList?: RefactorDecisionKillTargetV1[];
 }
 
 const REFACTOR_DECISION_KEYS = [
@@ -1628,7 +1806,16 @@ const REFACTOR_DECISION_KEYS = [
   "status",
   "subject"
 ] as const;
-const REFACTOR_DECISION_OPTIONAL_KEYS = ["observationScopeDigest"] as const;
+const REFACTOR_DECISION_OPTIONAL_KEYS = [
+  "observationScopeDigest",
+  "snapshotDigest",
+  "evidenceDigest",
+  "resolutionDigest",
+  "scope",
+  "importNodeLimit",
+  "targetOutcomes",
+  "killList"
+] as const;
 
 export function isRefactorDecisionStatus(status: RecommendationStatus | string): status is RefactorDecisionStatus {
   return (REFACTOR_DECISION_STATUSES as readonly string[]).includes(status);
@@ -1692,7 +1879,14 @@ export function serializeRefactorDecision(decision: RefactorDecisionV1): string 
       headSha: decision.provenance.headSha,
       assessmentDigest: decision.provenance.assessmentDigest,
       baselineSnapshotDigest: decision.provenance.baselineSnapshotDigest
-    }
+    },
+    ...(decision.snapshotDigest === undefined ? {} : { snapshotDigest: decision.snapshotDigest }),
+    ...(decision.evidenceDigest === undefined ? {} : { evidenceDigest: decision.evidenceDigest }),
+    ...(decision.resolutionDigest === undefined ? {} : { resolutionDigest: decision.resolutionDigest }),
+    ...(decision.scope === undefined ? {} : { scope: decision.scope }),
+    ...(decision.importNodeLimit === undefined ? {} : { importNodeLimit: decision.importNodeLimit }),
+    ...(decision.targetOutcomes === undefined ? {} : { targetOutcomes: decision.targetOutcomes }),
+    ...(decision.killList === undefined ? {} : { killList: decision.killList })
   };
   return `${JSON.stringify(canonical, null, 2)}\n`;
 }
@@ -1727,6 +1921,7 @@ export function refactorDecisionInvariantIssues(value: unknown, prefix = "refact
     issues.push(`${prefix}.category must be structural_observation or refactor_proposal`);
   } else if (decision.category === "structural_observation"
     ? !(REFACTOR_OBSERVATION_KINDS as readonly unknown[]).includes(decision.kind)
+      && !(REFACTOR_DETECTOR_EXTRA_KINDS as readonly unknown[]).includes(decision.kind)
     : decision.kind !== null) {
     issues.push(`${prefix}.kind must be an observation kind for structural_observation and null for refactor_proposal`);
   }
@@ -1784,6 +1979,43 @@ export function refactorDecisionInvariantIssues(value: unknown, prefix = "refact
       issues.push(...(typeof digest === "string" ? digestIssues(`${prefix}.provenance.${field}`, digest) : [`${prefix}.provenance.${field} must be a digest`]));
     }
   }
+  for (const field of ["snapshotDigest", "evidenceDigest", "resolutionDigest"] as const) {
+    const digest = decision[field];
+    if (digest !== undefined) {
+      issues.push(...(typeof digest === "string" ? digestIssues(`${prefix}.${field}`, digest) : [`${prefix}.${field} must be a digest`]));
+    }
+  }
+  if (decision.importNodeLimit !== undefined && !(Number.isInteger(decision.importNodeLimit) && decision.importNodeLimit >= 1)) {
+    issues.push(`${prefix}.importNodeLimit must be a positive integer`);
+  }
+  if (decision.scope !== undefined) {
+    issues.push(...decisionScopeIssues(decision.scope, `${prefix}.scope`));
+  }
+  if (decision.targetOutcomes !== undefined) {
+    if (!Array.isArray(decision.targetOutcomes)) issues.push(`${prefix}.targetOutcomes must be an array`);
+    else issues.push(...outcomeIssues(`${prefix}.targetOutcomes`, decision.targetOutcomes));
+  }
+  if (decision.killList !== undefined) {
+    if (!Array.isArray(decision.killList)) issues.push(`${prefix}.killList must be an array`);
+    else {
+      for (const entry of decision.killList) {
+        if (!isPlainObject(entry) || !(REFACTOR_KILL_LIST_KINDS as readonly string[]).includes(String(entry.kind)) || typeof entry.target !== "string" || entry.target.trim() === "" || typeof entry.required !== "boolean") {
+          issues.push(`${prefix}.killList entry is invalid`);
+          continue;
+        }
+        const entryKeys = Object.keys(entry).sort().join(",");
+        if (entryKeys !== "kind,required,target") {
+          issues.push(`${prefix}.killList entry must carry exactly kind, target and required`);
+          continue;
+        }
+        if (entry.kind === "path") {
+          issues.push(...repoPathIssues(`${prefix}.killList.target`, entry.target));
+        } else if (entry.kind === "symbol" && !isValidRefactorKillListSymbolTarget(entry.target)) {
+          issues.push(`${prefix}.killList.target must be <repo-relative-path>#<symbol>`);
+        }
+      }
+    }
+  }
   return issues;
 }
 
@@ -1834,6 +2066,31 @@ function decisionSubjectIssues(subject: unknown, label: string): string[] {
     issues.push(`${label}.subjectSelectorId must be a refactor subject selector id`);
   }
   return issues;
+}
+
+function decisionScopeIssues(scope: unknown, label: string): string[] {
+  if (!isPlainObject(scope)) return [`${label} must be an object`];
+  const keys = Object.keys(scope).sort().join(",");
+  if (scope.kind === "repository") {
+    return keys === "kind" ? [] : [`${label} must carry only kind for repository scope`];
+  }
+  if (scope.kind === "node") {
+    if (keys !== "kind,nodeId" || typeof scope.nodeId !== "string" || scope.nodeId.trim() === "") {
+      return [`${label} must carry kind and a non-empty nodeId for node scope`];
+    }
+    return [];
+  }
+  if (scope.kind === "paths") {
+    if (keys !== "kind,paths" || !Array.isArray(scope.paths) || scope.paths.length === 0 || scope.paths.some((p) => typeof p !== "string")) {
+      return [`${label} must carry kind and a non-empty paths array for paths scope`];
+    }
+    const issues = sortedUniqueIssues(`${label}.paths`, scope.paths as string[]);
+    for (const entry of scope.paths as string[]) {
+      issues.push(...repoPathIssues(`${label}.paths`, entry));
+    }
+    return issues;
+  }
+  return [`${label}.kind must be repository, node, or paths`];
 }
 
 function boundedLineIssues(label: string, value: unknown, maxLength: number): string[] {

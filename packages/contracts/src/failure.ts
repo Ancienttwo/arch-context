@@ -293,6 +293,9 @@ Object.assign(policies, {
   "refactor-request-head-changed": {code: "AC_REFACTOR_STALE", message: "The requested HEAD differs from the measured HEAD.", facts: {expectedHeadSha: "head", actualHeadSha: "head"}},
   "refactor-request-worktree-changed": {code: "AC_REFACTOR_STALE", message: "The requested worktree differs from the measured worktree.", facts: {expectedWorktreeDigest: "sha256", actualWorktreeDigest: "sha256"}},
   "refactor-measurement-changed": {"code": "AC_REFACTOR_STALE","facts": {"changedFields": "changedFields"},"message": "Refactor measurement changed."},
+  "refactor-decision-sparse-write-refused": {"code": "AC_PRECONDITION_FAILED","facts": {"path": "repoPath"},"message": "Refactor decision path is hidden by sparse checkout."},
+  "refactor-baseline-metadata-missing": {"code": "AC_REFACTOR_STALE","facts": {"recommendationId": "id"},"message": "Refactor decision lacks baseline outcome or kill-list metadata for clean verification."},
+  "refactor-simulate-input-invalid": {"code": "AC_SCHEMA_INVALID","facts": {},"message": "Refactor simulation request is invalid."},
   "audit-issue-list-inconclusive": {"code": "AC_PRECONDITION_FAILED","facts": {"runId": "id"},"message": "Audit issue list inconclusive."},
   "audit-issue-create-inconclusive": {"code": "AC_PRECONDITION_FAILED","facts": {"runId": "id","draftId": "id"},"message": "Audit issue create inconclusive."}
 } as Record<string, Policy>);

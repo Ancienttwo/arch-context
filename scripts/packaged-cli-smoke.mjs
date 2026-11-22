@@ -404,6 +404,26 @@ try {
     `packaged refactor verify rejection must not create a daemon lock file: ${committedPaths.data.daemonLockPath} exists`
   );
 
+  // Stage 5 packaged smoke (#639 AC #3): bounded deps calls matrix, pure-Git scan/decide/verify (with path#symbol), and simulate.
+  const depsResult = await runArchctx("deps", "--json");
+  assert(depsResult.ok === true && depsResult.data?.calls?.coverage === "complete", `packaged deps must expose bounded call facts: ${JSON.stringify(depsResult)}`);
+  const scanV2 = await runArchctx("scan", "--json");
+  assert(scanV2.ok === true && scanV2.data?.schemaVersion === "archcontext.refactor-scan/v2", `packaged scan --json failed: ${JSON.stringify(scanV2)}`);
+  const decideList = await runArchctx("decide", "list", "--json");
+  assert(decideList.ok === true && decideList.data?.schemaVersion === "archcontext.refactor-decide-list/v1", `packaged decide list failed: ${JSON.stringify(decideList)}`);
+  const firstFinding = scanV2.data?.findings?.[0];
+  if (firstFinding) {
+    const decided = await runArchctx("decide", "accept", firstFinding.recommendationId, "--kill-symbol", `${KILL_LIST_PATH}#legacyShim`, "--reason", "Packaged Stage 5 killList smoke", "--json");
+    assert(decided.ok === true, `packaged decide accept failed: ${JSON.stringify(decided)}`);
+    const verifiedV2 = await runArchctx("verify", firstFinding.recommendationId, "--json");
+    assert(
+      verifiedV2.ok === true && verifiedV2.data?.schemaVersion === "archcontext.refactor-verify/v2" && verifiedV2.data?.killListChecks?.[0]?.status === "still-present",
+      `packaged verify <id> with path#symbol must report still-present: ${JSON.stringify(verifiedV2)}`
+    );
+  }
+  const sim = await runArchctx("refactor", "simulate", "--target", "pair:capability.billing|capability.checkout", "--json");
+  assert(sim.ok === true && sim.data?.schemaVersion === "archcontext.runtime-refactor-simulate/v1" && sim.data?.privacy?.writes === "none", `packaged refactor simulate failed: ${JSON.stringify(sim)}`);
+
   console.log("[packaged-cli-smoke] OK");
 } finally {
   cleanupRoot(repo);

@@ -69,6 +69,7 @@ import {
   runProjectionProtocolCommand,
   runProjectionPublishFollowEntry
 } from "./commands/projection";
+import { runDecideCommand, runScanCommand, runVerifyV2Command } from "./commands/radar";
 import { installMarker, uninstallMarker } from "./local-hardening";
 import { runNativeContextCommand } from "./native-context";
 import { runRefImpactCommand } from "./ref-impact";
@@ -133,12 +134,17 @@ export async function runCli(command = "help", args: string[] = [], cwd = proces
 
 async function runCliUnchecked(command = "help", args: string[] = [], cwd: string, deps: CliRuntimeDeps = {}) {
   if (command === "impact") return runRefImpactCommand(args, cwd);
-  if (command === "verify") return runRuntimeVerifyCliCommand(args, cwd);
+  if (command === "verify" && (args.includes("--base") || args.includes("--help") || args.includes("-h") || args.length === 0)) {
+    return runRuntimeVerifyCliCommand(args, cwd);
+  }
   if (command === "history") return runArchitectureHistoryCommand(args, cwd);
   if (command === "export" && args[0] === "native") return runNativeContextCommand(args.slice(1), cwd);
   if (command === "model" && args[0] === "export" && args[1] === "native") return runNativeContextCommand(args.slice(2), cwd);
   const preflight = preflightCliArguments(command, args);
   if (preflight) return preflight;
+  if (command === "verify") return runVerifyV2Command(args, cwd);
+  if (command === "scan") return runScanCommand(args, cwd);
+  if (command === "decide") return runDecideCommand(args, cwd);
   if (command === "check") return runCheckCommand(args, cwd);
   if (command === "index") return runIndexCommand(args, cwd);
 

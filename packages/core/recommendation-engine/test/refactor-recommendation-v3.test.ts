@@ -143,6 +143,26 @@ function observationOf(snapshot: ModuleStatisticsSnapshotV1, kind: RefactorObser
       subjectSelectorId: repository,
       affectedNodeIds: [],
       evidence: { kind: "evidence-gap", coverage: "partial", reasonCodes: [], unresolvedImports: [], ...count(metrics.unresolvedImportCount) }
+    },
+    "low-cohesion-god-file": {
+      subjectSelectorId: moduleId,
+      affectedNodeIds: [moduleId],
+      evidence: { kind: "low-cohesion-god-file", files: [], ...count(1) }
+    },
+    "entrypoint-bypass": {
+      subjectSelectorId: moduleId,
+      affectedNodeIds: [moduleId],
+      evidence: { kind: "entrypoint-bypass", declaredEntrypointPaths: [], edges: [], ...count(1) }
+    },
+    "unstable-dependency": {
+      subjectSelectorId: moduleId,
+      affectedNodeIds: [moduleId],
+      evidence: { kind: "unstable-dependency", sourceFanIn: 4, sourceInstability: 0.2, targets: [], ...count(1) }
+    },
+    "co-change-coupling": {
+      subjectSelectorId: subject ?? "pair:component.a|component.b",
+      affectedNodeIds: ["component.a", "component.b"],
+      evidence: { kind: "co-change-coupling", memberNodeIds: ["component.a", "component.b"], coverageStatus: "complete", windowLimit: 200, observedCommitCount: 10, pairs: [], ...count(1) }
     }
   };
   const shape = shapes[kind];

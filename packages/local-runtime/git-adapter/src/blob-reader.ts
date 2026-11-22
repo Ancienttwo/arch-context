@@ -50,7 +50,9 @@ export function readOnlyGit(root: string, operation: GitReadOperation, args: str
     else unsafeArguments();
   }
   if (operation === "log") {
-    if (args.length !== 8 || args[0] !== "--first-parent" || args[1] !== "--reverse" || args[2] !== "-z" || args[3] !== "--format=%H%x00%cI%x00%s" || !OBJECT_ID.test(args[4]!) || args[5] !== "--" || args[6] !== ".archcontext/model" || args[7] !== ".archcontext/manifest.yaml") unsafeArguments();
+    const isModelHistoryLog = args.length === 8 && args[0] === "--first-parent" && args[1] === "--reverse" && args[2] === "-z" && args[3] === "--format=%H%x00%cI%x00%s" && OBJECT_ID.test(args[4]!) && args[5] === "--" && args[6] === ".archcontext/model" && args[7] === ".archcontext/manifest.yaml";
+    const isCoChangeLog = args.length === 7 && args[0] === "--no-merges" && args[1] === "-n" && /^[1-9]\d*$/.test(args[2]!) && args[3] === "-z" && args[4] === "--name-only" && args[5] === "--format=COMMIT:%H" && args[6] === "HEAD";
+    if (!isModelHistoryLog && !isCoChangeLog) unsafeArguments();
   }
   if (operation === "ls-tree") {
     const flags = args.slice(0, -1);

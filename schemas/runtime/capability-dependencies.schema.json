@@ -91,11 +91,15 @@
             "type": "string"
           },
           "imports": {
-            "minimum": 1,
+            "minimum": 0,
             "type": "integer"
           },
           "calls": {
-            "type": "null"
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
           },
           "declared": {
             "description": "A relation of a declaring kind (every kind but deployed-on, spawns, runs-in and mounts) runs from a node that rolls up to `from` into a node that rolls up to `to`. A cell with from equal to to is always declared and lists no relation ids.",
@@ -203,15 +207,34 @@
       ],
       "properties": {
         "coverage": {
-          "const": "unknown"
+          "enum": [
+            "complete",
+            "partial",
+            "unknown"
+          ]
         },
         "reasonCodes": {
-          "minItems": 1,
-          "maxItems": 1,
+          "uniqueItems": true,
           "type": "array",
           "items": {
-            "const": "call-edges-not-exposed"
+            "enum": [
+              "call-edges-not-exposed",
+              "code-facts-call-limit",
+              "code-facts-truncated",
+              "code-facts-unavailable"
+            ]
           }
+        },
+        "edgeCount": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "edgeLimit": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "limitExceeded": {
+          "type": "boolean"
         }
       }
     },

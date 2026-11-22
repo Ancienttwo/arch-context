@@ -1,10 +1,14 @@
-import { FailureError, knownFailure, unclassifiedFailure } from "@archcontext/contracts";
+import { CAPABILITY_DEPENDENCIES_CALL_EDGE_LIMIT, FailureError, knownFailure, unclassifiedFailure } from "@archcontext/contracts";
 import { publicFailureEnvelope, publicOperationErrorEnvelope, publicOperationFailure, publicOperationResult } from "./public-operation-failure";
 import type { ArchContextErrorCode, CapabilityDependenciesV1 } from "@archcontext/contracts";
 import { computeWorktreeDigest } from "@archcontext/core/architecture-domain";
 import { measureCapabilityDependencies } from "@archcontext/core/module-statistics";
 import { loadNativeModelFromArchContext, type NativeModel } from "@archcontext/core/projection-engine";
-import { CODEGRAPH_IMPORT_NODE_READ_LIMIT, repositoryImportPairs } from "@archcontext/local-runtime/codegraph-adapter";
+import {
+  CODEGRAPH_IMPORT_NODE_READ_LIMIT,
+  readRepositoryStructuralFacts,
+  repositoryImportPairs
+} from "@archcontext/local-runtime/codegraph-adapter";
 import { readHeadSha, readTrackedTreeEntries, listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import { declaredWorkspacePackages } from "./refactor-scan";
 
@@ -67,6 +71,9 @@ function readCapabilityDependenciesUnchecked(root: string, request: CapabilityDe
   const worktreeDigest = computeWorktreeDigest(root, sourceFiles);
   const files = readTrackedTreeEntries(root).filter((entry) => entry.type === "blob").map((entry) => entry.path);
   const imports = readImports(root, importNodeLimit, worktreeDigest, sourceFiles);
+  const structuralFacts = imports.availability === "ready" && imports.indexedWorktreeDigest === worktreeDigest
+    ? readRepositoryStructuralFacts(root, files, { callEdgeLimit: CAPABILITY_DEPENDENCIES_CALL_EDGE_LIMIT })
+    : undefined;
   const matrix = measureCapabilityDependencies({
     nodes: model.nodes,
     relations: model.relations,
@@ -79,6 +86,18 @@ function readCapabilityDependenciesUnchecked(root: string, request: CapabilityDe
     importNodeLimit: imports.importNodeLimit,
     importNodeLimitExceeded: imports.importNodeLimitExceeded,
     codeFacts: { availability: imports.availability, indexedWorktreeDigest: imports.indexedWorktreeDigest },
+    ...(structuralFacts && structuralFacts.coverage !== "unknown"
+      ? {
+        callFacts: {
+          coverage: structuralFacts.coverage,
+          reasonCodes: structuralFacts.reasonCodes,
+          edgeCount: structuralFacts.callEdgeCount,
+          edgeLimit: structuralFacts.callEdgeLimit,
+          limitExceeded: structuralFacts.callEdgeLimitExceeded,
+          callEdges: structuralFacts.callEdges
+        }
+      }
+      : {}),
     ...(request.from === undefined ? {} : { from: request.from }),
     ...(request.into === undefined ? {} : { into: request.into }),
     ...(request.edgeLimit === undefined ? {} : { edgeLimit: request.edgeLimit })
