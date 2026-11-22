@@ -14,7 +14,7 @@ for (const [relPath, schema] of Object.entries(CONTRACT_SCHEMA_REGISTRY)) {
   const next = serializeSchemaDocument(schema);
   let prev: string | undefined;
   try {
-    prev = readFileSync(fullPath, "utf8");
+    prev = readFileSync(fullPath, "utf8").replace(/\r\n/g, "\n");
   } catch {
     prev = undefined;
   }
