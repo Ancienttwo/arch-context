@@ -2,8 +2,8 @@
 
 Release `archctx` and `archctx-contracts` together. Replace `<version>`,
 `<merge-sha>`, `<worktree>` and `<notes>` in the commands below with the
-release values. Use `deploy/release-checklists/archctx-<version>.md` as the
-per-version release record.
+release values, and record per-version release evidence in
+`artifacts/release-<version>/` and the GitHub Release notes.
 
 ## Release candidate
 

@@ -66,8 +66,7 @@
       "scripts/check-bun-version.mjs",
       "packages/surfaces/cli/bin/bun-darwin-sqlite.ts",
       ".github/**",
-      "scripts/verify-ci.mjs",
-      "packages/cloud/**"
+      "scripts/verify-ci.mjs"
     ]
   },
   "linuxOnly": [
@@ -77,7 +76,6 @@
     ".ai/**",
     ".archcontext/**",
     ".claude/**",
-    "deploy/**",
     "docs/**",
     "plans/**",
     "schemas/**",

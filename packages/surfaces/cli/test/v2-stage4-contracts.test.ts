@@ -209,6 +209,18 @@ describe("Stage 4 v2 CLI & contracts (#640, #642)", () => {
       expect(crossCheckNoInstr.json().data.fresh).toBe(true);
       expect(crossCheckNoInstr.json().data.includeInstructions).toBe(false);
       expect(publishedSchemaIssues("runtime/sync-check.schema.json", crossCheckNoInstr.json().data)).toEqual([]);
+
+      // 4. Stale .codegraph index on sync --check fails closed with a typed readiness error (never AC_UNCLASSIFIED_FAILURE).
+      writeFixtureFile(root, "packages/alpha/src/index.ts", "export function alpha() { return 2; }\n");
+      const checkStaleIndex = runArchctx(root, ["sync", "--check", "--no-instructions", "--json"], env);
+      expect(checkStaleIndex.code).toBe(1);
+      expect(checkStaleIndex.json().error).toMatchObject({
+        code: "AC_CODE_FACTS_UNAVAILABLE",
+        reasonCode: "code-facts-read-not-ready"
+      });
+      expect(checkStaleIndex.json().error.details.issues).toEqual(
+        expect.arrayContaining([expect.objectContaining({ code: "pending-source-changes" })])
+      );
     } finally {
       fixture.cleanup();
     }
