@@ -112,7 +112,8 @@ describe("@archcontext/local-runtime/codegraph-adapter #641 index seed", () => {
     });
   }, 60_000);
 
-  test("seeds linked worktree from primary base and preserves existing .codegraph non-destructively", async () => {
+  // Shared-base seeding is disabled on Windows (`seedBundle` in `index-base.ts`, #608).
+  test.skipIf(process.platform === "win32")("seeds linked worktree from primary base and preserves existing .codegraph non-destructively", async () => {
     const primary = createGitPrimaryRepo();
     const linked = addLinkedWorktree(primary, "feat/worktree-seed");
     expect(readGitWorktreeRole(primary)).toBe("primary");
@@ -160,7 +161,8 @@ describe("@archcontext/local-runtime/codegraph-adapter #641 index seed", () => {
     expect(readFileSync(join(linked, ".codegraph", "codegraph.db"))).toEqual(dbBytesBefore);
   }, 60_000);
 
-  test("linked worktree fails retryably with index-base-building when primary refresh.lock is active", async () => {
+  // Shared-base seeding (and its `refresh.lock` check) is disabled on Windows (`seedBundle`, #608).
+  test.skipIf(process.platform === "win32")("linked worktree fails retryably with index-base-building when primary refresh.lock is active", async () => {
     const primary = createGitPrimaryRepo();
     const linked = addLinkedWorktree(primary, "feat/base-building");
     const commonRaw = decodeUtf8(readOnlyGit(linked, "rev-parse", ["--git-common-dir"])).trim();
