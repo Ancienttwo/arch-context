@@ -19,7 +19,7 @@ test("runtime state paths use an OS/user-data root partitioned by repository and
       expect(paths.workspaceId).toMatch(/^ws\.[0-9a-f]{16}$/);
       expect(paths.repositoryId).toBe(paths.storageRepositoryId);
       expect(paths.workspaceId).toBe(paths.storageWorkspaceId);
-      expect(paths.localStorePath).toBe(join(paths.workspaceStateDir, "runtime.sqlite"));
+      expect(paths.localStorePath).toBe(join(paths.workspaceStateDir, "local-cache-v2.sqlite"));
       expect(paths.daemonConnectionPath).toBe(join(paths.workspaceStateDir, "archctxd.json"));
       expect(paths.legacyLocalStorePath).toBe(join(paths.repositoryRoot, ".archcontext", ".local", "runtime.sqlite"));
       expect(paths.localStorePath.startsWith(root)).toBe(false);

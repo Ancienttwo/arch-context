@@ -6,16 +6,6 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { ARCHCONTEXT_LOCAL_STORE_PATH_ENV, runtimeStatePaths } from "../../runtime-state-paths/src/index";
-import {
-  KNOWN_LEGACY_V1_MIGRATION_IDS,
-  KNOWN_LEGACY_V1_TABLE_COLUMNS,
-  KNOWN_LEGACY_V1_TRIGGER_SQL,
-  KNOWN_LEGACY_V1_VIEW_SQL,
-  KNOWN_LEGACY_V1_VIRTUAL_TABLE_SQL,
-  LEGACY_V1_CORE_TABLE_COLUMNS,
-  LEGACY_V1_DEBT_CACHE_COLUMNS,
-  LEGACY_V1_FTS_SHADOW_PARENTS
-} from "./legacy-v1-schema";
 export { ARCHCONTEXT_STATE_DIR_ENV, ARCHCONTEXT_LOCAL_STORE_PATH_ENV, defaultArchContextStateRoot, runtimeStatePaths, type RuntimeStatePaths } from "../../runtime-state-paths/src/index";
 
 const runtimeRequire = createRequire(import.meta.url);
@@ -26,18 +16,27 @@ const LOCK_RETRY_MS = 20;
 const SQLITE_MAGIC_HEADER = "SQLite format 3\0";
 
 const V2_CACHE_TABLE_COLUMNS: Record<string, readonly string[]> = {
-  architecture_debt_base_cache: ["cache_key|TEXT|0|1", "report_json|TEXT|1|0", "updated_at|TEXT|1|0"],
+  architecture_debt_base_cache: ["cache_key|TEXT|0|1|0", "report_json|TEXT|1|0|0", "updated_at|TEXT|1|0|0"],
   external_docs_cache: [
-    "provider|TEXT|1|1",
-    "library_id|TEXT|1|2",
-    "version|TEXT|1|3",
-    "query_digest|TEXT|1|4",
-    "content_digest|TEXT|1|0",
-    "resource_json|TEXT|1|0",
-    "retrieved_at|TEXT|1|0",
-    "expires_at|TEXT|1|0"
+    "provider|TEXT|1|1|0",
+    "library_id|TEXT|1|2|0",
+    "version|TEXT|1|3|0",
+    "query_digest|TEXT|1|4|0",
+    "content_digest|TEXT|1|0|0",
+    "resource_json|TEXT|1|0|0",
+    "retrieved_at|TEXT|1|0|0",
+    "expires_at|TEXT|1|0|0"
   ],
-  kv_cache: ["namespace|TEXT|1|1", "cache_key|TEXT|1|2", "value_json|TEXT|1|0", "updated_at|TEXT|1|0"]
+  kv_cache: ["namespace|TEXT|1|1|0", "cache_key|TEXT|1|2|0", "value_json|TEXT|1|0|0", "updated_at|TEXT|1|0|0"]
+};
+
+const V2_CACHE_TABLE_SQL: Readonly<Record<string, string>> = {
+  architecture_debt_base_cache:
+    "CREATE TABLE architecture_debt_base_cache(cache_key TEXT PRIMARY KEY,report_json TEXT NOT NULL,updated_at TEXT NOT NULL)",
+  external_docs_cache:
+    "CREATE TABLE external_docs_cache(provider TEXT NOT NULL,library_id TEXT NOT NULL,version TEXT NOT NULL,query_digest TEXT NOT NULL,content_digest TEXT NOT NULL,resource_json TEXT NOT NULL,retrieved_at TEXT NOT NULL,expires_at TEXT NOT NULL,PRIMARY KEY(provider,library_id,version,query_digest))",
+  kv_cache:
+    "CREATE TABLE kv_cache(namespace TEXT NOT NULL,cache_key TEXT NOT NULL,value_json TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(namespace,cache_key))"
 };
 
 const V2_CACHE_TABLES = new Set(Object.keys(V2_CACHE_TABLE_COLUMNS));
@@ -184,51 +183,10 @@ function openSqliteDatabaseSync(databasePath: string): SqliteDatabase {
   throw new Error("Unsupported SQLite runtime: archctx requires Bun or Node.");
 }
 
-type LocalStoreProbeKind = "empty" | "proven-v2" | "proven-legacy" | "unproven";
+type LocalStoreProbeKind = "empty" | "proven-v2" | "unproven";
 
 function quoteSqlIdentifier(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
-}
-
-function orderTablesForForeignKeySafeDrop(db: SqliteDatabase, tableNames: readonly string[]): string[] {
-  const canonicalByLower = new Map<string, string>();
-  const parentsOfChild = new Map<string, Set<string>>();
-  const childrenOfParent = new Map<string, Set<string>>();
-  for (const name of tableNames) {
-    canonicalByLower.set(name.toLowerCase(), name);
-    parentsOfChild.set(name, new Set());
-    childrenOfParent.set(name, new Set());
-  }
-  for (const child of tableNames) {
-    const fkRows = db.prepare(`PRAGMA foreign_key_list(${quoteSqlIdentifier(child)})`).all();
-    for (const row of fkRows) {
-      const parent = canonicalByLower.get(String(row.table ?? "").toLowerCase());
-      if (!parent || parent === child) continue;
-      parentsOfChild.get(child)!.add(parent);
-      childrenOfParent.get(parent)!.add(child);
-    }
-  }
-  const queue: string[] = [];
-  for (const name of tableNames) {
-    if (childrenOfParent.get(name)!.size === 0) queue.push(name);
-  }
-  const ordered: string[] = [];
-  const emitted = new Set<string>();
-  while (queue.length > 0) {
-    const child = queue.shift()!;
-    if (emitted.has(child)) continue;
-    emitted.add(child);
-    ordered.push(child);
-    for (const parent of parentsOfChild.get(child)!) {
-      const remainingChildren = childrenOfParent.get(parent)!;
-      remainingChildren.delete(child);
-      if (remainingChildren.size === 0) queue.push(parent);
-    }
-  }
-  for (const name of tableNames) {
-    if (!emitted.has(name)) ordered.push(name);
-  }
-  return ordered;
 }
 
 function ownEntry<T>(record: Readonly<Record<string, T>>, key: string): T | undefined {
@@ -247,123 +205,64 @@ function isVirtualTableSql(sql: unknown): boolean {
 }
 
 function tableMatchesColumns(db: SqliteDatabase, tableName: string, expectedColumns: readonly string[]): boolean {
-  const columns = db.prepare(`PRAGMA table_info(${quoteSqlIdentifier(tableName)})`).all();
+  const columns = db.prepare(`PRAGMA table_xinfo(${quoteSqlIdentifier(tableName)})`).all();
   if (columns.length !== expectedColumns.length) return false;
   return columns.every((col, index) => {
-    const signature = `${String(col.name)}|${String(col.type)}|${Number(col.notnull)}|${Number(col.pk)}`;
+    const signature = `${String(col.name)}|${String(col.type)}|${Number(col.notnull)}|${Number(col.pk)}|${Number(col.hidden)}`;
     return signature === expectedColumns[index];
   });
-}
-
-function tableMatchesAnyColumns(db: SqliteDatabase, tableName: string, variants: readonly (readonly string[])[]): boolean {
-  return variants.some((expectedColumns) => tableMatchesColumns(db, tableName, expectedColumns));
 }
 
 function classifyLocalStoreDatabase(db: SqliteDatabase): {
   kind: LocalStoreProbeKind;
   applicationId: number;
-  legacyViewNames: string[];
 } {
   const appRow = db.prepare("PRAGMA application_id").get();
   const applicationId = Number(appRow?.application_id ?? 0);
   const versionRow = db.prepare("PRAGMA user_version").get();
   const userVersion = Number(versionRow?.user_version ?? 0);
   const masterRows = db
-    .prepare("SELECT type, name, sql FROM sqlite_master WHERE type IN ('table', 'view', 'trigger') AND name NOT LIKE 'sqlite_%'")
+    .prepare(
+      "SELECT type, name, sql FROM sqlite_master WHERE type IN ('table', 'view', 'trigger', 'index') AND name NOT LIKE 'sqlite_%' AND (type != 'index' OR sql IS NOT NULL)"
+    )
     .all();
-  const tableRows = masterRows
-    .filter((row) => String(row.type) === "table")
-    .map((row) => ({ name: String(row.name), sql: row.sql }));
-  const viewRows = masterRows
-    .filter((row) => String(row.type) === "view")
-    .map((row) => ({ name: String(row.name), sql: row.sql }));
-  const triggerRows = masterRows
-    .filter((row) => String(row.type) === "trigger")
-    .map((row) => ({ name: String(row.name), sql: row.sql }));
 
-  if (tableRows.length === 0 && viewRows.length === 0 && triggerRows.length === 0) {
+  if (masterRows.length === 0) {
     return {
       kind: userVersion === 0 && applicationId === 0 ? "empty" : "unproven",
-      applicationId,
-      legacyViewNames: []
+      applicationId
     };
   }
 
-  if (userVersion === LOCAL_CACHE_SCHEMA_VERSION) {
-    const validAppId = applicationId === 0 || applicationId === ARCHCONTEXT_SQLITE_APPLICATION_ID;
-    const validTriggers = triggerRows.length === 0;
-    const validViews = viewRows.every((view) => ownEntry(KNOWN_LEGACY_V1_VIEW_SQL, view.name) === normalizeSqliteDdl(view.sql));
-    const exactTables = tableRows.length === V2_CACHE_TABLES.size
-      && tableRows.every((table) => {
-        if (isVirtualTableSql(table.sql) || !V2_CACHE_TABLES.has(table.name)) return false;
-        const expectedCols = ownEntry(V2_CACHE_TABLE_COLUMNS, table.name);
-        return expectedCols !== undefined && tableMatchesColumns(db, table.name, expectedCols);
-      });
-    return validAppId && validTriggers && validViews && exactTables
-      ? { kind: "proven-v2", applicationId, legacyViewNames: viewRows.map((view) => view.name) }
-      : { kind: "unproven", applicationId, legacyViewNames: [] };
+  const validHeader = userVersion === LOCAL_CACHE_SCHEMA_VERSION
+    && (applicationId === 0 || applicationId === ARCHCONTEXT_SQLITE_APPLICATION_ID);
+  if (!validHeader || masterRows.length !== V2_CACHE_TABLES.size) {
+    return { kind: "unproven", applicationId };
   }
 
-  if (userVersion !== 0 || applicationId !== 0) {
-    return { kind: "unproven", applicationId, legacyViewNames: [] };
-  }
-
-  if (
-    viewRows.length === 0
-    && triggerRows.length === 0
-    && tableRows.length === 1
-    && tableRows[0]!.name === "architecture_debt_base_cache"
-    && !isVirtualTableSql(tableRows[0]!.sql)
-    && tableMatchesColumns(db, "architecture_debt_base_cache", LEGACY_V1_DEBT_CACHE_COLUMNS)
-  ) {
-    return { kind: "proven-legacy", applicationId, legacyViewNames: [] };
-  }
-
-  if (triggerRows.some((trigger) => ownEntry(KNOWN_LEGACY_V1_TRIGGER_SQL, trigger.name) !== normalizeSqliteDdl(trigger.sql))) {
-    return { kind: "unproven", applicationId, legacyViewNames: [] };
-  }
-  if (viewRows.some((view) => ownEntry(KNOWN_LEGACY_V1_VIEW_SQL, view.name) !== normalizeSqliteDdl(view.sql))) {
-    return { kind: "unproven", applicationId, legacyViewNames: [] };
-  }
-
-  const tableSet = new Set(tableRows.map((table) => table.name));
-  for (const coreTableName of Object.keys(LEGACY_V1_CORE_TABLE_COLUMNS)) {
-    if (!tableSet.has(coreTableName)) {
-      return { kind: "unproven", applicationId, legacyViewNames: [] };
+  const seenTables = new Set<string>();
+  for (const row of masterRows) {
+    if (String(row.type) !== "table" || isVirtualTableSql(row.sql)) {
+      return { kind: "unproven", applicationId };
+    }
+    const name = String(row.name);
+    if (!V2_CACHE_TABLES.has(name) || seenTables.has(name)) {
+      return { kind: "unproven", applicationId };
+    }
+    seenTables.add(name);
+    const expectedSql = ownEntry(V2_CACHE_TABLE_SQL, name);
+    const expectedCols = ownEntry(V2_CACHE_TABLE_COLUMNS, name);
+    if (
+      expectedSql === undefined
+      || expectedCols === undefined
+      || normalizeSqliteDdl(row.sql) !== expectedSql
+      || !tableMatchesColumns(db, name, expectedCols)
+    ) {
+      return { kind: "unproven", applicationId };
     }
   }
 
-  for (const table of tableRows) {
-    const variants = ownEntry(KNOWN_LEGACY_V1_TABLE_COLUMNS, table.name);
-    if (!variants) {
-      return { kind: "unproven", applicationId, legacyViewNames: [] };
-    }
-    const expectedVirtualSql = ownEntry(KNOWN_LEGACY_V1_VIRTUAL_TABLE_SQL, table.name);
-    if (expectedVirtualSql !== undefined) {
-      if (normalizeSqliteDdl(table.sql) !== expectedVirtualSql) {
-        return { kind: "unproven", applicationId, legacyViewNames: [] };
-      }
-    } else if (isVirtualTableSql(table.sql)) {
-      return { kind: "unproven", applicationId, legacyViewNames: [] };
-    }
-    const requiredParent = ownEntry(LEGACY_V1_FTS_SHADOW_PARENTS, table.name);
-    if (requiredParent !== undefined && !tableSet.has(requiredParent)) {
-      return { kind: "unproven", applicationId, legacyViewNames: [] };
-    }
-    if (!tableMatchesAnyColumns(db, table.name, variants)) {
-      return { kind: "unproven", applicationId, legacyViewNames: [] };
-    }
-  }
-
-  const migrations = db.prepare("SELECT id FROM schema_migrations").all().map((row) => String(row.id));
-  if (
-    migrations.length === 0
-    || !migrations.includes("0001_runtime_state")
-    || migrations.some((id) => !KNOWN_LEGACY_V1_MIGRATION_IDS.has(id))
-  ) {
-    return { kind: "unproven", applicationId, legacyViewNames: [] };
-  }
-  return { kind: "proven-legacy", applicationId, legacyViewNames: viewRows.map((view) => view.name) };
+  return { kind: "proven-v2", applicationId };
 }
 
 function assertAbsentSidecars(databasePath: string): void {
@@ -380,7 +279,7 @@ function assertAbsentSidecars(databasePath: string): void {
   }
 }
 
-function assertProvenOrAbsentLocalStore(databasePath: string): "absent" | "proven-v2" | "proven-legacy" {
+function assertProvenOrAbsentLocalStore(databasePath: string): "absent" | "proven-v2" {
   let stat;
   try {
     stat = lstatSync(databasePath);
@@ -449,10 +348,10 @@ function assertProvenOrAbsentLocalStore(databasePath: string): "absent" | "prove
     probeDb = openSqliteDatabaseSync(stagedDb);
     probeDb.exec("PRAGMA query_only = ON;");
     const classified = classifyLocalStoreDatabase(probeDb);
-    if (classified.kind !== "proven-v2" && classified.kind !== "proven-legacy") {
+    if (classified.kind !== "proven-v2") {
       throw new FailureError("AC_PRECONDITION_FAILED", "local-store-unproven-file");
     }
-    return classified.kind;
+    return "proven-v2";
   } catch (error) {
     if (error instanceof FailureError) throw error;
     throw new FailureError("AC_PRECONDITION_FAILED", "local-store-unproven-file");
@@ -518,11 +417,7 @@ export class SqliteLocalStore implements RuntimeLocalStore {
       throw new FailureError("AC_PRECONDITION_FAILED", "local-store-unproven-file");
     }
     for (const pragma of SQLITE_PRAGMAS) db.exec(pragma);
-    if (
-      initial.kind === "proven-v2"
-      && initial.applicationId === ARCHCONTEXT_SQLITE_APPLICATION_ID
-      && initial.legacyViewNames.length === 0
-    ) {
+    if (initial.kind === "proven-v2" && initial.applicationId === ARCHCONTEXT_SQLITE_APPLICATION_ID) {
       return;
     }
     db.exec("BEGIN IMMEDIATE");
@@ -532,48 +427,14 @@ export class SqliteLocalStore implements RuntimeLocalStore {
         throw new FailureError("AC_PRECONDITION_FAILED", "local-store-unproven-file");
       }
       if (current.kind === "proven-v2") {
-        for (const viewName of current.legacyViewNames) {
-          db.exec(`DROP VIEW IF EXISTS ${quoteSqlIdentifier(viewName)}`);
-        }
         if (current.applicationId !== ARCHCONTEXT_SQLITE_APPLICATION_ID) {
           db.exec(`PRAGMA application_id = ${ARCHCONTEXT_SQLITE_APPLICATION_ID};`);
         }
         db.exec("COMMIT");
         return;
       }
-      if (current.kind === "proven-legacy") {
-        const triggers = db.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name NOT LIKE 'sqlite_%'").all();
-        for (const trigger of triggers) {
-          db.exec(`DROP TRIGGER IF EXISTS ${quoteSqlIdentifier(String(trigger.name))}`);
-        }
-        for (const viewName of current.legacyViewNames) {
-          db.exec(`DROP VIEW IF EXISTS ${quoteSqlIdentifier(viewName)}`);
-        }
-        const tables = db.prepare("SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all();
-        for (const table of tables) {
-          if (typeof table.sql === "string" && /^\s*CREATE\s+VIRTUAL\s+TABLE\b/i.test(table.sql)) {
-            db.exec(`DROP TABLE IF EXISTS ${quoteSqlIdentifier(String(table.name))}`);
-          }
-        }
-        const regularTables = db
-          .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
-          .all()
-          .map((row) => String(row.name));
-        for (const tableName of orderTablesForForeignKeySafeDrop(db, regularTables)) {
-          db.exec(`DROP TABLE IF EXISTS ${quoteSqlIdentifier(tableName)}`);
-        }
-      }
       db.exec(`
-        CREATE TABLE architecture_debt_base_cache (cache_key TEXT PRIMARY KEY, report_json TEXT NOT NULL, updated_at TEXT NOT NULL);
-        CREATE TABLE external_docs_cache (
-          provider TEXT NOT NULL, library_id TEXT NOT NULL, version TEXT NOT NULL, query_digest TEXT NOT NULL,
-          content_digest TEXT NOT NULL, resource_json TEXT NOT NULL, retrieved_at TEXT NOT NULL, expires_at TEXT NOT NULL,
-          PRIMARY KEY (provider, library_id, version, query_digest)
-        );
-        CREATE TABLE kv_cache (
-          namespace TEXT NOT NULL, cache_key TEXT NOT NULL, value_json TEXT NOT NULL, updated_at TEXT NOT NULL,
-          PRIMARY KEY (namespace, cache_key)
-        );
+        ${Object.values(V2_CACHE_TABLE_SQL).join(";\n        ")};
         PRAGMA application_id = ${ARCHCONTEXT_SQLITE_APPLICATION_ID};
         PRAGMA user_version = ${LOCAL_CACHE_SCHEMA_VERSION};
       `);

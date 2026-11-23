@@ -133,27 +133,36 @@ describe("bundled bin/archctx.mjs (#297)", () => {
     }
   }, TEST_TIMEOUT_MS);
 
-  test("Node bundle upgrades FK-linked v0.17.1 stores safely under foreign_keys=ON and refuses foreign DBs unchanged", async () => {
+  test("Node bundle isolates v2 cache in local-cache-v2.sqlite and refuses unproven or legacy stores unchanged", async () => {
     const repo = mkdtempSync(join(tmpdir(), "archctx-bundle-sqlite-upgrade-"));
     const stateDir = mkdtempSync(join(tmpdir(), "archctx-bundle-sqlite-state-"));
     const dbDir = mkdtempSync(join(tmpdir(), "archctx-bundle-sqlite-dbs-"));
-    const legacyDbPath = join(dbDir, "legacy-v0171.sqlite");
+    const generatedIndexDbPath = join(dbDir, "legacy-generated-index.sqlite");
+    const v2CustomIndexDbPath = join(dbDir, "v2-custom-index.sqlite");
     const foreignDbPath = join(dbDir, "foreign-overlap.sqlite");
-    const coreSpoofDbPath = join(dbDir, "foreign-core-spoof.sqlite");
     try {
-      writeFileSync(join(repo, "README.md"), "# sqlite upgrade fixture\n", "utf8");
+      writeFileSync(join(repo, "README.md"), "# sqlite isolation fixture\n", "utf8");
       execFileSync("git", ["init", "-q"], { cwd: repo });
       execFileSync("git", ["add", "."], { cwd: repo });
       execFileSync("git", ["-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-q", "-m", "fixture"], { cwd: repo });
+
+      const env = { ...process.env, ARCHCONTEXT_STATE_DIR: stateDir };
+      const pathsRes = await runBundle(repo, ["paths", "--json"], { env });
+      expect(pathsRes.ok, JSON.stringify(pathsRes)).toBe(true);
+      const workspaceStateDir = String(pathsRes.data?.workspaceStateDir ?? "");
+      const defaultV2CachePath = String(pathsRes.data?.localStorePath ?? "");
+      const legacyRuntimePath = join(workspaceStateDir, "runtime.sqlite");
+      expect(defaultV2CachePath).toBe(join(workspaceStateDir, "local-cache-v2.sqlite"));
+      expect(String(pathsRes.data?.legacyLocalStorePath ?? "")).toContain("runtime.sqlite");
 
       execFileSync("node", [
         "--input-type=module",
         "-e",
         `
+          import { mkdirSync } from "node:fs";
           import { DatabaseSync } from "node:sqlite";
-          const db = new DatabaseSync(${JSON.stringify(legacyDbPath)});
-          const fkEnabled = Number(db.prepare("PRAGMA foreign_keys").get().foreign_keys);
-          if (fkEnabled !== 1) throw new Error("expected node:sqlite foreign_keys=1 by default, got " + fkEnabled);
+          mkdirSync(${JSON.stringify(workspaceStateDir)}, { recursive: true });
+          const db = new DatabaseSync(${JSON.stringify(legacyRuntimePath)});
           db.exec(\`
             CREATE TABLE schema_migrations (id TEXT PRIMARY KEY, applied_at TEXT NOT NULL);
             CREATE TABLE repository_sessions (repository_id TEXT PRIMARY KEY, root TEXT NOT NULL, head_sha TEXT NOT NULL, worktree_digest TEXT NOT NULL, updated_at TEXT NOT NULL);
@@ -162,151 +171,69 @@ describe("bundled bin/archctx.mjs (#297)", () => {
             CREATE TABLE observed_evidence (id TEXT PRIMARY KEY, repository_id TEXT NOT NULL, head_sha TEXT NOT NULL, selector_json TEXT NOT NULL, summary TEXT NOT NULL, confidence TEXT NOT NULL, created_at TEXT NOT NULL);
             CREATE TABLE review_results (review_id TEXT PRIMARY KEY, task_session_id TEXT NOT NULL, payload_json TEXT NOT NULL, created_at TEXT NOT NULL);
             CREATE TABLE changeset_journal (
-              journal_id TEXT PRIMARY KEY,
-              changeset_id TEXT NOT NULL,
-              root TEXT NOT NULL,
-              status TEXT NOT NULL,
-              metadata_json TEXT NOT NULL,
-              files_json TEXT NOT NULL,
-              created_at TEXT NOT NULL,
-              updated_at TEXT NOT NULL,
-              completed_at TEXT
+              journal_id TEXT PRIMARY KEY, changeset_id TEXT NOT NULL, root TEXT NOT NULL, status TEXT NOT NULL,
+              metadata_json TEXT NOT NULL, files_json TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, completed_at TEXT
             );
             CREATE TABLE projection_apply_receipts (
-              lookup_key TEXT PRIMARY KEY,
-              apply_id TEXT NOT NULL UNIQUE,
-              journal_id TEXT NOT NULL UNIQUE,
-              receipt_json TEXT NOT NULL,
-              refresh_consumed_at TEXT,
-              created_at TEXT NOT NULL,
-              updated_at TEXT NOT NULL,
-              recovery_proof_json TEXT,
+              lookup_key TEXT PRIMARY KEY, apply_id TEXT NOT NULL UNIQUE, journal_id TEXT NOT NULL UNIQUE, receipt_json TEXT NOT NULL,
+              refresh_consumed_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, recovery_proof_json TEXT,
               FOREIGN KEY(journal_id) REFERENCES changeset_journal(journal_id)
             );
-            CREATE TABLE architecture_events (
-              event_sequence INTEGER PRIMARY KEY AUTOINCREMENT,
-              event_id TEXT NOT NULL UNIQUE,
-              repository_id TEXT NOT NULL,
-              storage_repository_id TEXT NOT NULL,
-              workspace_id TEXT NOT NULL,
-              storage_workspace_id TEXT NOT NULL,
-              branch TEXT NOT NULL,
-              head_sha TEXT NOT NULL,
-              worktree_digest TEXT NOT NULL,
-              event_type TEXT NOT NULL,
-              payload_version TEXT NOT NULL,
-              source TEXT NOT NULL,
-              actor_kind TEXT NOT NULL,
-              actor_id TEXT NOT NULL,
-              base_digest TEXT NOT NULL,
-              resulting_digest TEXT NOT NULL,
-              previous_event_hash TEXT,
-              event_hash TEXT NOT NULL UNIQUE,
-              idempotency_key TEXT NOT NULL,
-              payload_json TEXT NOT NULL,
-              provenance_json TEXT NOT NULL,
-              event_json TEXT NOT NULL,
-              created_at TEXT NOT NULL,
-              compacted_by_snapshot_id TEXT
+            CREATE TABLE waivers (
+              waiver_id TEXT PRIMARY KEY, repository_id TEXT NOT NULL, storage_repository_id TEXT NOT NULL,
+              workspace_id TEXT NOT NULL, storage_workspace_id TEXT NOT NULL, event_id TEXT NOT NULL,
+              target_kind TEXT NOT NULL, target_id TEXT NOT NULL, waiver_json TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT
             );
-            CREATE TABLE evidence_items (
-              evidence_id TEXT PRIMARY KEY,
-              repository_id TEXT NOT NULL,
-              storage_repository_id TEXT NOT NULL,
-              workspace_id TEXT NOT NULL,
-              storage_workspace_id TEXT NOT NULL,
-              event_id TEXT NOT NULL,
-              kind TEXT NOT NULL,
-              strength TEXT NOT NULL,
-              polarity TEXT NOT NULL,
-              origin TEXT NOT NULL,
-              subject TEXT NOT NULL,
-              selector_json TEXT NOT NULL,
-              summary TEXT NOT NULL,
-              coverage_json TEXT NOT NULL,
-              supports_json TEXT NOT NULL,
-              provenance_json TEXT NOT NULL,
-              evidence_json TEXT NOT NULL,
-              digest TEXT NOT NULL,
-              created_at TEXT NOT NULL,
-              FOREIGN KEY(event_id) REFERENCES architecture_events(event_id) ON DELETE RESTRICT
-            );
-            CREATE TABLE evidence_bindings (
-              binding_id TEXT PRIMARY KEY,
-              evidence_id TEXT NOT NULL,
-              repository_id TEXT NOT NULL,
-              storage_repository_id TEXT NOT NULL,
-              workspace_id TEXT NOT NULL,
-              storage_workspace_id TEXT NOT NULL,
-              event_id TEXT NOT NULL,
-              target_kind TEXT NOT NULL,
-              target_id TEXT NOT NULL,
-              binding_reason TEXT NOT NULL,
-              authority_effect TEXT NOT NULL,
-              provenance_json TEXT NOT NULL,
-              binding_json TEXT NOT NULL,
-              created_at TEXT NOT NULL,
-              FOREIGN KEY(event_id) REFERENCES architecture_events(event_id) ON DELETE RESTRICT,
-              FOREIGN KEY(evidence_id) REFERENCES evidence_items(evidence_id) ON DELETE RESTRICT
-            );
-            CREATE TABLE architecture_evidence_state_checkpoints (
-              storage_repository_id TEXT NOT NULL,
-              storage_workspace_id TEXT NOT NULL,
-              event_id TEXT PRIMARY KEY,
-              event_sequence INTEGER NOT NULL,
-              scope_event_count INTEGER NOT NULL,
-              event_hash TEXT NOT NULL,
-              evidence_state_digest TEXT NOT NULL,
-              updated_at TEXT NOT NULL,
-              FOREIGN KEY(event_id) REFERENCES architecture_events(event_id)
-            );
-            CREATE TRIGGER architecture_events_immutable_delete
-              BEFORE DELETE ON architecture_events
-              BEGIN
-                SELECT RAISE(ABORT, 'architecture-events-immutable');
-              END;
-            CREATE TRIGGER architecture_evidence_state_checkpoints_immutable_delete
-              BEFORE DELETE ON architecture_evidence_state_checkpoints
-              BEGIN
-                SELECT RAISE(ABORT, 'architecture-evidence-state-checkpoints-immutable');
-              END;
+            CREATE TRIGGER preserve_legacy_trigger AFTER INSERT ON snapshots BEGIN SELECT 1; END;
             CREATE VIRTUAL TABLE architecture_ledger_fts USING fts5(kind, summary, rationale, title, evidence_summary, content='');
-            CREATE VIEW recent_architecture_changes_view AS
-              SELECT event_sequence, event_id, storage_repository_id, storage_workspace_id, branch, head_sha, event_type,
-                source, actor_kind, actor_id, previous_event_hash, event_hash, created_at
-              FROM architecture_events ORDER BY event_sequence DESC;
-          \`);
-          const insertMigration = db.prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (?, '2026-11-20T00:00:00.000Z')");
-          for (const id of [
-            "0001_runtime_state", "0002_indexes", "0003_landscape_state", "0004_changeset_journal",
-            "0005_external_docs_cache", "0006_architecture_ledger", "0007_runtime_job_queue",
-            "0008_runtime_job_queue_hardening", "0009_architecture_ledger_search_fts", "0010_audit_runs",
-            "0011_changeset_cleanup_cursor", "0012_explorer_projection_index", "0013_evidence_lifecycle",
-            "0014_architecture_change_feed", "0015_snapshot_anchor_v2", "0016_manifest_addressed_projection_cache",
-            "0017_explorer_cache_lifecycle", "0018_immutable_evidence_checkpoints", "0019_projection_apply_receipts",
-            "0020_projection_apply_recovery_proof"
-          ]) insertMigration.run(id);
-          db.exec(\`
+            CREATE VIEW recent_architecture_changes_view AS SELECT id FROM snapshots;
+            INSERT INTO schema_migrations VALUES ('0001_runtime_state', '2026-11-20T00:00:00.000Z');
             INSERT INTO changeset_journal VALUES ('j1', 'cs1', '/repo', 'applied', '{}', '[]', '2026-11-20T00:00:00.000Z', '2026-11-20T00:00:00.000Z', '2026-11-20T00:00:00.000Z');
             INSERT INTO projection_apply_receipts VALUES ('lk1', 'ap1', 'j1', '{}', NULL, '2026-11-20T00:00:00.000Z', '2026-11-20T00:00:00.000Z', NULL);
-            INSERT INTO architecture_events (
-              event_id, repository_id, storage_repository_id, workspace_id, storage_workspace_id,
-              branch, head_sha, worktree_digest, event_type, payload_version, source, actor_kind, actor_id,
-              base_digest, resulting_digest, previous_event_hash, event_hash, idempotency_key,
-              payload_json, provenance_json, event_json, created_at, compacted_by_snapshot_id
-            ) VALUES (
-              'ev1', 'r1', 'sr1', 'w1', 'sw1', 'main', 'abc', 'wt1', 'changeset.applied', 'v1', 'cli', 'user', 'u1',
-              'b1', 'r2', NULL, 'eh1', 'ik1', '{}', '{}', '{}', '2026-11-20T00:00:00.000Z', NULL
-            );
-            INSERT INTO evidence_items VALUES (
-              'ei1', 'r1', 'sr1', 'w1', 'sw1', 'ev1', 'test', 'strong', 'positive', 'cli', 'subj', '{}', 'ok', '{}', '[]', '{}', '{}', 'd1', '2026-11-20T00:00:00.000Z'
-            );
-            INSERT INTO evidence_bindings VALUES (
-              'eb1', 'ei1', 'r1', 'sr1', 'w1', 'sw1', 'ev1', 'module', 'm1', 'reason', 'supporting', '{}', '{}', '2026-11-20T00:00:00.000Z'
-            );
-            INSERT INTO architecture_evidence_state_checkpoints VALUES ('sr1', 'sw1', 'ev1', 1, 1, 'eh1', 'ed1', '2026-11-20T00:00:00.000Z');
+            INSERT INTO waivers VALUES ('wv1', 'r1', 'sr1', 'w1', 'sw1', 'ev1', 'module', 'm1', '{}', '2026-11-20T00:00:00.000Z', NULL);
           \`);
           db.close();
+
+          const gdb = new DatabaseSync(${JSON.stringify(generatedIndexDbPath)});
+          gdb.exec(\`
+            CREATE TABLE schema_migrations (id TEXT PRIMARY KEY, applied_at TEXT NOT NULL);
+            CREATE TABLE repository_sessions (repository_id TEXT PRIMARY KEY, root TEXT NOT NULL, head_sha TEXT NOT NULL, worktree_digest TEXT NOT NULL, updated_at TEXT NOT NULL);
+            CREATE TABLE snapshots (id TEXT PRIMARY KEY, repository_id TEXT NOT NULL, head_sha TEXT NOT NULL, worktree_digest TEXT NOT NULL, state TEXT NOT NULL, created_at TEXT NOT NULL, committed_at TEXT);
+            CREATE TABLE task_states (task_session_id TEXT PRIMARY KEY, payload_json TEXT NOT NULL, updated_at TEXT NOT NULL);
+            CREATE TABLE observed_evidence (id TEXT PRIMARY KEY, repository_id TEXT NOT NULL, head_sha TEXT NOT NULL, selector_json TEXT NOT NULL, summary TEXT NOT NULL, confidence TEXT NOT NULL, created_at TEXT NOT NULL);
+            CREATE TABLE review_results (review_id TEXT PRIMARY KEY, task_session_id TEXT NOT NULL, payload_json TEXT NOT NULL, created_at TEXT NOT NULL);
+            CREATE TABLE waivers (
+              waiver_id TEXT PRIMARY KEY, repository_id TEXT NOT NULL, storage_repository_id TEXT NOT NULL,
+              workspace_id TEXT NOT NULL, storage_workspace_id TEXT NOT NULL, event_id TEXT NOT NULL,
+              target_kind TEXT NOT NULL, target_id TEXT NOT NULL, waiver_json TEXT NOT NULL,
+              created_at TEXT NOT NULL, expires_at TEXT,
+              local_reporting TEXT GENERATED ALWAYS AS (waiver_id || ':' || target_id) STORED
+            );
+            CREATE INDEX custom_reporting_idx ON waivers(local_reporting);
+            INSERT INTO schema_migrations VALUES ('0001_runtime_state', '2026-11-20T00:00:00.000Z');
+            INSERT INTO waivers (waiver_id, repository_id, storage_repository_id, workspace_id, storage_workspace_id, event_id, target_kind, target_id, waiver_json, created_at, expires_at)
+              VALUES ('wv1', 'r1', 'sr1', 'w1', 'sw1', 'ev1', 'module', 'm1', '{}', '2026-11-20T00:00:00.000Z', NULL);
+          \`);
+          gdb.close();
+
+          const v2IdxDb = new DatabaseSync(${JSON.stringify(v2CustomIndexDbPath)});
+          v2IdxDb.exec(\`
+            CREATE TABLE architecture_debt_base_cache (cache_key TEXT PRIMARY KEY, report_json TEXT NOT NULL, updated_at TEXT NOT NULL);
+            CREATE TABLE external_docs_cache (
+              provider TEXT NOT NULL, library_id TEXT NOT NULL, version TEXT NOT NULL, query_digest TEXT NOT NULL,
+              content_digest TEXT NOT NULL, resource_json TEXT NOT NULL, retrieved_at TEXT NOT NULL, expires_at TEXT NOT NULL,
+              PRIMARY KEY (provider, library_id, version, query_digest)
+            );
+            CREATE TABLE kv_cache (
+              namespace TEXT NOT NULL, cache_key TEXT NOT NULL, value_json TEXT NOT NULL, updated_at TEXT NOT NULL,
+              gen_key TEXT GENERATED ALWAYS AS (namespace || ':' || cache_key) STORED,
+              PRIMARY KEY (namespace, cache_key)
+            );
+            CREATE INDEX custom_kv_idx ON kv_cache(updated_at);
+            PRAGMA user_version = 200;
+          \`);
+          v2IdxDb.close();
+
           const fdb = new DatabaseSync(${JSON.stringify(foreignDbPath)});
           fdb.exec(\`
             CREATE TABLE schema_migrations (version TEXT PRIMARY KEY);
@@ -316,35 +243,21 @@ describe("bundled bin/archctx.mjs (#297)", () => {
             INSERT INTO snapshots (id, body) VALUES (1, 'preserve-me');
           \`);
           fdb.close();
-          const cdb = new DatabaseSync(${JSON.stringify(coreSpoofDbPath)});
-          cdb.exec(\`
-            CREATE TABLE schema_migrations (id TEXT PRIMARY KEY, applied_at TEXT NOT NULL);
-            CREATE TABLE repository_sessions (repository_id TEXT PRIMARY KEY, root TEXT NOT NULL, head_sha TEXT NOT NULL, worktree_digest TEXT NOT NULL, updated_at TEXT NOT NULL);
-            CREATE TABLE snapshots (id TEXT PRIMARY KEY, repository_id TEXT NOT NULL, head_sha TEXT NOT NULL, worktree_digest TEXT NOT NULL, state TEXT NOT NULL, created_at TEXT NOT NULL, committed_at TEXT);
-            CREATE TABLE task_states (task_session_id TEXT PRIMARY KEY, payload_json TEXT NOT NULL, updated_at TEXT NOT NULL);
-            CREATE TABLE observed_evidence (id TEXT PRIMARY KEY, repository_id TEXT NOT NULL, head_sha TEXT NOT NULL, selector_json TEXT NOT NULL, summary TEXT NOT NULL, confidence TEXT NOT NULL, created_at TEXT NOT NULL);
-            CREATE TABLE review_results (review_id TEXT PRIMARY KEY, task_session_id TEXT NOT NULL, payload_json TEXT NOT NULL, created_at TEXT NOT NULL);
-            CREATE TABLE waivers (id TEXT PRIMARY KEY, owner TEXT NOT NULL);
-            CREATE TRIGGER user_audit_trigger AFTER INSERT ON snapshots BEGIN SELECT 1; END;
-            INSERT INTO schema_migrations VALUES ('0001_runtime_state', '2026-11-20T00:00:00.000Z');
-            INSERT INTO waivers VALUES ('w1', 'keep-me');
-          \`);
-          cdb.close();
         `
       ]);
 
-      const upgraded = await runBundle(repo, ["status", "--json"], {
-        env: { ...process.env, ARCHCONTEXT_STATE_DIR: stateDir, ARCHCONTEXT_LOCAL_STORE_PATH: legacyDbPath }
-      });
-      expect(upgraded.ok, JSON.stringify(upgraded)).toBe(true);
+      const legacyBytesBefore = readFileSync(legacyRuntimePath);
+      const status = await runBundle(repo, ["status", "--json"], { env });
+      expect(status.ok, JSON.stringify(status)).toBe(true);
+      expect(readFileSync(legacyRuntimePath)).toEqual(legacyBytesBefore);
 
       const inspected = JSON.parse(execFileSync("node", [
         "--input-type=module",
         "-e",
         `
           import { DatabaseSync } from "node:sqlite";
-          const db = new DatabaseSync(${JSON.stringify(legacyDbPath)}, { readOnly: true });
-          const objects = db.prepare("SELECT type, name FROM sqlite_master WHERE type IN ('table', 'view', 'trigger') AND name NOT LIKE 'sqlite_%' ORDER BY name").all();
+          const db = new DatabaseSync(${JSON.stringify(defaultV2CachePath)}, { readOnly: true });
+          const objects = db.prepare("SELECT type, name FROM sqlite_master WHERE type IN ('table', 'view', 'trigger', 'index') AND name NOT LIKE 'sqlite_%' AND (type != 'index' OR sql IS NOT NULL) ORDER BY name").all();
           const userVersion = Number(db.prepare("PRAGMA user_version").get().user_version);
           const applicationId = Number(db.prepare("PRAGMA application_id").get().application_id);
           db.close();
@@ -361,11 +274,11 @@ describe("bundled bin/archctx.mjs (#297)", () => {
         applicationId: 0x41435458
       });
 
-      for (const blockedDbPath of [foreignDbPath, coreSpoofDbPath]) {
+      for (const blockedDbPath of [legacyRuntimePath, generatedIndexDbPath, v2CustomIndexDbPath, foreignDbPath]) {
         const bytesBefore = readFileSync(blockedDbPath);
-        const filesBefore = readdirSync(dbDir).sort();
+        const dirBefore = readdirSync(dirname(blockedDbPath)).sort();
         const refused = await runBundle(repo, ["status", "--json"], {
-          env: { ...process.env, ARCHCONTEXT_STATE_DIR: stateDir, ARCHCONTEXT_LOCAL_STORE_PATH: blockedDbPath },
+          env: { ...env, ARCHCONTEXT_LOCAL_STORE_PATH: blockedDbPath },
           allowFailure: true
         });
         expect(refused.ok).toBe(false);
@@ -374,7 +287,7 @@ describe("bundled bin/archctx.mjs (#297)", () => {
           reasonCode: "local-store-unproven-file"
         });
         expect(readFileSync(blockedDbPath)).toEqual(bytesBefore);
-        expect(readdirSync(dbDir).sort()).toEqual(filesBefore);
+        expect(readdirSync(dirname(blockedDbPath)).sort()).toEqual(dirBefore);
       }
     } finally {
       rmSync(repo, { recursive: true, force: true });

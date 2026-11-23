@@ -10,7 +10,7 @@ import {
 } from "./schema-kit";
 
 export const ARCHCONTEXT_PRODUCT_NAME = "archctx" as const;
-export const ARCHCONTEXT_PRODUCT_VERSION = "0.18.3" as const;
+export const ARCHCONTEXT_PRODUCT_VERSION = "0.18.4" as const;
 export const ARCHCONTEXT_PACKAGE_MANAGER = "bun@1.4.4" as const;
 export const ARCHCONTEXT_NODE_RANGE = ">=22.22 <26" as const;
 export const LOCAL_RUNTIME_RPC_SCHEMA_VERSION = "archcontext.runtime-rpc/v2" as const;

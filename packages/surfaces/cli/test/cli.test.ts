@@ -1581,7 +1581,7 @@ describe("archctx CLI", () => {
       const doctor = await runTestCli("doctor", [], root);
       expect((doctor.data as any).version.schemaSetVersion).toBeTruthy();
       expect((doctor.data as any).runtime).toMatchObject({ mode: "in-process" });
-      expect((doctor.data as any).sqlite.path).toContain("runtime.sqlite");
+      expect((doctor.data as any).sqlite.path).toContain("local-cache-v2.sqlite");
       expect((doctor.data as any).git).toMatchObject({ ok: true, headSha: "unborn" });
       expectSameExistingPath((doctor.data as any).git.root, root);
       expect((doctor.data as any).permissions.workspace.writable).toBe(true);
@@ -1614,7 +1614,7 @@ describe("archctx CLI", () => {
       expect((paths.data as any).runtimeRepositoryId).toBe(repositoryFingerprint(root));
       expect((paths.data as any).storageRepositoryId).toMatch(/^repo\.[0-9a-f]{16}$/);
       expect((paths.data as any).storageWorkspaceId).toMatch(/^ws\.[0-9a-f]{16}$/);
-      expect((paths.data as any).localStorePath).toContain("runtime.sqlite");
+      expect((paths.data as any).localStorePath).toContain("local-cache-v2.sqlite");
       expect((paths.data as any).localStorePath.startsWith(root)).toBe(false);
       expect((paths.data as any).npmGlobalInstallState).toBe("forbidden");
     } finally {

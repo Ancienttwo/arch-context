@@ -40,264 +40,8 @@ describe("@archcontext/local-runtime/local-store-sqlite discardable cache", () =
     }
   });
 
-  test("rebuilds proven legacy ArchContext v1 stores, upgrades v2 caches lacking application_id, and fails closed on foreign overlapping tables", async () => {
-    // 1. Real v0.17.1 full runtime store (6 immutable 0001 tables + FK-linked events/evidence/receipts + triggers + FTS5 + legacy view + schema_migrations)
-    const legacyV1Path = makeTempDb("legacy-v1.sqlite");
-    const legacyV1 = new Database(legacyV1Path);
-    legacyV1.exec(`
-      PRAGMA foreign_keys = ON;
-      CREATE TABLE schema_migrations (id TEXT PRIMARY KEY, applied_at TEXT NOT NULL);
-      CREATE TABLE repository_sessions (repository_id TEXT PRIMARY KEY, root TEXT NOT NULL, head_sha TEXT NOT NULL, worktree_digest TEXT NOT NULL, updated_at TEXT NOT NULL);
-      CREATE TABLE snapshots (id TEXT PRIMARY KEY, repository_id TEXT NOT NULL, head_sha TEXT NOT NULL, worktree_digest TEXT NOT NULL, state TEXT NOT NULL, created_at TEXT NOT NULL, committed_at TEXT);
-      CREATE TABLE task_states (task_session_id TEXT PRIMARY KEY, payload_json TEXT NOT NULL, updated_at TEXT NOT NULL);
-      CREATE TABLE observed_evidence (id TEXT PRIMARY KEY, repository_id TEXT NOT NULL, head_sha TEXT NOT NULL, selector_json TEXT NOT NULL, summary TEXT NOT NULL, confidence TEXT NOT NULL, created_at TEXT NOT NULL);
-      CREATE TABLE review_results (review_id TEXT PRIMARY KEY, task_session_id TEXT NOT NULL, payload_json TEXT NOT NULL, created_at TEXT NOT NULL);
-      CREATE TABLE changeset_journal (
-        journal_id TEXT PRIMARY KEY,
-        changeset_id TEXT NOT NULL,
-        root TEXT NOT NULL,
-        status TEXT NOT NULL,
-        metadata_json TEXT NOT NULL,
-        files_json TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        completed_at TEXT
-      );
-      CREATE TABLE projection_apply_receipts (
-        lookup_key TEXT PRIMARY KEY,
-        apply_id TEXT NOT NULL UNIQUE,
-        journal_id TEXT NOT NULL UNIQUE,
-        receipt_json TEXT NOT NULL,
-        refresh_consumed_at TEXT,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        recovery_proof_json TEXT,
-        FOREIGN KEY(journal_id) REFERENCES changeset_journal(journal_id)
-      );
-      CREATE TABLE architecture_events (
-        event_sequence INTEGER PRIMARY KEY AUTOINCREMENT,
-        event_id TEXT NOT NULL UNIQUE,
-        repository_id TEXT NOT NULL,
-        storage_repository_id TEXT NOT NULL,
-        workspace_id TEXT NOT NULL,
-        storage_workspace_id TEXT NOT NULL,
-        branch TEXT NOT NULL,
-        head_sha TEXT NOT NULL,
-        worktree_digest TEXT NOT NULL,
-        event_type TEXT NOT NULL,
-        payload_version TEXT NOT NULL,
-        source TEXT NOT NULL,
-        actor_kind TEXT NOT NULL,
-        actor_id TEXT NOT NULL,
-        base_digest TEXT NOT NULL,
-        resulting_digest TEXT NOT NULL,
-        previous_event_hash TEXT,
-        event_hash TEXT NOT NULL UNIQUE,
-        idempotency_key TEXT NOT NULL,
-        payload_json TEXT NOT NULL,
-        provenance_json TEXT NOT NULL,
-        event_json TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        compacted_by_snapshot_id TEXT
-      );
-      CREATE TABLE evidence_items (
-        evidence_id TEXT PRIMARY KEY,
-        repository_id TEXT NOT NULL,
-        storage_repository_id TEXT NOT NULL,
-        workspace_id TEXT NOT NULL,
-        storage_workspace_id TEXT NOT NULL,
-        event_id TEXT NOT NULL,
-        kind TEXT NOT NULL,
-        strength TEXT NOT NULL,
-        polarity TEXT NOT NULL,
-        origin TEXT NOT NULL,
-        subject TEXT NOT NULL,
-        selector_json TEXT NOT NULL,
-        summary TEXT NOT NULL,
-        coverage_json TEXT NOT NULL,
-        supports_json TEXT NOT NULL,
-        provenance_json TEXT NOT NULL,
-        evidence_json TEXT NOT NULL,
-        digest TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        FOREIGN KEY(event_id) REFERENCES architecture_events(event_id) ON DELETE RESTRICT
-      );
-      CREATE TABLE evidence_bindings (
-        binding_id TEXT PRIMARY KEY,
-        evidence_id TEXT NOT NULL,
-        repository_id TEXT NOT NULL,
-        storage_repository_id TEXT NOT NULL,
-        workspace_id TEXT NOT NULL,
-        storage_workspace_id TEXT NOT NULL,
-        event_id TEXT NOT NULL,
-        target_kind TEXT NOT NULL,
-        target_id TEXT NOT NULL,
-        binding_reason TEXT NOT NULL,
-        authority_effect TEXT NOT NULL,
-        provenance_json TEXT NOT NULL,
-        binding_json TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        FOREIGN KEY(event_id) REFERENCES architecture_events(event_id) ON DELETE RESTRICT,
-        FOREIGN KEY(evidence_id) REFERENCES evidence_items(evidence_id) ON DELETE RESTRICT
-      );
-      CREATE TABLE architecture_evidence_state_checkpoints (
-        storage_repository_id TEXT NOT NULL,
-        storage_workspace_id TEXT NOT NULL,
-        event_id TEXT PRIMARY KEY,
-        event_sequence INTEGER NOT NULL,
-        scope_event_count INTEGER NOT NULL,
-        event_hash TEXT NOT NULL,
-        evidence_state_digest TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        FOREIGN KEY(event_id) REFERENCES architecture_events(event_id)
-      );
-      CREATE TABLE recommendation_runs (
-        run_id TEXT PRIMARY KEY,
-        repository_id TEXT NOT NULL,
-        storage_repository_id TEXT NOT NULL,
-        workspace_id TEXT NOT NULL,
-        storage_workspace_id TEXT NOT NULL,
-        event_id TEXT NOT NULL,
-        status TEXT NOT NULL,
-        catalog_digest TEXT NOT NULL,
-        input_digest TEXT NOT NULL,
-        output_digest TEXT NOT NULL,
-        metrics_json TEXT NOT NULL,
-        run_json TEXT NOT NULL,
-        started_at TEXT NOT NULL,
-        completed_at TEXT,
-        FOREIGN KEY(event_id) REFERENCES architecture_events(event_id) ON DELETE RESTRICT
-      );
-      CREATE TABLE recommendations (
-        recommendation_id TEXT PRIMARY KEY,
-        run_id TEXT NOT NULL,
-        repository_id TEXT NOT NULL,
-        storage_repository_id TEXT NOT NULL,
-        workspace_id TEXT NOT NULL,
-        storage_workspace_id TEXT NOT NULL,
-        event_id TEXT NOT NULL,
-        fingerprint TEXT NOT NULL,
-        subject TEXT NOT NULL,
-        practice_id TEXT,
-        status TEXT NOT NULL,
-        confidence TEXT NOT NULL,
-        enforcement TEXT NOT NULL,
-        risk TEXT NOT NULL,
-        uncertainty TEXT NOT NULL,
-        evidence_binding_ids_json TEXT NOT NULL,
-        explanation_json TEXT NOT NULL,
-        recommendation_json TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        FOREIGN KEY(event_id) REFERENCES architecture_events(event_id) ON DELETE RESTRICT,
-        FOREIGN KEY(run_id) REFERENCES recommendation_runs(run_id) ON DELETE RESTRICT
-      );
-      CREATE TABLE waivers (
-        waiver_id TEXT PRIMARY KEY,
-        repository_id TEXT NOT NULL,
-        storage_repository_id TEXT NOT NULL,
-        workspace_id TEXT NOT NULL,
-        storage_workspace_id TEXT NOT NULL,
-        event_id TEXT NOT NULL,
-        target_kind TEXT NOT NULL,
-        target_id TEXT NOT NULL,
-        waiver_json TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        expires_at TEXT,
-        FOREIGN KEY(event_id) REFERENCES architecture_events(event_id) ON DELETE RESTRICT
-      );
-      CREATE TRIGGER architecture_events_immutable_delete
-        BEFORE DELETE ON architecture_events
-        BEGIN
-          SELECT RAISE(ABORT, 'architecture-events-immutable');
-        END;
-      CREATE TRIGGER architecture_evidence_state_checkpoints_immutable_delete
-        BEFORE DELETE ON architecture_evidence_state_checkpoints
-        BEGIN
-          SELECT RAISE(ABORT, 'architecture-evidence-state-checkpoints-immutable');
-        END;
-      CREATE VIRTUAL TABLE architecture_ledger_fts USING fts5(kind, summary, rationale, title, evidence_summary, content='');
-      CREATE VIEW recent_architecture_changes_view AS
-        SELECT event_sequence, event_id, storage_repository_id, storage_workspace_id, branch, head_sha, event_type,
-          source, actor_kind, actor_id, previous_event_hash, event_hash, created_at
-        FROM architecture_events ORDER BY event_sequence DESC;
-      CREATE VIEW open_recommendations_view AS
-        SELECT recommendation_id, run_id, storage_repository_id, storage_workspace_id, subject, practice_id, status,
-          confidence, enforcement, risk, uncertainty, updated_at
-        FROM recommendations WHERE status IN ('open', 'acknowledged', 'accepted', 'deferred');
-      INSERT INTO schema_migrations (id, applied_at) VALUES
-        ('0001_runtime_state', '2026-11-20T00:00:00.000Z'),
-        ('0004_changeset_journal', '2026-11-20T00:00:00.000Z'),
-        ('0006_architecture_ledger', '2026-11-20T00:00:00.000Z'),
-        ('0018_immutable_evidence_checkpoints', '2026-11-20T00:00:00.000Z'),
-        ('0019_projection_apply_receipts', '2026-11-20T00:00:00.000Z');
-      INSERT INTO changeset_journal VALUES ('j1', 'cs1', '/repo', 'applied', '{}', '[]', '2026-11-20T00:00:00.000Z', '2026-11-20T00:00:00.000Z', '2026-11-20T00:00:00.000Z');
-      INSERT INTO projection_apply_receipts VALUES ('lk1', 'ap1', 'j1', '{}', NULL, '2026-11-20T00:00:00.000Z', '2026-11-20T00:00:00.000Z', NULL);
-      INSERT INTO architecture_events (
-        event_id, repository_id, storage_repository_id, workspace_id, storage_workspace_id,
-        branch, head_sha, worktree_digest, event_type, payload_version, source, actor_kind, actor_id,
-        base_digest, resulting_digest, previous_event_hash, event_hash, idempotency_key,
-        payload_json, provenance_json, event_json, created_at, compacted_by_snapshot_id
-      ) VALUES (
-        'ev1', 'r1', 'sr1', 'w1', 'sw1', 'main', 'abc', 'wt1', 'changeset.applied', 'v1', 'cli', 'user', 'u1',
-        'b1', 'r2', NULL, 'eh1', 'ik1', '{}', '{}', '{}', '2026-11-20T00:00:00.000Z', NULL
-      );
-      INSERT INTO evidence_items VALUES (
-        'ei1', 'r1', 'sr1', 'w1', 'sw1', 'ev1', 'test', 'strong', 'positive', 'cli', 'subj', '{}', 'ok', '{}', '[]', '{}', '{}', 'd1', '2026-11-20T00:00:00.000Z'
-      );
-      INSERT INTO evidence_bindings VALUES (
-        'eb1', 'ei1', 'r1', 'sr1', 'w1', 'sw1', 'ev1', 'module', 'm1', 'reason', 'supporting', '{}', '{}', '2026-11-20T00:00:00.000Z'
-      );
-      INSERT INTO architecture_evidence_state_checkpoints VALUES ('sr1', 'sw1', 'ev1', 1, 1, 'eh1', 'ed1', '2026-11-20T00:00:00.000Z');
-      INSERT INTO recommendation_runs VALUES ('rr1', 'r1', 'sr1', 'w1', 'sw1', 'ev1', 'completed', 'cd1', 'id1', 'od1', '{}', '{}', '2026-11-20T00:00:00.000Z', '2026-11-20T00:00:00.000Z');
-      INSERT INTO recommendations VALUES ('rec1', 'rr1', 'r1', 'sr1', 'w1', 'sw1', 'ev1', 'fp1', 'subj', NULL, 'open', 'high', 'advisory', 'low', 'low', '[]', '{}', '{}', '2026-11-20T00:00:00.000Z', '2026-11-20T00:00:00.000Z');
-      INSERT INTO waivers VALUES ('wv1', 'r1', 'sr1', 'w1', 'sw1', 'ev1', 'module', 'm1', '{}', '2026-11-20T00:00:00.000Z', NULL);
-    `);
-    legacyV1.close();
-
-    const store = new SqliteLocalStore(legacyV1Path);
-    openStores.push(store);
-    await store.writeCacheEntry("ns", "k1", { ok: true });
-    expect(await store.readCacheEntry("ns", "k1")).toEqual({ ok: true });
-    store.close();
-
-    const migratedRaw = new Database(legacyV1Path, { readonly: true });
-    try {
-      const objects = migratedRaw.query("SELECT type, name FROM sqlite_master WHERE type IN ('table', 'view', 'trigger') AND name NOT LIKE 'sqlite_%' ORDER BY name").all() as Array<{ type: string; name: string }>;
-      expect(objects).toEqual([
-        { type: "table", name: "architecture_debt_base_cache" },
-        { type: "table", name: "external_docs_cache" },
-        { type: "table", name: "kv_cache" }
-      ]);
-      expect((migratedRaw.query("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(200);
-      expect((migratedRaw.query("PRAGMA application_id").get() as { application_id: number }).application_id).toBe(0x41435458);
-    } finally {
-      migratedRaw.close();
-    }
-
-    // 2. Real v0.17.1 standalone architecture_debt_base_cache DB
-    const legacyDebtPath = makeTempDb("legacy-debt.sqlite");
-    const legacyDebt = new Database(legacyDebtPath);
-    legacyDebt.exec(`
-      CREATE TABLE architecture_debt_base_cache (
-        repository_id TEXT NOT NULL,
-        base_sha TEXT NOT NULL,
-        archcontext_tree_oid TEXT NOT NULL,
-        codegraph_version TEXT NOT NULL,
-        engine_version TEXT NOT NULL,
-        measurement_profile TEXT NOT NULL,
-        report_json TEXT NOT NULL,
-        PRIMARY KEY (repository_id, base_sha, archcontext_tree_oid, codegraph_version, engine_version, measurement_profile)
-      );
-    `);
-    legacyDebt.close();
-    const debtStore = new SqliteLocalStore(legacyDebtPath);
-    openStores.push(debtStore);
-    await debtStore.writeCacheEntry("ns", "k-debt", { rebuilt: true });
-    expect(await debtStore.readCacheEntry("ns", "k-debt")).toEqual({ rebuilt: true });
-    debtStore.close();
-
-    // 3. Existing 0.18.0/0.18.1 v2 cache (user_version=200, application_id=0, optional orphaned v1 views) preserves data, drops orphaned views, and stamps application_id
+  test("preserves proven v2 caches (stamping application_id) and fails closed on legacy or unproven stores without DROP", async () => {
+    // 1. Existing 0.18.0-0.18.3 v2 cache (user_version=200, application_id=0, exact 3 v2 tables) preserves data and stamps application_id
     const v2LegacyAppIdPath = makeTempDb("v2-zero-appid.sqlite");
     const v2Zero = new Database(v2LegacyAppIdPath);
     v2Zero.exec(`
@@ -311,7 +55,6 @@ describe("@archcontext/local-runtime/local-store-sqlite discardable cache", () =
         namespace TEXT NOT NULL, cache_key TEXT NOT NULL, value_json TEXT NOT NULL, updated_at TEXT NOT NULL,
         PRIMARY KEY (namespace, cache_key)
       );
-      CREATE VIEW recent_architecture_changes_view AS SELECT event_sequence, event_id, storage_repository_id, storage_workspace_id, branch, head_sha, event_type, source, actor_kind, actor_id, previous_event_hash, event_hash, created_at FROM architecture_events ORDER BY event_sequence DESC;
       INSERT INTO kv_cache (namespace, cache_key, value_json, updated_at) VALUES ('ns', 'keep', '{"preserved":1}', '2026-11-23T00:00:00.000Z');
       PRAGMA user_version = 200;
     `);
@@ -323,12 +66,16 @@ describe("@archcontext/local-runtime/local-store-sqlite discardable cache", () =
     const v2Check = new Database(v2LegacyAppIdPath, { readonly: true });
     try {
       expect((v2Check.query("PRAGMA application_id").get() as { application_id: number }).application_id).toBe(0x41435458);
-      expect(v2Check.query("SELECT type, name FROM sqlite_master WHERE type = 'view'").all()).toEqual([]);
+      expect(v2Check.query("SELECT type, name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all()).toEqual([
+        { type: "table", name: "architecture_debt_base_cache" },
+        { type: "table", name: "external_docs_cache" },
+        { type: "table", name: "kv_cache" }
+      ]);
     } finally {
       v2Check.close();
     }
 
-    // 4. Negative: overlapping table names (schema_migrations, snapshots, waivers, kv_cache) with non-ArchContext schema & active WAL sidecars
+    // 2. Negative: overlapping table names (schema_migrations, snapshots, waivers, kv_cache) with non-ArchContext schema & active WAL sidecars
     const overlappingPath = makeTempDb("overlapping.sqlite");
     const overlappingDb = new Database(overlappingPath);
     try {
@@ -363,10 +110,8 @@ describe("@archcontext/local-runtime/local-store-sqlite discardable cache", () =
       overlappingDb.close();
     }
 
-    // 5. Negative: unknown views, spoofed user_version=200 with wrong columns, foreign application_id, and non-SQLite file
-    const unknownViewPath = makeTempDb("unknown-view-v200.sqlite");
-    const unknownViewDb = new Database(unknownViewPath);
-    unknownViewDb.exec(`
+    // 3. Negative: authentic legacy v1 stores, generated-column/index extensions (r4664702098), and altered/corrupt v2 files all fail closed unchanged
+    const v2BaseSql = `
       CREATE TABLE architecture_debt_base_cache (cache_key TEXT PRIMARY KEY, report_json TEXT NOT NULL, updated_at TEXT NOT NULL);
       CREATE TABLE external_docs_cache (
         provider TEXT NOT NULL, library_id TEXT NOT NULL, version TEXT NOT NULL, query_digest TEXT NOT NULL,
@@ -377,61 +122,9 @@ describe("@archcontext/local-runtime/local-store-sqlite discardable cache", () =
         namespace TEXT NOT NULL, cache_key TEXT NOT NULL, value_json TEXT NOT NULL, updated_at TEXT NOT NULL,
         PRIMARY KEY (namespace, cache_key)
       );
-      CREATE VIEW custom_app_view AS SELECT 1;
       PRAGMA user_version = 200;
-    `);
-    unknownViewDb.close();
-    const unknownViewBefore = readFileSync(unknownViewPath);
-    const unknownViewStore = new SqliteLocalStore(unknownViewPath);
-    openStores.push(unknownViewStore);
-    await expect(unknownViewStore.writeCacheEntry("ns", "k1b", { blocked: true })).rejects.toMatchObject({
-      code: "AC_PRECONDITION_FAILED",
-      reasonCode: "local-store-unproven-file"
-    });
-    expect(readFileSync(unknownViewPath)).toEqual(unknownViewBefore);
-    expect(readdirSync(dirname(unknownViewPath)).sort()).toEqual(["unknown-view-v200.sqlite"]);
-
-    const spoofedPath = makeTempDb("spoofed-v200.sqlite");
-    const spoofedDb = new Database(spoofedPath);
-    spoofedDb.exec("CREATE TABLE architecture_debt_base_cache (cache_key TEXT PRIMARY KEY, report_json TEXT NOT NULL, updated_at TEXT NOT NULL); CREATE TABLE external_docs_cache (id TEXT PRIMARY KEY); CREATE TABLE kv_cache (k TEXT PRIMARY KEY, v TEXT NOT NULL); PRAGMA user_version = 200;");
-    spoofedDb.close();
-    const spoofedBytes = readFileSync(spoofedPath);
-    const spoofedStore = new SqliteLocalStore(spoofedPath);
-    openStores.push(spoofedStore);
-    await expect(spoofedStore.writeCacheEntry("ns", "k2", { blocked: true })).rejects.toMatchObject({
-      code: "AC_PRECONDITION_FAILED",
-      reasonCode: "local-store-unproven-file"
-    });
-    expect(readFileSync(spoofedPath)).toEqual(spoofedBytes);
-    expect(readdirSync(dirname(spoofedPath)).sort()).toEqual(["spoofed-v200.sqlite"]);
-
-    const foreignAppIdPath = makeTempDb("foreign-appid.sqlite");
-    const foreignAppDb = new Database(foreignAppIdPath);
-    foreignAppDb.exec("CREATE TABLE kv_cache (namespace TEXT NOT NULL, cache_key TEXT NOT NULL, value_json TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (namespace, cache_key)); PRAGMA application_id = 123456;");
-    foreignAppDb.close();
-    const foreignAppBytes = readFileSync(foreignAppIdPath);
-    const foreignAppStore = new SqliteLocalStore(foreignAppIdPath);
-    openStores.push(foreignAppStore);
-    await expect(foreignAppStore.writeCacheEntry("ns", "k3", { blocked: true })).rejects.toMatchObject({
-      code: "AC_PRECONDITION_FAILED",
-      reasonCode: "local-store-unproven-file"
-    });
-    expect(readFileSync(foreignAppIdPath)).toEqual(foreignAppBytes);
-    expect(readdirSync(dirname(foreignAppIdPath)).sort()).toEqual(["foreign-appid.sqlite"]);
-
-    const corruptPath = makeTempDb("corrupt.sqlite");
-    writeFileSync(corruptPath, "not-a-sqlite-database\n", "utf8");
-    const corruptStore = new SqliteLocalStore(corruptPath);
-    openStores.push(corruptStore);
-    await expect(corruptStore.writeCacheEntry("ns", "k4", { blocked: true })).rejects.toMatchObject({
-      code: "AC_PRECONDITION_FAILED",
-      reasonCode: "local-store-unproven-file"
-    });
-    expect(readFileSync(corruptPath, "utf8")).toBe("not-a-sqlite-database\n");
-    expect(readdirSync(dirname(corruptPath)).sort()).toEqual(["corrupt.sqlite"]);
-
-    // 6. Negative: matching 6 core v1 tables + 0001_runtime_state or v2 user_version=200 paired with unverified columns, spoofed views/triggers, or orphan FTS shadow tables
-    const coreTablesSql = `
+    `;
+    const legacyCoreSql = `
       CREATE TABLE schema_migrations (id TEXT PRIMARY KEY, applied_at TEXT NOT NULL);
       CREATE TABLE repository_sessions (repository_id TEXT PRIMARY KEY, root TEXT NOT NULL, head_sha TEXT NOT NULL, worktree_digest TEXT NOT NULL, updated_at TEXT NOT NULL);
       CREATE TABLE snapshots (id TEXT PRIMARY KEY, repository_id TEXT NOT NULL, head_sha TEXT NOT NULL, worktree_digest TEXT NOT NULL, state TEXT NOT NULL, created_at TEXT NOT NULL, committed_at TEXT);
@@ -440,75 +133,118 @@ describe("@archcontext/local-runtime/local-store-sqlite discardable cache", () =
       CREATE TABLE review_results (review_id TEXT PRIMARY KEY, task_session_id TEXT NOT NULL, payload_json TEXT NOT NULL, created_at TEXT NOT NULL);
       INSERT INTO schema_migrations (id, applied_at) VALUES ('0001_runtime_state', '2026-11-20T00:00:00.000Z');
     `;
-    const v2TablesSql = `
-      CREATE TABLE architecture_debt_base_cache (cache_key TEXT PRIMARY KEY, report_json TEXT NOT NULL, updated_at TEXT NOT NULL);
-      CREATE TABLE external_docs_cache (
-        provider TEXT NOT NULL, library_id TEXT NOT NULL, version TEXT NOT NULL, query_digest TEXT NOT NULL,
-        content_digest TEXT NOT NULL, resource_json TEXT NOT NULL, retrieved_at TEXT NOT NULL, expires_at TEXT NOT NULL,
-        PRIMARY KEY (provider, library_id, version, query_digest)
+    const waiversTableSql = `
+      CREATE TABLE waivers (
+        waiver_id TEXT PRIMARY KEY,
+        repository_id TEXT NOT NULL,
+        storage_repository_id TEXT NOT NULL,
+        workspace_id TEXT NOT NULL,
+        storage_workspace_id TEXT NOT NULL,
+        event_id TEXT NOT NULL,
+        target_kind TEXT NOT NULL,
+        target_id TEXT NOT NULL,
+        waiver_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        expires_at TEXT
       );
-      CREATE TABLE kv_cache (
-        namespace TEXT NOT NULL, cache_key TEXT NOT NULL, value_json TEXT NOT NULL, updated_at TEXT NOT NULL,
-        PRIMARY KEY (namespace, cache_key)
-      );
-      PRAGMA user_version = 200;
     `;
-    const spoofedVariants: Array<{ name: string; sql: string }> = [
+    const unmodifiableCases: Array<{ name: string; sql?: string; rawText?: string }> = [
       {
-        name: "core-plus-custom-waivers.sqlite",
-        sql: `${coreTablesSql} CREATE TABLE waivers (id TEXT PRIMARY KEY, owner TEXT NOT NULL); INSERT INTO waivers VALUES ('w1', 'keep-me');`
+        name: "v0171-legacy-full.sqlite",
+        sql: `${legacyCoreSql}
+          ${waiversTableSql}
+          CREATE VIRTUAL TABLE architecture_ledger_fts USING fts5(kind, summary, rationale, title, evidence_summary, content='');
+          CREATE VIEW recent_architecture_changes_view AS SELECT id FROM snapshots;
+          INSERT INTO waivers VALUES ('wv1', 'r1', 'sr1', 'w1', 'sw1', 'ev1', 'module', 'm1', '{}', '2026-11-20T00:00:00.000Z', NULL);`
       },
       {
-        name: "core-plus-custom-recommendations.sqlite",
-        sql: `${coreTablesSql}
-          CREATE TABLE recommendations (
-            recommendation_id TEXT PRIMARY KEY, run_id TEXT NOT NULL, repository_id TEXT NOT NULL, storage_repository_id TEXT NOT NULL,
-            workspace_id TEXT NOT NULL, storage_workspace_id TEXT NOT NULL, event_id TEXT NOT NULL, fingerprint TEXT NOT NULL,
-            subject TEXT NOT NULL, practice_id TEXT, status TEXT NOT NULL, confidence TEXT NOT NULL, enforcement TEXT NOT NULL,
-            risk TEXT NOT NULL, uncertainty TEXT NOT NULL, evidence_binding_ids_json TEXT NOT NULL, explanation_json TEXT NOT NULL,
-            recommendation_json TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, user_custom_note TEXT
-          );`
-      },
-      {
-        name: "core-plus-spoofed-view-sql.sqlite",
-        sql: `${coreTablesSql} CREATE VIEW recent_architecture_changes_view AS SELECT 1 AS user_value;`
-      },
-      {
-        name: "core-plus-custom-trigger.sqlite",
-        sql: `${coreTablesSql} CREATE TRIGGER user_audit_trigger AFTER INSERT ON snapshots BEGIN SELECT 1; END;`
-      },
-      {
-        name: "core-plus-spoofed-trigger-sql.sqlite",
-        sql: `${coreTablesSql}
-          CREATE TABLE architecture_events (
-            event_sequence INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT NOT NULL UNIQUE, repository_id TEXT NOT NULL,
-            storage_repository_id TEXT NOT NULL, workspace_id TEXT NOT NULL, storage_workspace_id TEXT NOT NULL,
-            branch TEXT NOT NULL, head_sha TEXT NOT NULL, worktree_digest TEXT NOT NULL, event_type TEXT NOT NULL,
-            payload_version TEXT NOT NULL, source TEXT NOT NULL, actor_kind TEXT NOT NULL, actor_id TEXT NOT NULL,
-            base_digest TEXT NOT NULL, resulting_digest TEXT NOT NULL, previous_event_hash TEXT, event_hash TEXT NOT NULL UNIQUE,
-            idempotency_key TEXT NOT NULL, payload_json TEXT NOT NULL, provenance_json TEXT NOT NULL, event_json TEXT NOT NULL,
-            created_at TEXT NOT NULL, compacted_by_snapshot_id TEXT
+        name: "v0171-legacy-generated-col-index.sqlite",
+        sql: `${legacyCoreSql}
+          CREATE TABLE waivers (
+            waiver_id TEXT PRIMARY KEY, repository_id TEXT NOT NULL, storage_repository_id TEXT NOT NULL,
+            workspace_id TEXT NOT NULL, storage_workspace_id TEXT NOT NULL, event_id TEXT NOT NULL,
+            target_kind TEXT NOT NULL, target_id TEXT NOT NULL, waiver_json TEXT NOT NULL,
+            created_at TEXT NOT NULL, expires_at TEXT,
+            local_reporting TEXT GENERATED ALWAYS AS (waiver_id || ':' || target_id) STORED
           );
-          CREATE TRIGGER architecture_events_immutable_delete BEFORE DELETE ON architecture_events BEGIN SELECT 1; END;`
+          CREATE INDEX custom_reporting_idx ON waivers(local_reporting);
+          INSERT INTO waivers (waiver_id, repository_id, storage_repository_id, workspace_id, storage_workspace_id, event_id, target_kind, target_id, waiver_json, created_at, expires_at)
+            VALUES ('wv1', 'r1', 'sr1', 'w1', 'sw1', 'ev1', 'module', 'm1', '{}', '2026-11-20T00:00:00.000Z', NULL);`
       },
       {
-        name: "core-plus-orphan-fts-shadow.sqlite",
-        sql: `${coreTablesSql} CREATE TABLE architecture_ledger_fts_data (id INTEGER PRIMARY KEY, block BLOB);`
+        name: "v0171-legacy-debt-cache.sqlite",
+        sql: `CREATE TABLE architecture_debt_base_cache (
+          repository_id TEXT NOT NULL, base_sha TEXT NOT NULL, archcontext_tree_oid TEXT NOT NULL,
+          codegraph_version TEXT NOT NULL, engine_version TEXT NOT NULL, measurement_profile TEXT NOT NULL,
+          report_json TEXT NOT NULL,
+          PRIMARY KEY (repository_id, base_sha, archcontext_tree_oid, codegraph_version, engine_version, measurement_profile)
+        );`
       },
       {
-        name: "v2-plus-spoofed-view-sql.sqlite",
-        sql: `${v2TablesSql} CREATE VIEW recent_architecture_changes_view AS SELECT 1 AS user_value;`
+        name: "v2-generated-col.sqlite",
+        sql: `
+          CREATE TABLE architecture_debt_base_cache (cache_key TEXT PRIMARY KEY, report_json TEXT NOT NULL, updated_at TEXT NOT NULL);
+          CREATE TABLE external_docs_cache (
+            provider TEXT NOT NULL, library_id TEXT NOT NULL, version TEXT NOT NULL, query_digest TEXT NOT NULL,
+            content_digest TEXT NOT NULL, resource_json TEXT NOT NULL, retrieved_at TEXT NOT NULL, expires_at TEXT NOT NULL,
+            PRIMARY KEY (provider, library_id, version, query_digest)
+          );
+          CREATE TABLE kv_cache (
+            namespace TEXT NOT NULL, cache_key TEXT NOT NULL, value_json TEXT NOT NULL, updated_at TEXT NOT NULL,
+            extra_gen TEXT GENERATED ALWAYS AS (namespace || ':' || cache_key) STORED,
+            PRIMARY KEY (namespace, cache_key)
+          );
+          PRAGMA user_version = 200;`
       },
       {
-        name: "v2-plus-custom-trigger.sqlite",
-        sql: `${v2TablesSql} CREATE TRIGGER v2_custom_trigger AFTER INSERT ON kv_cache BEGIN SELECT 1; END;`
+        name: "v2-custom-index.sqlite",
+        sql: `${v2BaseSql} CREATE INDEX custom_kv_idx ON kv_cache(updated_at);`
+      },
+      {
+        name: "v2-view.sqlite",
+        sql: `${v2BaseSql} CREATE VIEW recent_architecture_changes_view AS SELECT 1;`
+      },
+      {
+        name: "v2-trigger.sqlite",
+        sql: `${v2BaseSql} CREATE TRIGGER v2_custom_trigger AFTER INSERT ON kv_cache BEGIN SELECT 1; END;`
+      },
+      {
+        name: "v2-extra-check.sqlite",
+        sql: `
+          CREATE TABLE architecture_debt_base_cache (cache_key TEXT PRIMARY KEY, report_json TEXT NOT NULL, updated_at TEXT NOT NULL);
+          CREATE TABLE external_docs_cache (
+            provider TEXT NOT NULL, library_id TEXT NOT NULL, version TEXT NOT NULL, query_digest TEXT NOT NULL,
+            content_digest TEXT NOT NULL, resource_json TEXT NOT NULL, retrieved_at TEXT NOT NULL, expires_at TEXT NOT NULL,
+            PRIMARY KEY (provider, library_id, version, query_digest)
+          );
+          CREATE TABLE kv_cache (
+            namespace TEXT NOT NULL CHECK(length(namespace) > 0), cache_key TEXT NOT NULL, value_json TEXT NOT NULL, updated_at TEXT NOT NULL,
+            PRIMARY KEY (namespace, cache_key)
+          );
+          PRAGMA user_version = 200;`
+      },
+      {
+        name: "spoofed-v200.sqlite",
+        sql: "CREATE TABLE architecture_debt_base_cache (cache_key TEXT PRIMARY KEY, report_json TEXT NOT NULL, updated_at TEXT NOT NULL); CREATE TABLE external_docs_cache (id TEXT PRIMARY KEY); CREATE TABLE kv_cache (k TEXT PRIMARY KEY, v TEXT NOT NULL); PRAGMA user_version = 200;"
+      },
+      {
+        name: "foreign-appid.sqlite",
+        sql: "CREATE TABLE kv_cache (namespace TEXT NOT NULL, cache_key TEXT NOT NULL, value_json TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (namespace, cache_key)); PRAGMA application_id = 123456;"
+      },
+      {
+        name: "corrupt.sqlite",
+        rawText: "not-a-sqlite-database\n"
       }
     ];
-    for (const variant of spoofedVariants) {
-      const targetPath = makeTempDb(variant.name);
-      const rawDb = new Database(targetPath);
-      rawDb.exec(variant.sql);
-      rawDb.close();
+    for (const testCase of unmodifiableCases) {
+      const targetPath = makeTempDb(testCase.name);
+      if (testCase.rawText !== undefined) {
+        writeFileSync(targetPath, testCase.rawText, "utf8");
+      } else {
+        const rawDb = new Database(targetPath);
+        rawDb.exec(testCase.sql!);
+        rawDb.close();
+      }
       const bytesBefore = readFileSync(targetPath);
       const storeAttempt = new SqliteLocalStore(targetPath);
       openStores.push(storeAttempt);
@@ -517,7 +253,7 @@ describe("@archcontext/local-runtime/local-store-sqlite discardable cache", () =
         reasonCode: "local-store-unproven-file"
       });
       expect(readFileSync(targetPath)).toEqual(bytesBefore);
-      expect(readdirSync(dirname(targetPath)).sort()).toEqual([variant.name]);
+      expect(readdirSync(dirname(targetPath)).sort()).toEqual([testCase.name]);
     }
   });
 
