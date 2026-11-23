@@ -3,9 +3,8 @@ import { dirname, join } from "node:path";
 import {
   RECOMMENDATION_STATUSES,
   FailureError,
-  isRepoRelativePosixPath,
+  isCanonicalRepoRelativePosixPath,
   isValidRefactorKillListSymbolTarget,
-  knownFailure,
   type RecommendationV3,
   type RefactorDecisionKillTargetV1,
   type RefactorDecisionStatus,
@@ -40,19 +39,19 @@ function parseExplicitKillList(input: RunDecideV2Input): RefactorDecisionKillTar
   const entries: RefactorDecisionKillTargetV1[] = [];
   for (const sym of input.killSymbols ?? []) {
     if (!isValidRefactorKillListSymbolTarget(sym)) {
-      throw knownFailure("AC_SCHEMA_INVALID", "recommendations-input-invalid", {});
+      throw new FailureError("AC_SCHEMA_INVALID", "recommendations-input-invalid", {});
     }
     entries.push({ kind: "symbol", target: sym, required: true });
   }
   for (const path of input.killPaths ?? []) {
-    if (!isRepoRelativePosixPath(path)) {
-      throw knownFailure("AC_SCHEMA_INVALID", "recommendations-input-invalid", {});
+    if (!isCanonicalRepoRelativePosixPath(path)) {
+      throw new FailureError("AC_SCHEMA_INVALID", "recommendations-input-invalid", {});
     }
     entries.push({ kind: "path", target: path, required: true });
   }
   for (const relation of input.killRelations ?? []) {
     if (relation.trim() === "") {
-      throw knownFailure("AC_SCHEMA_INVALID", "recommendations-input-invalid", {});
+      throw new FailureError("AC_SCHEMA_INVALID", "recommendations-input-invalid", {});
     }
     entries.push({ kind: "relation", target: relation, required: true });
   }
@@ -63,7 +62,7 @@ function writeAtomicDecision(root: string, decision: RefactorDecisionV1): { path
   const writePlan = refactorDecisionWrite(root, decision);
   const absPath = join(root, writePlan.path);
   mkdirSync(dirname(absPath), { recursive: true });
-  const tempPath = `${absPath}.tmp-${process.pid}-${Date.now()}`;
+  const tempPath = `${absPath}.archctx-tmp-${process.pid}-${Date.now()}`;
   try {
     writeFileSync(tempPath, writePlan.body, { encoding: "utf8", mode: 0o644 });
     renameSync(tempPath, absPath);
@@ -79,7 +78,7 @@ export function runDecideV2(root: string, input: RunDecideV2Input) {
   const decisions = readRefactorDecisionSet(root);
   if (input.action === "list") {
     if (input.status !== undefined && !(RECOMMENDATION_STATUSES as readonly string[]).includes(input.status)) {
-      throw knownFailure("AC_SCHEMA_INVALID", "recommendations-input-invalid", {});
+      throw new FailureError("AC_SCHEMA_INVALID", "recommendations-input-invalid", {});
     }
     const filteredDecisions = decisions.decisions.filter(
       (entry) => input.status === undefined || entry.status === input.status
@@ -104,7 +103,7 @@ export function runDecideV2(root: string, input: RunDecideV2Input) {
 
   const recommendationId = input.recommendationId?.trim();
   if (!recommendationId) {
-    throw knownFailure("AC_SCHEMA_INVALID", "recommendations-input-invalid", {});
+    throw new FailureError("AC_SCHEMA_INVALID", "recommendations-input-invalid", {});
   }
 
   if (input.action === "show") {
@@ -132,7 +131,7 @@ export function runDecideV2(root: string, input: RunDecideV2Input) {
 
   const reason = input.reason?.trim() ?? "";
   if (reason.length === 0) {
-    throw knownFailure("AC_SCHEMA_INVALID", "recommendations-input-invalid", {});
+    throw new FailureError("AC_SCHEMA_INVALID", "recommendations-input-invalid", {});
   }
   const actorId = input.actorId?.trim() || "cli-user";
 

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadCapabilitySourceFootprintDigests, type NativeModel } from "@archcontext/core/projection-engine";
@@ -111,6 +111,28 @@ describe("@archcontext/local-runtime/git-adapter", () => {
       expect(() => findRepositoryRoot(root)).toThrow("Repository root not found");
     } finally {
       removeTempRoot(root);
+    }
+  });
+
+  test.skipIf(process.platform === "win32")("preserves trailing whitespace in checkout roots so sibling repositories stay distinct", () => {
+    const parent = realpathSync.native(mkdtempSync(join(tmpdir(), "archctx-git-trailing-ws-")));
+    try {
+      const plain = join(parent, "project");
+      const trailing = join(parent, "project ");
+      mkdirSync(join(plain, "sub"), { recursive: true });
+      mkdirSync(join(trailing, "sub"), { recursive: true });
+      writeFileSync(join(plain, "tracked.txt"), "plain\n");
+      writeFileSync(join(trailing, "tracked.txt"), "trailing\n");
+      git(plain, "init", "-q");
+      git(trailing, "init", "-q");
+      commitAll(plain, "plain");
+      commitAll(trailing, "trailing");
+
+      expect(findRepositoryRoot(trailing)).toBe(trailing);
+      expect(findRepositoryRoot(join(trailing, "sub"))).toBe(trailing);
+      expect(findRepositoryRoot(trailing)).not.toBe(plain);
+    } finally {
+      removeTempRoot(parent);
     }
   });
 

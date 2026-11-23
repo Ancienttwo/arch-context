@@ -145,10 +145,14 @@ test("the default selector read opens the index read-only and leaves database an
   const durableBytes = () => readdirSync(join(root, ".codegraph")).filter(name => name !== "codegraph.db-shm").sort()
     .map(name => [name, readFileSync(join(root, ".codegraph", name)).toString("base64")]);
   try {
-    // The live holder matches daemon/watcher use; SHM lock/read marks are not durable index content.
+    // The live holder matches daemon/watcher use; open reads a private scratch copy so workspace bytes never change.
     const before = durableBytes();
     const evidence = loadCapabilityCodeGraphProjectionInputs(root, model, { importGraphs: false });
-    expect(open).toHaveBeenCalledWith(root, { readOnly: true });
+    expect(open).toHaveBeenCalledTimes(1);
+    const [openedRoot, openedOptions] = open.mock.calls[0]!;
+    expect(openedRoot).not.toBe(root);
+    expect(existsSync(openedRoot)).toBe(false);
+    expect(openedOptions).toEqual({ readOnly: true });
     expect(evidence.selectorEvidence).toHaveLength(1);
     expect(durableBytes()).toEqual(before);
   } finally {

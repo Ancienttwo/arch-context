@@ -1217,8 +1217,7 @@ describe("base index on a real index (#608)", () => {
     expect((await new CodeGraphSdkProvider().indexAll(seeded)).codeGraphBase).toBe("not-primary");
     expect(lstatSync(join(seeded, ".codegraph")).isDirectory()).toBe(true);
     expect(statSync(join(seeded, ".codegraph", "codegraph.db")).ino).not.toBe(statSync(join(repo.baseDir, pointer.snapshot)).ino);
-    // Beside the SQLite sidecars a later read-only open may leave (ADR-0058 Decision 4).
-    expect(readdirSync(join(seeded, ".codegraph")).filter(name => !/^codegraph\.db-(wal|shm)$/.test(name)).sort()).toEqual([".gitignore", "codegraph.db"]);
+    expect(readdirSync(join(seeded, ".codegraph")).sort()).toEqual([".gitignore", "codegraph.db"]);
     expect(readFileSync(join(seeded, ".codegraph", ".gitignore"), "utf8")).toBe("*\n");
     expect(readdirSync(seeded).filter(name => name.startsWith(".codegraph-seed-"))).toEqual([]);
     expect(status()).toBe(statusBefore);

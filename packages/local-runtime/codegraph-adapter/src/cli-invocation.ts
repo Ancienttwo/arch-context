@@ -1,30 +1,26 @@
-import { assertLocalEgressAllowed, localEgressMode } from "@archcontext/local-runtime/egress-admission";
 import { execFileSync, spawn } from "node:child_process";
 import { accessSync, closeSync, constants as fsConstants, existsSync, openSync, readFileSync, readSync, realpathSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { delimiter, dirname, isAbsolute, join, resolve } from "node:path";
-import { codeGraphChildEnv } from "./child-env";
+import {
+  CODEGRAPH_TELEMETRY_DISABLED_VALUE,
+  CODEGRAPH_TELEMETRY_ENV,
+  codeGraphChildEnv,
+  disableCodeGraphTelemetryByDefault
+} from "./child-env";
 import { digestJson, type Json } from "@archcontext/contracts";
 import { REQUIRED_CODEGRAPH_PACKAGE, REQUIRED_CODEGRAPH_VERSION } from "./read-session";
+
+export { CODEGRAPH_TELEMETRY_DISABLED_VALUE, CODEGRAPH_TELEMETRY_ENV, disableCodeGraphTelemetryByDefault };
 
 // The CodeGraph CLI as archctx starts it: resolving the binary, attesting the packaged runtime, and
 // running `sync`, which builds the index. Reads never start the CLI (ADR-0058).
 
-export const CODEGRAPH_TELEMETRY_ENV = "DO_NOT_TRACK";
-export const CODEGRAPH_TELEMETRY_DISABLED_VALUE = "1";
 export const DEFAULT_CODEGRAPH_BINARY = "codegraph";
 const requireFromAdapter = createRequire(import.meta.url);
 
-type MutableEnv = Record<string, string | undefined>;
 export const CODEGRAPH_OUTPUT_MAX_BYTES = 32 * 1024 * 1024;
-
-export function disableCodeGraphTelemetryByDefault(env: MutableEnv = process.env): string {
-  localEgressMode(env);
-  if (env[CODEGRAPH_TELEMETRY_ENV] !== undefined && env[CODEGRAPH_TELEMETRY_ENV] !== CODEGRAPH_TELEMETRY_DISABLED_VALUE) assertLocalEgressAllowed("codegraph-telemetry", env);
-  env[CODEGRAPH_TELEMETRY_ENV] ??= CODEGRAPH_TELEMETRY_DISABLED_VALUE;
-  return env[CODEGRAPH_TELEMETRY_ENV] ?? CODEGRAPH_TELEMETRY_DISABLED_VALUE;
-}
 
 /** Default bound on one `sync` of the index; the projection handshake passes its own. */
 export const CODEGRAPH_SYNC_TIMEOUT_MS = 30_000;

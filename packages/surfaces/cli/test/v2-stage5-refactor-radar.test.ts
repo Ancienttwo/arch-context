@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { REFACTOR_DECISION_SCHEMA_VERSION, serializeRefactorDecision, stableYaml, type RefactorDecisionV1, type RefactorScanV2, type RefactorSimulationResultV1, type RefactorVerifyV2 } from "@archcontext/contracts";
@@ -380,5 +380,46 @@ describe("v2 Stage 5 pure-Git refactor radar (#636, #637, #638, #643)", () => {
     const decayVerify = decayVerifyEnv.data as RefactorVerifyV2;
     expect(decayVerify.disposition).toBe("stale");
     expect(decayVerify.blockingReasons).toContain("co-change-window-decay-without-structural-closure");
+  }, 120_000);
+
+  test("rejects noncanonical killList paths and keeps case-insensitive core.ignorecase targets still-present", async () => {
+    const root = createCycleAndKillFixture(2);
+    git(root, "config", "--local", "core.ignorecase", "true");
+    const scanEnv = await runCli("scan", ["--json"], root);
+    expect(scanEnv.ok, JSON.stringify(scanEnv)).toBe(true);
+    const bypass = (scanEnv.data as RefactorScanV2).findings.find((f) => f.detector === "entrypoint-bypass");
+    expect(bypass).toBeDefined();
+    const id = bypass!.recommendationId;
+
+    for (const badPath of ["./src/b/internal.ts", "src//b/internal.ts", "src/./b/internal.ts", "C:/src/b/internal.ts"]) {
+      const badPathRun = await runCli("decide", ["accept", id, "--kill-path", badPath, "--reason", "Reject alias"], root);
+      expect(badPathRun.ok, badPath).toBe(false);
+      const badSymRun = await runCli("decide", ["accept", id, "--kill-symbol", `${badPath}#secretHelper`, "--reason", "Reject alias"], root);
+      expect(badSymRun.ok, badPath).toBe(false);
+    }
+
+    // Tracked file on HEAD is `src/b/internal.ts`; under `core.ignorecase=true`, a differing-case
+    // kill target (`src/B/INTERNAL.ts`) must not falsely resolve as `removed`.
+    const accepted = await runCli("decide", [
+      "accept",
+      id,
+      "--kill-path",
+      "src/B/INTERNAL.ts",
+      "--kill-symbol",
+      "src/B/INTERNAL.ts#secretHelper",
+      "--reason",
+      "Verify case-insensitive tracking"
+    ], root);
+    expect(accepted.ok, JSON.stringify(accepted)).toBe(true);
+    expect(readdirSync(join(root, ".archcontext/refactor-decisions"))).toEqual([`${id}.json`]);
+
+    const verifiedEnv = await runCli("verify", [id, "--json"], root);
+    expect(verifiedEnv.ok, JSON.stringify(verifiedEnv)).toBe(true);
+    const verified = verifiedEnv.data as RefactorVerifyV2;
+    expect(verified.disposition).toBe("unresolved");
+    expect(verified.killListChecks).toEqual([
+      { kind: "symbol", target: "src/B/INTERNAL.ts#secretHelper", required: true, status: "still-present" },
+      { kind: "path", target: "src/B/INTERNAL.ts", required: true, status: "still-present" }
+    ]);
   }, 120_000);
 });

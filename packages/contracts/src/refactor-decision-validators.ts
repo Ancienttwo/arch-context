@@ -19,6 +19,7 @@ import {
 } from "./refactor-constants";
 import type { RefactorDecisionV1 } from "./refactor-evidence-types";
 import {
+  canonicalRepoPathIssues,
   digestIssues,
   GIT_HEAD_SHA_PATTERN,
   outcomeIssues,
@@ -253,7 +254,7 @@ export function refactorDecisionInvariantIssues(value: unknown, prefix = "refact
           continue;
         }
         if (entry.kind === "path") {
-          issues.push(...repoPathIssues(`${prefix}.killList.target`, entry.target));
+          issues.push(...canonicalRepoPathIssues(`${prefix}.killList.target`, entry.target));
         } else if (entry.kind === "symbol" && !isValidRefactorKillListSymbolTarget(entry.target)) {
           issues.push(`${prefix}.killList.target must be <repo-relative-path>#<symbol>`);
         }

@@ -3,7 +3,6 @@ import {
   REFACTOR_SCAN_V2_SCHEMA_VERSION,
   FailureError,
   isRepoRelativePosixPath,
-  knownFailure,
   validateJsonSchema,
   type Json,
   type RefactorObservationKind,
@@ -213,7 +212,7 @@ export function runScanV2(root: string, options: RunScanV2Options = {}): Refacto
   };
   const checked = validateJsonSchema(CONTRACT_SCHEMA_REGISTRY["schemas/runtime/refactor-scan-v2.schema.json"] as any, output as unknown as Json);
   if (!checked.valid) {
-    throw knownFailure("AC_SCHEMA_INVALID", "refactor-scan-invalid", {});
+    throw new FailureError("AC_SCHEMA_INVALID", "refactor-scan-invalid", {});
   }
   return output;
 }
@@ -223,10 +222,10 @@ export function runRefactorSimulate(root: string, request: RefactorSimulationReq
   const moves = request.moves ?? [];
   for (const move of moves) {
     if (!move || typeof move.path !== "string" || !isRepoRelativePosixPath(move.path) || typeof move.toNodeId !== "string" || move.toNodeId.trim() === "") {
-      throw knownFailure("AC_SCHEMA_INVALID", "refactor-simulate-input-invalid", {});
+      throw new FailureError("AC_SCHEMA_INVALID", "refactor-simulate-input-invalid", {});
     }
     if (move.symbols !== undefined && (!Array.isArray(move.symbols) || move.symbols.length === 0 || move.symbols.some((s) => typeof s !== "string" || s.trim() === ""))) {
-      throw knownFailure("AC_SCHEMA_INVALID", "refactor-simulate-input-invalid", {});
+      throw new FailureError("AC_SCHEMA_INVALID", "refactor-simulate-input-invalid", {});
     }
   }
   const gitScope = pureGitScope(root);

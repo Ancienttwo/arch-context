@@ -69,6 +69,7 @@ export interface SymbolKillListCheckV1 {
 export interface VerifySymbolKillListOptions {
   codeFactsReady: boolean;
   trackedFiles?: ReadonlySet<string>;
+  caseInsensitive?: boolean;
   provider?: CodeGraphReadProvider;
 }
 
@@ -407,43 +408,72 @@ export function verifySymbolKillList(
       }
       const graph = opened.session.graph;
       const provider = options.provider ?? pinnedCodeGraphProvider();
+      const trackedByLower = new Map<string, string[]>();
+      if (options.caseInsensitive && options.trackedFiles) {
+        for (const trackedPath of options.trackedFiles) {
+          const key = trackedPath.toLowerCase();
+          const group = trackedByLower.get(key);
+          if (group) group.push(trackedPath);
+          else trackedByLower.set(key, [trackedPath]);
+        }
+      }
 
       return targets.map((target): SymbolKillListCheckV1 => {
         const parsed = parseRefactorKillListSymbolTarget(target);
         if (!parsed) {
           return { target, status: "unknown", reasonCode: "kill-list-symbol-ambiguous" };
         }
-        const diskPath = join(root, parsed.path);
-        const onDisk = existsSync(diskPath);
-        if (options.trackedFiles !== undefined && !options.trackedFiles.has(parsed.path) && !onDisk) {
+        const matchedTracked = options.trackedFiles === undefined
+          ? []
+          : options.trackedFiles.has(parsed.path)
+            ? [parsed.path]
+            : options.caseInsensitive
+              ? (trackedByLower.get(parsed.path.toLowerCase()) ?? [])
+              : [];
+        const onDiskRequested = existsSync(join(root, parsed.path));
+        if (options.trackedFiles !== undefined && matchedTracked.length === 0 && !onDiskRequested) {
           return { target, status: "absent" };
         }
-        if (options.trackedFiles === undefined && !onDisk) {
+        if (options.trackedFiles === undefined && !onDiskRequested) {
           return { target, status: "absent" };
         }
 
-        const fileRecord = graph.getFile(parsed.path);
-        if (!fileRecord) {
-          return { target, status: "unknown", reasonCode: "code-facts-file-unindexed" };
-        }
-        if (((fileRecord as { errors?: number }).errors ?? 0) > 0) {
-          return { target, status: "unknown", reasonCode: "code-facts-parse-errors" };
-        }
-        if (onDisk) {
-          let currentHash: string | undefined;
-          try {
-            currentHash = provider.changeHash(diskPath);
-          } catch {
-            currentHash = undefined;
+        const candidatePaths = matchedTracked.length > 0 ? matchedTracked : [parsed.path];
+        let firstUnknownReason: string | undefined;
+        for (const candidatePath of candidatePaths) {
+          const diskPath = join(root, candidatePath);
+          const onDisk = existsSync(diskPath);
+          const fileRecord = graph.getFile(candidatePath);
+          if (!fileRecord) {
+            firstUnknownReason ??= "code-facts-file-unindexed";
+            continue;
           }
-          if (currentHash === undefined || currentHash !== fileRecord.contentHash) {
-            return { target, status: "unknown", reasonCode: "code-facts-digest-mismatch" };
+          if (((fileRecord as { errors?: number }).errors ?? 0) > 0) {
+            firstUnknownReason ??= "code-facts-parse-errors";
+            continue;
           }
-        }
+          if (onDisk) {
+            let currentHash: string | undefined;
+            try {
+              currentHash = provider.changeHash(diskPath);
+            } catch {
+              currentHash = undefined;
+            }
+            if (currentHash === undefined || currentHash !== fileRecord.contentHash) {
+              firstUnknownReason ??= "code-facts-digest-mismatch";
+              continue;
+            }
+          }
 
-        const nodes = graph.getNodesInFile(parsed.path);
-        const matched = nodes.some((node) => symbolMatchesTarget(node, parsed.symbol));
-        return { target, status: matched ? "present" : "absent" };
+          const nodes = graph.getNodesInFile(candidatePath);
+          if (nodes.some((node) => symbolMatchesTarget(node, parsed.symbol))) {
+            return { target, status: "present" };
+          }
+        }
+        if (firstUnknownReason !== undefined) {
+          return { target, status: "unknown", reasonCode: firstUnknownReason };
+        }
+        return { target, status: "absent" };
       });
     },
     options.provider ? { provider: options.provider } : {}

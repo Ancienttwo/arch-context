@@ -17,13 +17,17 @@ export * from "./workspace-packages";
 /** One `git cat-file --batch` carries every measured blob; a repository-sized tree needs the headroom. */
 const GIT_CAT_FILE_MAX_BYTES = 512 * 1024 * 1024;
 
+function stripTrailingLineEnding(value: string): string {
+  return process.platform === "win32" ? value.replace(/\r?\n$/, "") : value.replace(/\n$/, "");
+}
+
 export function findRepositoryRoot(start: string): string {
   try {
-    return resolve(execFileSync("git", ["rev-parse", "--show-toplevel"], {
+    return resolve(stripTrailingLineEnding(execFileSync("git", ["rev-parse", "--show-toplevel"], {
       cwd: start,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"]
-    }).trim());
+    })));
   } catch {
     let cursor = resolve(start);
     while (true) {

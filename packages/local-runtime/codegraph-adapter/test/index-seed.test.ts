@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import {
@@ -128,6 +128,7 @@ describe("@archcontext/local-runtime/codegraph-adapter #641 index seed", () => {
       seededFromBase: false
     });
     expect(existsSync(join(primary, ".codegraph", "codegraph.db"))).toBe(true);
+    expect(readdirSync(join(primary, ".codegraph")).sort()).toEqual([".gitignore", "codegraph.db"]);
     expect(existsSync(join(linked, ".codegraph"))).toBe(false);
 
     // Linked worktree seed materializes .codegraph from shared base without cold init
@@ -142,6 +143,7 @@ describe("@archcontext/local-runtime/codegraph-adapter #641 index seed", () => {
     expect(validateJsonSchema(IndexSeedResultSchema, seeded as unknown as Json).issues).toEqual([]);
     expect(existsSync(join(linked, ".codegraph", "codegraph.db"))).toBe(true);
     expect(inspectRepositoryCodeFacts(linked).state).toBe("ready");
+    expect(readdirSync(join(linked, ".codegraph")).sort()).toEqual([".gitignore", "codegraph.db"]);
 
     // Non-destructive re-run keeps pre-existing .codegraph content intact
     const sentinelPath = join(linked, ".codegraph", "custom-sentinel.txt");

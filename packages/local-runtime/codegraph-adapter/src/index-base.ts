@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { closeSync, constants as fsConstants, copyFileSync, fstatSync, linkSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, unlinkSync, writeSync } from "node:fs";
+import { closeSync, constants as fsConstants, copyFileSync, fstatSync, linkSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, unlinkSync, writeSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CodeGraphBaseRefreshV1, CodeGraphKeptPathV1 } from "@archcontext/contracts";
 import { codeGraphChildEnv } from "./child-env";
@@ -76,6 +77,10 @@ interface GitDirs {
   commonDir: string;
 }
 
+function stripTrailingLineEnding(value: string): string {
+  return process.platform === "win32" ? value.replace(/\r?\n$/, "") : value.replace(/\n$/, "");
+}
+
 /** The Git directories of `root`, only when `root` is the top level of a worktree. */
 function gitDirs(root: string): GitDirs | undefined {
   let output: string;
@@ -84,7 +89,7 @@ function gitDirs(root: string): GitDirs | undefined {
   } catch {
     return undefined;
   }
-  const [topLevel, gitDir, commonDir] = output.trim().split(/\r?\n/);
+  const [topLevel, gitDir, commonDir] = stripTrailingLineEnding(output).split(process.platform === "win32" ? /\r?\n/ : "\n");
   if (!topLevel || !gitDir || !commonDir || realpathSync.native(topLevel) !== realpathSync.native(root)) return undefined;
   return { gitDir, commonDir };
 }
@@ -594,15 +599,34 @@ function refreshCodeGraphBaseUnchecked(root: string, options: CodeGraphBaseRefre
 }
 
 /**
- * `VACUUM INTO` on a read-only handle: a consistent single-file copy that includes committed WAL
- * frames. It runs in the provider's own Node runtime, whose `node:sqlite` creates the read-only
- * sidecars that the macOS system SQLite of a Bun process cannot.
+ * `VACUUM INTO` on a read-only handle over a private scratch copy (`source` + any regular `-wal`):
+ * a consistent single-file snapshot that includes committed WAL frames without creating `-wal`/`-shm`
+ * sidecars in `<root>/.codegraph/`. Runs in the provider's Node runtime for `node:sqlite`.
  */
 export function snapshotCodeGraphIndex(source: string, target: string): void {
   const { platformRoot } = codeGraphBundle();
   const node = join(platformRoot, process.platform === "win32" ? "node.exe" : "node");
-  const script = 'const { DatabaseSync } = require("node:sqlite"); const db = new DatabaseSync(process.argv[1], { readOnly: true }); try { db.prepare("VACUUM INTO ?").run(process.argv[2]); } finally { db.close(); }';
-  execFileSync(node, ["--no-warnings", "-e", script, source, target], { stdio: "pipe", timeout: 120_000, env: codeGraphChildEnv() });
+  const journalStat = lstatSync(`${source}-journal`, { throwIfNoEntry: false });
+  if (journalStat) {
+    throw new Error("CodeGraph snapshot source has an active rollback journal");
+  }
+  const walPath = `${source}-wal`;
+  const walStat = lstatSync(walPath, { throwIfNoEntry: false });
+  if (walStat && !walStat.isFile()) {
+    throw new Error("CodeGraph snapshot WAL entry is not a regular file");
+  }
+  const scratch = mkdtempSync(join(realpathSync(tmpdir()), "archctx-snapshot-"));
+  const scratchDb = join(scratch, "codegraph.db");
+  try {
+    copyFileSync(source, scratchDb, fsConstants.COPYFILE_FICLONE);
+    if (walStat) {
+      copyFileSync(walPath, `${scratchDb}-wal`, fsConstants.COPYFILE_FICLONE);
+    }
+    const script = 'const { DatabaseSync } = require("node:sqlite"); const db = new DatabaseSync(process.argv[1], { readOnly: true }); try { db.prepare("VACUUM INTO ?").run(process.argv[2]); } finally { db.close(); }';
+    execFileSync(node, ["--no-warnings", "-e", script, scratchDb, target], { stdio: "pipe", timeout: 120_000, env: codeGraphChildEnv() });
+  } finally {
+    rmSync(scratch, { recursive: true, force: true, maxRetries: 3 });
+  }
 }
 
 function existsFile(path: string): boolean {
