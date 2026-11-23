@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { digestJson, type ArchitectureDebtReportV1 } from "@archcontext/contracts";
 import { createLandscape } from "@archcontext/core/architecture-domain";
 import { acquireLocalStoreWriterOwnership, localStoreWriterOwnershipPath, SqliteLocalStore, type ArchitectureDebtBaseCacheKey } from "../src/index";
@@ -39,7 +39,7 @@ describe("@archcontext/local-runtime/local-store-sqlite discardable cache", () =
     }
   });
 
-  test("discards and rebuilds legacy or corrupt sqlite cache files transparently", async () => {
+  test("rebuilds proven legacy ArchContext sqlite caches and fails closed on foreign or non-sqlite files without sidecars", async () => {
     const dbPath = makeTempDb("legacy.sqlite");
     const legacyDb = new Database(dbPath);
     legacyDb.exec("CREATE TABLE architecture_events (id TEXT PRIMARY KEY); PRAGMA user_version = 42;");
@@ -51,12 +51,30 @@ describe("@archcontext/local-runtime/local-store-sqlite discardable cache", () =
     expect(await store.readCacheEntry("ns", "k1")).toEqual({ ok: true });
     store.close();
 
+    const foreignPath = makeTempDb("foreign.sqlite");
+    const foreignDb = new Database(foreignPath);
+    foreignDb.exec("CREATE TABLE user_records (id TEXT PRIMARY KEY); PRAGMA user_version = 7;");
+    foreignDb.close();
+    const foreignBytesBefore = readFileSync(foreignPath);
+    const foreignStore = new SqliteLocalStore(foreignPath);
+    openStores.push(foreignStore);
+    await expect(foreignStore.writeCacheEntry("ns", "k2", { blocked: true })).rejects.toMatchObject({
+      code: "AC_PRECONDITION_FAILED",
+      reasonCode: "local-store-unproven-file"
+    });
+    expect(readFileSync(foreignPath)).toEqual(foreignBytesBefore);
+    expect(readdirSync(dirname(foreignPath)).sort()).toEqual(["foreign.sqlite"]);
+
     const corruptPath = makeTempDb("corrupt.sqlite");
     writeFileSync(corruptPath, "not-a-sqlite-database\n", "utf8");
-    const recovered = new SqliteLocalStore(corruptPath);
-    openStores.push(recovered);
-    await recovered.writeCacheEntry("ns", "k2", { rebuilt: 1 });
-    expect(await recovered.readCacheEntry("ns", "k2")).toEqual({ rebuilt: 1 });
+    const corruptStore = new SqliteLocalStore(corruptPath);
+    openStores.push(corruptStore);
+    await expect(corruptStore.writeCacheEntry("ns", "k3", { blocked: true })).rejects.toMatchObject({
+      code: "AC_PRECONDITION_FAILED",
+      reasonCode: "local-store-unproven-file"
+    });
+    expect(readFileSync(corruptPath, "utf8")).toBe("not-a-sqlite-database\n");
+    expect(readdirSync(dirname(corruptPath)).sort()).toEqual(["corrupt.sqlite"]);
   });
 
   test("persists debt base, external docs, landscape sessions, and kv entries", async () => {

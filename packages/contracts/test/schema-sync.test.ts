@@ -106,7 +106,111 @@ describe("single-source TypeBox schema registry", () => {
                 { kind: "path", target: "src/legacy.ts", required: true }
               ],
               metrics: { callsIntoInternal: 1 },
-              evidence: { summary: "Direct call to non-entrypoint internal symbol" }
+              evidence: {
+                summary: "Direct call to non-entrypoint internal symbol",
+                observation: {
+                  kind: "entrypoint-bypass",
+                  declaredEntrypointPaths: ["src/index.ts"],
+                  edges: [
+                    {
+                      fromPath: "src/caller.ts",
+                      fromLine: 3,
+                      toPath: "src/internal.ts",
+                      specifier: "./internal",
+                      fromNodeId: "capability.other",
+                      toNodeId: "capability.cli"
+                    }
+                  ],
+                  totalCount: 1,
+                  truncated: false
+                }
+              }
+            },
+            {
+              recommendationId: `recommendation.${"2".repeat(16)}`,
+              fingerprint: zeroDigest,
+              detector: "low-cohesion-god-file",
+              severity: "warning",
+              blocking: true,
+              capabilityId: "capability.cli",
+              affectedNodeIds: ["capability.cli"],
+              affectedPaths: ["src/god.ts"],
+              killList: [],
+              metrics: { flaggedFileCount: 1 },
+              evidence: {
+                summary: "Low cohesion file split candidate",
+                splitClusterCount: 2,
+                lcomScore: 2,
+                observation: {
+                  kind: "low-cohesion-god-file",
+                  files: [
+                    {
+                      path: "src/god.ts",
+                      lineCount: 400,
+                      topLevelSymbolCount: 10,
+                      clusterCount: 2,
+                      clusters: [
+                        { symbols: ["alpha", "beta"], startLine: 1, endLine: 180, intraClusterEdges: 3, crossClusterEdges: 0 },
+                        { symbols: ["gamma", "delta"], startLine: 185, endLine: 400, intraClusterEdges: 2, crossClusterEdges: 0 }
+                      ]
+                    }
+                  ],
+                  totalCount: 1,
+                  truncated: false
+                }
+              }
+            },
+            {
+              recommendationId: `recommendation.${"3".repeat(16)}`,
+              fingerprint: zeroDigest,
+              detector: "unstable-dependency",
+              severity: "warning",
+              blocking: false,
+              capabilityId: "capability.cli",
+              affectedNodeIds: ["capability.cli"],
+              affectedPaths: [],
+              killList: [],
+              metrics: { unstableDependencyCount: 1 },
+              evidence: {
+                summary: "Stable module depends on unstable leaf",
+                instabilitySource: 0.2,
+                instabilityTarget: 0.9,
+                observation: {
+                  kind: "unstable-dependency",
+                  sourceFanIn: 4,
+                  sourceInstability: 0.2,
+                  targets: [{ targetNodeId: "capability.leaf", targetInstability: 0.9, delta: 0.7, edgeCount: 3 }],
+                  totalCount: 1,
+                  truncated: false
+                }
+              }
+            },
+            {
+              recommendationId: `recommendation.${"4".repeat(16)}`,
+              fingerprint: zeroDigest,
+              detector: "co-change-coupling",
+              severity: "warning",
+              blocking: false,
+              capabilityId: "capability.cli",
+              affectedNodeIds: ["capability.cli", "capability.leaf"],
+              affectedPaths: ["src/a.ts", "src/b.ts"],
+              killList: [],
+              metrics: { coChangePairCount: 1 },
+              evidence: {
+                summary: "Files change together across commits",
+                coChangeSupport: 5,
+                coChangeCoverageOk: true,
+                observation: {
+                  kind: "co-change-coupling",
+                  memberNodeIds: ["capability.cli", "capability.leaf"],
+                  coverageStatus: "complete",
+                  windowLimit: 200,
+                  observedCommitCount: 12,
+                  pairs: [{ pathA: "src/a.ts", pathB: "src/b.ts", coChangeCount: 5, jaccard: 0.8 }],
+                  totalCount: 1,
+                  truncated: false
+                }
+              }
             }
           ],
           suppressed: []
@@ -114,6 +218,46 @@ describe("single-source TypeBox schema registry", () => {
         { resolveSchema }
       ).issues
     ).toEqual([]);
+
+    expect(
+      validateJsonSchema(
+        CONTRACT_SCHEMA_REGISTRY["schemas/runtime/refactor-scan-v2.schema.json"] as any,
+        {
+          schemaVersion: "archcontext.refactor-scan/v2",
+          scope: { kind: "repository" },
+          headSha: zeroSha,
+          snapshotDigest: zeroDigest,
+          coverage: { imports: "complete", gitHistory: "complete", reasonCodes: [] },
+          findings: [
+            {
+              recommendationId: `recommendation.${"5".repeat(16)}`,
+              fingerprint: zeroDigest,
+              detector: "unstable-dependency",
+              severity: "warning",
+              blocking: false,
+              capabilityId: "capability.cli",
+              affectedNodeIds: ["capability.cli"],
+              affectedPaths: [],
+              killList: [],
+              metrics: {},
+              evidence: {
+                summary: "Rejects invalid typed observation evidence",
+                observation: {
+                  kind: "unstable-dependency",
+                  sourceFanIn: -1,
+                  sourceInstability: 0.2,
+                  targets: [],
+                  totalCount: 0,
+                  truncated: false
+                }
+              }
+            }
+          ],
+          suppressed: []
+        } as Json,
+        { resolveSchema }
+      ).valid
+    ).toBe(false);
 
     expect(
       validateJsonSchema(

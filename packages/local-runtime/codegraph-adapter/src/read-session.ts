@@ -314,8 +314,9 @@ export function openScratchReadOnlyCodeGraph(root: string, readProvider?: CodeGr
     const session = isolatedCodeGraphReadSession(root, graph, provider, indexIsCurrent, clean);
     graph = undefined;
     return { state: "open", session };
-  } catch {
+  } catch (error) {
     clean();
+    if (error instanceof CodeGraphProviderUnavailableError) throw error;
     return unreadable;
   }
 }

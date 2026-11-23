@@ -163,6 +163,36 @@ describe("@archcontext/local-runtime/codegraph-adapter #641 index seed", () => {
     expect(readFileSync(join(linked, ".codegraph", "codegraph.db"))).toEqual(dbBytesBefore);
   }, 60_000);
 
+  test("primary index seed refuses a schemaless or foreign codegraph.db without sidecars or walking up to a parent checkout", async () => {
+    const parent = createGitPrimaryRepo();
+    await runCodeGraphIndexSeed(parent);
+    const parentDbPath = join(parent, ".codegraph", "codegraph.db");
+    const parentBytesBefore = readFileSync(parentDbPath);
+
+    const child = join(parent, "nested-child");
+    mkdirSync(join(child, "src"), { recursive: true });
+    writeFileSync(join(child, "src", "child.ts"), "export const child = 1;\n", "utf8");
+    git(child, "init");
+    git(child, "add", ".");
+    git(child, "-c", "user.name=ArchContext Test", "-c", "user.email=test@archcontext.dev", "commit", "-m", "child init");
+    mkdirSync(join(child, ".codegraph"), { recursive: true });
+    const childDbPath = join(child, ".codegraph", "codegraph.db");
+    const { Database } = await import("bun:sqlite");
+    const foreign = new Database(childDbPath);
+    foreign.exec("CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT);");
+    foreign.close();
+    const childBytesBefore = readFileSync(childDbPath);
+
+    await expect(runCodeGraphIndexSeed(child)).rejects.toMatchObject({
+      code: "AC_CODE_FACTS_UNAVAILABLE",
+      reasonCode: "index-open-failed"
+    });
+    expect(readFileSync(childDbPath)).toEqual(childBytesBefore);
+    expect(readdirSync(join(child, ".codegraph")).sort()).toEqual(["codegraph.db"]);
+    expect(readFileSync(parentDbPath)).toEqual(parentBytesBefore);
+    expect(readdirSync(join(parent, ".codegraph")).sort()).toEqual([".gitignore", "codegraph.db"]);
+  }, 60_000);
+
   // Shared-base seeding (and its `refresh.lock` check) is disabled on Windows (`seedBundle`, #608).
   test.skipIf(process.platform === "win32")("linked worktree fails retryably with index-base-building when primary refresh.lock is active", async () => {
     const primary = createGitPrimaryRepo();

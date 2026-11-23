@@ -1,7 +1,7 @@
 import { FailureError, INDEX_SEED_SCHEMA_VERSION, digestJson, type IndexSeedResultV1, type Json } from "@archcontext/contracts";
-import { findRepositoryRoot, readOnlyGit, decodeUtf8 } from "@archcontext/local-runtime/git-adapter";
+import { findRepositoryRoot, readOnlyGit, decodeUtf8, stripGitLineTerminator } from "@archcontext/local-runtime/git-adapter";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import { DEFAULT_CODEGRAPH_BINARY, initCodeGraphIndex, syncCodeGraphIndex } from "./cli-invocation";
 import { codeGraphBaseDirectory, refreshCodeGraphBase, seedCodeGraphIndexFromBase } from "./index-base";
@@ -16,17 +16,13 @@ export interface CodeGraphIndexSeedOptions {
   initFn?: (root: string) => Promise<void> | void;
 }
 
-function stripTrailingLineEnding(value: string): string {
-  return process.platform === "win32" ? value.replace(/\r?\n$/, "") : value.replace(/\n$/, "");
-}
-
 /**
  * Determines whether a Git worktree is the primary checkout or a linked worktree (#641).
  */
 export function readGitWorktreeRole(root: string): "primary" | "linked" {
   const repositoryRoot = findRepositoryRoot(root);
-  const rawGitDir = stripTrailingLineEnding(decodeUtf8(readOnlyGit(repositoryRoot, "rev-parse", ["--git-dir"])));
-  const rawCommonDir = stripTrailingLineEnding(decodeUtf8(readOnlyGit(repositoryRoot, "rev-parse", ["--git-common-dir"])));
+  const rawGitDir = stripGitLineTerminator(decodeUtf8(readOnlyGit(repositoryRoot, "rev-parse", ["--git-dir"])));
+  const rawCommonDir = stripGitLineTerminator(decodeUtf8(readOnlyGit(repositoryRoot, "rev-parse", ["--git-common-dir"])));
   const resolvedGitDir = realpathSync.native(isAbsolute(rawGitDir) ? rawGitDir : resolve(repositoryRoot, rawGitDir));
   const resolvedCommonDir = realpathSync.native(isAbsolute(rawCommonDir) ? rawCommonDir : resolve(repositoryRoot, rawCommonDir));
   return resolvedGitDir === resolvedCommonDir ? "primary" : "linked";
@@ -46,6 +42,16 @@ function sleepSync(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
+function pathExistsNoFollow(path: string): boolean {
+  try {
+    lstatSync(path);
+    return true;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    return code !== "ENOENT" && code !== "ENOTDIR";
+  }
+}
+
 /**
  * Standalone multi-worktree CodeGraph shared-base seeding command (#641), cleanly decoupled from
  * documentation projection (`archctx sync`).
@@ -60,12 +66,24 @@ export async function runCodeGraphIndexSeed(root: string, options: CodeGraphInde
   const dbPath = join(repositoryRoot, ".codegraph", "codegraph.db");
 
   if (role === "primary") {
-    const hadDb = existsSync(dbPath);
+    const hadDb = pathExistsNoFollow(dbPath);
     const indexDir = join(repositoryRoot, ".codegraph");
-    const hadDir = existsSync(indexDir);
+    const hadDir = pathExistsNoFollow(indexDir);
     if (!hadDb) {
-      mkdirSync(indexDir, { recursive: true });
-      if (!existsSync(join(indexDir, ".gitignore"))) {
+      if (hadDir) {
+        let dirIsLocal = false;
+        try { dirIsLocal = lstatSync(indexDir).isDirectory(); } catch { dirIsLocal = false; }
+        if (!dirIsLocal) throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "index-open-failed");
+        const ignorePath = join(indexDir, ".gitignore");
+        if (pathExistsNoFollow(ignorePath)) {
+          let ignoreIsFile = false;
+          try { ignoreIsFile = lstatSync(ignorePath).isFile(); } catch { ignoreIsFile = false; }
+          if (!ignoreIsFile) throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "index-open-failed");
+        }
+      } else {
+        mkdirSync(indexDir, { recursive: true });
+      }
+      if (!pathExistsNoFollow(join(indexDir, ".gitignore"))) {
         writeFileSync(join(indexDir, ".gitignore"), "*\n", "utf8");
       }
       try {
@@ -78,6 +96,7 @@ export async function runCodeGraphIndexSeed(root: string, options: CodeGraphInde
     } else if (options.syncFn) {
       await options.syncFn(repositoryRoot);
     } else {
+      assertRepositoryCodeFactsReady(repositoryRoot, options.readProvider ? { provider: options.readProvider } : {});
       syncCodeGraphIndex(repositoryRoot, { binary, ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}) });
     }
     assertRepositoryCodeFactsReady(repositoryRoot, options.readProvider ? { provider: options.readProvider } : {});
@@ -99,7 +118,7 @@ export async function runCodeGraphIndexSeed(root: string, options: CodeGraphInde
   }
 
   // Linked worktree: non-destructive guard first (#641)
-  if (existsSync(dbPath)) {
+  if (pathExistsNoFollow(dbPath)) {
     const facts = inspectRepositoryCodeFacts(repositoryRoot, options.readProvider ? { provider: options.readProvider } : {});
     if (facts.state === "ready") {
       return {
@@ -112,6 +131,9 @@ export async function runCodeGraphIndexSeed(root: string, options: CodeGraphInde
         elapsedMs: Math.max(0, Date.now() - startedAt),
         ...(digestDatabaseFile(dbPath) ? { indexDigest: digestDatabaseFile(dbPath) } : {})
       };
+    }
+    if (facts.state === "unavailable") {
+      throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", facts.reasonCode === "index-open-failed" ? "index-open-failed" : "code-facts-unavailable");
     }
     // Pre-existing `.codegraph` exists cleanly: refuse overwriting rather than clobbering it
     throw new FailureError("AC_CODE_FACTS_NOT_READY", "code-facts-not-ready", {
@@ -153,7 +175,7 @@ export async function runCodeGraphIndexSeed(root: string, options: CodeGraphInde
   if (outcome === "base-building") {
     throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "index-base-building");
   }
-  const commonDir = decodeUtf8(readOnlyGit(repositoryRoot, "rev-parse", ["--git-common-dir"])).trim();
+  const commonDir = stripGitLineTerminator(decodeUtf8(readOnlyGit(repositoryRoot, "rev-parse", ["--git-common-dir"])));
   const baseDir = codeGraphBaseDirectory(isAbsolute(commonDir) ? commonDir : resolve(repositoryRoot, commonDir));
   throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "index-missing", {
     baseDirectoryPresent: existsSync(baseDir)

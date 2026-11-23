@@ -7,6 +7,18 @@ import {
   parseRefactorKillListSymbolTarget,
   isValidRefactorKillListSymbolTarget
 } from "./refactor";
+import type {
+  RefactorEvidenceCoChangePairV1,
+  RefactorEvidenceDirectionViolationV1,
+  RefactorEvidenceImportEdgeV1,
+  RefactorEvidenceLowCohesionClusterV1,
+  RefactorEvidenceLowCohesionFileV1,
+  RefactorEvidencePairDirectionV1,
+  RefactorEvidencePathV1,
+  RefactorEvidenceUnresolvedImportV1,
+  RefactorEvidenceUnstableTargetV1,
+  RefactorObservationEvidenceV1
+} from "./refactor-evidence-types";
 import {
   AnyOf,
   BoundedStringSchema,
@@ -18,6 +30,7 @@ import {
   OneOf,
   RawEnum,
   RecordOf,
+  Ref,
   RepoPathSchema,
   SchemaDocument,
   Sha256DigestSchema,
@@ -188,6 +201,145 @@ export const RefactorDecisionFileSchema = SchemaDocument({
 });
 export type RefactorDecisionFileV1 = Static<typeof RefactorDecisionFileSchema>;
 
+const EvidenceImportEdgeSchema = StrictObject({
+  fromPath: RepoPathSchema,
+  fromLine: NullableType("integer", { minimum: 1 }),
+  toPath: RepoPathSchema,
+  specifier: NonEmptyStringSchema,
+  fromNodeId: NonEmptyStringSchema,
+  toNodeId: NonEmptyStringSchema
+});
+
+const EvidencePairDirectionSchema = StrictObject({
+  fromNodeId: NonEmptyStringSchema,
+  toNodeId: NonEmptyStringSchema,
+  totalCount: CountSchema,
+  sampledCount: CountSchema
+});
+
+const EvidenceDirectionViolationSchema = StrictObject({
+  constraintId: NonEmptyStringSchema,
+  fromPath: RepoPathSchema,
+  fromLine: NullableType("integer", { minimum: 1 }),
+  toPath: RepoPathSchema,
+  specifier: NonEmptyStringSchema,
+  fromNodeId: NonEmptyStringSchema,
+  toNodeId: NonEmptyStringSchema
+});
+
+const EvidencePathEntrySchema = StrictObject({
+  path: RepoPathSchema,
+  candidateOwnerNodeIds: UniqueStringArray(NonEmptyStringSchema),
+  candidateOwnerCount: CountSchema
+});
+
+const EvidenceUnresolvedImportSchema = StrictObject({
+  fromPath: RepoPathSchema,
+  fromLine: NullableType("integer", { minimum: 1 }),
+  specifier: NonEmptyStringSchema
+});
+
+const EvidenceLowCohesionClusterSchema = StrictObject({
+  symbols: UniqueStringArray(NonEmptyStringSchema),
+  startLine: Type.Integer({ minimum: 1 }),
+  endLine: Type.Integer({ minimum: 1 }),
+  intraClusterEdges: CountSchema,
+  crossClusterEdges: CountSchema
+});
+
+const EvidenceLowCohesionFileSchema = StrictObject({
+  path: RepoPathSchema,
+  lineCount: CountSchema,
+  topLevelSymbolCount: CountSchema,
+  clusterCount: CountSchema,
+  clusters: Type.Array(Ref<RefactorEvidenceLowCohesionClusterV1>("#/$defs/evidenceLowCohesionCluster"))
+});
+
+const EvidenceUnstableTargetSchema = StrictObject({
+  targetNodeId: NonEmptyStringSchema,
+  targetInstability: Type.Number({ minimum: 0, maximum: 1 }),
+  delta: Type.Number({ minimum: -1, maximum: 1 }),
+  edgeCount: Type.Integer({ minimum: 1 })
+});
+
+const EvidenceCoChangePairSchema = StrictObject({
+  pathA: RepoPathSchema,
+  pathB: RepoPathSchema,
+  coChangeCount: Type.Integer({ minimum: 1 }),
+  jaccard: Type.Number({ minimum: 0, maximum: 1 })
+});
+
+const ObservationEvidenceSchema = OneOf([
+  StrictObject({
+    kind: Const("cycle"),
+    memberNodeIds: UniqueStringArray(NonEmptyStringSchema),
+    directions: Type.Array(Ref<RefactorEvidencePairDirectionV1>("#/$defs/evidencePairDirection")),
+    edges: Type.Array(Ref<RefactorEvidenceImportEdgeV1>("#/$defs/evidenceImportEdge")),
+    totalCount: CountSchema,
+    truncated: Type.Boolean()
+  }),
+  StrictObject({
+    kind: Const("residual-cycle"),
+    memberNodeIds: UniqueStringArray(NonEmptyStringSchema),
+    edges: Type.Array(Ref<RefactorEvidenceImportEdgeV1>("#/$defs/evidenceImportEdge")),
+    totalCount: CountSchema,
+    truncated: Type.Boolean()
+  }),
+  StrictObject({
+    kind: Const("direction-violation"),
+    constraintIds: UniqueStringArray(NonEmptyStringSchema),
+    constraintCount: CountSchema,
+    violations: Type.Array(Ref<RefactorEvidenceDirectionViolationV1>("#/$defs/evidenceDirectionViolation")),
+    totalCount: CountSchema,
+    truncated: Type.Boolean()
+  }),
+  StrictObject({
+    kind: StringEnum(["ownership-ambiguous", "undeclared-footprint", "unowned-paths"] as const),
+    paths: Type.Array(Ref<RefactorEvidencePathV1>("#/$defs/evidencePathEntry")),
+    totalCount: CountSchema,
+    truncated: Type.Boolean()
+  }),
+  StrictObject({
+    kind: Const("evidence-gap"),
+    coverage: StringEnum(["complete", "partial", "unknown"] as const),
+    reasonCodes: UniqueStringArray(BoundedStringSchema),
+    unresolvedImports: Type.Array(Ref<RefactorEvidenceUnresolvedImportV1>("#/$defs/evidenceUnresolvedImport")),
+    totalCount: CountSchema,
+    truncated: Type.Boolean()
+  }),
+  StrictObject({
+    kind: Const("low-cohesion-god-file"),
+    files: Type.Array(Ref<RefactorEvidenceLowCohesionFileV1>("#/$defs/evidenceLowCohesionFile")),
+    totalCount: CountSchema,
+    truncated: Type.Boolean()
+  }),
+  StrictObject({
+    kind: Const("entrypoint-bypass"),
+    declaredEntrypointPaths: UniqueStringArray(RepoPathSchema),
+    edges: Type.Array(Ref<RefactorEvidenceImportEdgeV1>("#/$defs/evidenceImportEdge")),
+    totalCount: CountSchema,
+    truncated: Type.Boolean()
+  }),
+  StrictObject({
+    kind: Const("unstable-dependency"),
+    sourceFanIn: CountSchema,
+    sourceInstability: Type.Number({ minimum: 0, maximum: 1 }),
+    targets: Type.Array(Ref<RefactorEvidenceUnstableTargetV1>("#/$defs/evidenceUnstableTarget")),
+    totalCount: CountSchema,
+    truncated: Type.Boolean()
+  }),
+  StrictObject({
+    kind: Const("co-change-coupling"),
+    memberNodeIds: UniqueStringArray(NonEmptyStringSchema),
+    coverageStatus: StringEnum(["complete", "shallow", "insufficient-history", "unavailable"] as const),
+    windowLimit: Type.Integer({ minimum: 1 }),
+    observedCommitCount: CountSchema,
+    pairs: Type.Array(Ref<RefactorEvidenceCoChangePairV1>("#/$defs/evidenceCoChangePair")),
+    totalCount: CountSchema,
+    truncated: Type.Boolean()
+  })
+]);
+
 export const RefactorScanFindingV2Schema = StrictObject({
   recommendationId: Type.String({ pattern: "^recommendation\\.[a-f0-9]{16}$" }),
   fingerprint: Sha256DigestSchema,
@@ -209,7 +361,8 @@ export const RefactorScanFindingV2Schema = StrictObject({
     instabilityTarget: Type.Optional(Type.Number({ minimum: 0, maximum: 1 })),
     testCallerCoverage: Type.Optional(NullableType("number", { minimum: 0, maximum: 1 })),
     lcomScore: Type.Optional(Type.Number({ minimum: 0 })),
-    splitClusterCount: Type.Optional(Type.Integer({ minimum: 0 }))
+    splitClusterCount: Type.Optional(Type.Integer({ minimum: 0 })),
+    observation: Type.Optional(Ref<RefactorObservationEvidenceV1>("#/$defs/observationEvidence"))
   })
 });
 export type RefactorScanFindingV2 = Static<typeof RefactorScanFindingV2Schema>;
@@ -244,7 +397,19 @@ export const RefactorScanV2Schema = SchemaDocument({
   $id: "https://archcontext.dev/schemas/runtime/refactor-scan-v2.schema.json",
   title: "RefactorScanV2",
   description: "v2 Stage 5 deterministic refactor radar output for `archctx scan --json` (#643).",
-  schema: RefactorScanV2BodySchema
+  schema: RefactorScanV2BodySchema,
+  $defs: {
+    evidenceImportEdge: EvidenceImportEdgeSchema,
+    evidencePairDirection: EvidencePairDirectionSchema,
+    evidenceDirectionViolation: EvidenceDirectionViolationSchema,
+    evidencePathEntry: EvidencePathEntrySchema,
+    evidenceUnresolvedImport: EvidenceUnresolvedImportSchema,
+    evidenceLowCohesionCluster: EvidenceLowCohesionClusterSchema,
+    evidenceLowCohesionFile: EvidenceLowCohesionFileSchema,
+    evidenceUnstableTarget: EvidenceUnstableTargetSchema,
+    evidenceCoChangePair: EvidenceCoChangePairSchema,
+    observationEvidence: ObservationEvidenceSchema
+  }
 });
 export type RefactorScanV2 = Static<typeof RefactorScanV2Schema>;
 

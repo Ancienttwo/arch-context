@@ -1,11 +1,11 @@
 import { execFile, execFileSync, spawnSync } from "node:child_process";
-import { existsSync, lstatSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { lstatSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { bindRepository, matchesGlob, type GitTrackedTreeEntry, type RepositoryBinding } from "@archcontext/core/architecture-domain";
 import { digestJson, type Json } from "@archcontext/contracts";
-import { isGitRevisionArgument, localGitEnv, readGitBlobTree, readGitBlobs } from "./blob-reader";
+import { isGitRevisionArgument, localGitEnv, readGitBlobTree, readGitBlobs, stripGitLineTerminator } from "./blob-reader";
 import { GitVisibleFilesUnavailableError } from "./sparse-worktree";
 import type { GitChangeSource, GitPathChange, GitPathChangeStatus } from "./workspace-packages";
 
@@ -17,25 +17,19 @@ export * from "./workspace-packages";
 /** One `git cat-file --batch` carries every measured blob; a repository-sized tree needs the headroom. */
 const GIT_CAT_FILE_MAX_BYTES = 512 * 1024 * 1024;
 
-function stripTrailingLineEnding(value: string): string {
-  return process.platform === "win32" ? value.replace(/\r?\n$/, "") : value.replace(/\n$/, "");
-}
-
 export function findRepositoryRoot(start: string): string {
   try {
-    return resolve(stripTrailingLineEnding(execFileSync("git", ["rev-parse", "--show-toplevel"], {
+    const raw = execFileSync("git", ["rev-parse", "--show-toplevel"], {
       cwd: start,
+      env: localGitEnv(),
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"]
-    })));
+    });
+    if (!raw.endsWith("\n")) throw new Error("root-output-invalid");
+    const stripped = stripGitLineTerminator(raw);
+    if (stripped.length === 0) throw new Error("root-output-invalid");
+    return resolve(stripped);
   } catch {
-    let cursor = resolve(start);
-    while (true) {
-      if (existsSync(resolve(cursor, ".git"))) return cursor;
-      const parent = dirname(cursor);
-      if (parent === cursor) break;
-      cursor = parent;
-    }
     throw new Error(`Repository root not found from ${start}`);
   }
 }

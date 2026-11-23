@@ -411,6 +411,9 @@
               "splitClusterCount": {
                 "minimum": 0,
                 "type": "integer"
+              },
+              "observation": {
+                "$ref": "#/$defs/observationEvidence"
               }
             }
           }
@@ -465,6 +468,925 @@
           }
         }
       }
+    }
+  },
+  "$defs": {
+    "evidenceImportEdge": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "fromPath",
+        "fromLine",
+        "toPath",
+        "specifier",
+        "fromNodeId",
+        "toNodeId"
+      ],
+      "properties": {
+        "fromPath": {
+          "type": "string",
+          "minLength": 1,
+          "not": {
+            "anyOf": [
+              {
+                "pattern": "^/"
+              },
+              {
+                "pattern": "/$"
+              },
+              {
+                "pattern": "//"
+              },
+              {
+                "pattern": "\\\\"
+              },
+              {
+                "pattern": "^[A-Za-z]:"
+              },
+              {
+                "pattern": "[\\u0000-\\u001f\\u007f]"
+              },
+              {
+                "pattern": "(^|/)\\.\\.?(/|$)"
+              }
+            ]
+          }
+        },
+        "fromLine": {
+          "minimum": 1,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "toPath": {
+          "type": "string",
+          "minLength": 1,
+          "not": {
+            "anyOf": [
+              {
+                "pattern": "^/"
+              },
+              {
+                "pattern": "/$"
+              },
+              {
+                "pattern": "//"
+              },
+              {
+                "pattern": "\\\\"
+              },
+              {
+                "pattern": "^[A-Za-z]:"
+              },
+              {
+                "pattern": "[\\u0000-\\u001f\\u007f]"
+              },
+              {
+                "pattern": "(^|/)\\.\\.?(/|$)"
+              }
+            ]
+          }
+        },
+        "specifier": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "fromNodeId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "toNodeId": {
+          "minLength": 1,
+          "type": "string"
+        }
+      }
+    },
+    "evidencePairDirection": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "fromNodeId",
+        "toNodeId",
+        "totalCount",
+        "sampledCount"
+      ],
+      "properties": {
+        "fromNodeId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "toNodeId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "totalCount": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sampledCount": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      }
+    },
+    "evidenceDirectionViolation": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "constraintId",
+        "fromPath",
+        "fromLine",
+        "toPath",
+        "specifier",
+        "fromNodeId",
+        "toNodeId"
+      ],
+      "properties": {
+        "constraintId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "fromPath": {
+          "type": "string",
+          "minLength": 1,
+          "not": {
+            "anyOf": [
+              {
+                "pattern": "^/"
+              },
+              {
+                "pattern": "/$"
+              },
+              {
+                "pattern": "//"
+              },
+              {
+                "pattern": "\\\\"
+              },
+              {
+                "pattern": "^[A-Za-z]:"
+              },
+              {
+                "pattern": "[\\u0000-\\u001f\\u007f]"
+              },
+              {
+                "pattern": "(^|/)\\.\\.?(/|$)"
+              }
+            ]
+          }
+        },
+        "fromLine": {
+          "minimum": 1,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "toPath": {
+          "type": "string",
+          "minLength": 1,
+          "not": {
+            "anyOf": [
+              {
+                "pattern": "^/"
+              },
+              {
+                "pattern": "/$"
+              },
+              {
+                "pattern": "//"
+              },
+              {
+                "pattern": "\\\\"
+              },
+              {
+                "pattern": "^[A-Za-z]:"
+              },
+              {
+                "pattern": "[\\u0000-\\u001f\\u007f]"
+              },
+              {
+                "pattern": "(^|/)\\.\\.?(/|$)"
+              }
+            ]
+          }
+        },
+        "specifier": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "fromNodeId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "toNodeId": {
+          "minLength": 1,
+          "type": "string"
+        }
+      }
+    },
+    "evidencePathEntry": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "path",
+        "candidateOwnerNodeIds",
+        "candidateOwnerCount"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "not": {
+            "anyOf": [
+              {
+                "pattern": "^/"
+              },
+              {
+                "pattern": "/$"
+              },
+              {
+                "pattern": "//"
+              },
+              {
+                "pattern": "\\\\"
+              },
+              {
+                "pattern": "^[A-Za-z]:"
+              },
+              {
+                "pattern": "[\\u0000-\\u001f\\u007f]"
+              },
+              {
+                "pattern": "(^|/)\\.\\.?(/|$)"
+              }
+            ]
+          }
+        },
+        "candidateOwnerNodeIds": {
+          "uniqueItems": true,
+          "type": "array",
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "candidateOwnerCount": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      }
+    },
+    "evidenceUnresolvedImport": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "fromPath",
+        "fromLine",
+        "specifier"
+      ],
+      "properties": {
+        "fromPath": {
+          "type": "string",
+          "minLength": 1,
+          "not": {
+            "anyOf": [
+              {
+                "pattern": "^/"
+              },
+              {
+                "pattern": "/$"
+              },
+              {
+                "pattern": "//"
+              },
+              {
+                "pattern": "\\\\"
+              },
+              {
+                "pattern": "^[A-Za-z]:"
+              },
+              {
+                "pattern": "[\\u0000-\\u001f\\u007f]"
+              },
+              {
+                "pattern": "(^|/)\\.\\.?(/|$)"
+              }
+            ]
+          }
+        },
+        "fromLine": {
+          "minimum": 1,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "specifier": {
+          "minLength": 1,
+          "type": "string"
+        }
+      }
+    },
+    "evidenceLowCohesionCluster": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "symbols",
+        "startLine",
+        "endLine",
+        "intraClusterEdges",
+        "crossClusterEdges"
+      ],
+      "properties": {
+        "symbols": {
+          "uniqueItems": true,
+          "type": "array",
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "startLine": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "endLine": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "intraClusterEdges": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "crossClusterEdges": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      }
+    },
+    "evidenceLowCohesionFile": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "path",
+        "lineCount",
+        "topLevelSymbolCount",
+        "clusterCount",
+        "clusters"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "not": {
+            "anyOf": [
+              {
+                "pattern": "^/"
+              },
+              {
+                "pattern": "/$"
+              },
+              {
+                "pattern": "//"
+              },
+              {
+                "pattern": "\\\\"
+              },
+              {
+                "pattern": "^[A-Za-z]:"
+              },
+              {
+                "pattern": "[\\u0000-\\u001f\\u007f]"
+              },
+              {
+                "pattern": "(^|/)\\.\\.?(/|$)"
+              }
+            ]
+          }
+        },
+        "lineCount": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "topLevelSymbolCount": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "clusterCount": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "clusters": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidenceLowCohesionCluster"
+          }
+        }
+      }
+    },
+    "evidenceUnstableTarget": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "targetNodeId",
+        "targetInstability",
+        "delta",
+        "edgeCount"
+      ],
+      "properties": {
+        "targetNodeId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "targetInstability": {
+          "minimum": 0,
+          "maximum": 1,
+          "type": "number"
+        },
+        "delta": {
+          "minimum": -1,
+          "maximum": 1,
+          "type": "number"
+        },
+        "edgeCount": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      }
+    },
+    "evidenceCoChangePair": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "pathA",
+        "pathB",
+        "coChangeCount",
+        "jaccard"
+      ],
+      "properties": {
+        "pathA": {
+          "type": "string",
+          "minLength": 1,
+          "not": {
+            "anyOf": [
+              {
+                "pattern": "^/"
+              },
+              {
+                "pattern": "/$"
+              },
+              {
+                "pattern": "//"
+              },
+              {
+                "pattern": "\\\\"
+              },
+              {
+                "pattern": "^[A-Za-z]:"
+              },
+              {
+                "pattern": "[\\u0000-\\u001f\\u007f]"
+              },
+              {
+                "pattern": "(^|/)\\.\\.?(/|$)"
+              }
+            ]
+          }
+        },
+        "pathB": {
+          "type": "string",
+          "minLength": 1,
+          "not": {
+            "anyOf": [
+              {
+                "pattern": "^/"
+              },
+              {
+                "pattern": "/$"
+              },
+              {
+                "pattern": "//"
+              },
+              {
+                "pattern": "\\\\"
+              },
+              {
+                "pattern": "^[A-Za-z]:"
+              },
+              {
+                "pattern": "[\\u0000-\\u001f\\u007f]"
+              },
+              {
+                "pattern": "(^|/)\\.\\.?(/|$)"
+              }
+            ]
+          }
+        },
+        "coChangeCount": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "jaccard": {
+          "minimum": 0,
+          "maximum": 1,
+          "type": "number"
+        }
+      }
+    },
+    "observationEvidence": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "kind",
+            "memberNodeIds",
+            "directions",
+            "edges",
+            "totalCount",
+            "truncated"
+          ],
+          "properties": {
+            "kind": {
+              "const": "cycle"
+            },
+            "memberNodeIds": {
+              "uniqueItems": true,
+              "type": "array",
+              "items": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "directions": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/evidencePairDirection"
+              }
+            },
+            "edges": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/evidenceImportEdge"
+              }
+            },
+            "totalCount": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "kind",
+            "memberNodeIds",
+            "edges",
+            "totalCount",
+            "truncated"
+          ],
+          "properties": {
+            "kind": {
+              "const": "residual-cycle"
+            },
+            "memberNodeIds": {
+              "uniqueItems": true,
+              "type": "array",
+              "items": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "edges": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/evidenceImportEdge"
+              }
+            },
+            "totalCount": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "kind",
+            "constraintIds",
+            "constraintCount",
+            "violations",
+            "totalCount",
+            "truncated"
+          ],
+          "properties": {
+            "kind": {
+              "const": "direction-violation"
+            },
+            "constraintIds": {
+              "uniqueItems": true,
+              "type": "array",
+              "items": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "constraintCount": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "violations": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/evidenceDirectionViolation"
+              }
+            },
+            "totalCount": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "kind",
+            "paths",
+            "totalCount",
+            "truncated"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "ownership-ambiguous",
+                "undeclared-footprint",
+                "unowned-paths"
+              ]
+            },
+            "paths": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/evidencePathEntry"
+              }
+            },
+            "totalCount": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "kind",
+            "coverage",
+            "reasonCodes",
+            "unresolvedImports",
+            "totalCount",
+            "truncated"
+          ],
+          "properties": {
+            "kind": {
+              "const": "evidence-gap"
+            },
+            "coverage": {
+              "type": "string",
+              "enum": [
+                "complete",
+                "partial",
+                "unknown"
+              ]
+            },
+            "reasonCodes": {
+              "uniqueItems": true,
+              "type": "array",
+              "items": {
+                "minLength": 1,
+                "maxLength": 1024,
+                "type": "string"
+              }
+            },
+            "unresolvedImports": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/evidenceUnresolvedImport"
+              }
+            },
+            "totalCount": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "kind",
+            "files",
+            "totalCount",
+            "truncated"
+          ],
+          "properties": {
+            "kind": {
+              "const": "low-cohesion-god-file"
+            },
+            "files": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/evidenceLowCohesionFile"
+              }
+            },
+            "totalCount": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "kind",
+            "declaredEntrypointPaths",
+            "edges",
+            "totalCount",
+            "truncated"
+          ],
+          "properties": {
+            "kind": {
+              "const": "entrypoint-bypass"
+            },
+            "declaredEntrypointPaths": {
+              "uniqueItems": true,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "not": {
+                  "anyOf": [
+                    {
+                      "pattern": "^/"
+                    },
+                    {
+                      "pattern": "/$"
+                    },
+                    {
+                      "pattern": "//"
+                    },
+                    {
+                      "pattern": "\\\\"
+                    },
+                    {
+                      "pattern": "^[A-Za-z]:"
+                    },
+                    {
+                      "pattern": "[\\u0000-\\u001f\\u007f]"
+                    },
+                    {
+                      "pattern": "(^|/)\\.\\.?(/|$)"
+                    }
+                  ]
+                }
+              }
+            },
+            "edges": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/evidenceImportEdge"
+              }
+            },
+            "totalCount": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "kind",
+            "sourceFanIn",
+            "sourceInstability",
+            "targets",
+            "totalCount",
+            "truncated"
+          ],
+          "properties": {
+            "kind": {
+              "const": "unstable-dependency"
+            },
+            "sourceFanIn": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "sourceInstability": {
+              "minimum": 0,
+              "maximum": 1,
+              "type": "number"
+            },
+            "targets": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/evidenceUnstableTarget"
+              }
+            },
+            "totalCount": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "kind",
+            "memberNodeIds",
+            "coverageStatus",
+            "windowLimit",
+            "observedCommitCount",
+            "pairs",
+            "totalCount",
+            "truncated"
+          ],
+          "properties": {
+            "kind": {
+              "const": "co-change-coupling"
+            },
+            "memberNodeIds": {
+              "uniqueItems": true,
+              "type": "array",
+              "items": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "coverageStatus": {
+              "type": "string",
+              "enum": [
+                "complete",
+                "shallow",
+                "insufficient-history",
+                "unavailable"
+              ]
+            },
+            "windowLimit": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "observedCommitCount": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "pairs": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/evidenceCoChangePair"
+              }
+            },
+            "totalCount": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          }
+        }
+      ]
     }
   }
 }

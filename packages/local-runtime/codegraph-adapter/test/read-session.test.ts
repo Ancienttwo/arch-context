@@ -13,6 +13,7 @@ import {
   assertRepositoryCodeFactsReady,
   inspectRepositoryCodeFacts,
   openCodeGraphReadSession,
+  openCodeGraphSymbolReader,
   pinnedCodeGraphProvider,
   withCodeGraphReadSession,
   type CodeGraphReadProvider
@@ -378,6 +379,12 @@ describe("read session over a real index", () => {
       }
       expect(inspectRepositoryCodeFacts(isolated).state).toBe("ready");
       expect(withReadyCodeGraphIndex(isolated, (graph) => graph.getFiles().length)).toBeGreaterThan(0);
+      const symbolReader = openCodeGraphSymbolReader(isolated);
+      expect(symbolReader.availability).toBe("ready");
+      if (symbolReader.availability === "ready") {
+        expect(symbolReader.reader.declarationsNamed("sidecarFree").length).toBeGreaterThan(0);
+        symbolReader.reader.close();
+      }
       const snapshotOut = join(isolated, "snapshot.db");
       snapshotCodeGraphIndex(database, snapshotOut);
       expect(statSync(snapshotOut).size).toBeGreaterThan(100);

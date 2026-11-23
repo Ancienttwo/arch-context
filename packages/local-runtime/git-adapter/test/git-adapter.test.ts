@@ -136,6 +136,41 @@ describe("@archcontext/local-runtime/git-adapter", () => {
     }
   });
 
+  test("findRepositoryRoot respects GIT_CEILING_DIRECTORIES and fails closed instead of walking .git directories", () => {
+    const parent = realpathSync.native(mkdtempSync(join(tmpdir(), "archctx-git-ceiling-")));
+    const sub = join(parent, "sub");
+    const prevCeiling = process.env.GIT_CEILING_DIRECTORIES;
+    try {
+      git(parent, "init", "-q");
+      mkdirSync(join(sub, ".git"), { recursive: true });
+      process.env.GIT_CEILING_DIRECTORIES = parent;
+      expect(() => findRepositoryRoot(sub)).toThrow("Repository root not found");
+    } finally {
+      if (prevCeiling === undefined) delete process.env.GIT_CEILING_DIRECTORIES;
+      else process.env.GIT_CEILING_DIRECTORIES = prevCeiling;
+      removeTempRoot(parent);
+    }
+  });
+
+  test.skipIf(process.platform === "win32")("findRepositoryRoot preserves trailing spaces and POSIX carriage returns without collapsing onto adjacent checkouts", () => {
+    const workspace = realpathSync.native(mkdtempSync(join(tmpdir(), "archctx-git-root-ws-")));
+    const clean = join(workspace, "project");
+    const trailingSpace = join(workspace, "project ");
+    const trailingCr = join(workspace, "project\r");
+    try {
+      mkdirSync(clean);
+      mkdirSync(trailingSpace);
+      mkdirSync(trailingCr);
+      git(clean, "init", "-q");
+      git(trailingSpace, "init", "-q");
+      git(trailingCr, "init", "-q");
+      expect(findRepositoryRoot(trailingSpace)).toBe(trailingSpace);
+      expect(findRepositoryRoot(trailingCr)).toBe(trailingCr);
+    } finally {
+      removeTempRoot(workspace);
+    }
+  });
+
   test("reads commit, staged, and worktree change metadata without source or diff bodies", () => {
     const root = createGitFixture();
     try {

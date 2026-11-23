@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { Edge as CodeGraphEdge, Node as CodeGraphNode } from "@colbymchenry/codegraph";
-import { codeGraphBundle, withCodeGraphReadSession, type CodeGraphIndexHandle, type CodeGraphReadProvider, type CodeGraphReadSession, type CodeGraphSdk } from "./read-session";
+import { codeGraphBundle, openScratchReadOnlyCodeGraph, withCodeGraphReadSession, type CodeGraphIndexHandle, type CodeGraphReadProvider, type CodeGraphReadSession, type CodeGraphSdk } from "./read-session";
 import { listGitVisibleFiles } from "@archcontext/local-runtime/git-adapter";
 import {
   loadCapabilitySourceFootprints,
@@ -95,24 +95,33 @@ export type CodeGraphSymbolReaderResult =
 const NON_DECLARATION_KINDS: ReadonlySet<string> = new Set(["file", "import", "export", "parameter"]);
 
 /**
- * Opens the workspace CodeGraph index read-only for symbol lookups. It never opens the index
- * writable. When the read-only open fails, the result is `index-open-failed`. Whether a read-only
- * open works with no live holder depends on the SQLite build: Node's `node:sqlite` opens it and
- * creates the WAL files, and the macOS system SQLite that Bun uses there refuses it.
+ * Opens the workspace CodeGraph index read-only for symbol lookups. Production callers leave
+ * `openIndex` unset and read through `openScratchReadOnlyCodeGraph`, leaving zero `-wal`/`-shm`
+ * sidecars in `<workspaceRoot>/.codegraph/`.
  */
 export function openCodeGraphSymbolReader(
   workspaceRoot: string,
-  openIndex: (root: string, options: { readOnly: true }) => ReturnType<CodeGraphSdk["CodeGraph"]["openSync"]> = (root, options) => codeGraphSdk().CodeGraph.openSync(root, options)
+  openIndex?: (root: string, options: { readOnly: true }) => ReturnType<CodeGraphSdk["CodeGraph"]["openSync"]>
 ): CodeGraphSymbolReaderResult {
-  if (!codeGraphIndexAvailable(workspaceRoot)) return { availability: "unavailable", reasonCode: "index-missing" };
-  disableCodeGraphTelemetryByDefault();
-  let graph: ReturnType<CodeGraphSdk["CodeGraph"]["openSync"]>;
+  if (openIndex) {
+    if (!codeGraphIndexAvailable(workspaceRoot)) return { availability: "unavailable", reasonCode: "index-missing" };
+    disableCodeGraphTelemetryByDefault();
+    let graph: ReturnType<CodeGraphSdk["CodeGraph"]["openSync"]>;
+    try {
+      graph = openIndex(workspaceRoot, { readOnly: true });
+    } catch {
+      return { availability: "unavailable", reasonCode: "index-open-failed" };
+    }
+    return codeGraphSymbolReader(graph, () => graph.close());
+  }
   try {
-    graph = openIndex(workspaceRoot, { readOnly: true });
+    const opened = openScratchReadOnlyCodeGraph(workspaceRoot);
+    if (opened.state === "index-missing") return { availability: "unavailable", reasonCode: "index-missing" };
+    if (opened.state !== "open") return { availability: "unavailable", reasonCode: "index-open-failed" };
+    return codeGraphSymbolReader(opened.session.graph, () => opened.session.close());
   } catch {
     return { availability: "unavailable", reasonCode: "index-open-failed" };
   }
-  return codeGraphSymbolReader(graph, () => graph.close());
 }
 
 /** Use an existing graph without taking ownership of the workspace session. */

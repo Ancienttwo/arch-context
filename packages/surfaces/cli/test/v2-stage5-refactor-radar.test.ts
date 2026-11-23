@@ -116,7 +116,24 @@ describe("v2 Stage 5 pure-Git refactor radar (#636, #637, #638, #643)", () => {
 
       const bypass = scan.findings.find((f) => f.detector === "entrypoint-bypass");
       expect(bypass).toBeDefined();
-      expect(scan.findings.some((f) => f.detector === "component-cycle")).toBe(true);
+      expect(bypass?.evidence.observation).toMatchObject({
+        kind: "entrypoint-bypass",
+        declaredEntrypointPaths: ["src/b/index.ts"],
+        edges: [
+          expect.objectContaining({
+            fromPath: "src/a/entry.ts",
+            toPath: "src/b/internal.ts",
+            fromNodeId: "capability.a",
+            toNodeId: "capability.b"
+          })
+        ]
+      });
+      const cycleFinding = scan.findings.find((f) => f.detector === "component-cycle");
+      expect(cycleFinding).toBeDefined();
+      expect(cycleFinding?.evidence.observation).toMatchObject({
+        kind: "cycle",
+        memberNodeIds: ["capability.a", "capability.b"]
+      });
 
       // No SQLite state or daemon files created.
       expect(existsSync(join(stateDir, "archcontext.sqlite"))).toBe(false);
@@ -278,6 +295,11 @@ describe("v2 Stage 5 pure-Git refactor radar (#636, #637, #638, #643)", () => {
     const fullScan = (await runCli("scan", ["--json"], origin)).data as RefactorScanV2;
     const coChange = fullScan.findings.find((f) => f.detector === "co-change-coupling");
     expect(coChange).toBeDefined();
+    expect(coChange?.evidence.observation).toMatchObject({
+      kind: "co-change-coupling",
+      coverageStatus: "complete",
+      pairs: [expect.objectContaining({ pathA: "src/a/entry.ts", pathB: "src/b/internal.ts" })]
+    });
 
     const rejectedCo = await runCli("decide", ["reject", coChange!.recommendationId, "--reason", "Track co-change pair"], origin);
     expect(rejectedCo.ok, JSON.stringify(rejectedCo)).toBe(true);
@@ -420,6 +442,45 @@ describe("v2 Stage 5 pure-Git refactor radar (#636, #637, #638, #643)", () => {
     expect(verified.killListChecks).toEqual([
       { kind: "symbol", target: "src/B/INTERNAL.ts#secretHelper", required: true, status: "still-present" },
       { kind: "path", target: "src/B/INTERNAL.ts", required: true, status: "still-present" }
+    ]);
+  }, 120_000);
+
+  test("fails closed on cross-platform core.ignorecase=false case-aliased targets and tolerates .archctx-tmp decision files", async () => {
+    const root = createCycleAndKillFixture(2);
+    git(root, "config", "--local", "core.ignorecase", "false");
+    const scanEnv = await runCli("scan", ["--json"], root);
+    expect(scanEnv.ok, JSON.stringify(scanEnv)).toBe(true);
+    const bypass = (scanEnv.data as RefactorScanV2).findings.find((f) => f.detector === "entrypoint-bypass");
+    expect(bypass).toBeDefined();
+    const id = bypass!.recommendationId;
+
+    const accepted = await runCli("decide", [
+      "accept",
+      id,
+      "--kill-path",
+      "src/B/INTERNAL.ts",
+      "--kill-symbol",
+      "src/B/INTERNAL.ts#secretHelper",
+      "--reason",
+      "Cross-platform case alias verification"
+    ], root);
+    expect(accepted.ok, JSON.stringify(accepted)).toBe(true);
+
+    const decisionFile = join(root, `.archcontext/refactor-decisions/${id}.json`);
+    writeFileSync(`${decisionFile}.archctx-tmp-999-1`, "{}\n", "utf8");
+    const listWithTemp = await runCli("decide", ["list", "--json"], root);
+    expect(listWithTemp.ok, JSON.stringify(listWithTemp)).toBe(true);
+
+    const verifiedEnv = await runCli("verify", [id, "--json"], root);
+    expect(verifiedEnv.ok, JSON.stringify(verifiedEnv)).toBe(true);
+    const verified = verifiedEnv.data as RefactorVerifyV2;
+    expect(verified.disposition).toBe("stale");
+    expect(verified.blockingReasons).toEqual(
+      expect.arrayContaining(["kill-list-path-unverifiable", "kill-list-symbol-unverifiable"])
+    );
+    expect(verified.killListChecks).toEqual([
+      { kind: "symbol", target: "src/B/INTERNAL.ts#secretHelper", required: true, status: "uncheckable" },
+      { kind: "path", target: "src/B/INTERNAL.ts", required: true, status: "uncheckable" }
     ]);
   }, 120_000);
 });

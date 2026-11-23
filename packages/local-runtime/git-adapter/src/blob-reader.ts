@@ -88,12 +88,15 @@ export function readOnlyGit(root: string, operation: GitReadOperation, args: str
   return result.stdout;
 }
 
+export function stripGitLineTerminator(value: string): string {
+  return process.platform === "win32" ? value.replace(/\r?\n$/, "") : value.replace(/\n$/, "");
+}
+
 export function readNativeGitRoot(start: string): string {
   try {
     const body = decodeUtf8(readOnlyGit(start, "rev-parse", ["--show-toplevel"]));
     if (!body.endsWith("\n")) throw new Error("root-output-invalid");
-    const stripped = process.platform === "win32" ? body.replace(/\r?\n$/, "") : body.slice(0, -1);
-    return resolve(stripped);
+    return resolve(stripGitLineTerminator(body));
   } catch { throw new NativeContextError("git-worktree-required"); }
 }
 
