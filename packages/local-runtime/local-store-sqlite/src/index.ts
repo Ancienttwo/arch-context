@@ -1,9 +1,10 @@
 import { digestJson, FailureError, type ArchitectureDebtReportV1, type ExternalDocumentationCacheEntry, type ExternalDocumentationProvider, type Json, type LocalStorePort } from "@archcontext/contracts";
 import type { CrossRepoRelation, Landscape } from "@archcontext/core/architecture-domain";
 import { randomUUID } from "node:crypto";
-import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync, writeSync } from "node:fs";
+import { chmodSync, closeSync, constants as fsConstants, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, realpathSync, rmSync, statSync, writeSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname } from "node:path";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { ARCHCONTEXT_LOCAL_STORE_PATH_ENV, runtimeStatePaths } from "../../runtime-state-paths/src/index";
 export { ARCHCONTEXT_STATE_DIR_ENV, ARCHCONTEXT_LOCAL_STORE_PATH_ENV, defaultArchContextStateRoot, runtimeStatePaths, type RuntimeStatePaths } from "../../runtime-state-paths/src/index";
 
@@ -11,6 +12,53 @@ const runtimeRequire = createRequire(import.meta.url);
 const LOCAL_CACHE_SCHEMA_VERSION = 200;
 const LOCK_ATTEMPTS = 6;
 const LOCK_RETRY_MS = 20;
+const SQLITE_MAGIC_HEADER = "SQLite format 3\0";
+
+const V2_CACHE_TABLES = new Set([
+  "architecture_debt_base_cache",
+  "external_docs_cache",
+  "kv_cache"
+]);
+
+const KNOWN_ARCHCONTEXT_SQLITE_TABLES = new Set([
+  ...V2_CACHE_TABLES,
+  "schema_migrations",
+  "repository_sessions",
+  "snapshots",
+  "task_states",
+  "observed_evidence",
+  "review_results",
+  "landscapes",
+  "cross_repo_edges",
+  "changeset_journal",
+  "architecture_events",
+  "architecture_snapshots",
+  "architecture_entities_current",
+  "architecture_relations_current",
+  "architecture_constraints_current",
+  "evidence_items",
+  "evidence_bindings",
+  "recommendation_runs",
+  "recommendations",
+  "recommendation_feedback",
+  "agent_jobs",
+  "projection_state",
+  "source_cursors",
+  "waivers",
+  "architecture_ledger_operations",
+  "runtime_job_queue",
+  "audit_runs",
+  "explorer_projection_cache",
+  "explorer_occurrence_dependencies",
+  "evidence_tombstones",
+  "architecture_event_subjects",
+  "architecture_change_feed",
+  "architecture_change_feed_consumers",
+  "architecture_change_feed_backfill_state",
+  "explorer_runtime_metrics",
+  "architecture_evidence_state_checkpoints",
+  "projection_apply_receipts"
+]);
 
 export const LOCAL_STORE_WRITER_OWNED_ERROR = "local-store-writer-owned";
 export const SQLITE_PRAGMAS = ["PRAGMA journal_mode = WAL;", "PRAGMA synchronous = NORMAL;", "PRAGMA busy_timeout = 5000;"] as const;
@@ -154,9 +202,78 @@ function openSqliteDatabaseSync(databasePath: string): SqliteDatabase {
   throw new Error("Unsupported SQLite runtime: archctx requires Bun or Node.");
 }
 
-function removeCacheSidecars(databasePath: string): void {
-  if (databasePath === ":memory:") return;
-  for (const suffix of ["", "-wal", "-shm"]) try { rmSync(`${databasePath}${suffix}`, { force: true }); } catch {}
+function assertProvenOrAbsentLocalStore(databasePath: string): void {
+  let stat;
+  try {
+    stat = lstatSync(databasePath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw new FailureError("AC_PRECONDITION_FAILED", "local-store-unproven-file");
+  }
+  if (!stat.isFile() || stat.size < SQLITE_MAGIC_HEADER.length) {
+    throw new FailureError("AC_PRECONDITION_FAILED", "local-store-unproven-file");
+  }
+  const header = Buffer.alloc(SQLITE_MAGIC_HEADER.length);
+  let fd: number | undefined;
+  try {
+    fd = openSync(databasePath, "r");
+    const bytesRead = readSync(fd, header, 0, header.length, 0);
+    if (bytesRead < header.length || header.toString("ascii") !== SQLITE_MAGIC_HEADER) {
+      throw new FailureError("AC_PRECONDITION_FAILED", "local-store-unproven-file");
+    }
+  } catch (error) {
+    if (error instanceof FailureError) throw error;
+    throw new FailureError("AC_PRECONDITION_FAILED", "local-store-unproven-file");
+  } finally {
+    if (fd !== undefined) {
+      try { closeSync(fd); } catch {}
+    }
+  }
+
+  const walPath = `${databasePath}-wal`;
+  const shmPath = `${databasePath}-shm`;
+  let hasWal = false;
+  for (const [sidecarPath, isWal] of [[walPath, true], [shmPath, false]] as const) {
+    try {
+      const sidecarStat = lstatSync(sidecarPath);
+      if (!sidecarStat.isFile()) {
+        throw new FailureError("AC_PRECONDITION_FAILED", "local-store-unproven-file");
+      }
+      if (isWal) hasWal = true;
+    } catch (error) {
+      if (error instanceof FailureError) throw error;
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw new FailureError("AC_PRECONDITION_FAILED", "local-store-unproven-file");
+      }
+    }
+  }
+
+  let scratch: string | undefined;
+  let probeDb: SqliteDatabase | undefined;
+  try {
+    scratch = mkdtempSync(join(realpathSync(tmpdir()), "archctx-store-probe-"));
+    const stagedDb = join(scratch, "store.sqlite");
+    copyFileSync(databasePath, stagedDb, fsConstants.COPYFILE_FICLONE);
+    if (hasWal) copyFileSync(walPath, `${stagedDb}-wal`, fsConstants.COPYFILE_FICLONE);
+    probeDb = openSqliteDatabaseSync(stagedDb);
+    probeDb.exec("PRAGMA query_only = ON;");
+    const versionRow = probeDb.prepare("PRAGMA user_version").get();
+    const version = Number(versionRow?.user_version ?? 0);
+    const tables = probeDb.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all()
+      .map((row) => String(row.name));
+    if (tables.length === 0 || tables.some((name) => !KNOWN_ARCHCONTEXT_SQLITE_TABLES.has(name))) {
+      throw new FailureError("AC_PRECONDITION_FAILED", "local-store-unproven-file");
+    }
+    if (version === LOCAL_CACHE_SCHEMA_VERSION && (tables.length !== V2_CACHE_TABLES.size || tables.some((name) => !V2_CACHE_TABLES.has(name)))) {
+      throw new FailureError("AC_PRECONDITION_FAILED", "local-store-unproven-file");
+    }
+  } catch (error) {
+    if (error instanceof FailureError) throw error;
+    throw new FailureError("AC_PRECONDITION_FAILED", "local-store-unproven-file");
+  } finally {
+    try { probeDb?.close(); } catch {}
+    if (scratch !== undefined) rmSync(scratch, { recursive: true, force: true, maxRetries: 3 });
+  }
 }
 
 function debtCacheKey(key: ArchitectureDebtBaseCacheKey): string {
@@ -192,15 +309,15 @@ export class SqliteLocalStore implements RuntimeLocalStore {
 
   private connection(): SqliteDatabase {
     if (this.db) return this.db;
-    let db: SqliteDatabase;
+    if (this.databasePath !== ":memory:") {
+      assertProvenOrAbsentLocalStore(this.databasePath);
+    }
+    const db = openSqliteDatabaseSync(this.databasePath);
     try {
-      db = openSqliteDatabaseSync(this.databasePath);
       this.initSchema(db);
-    } catch {
-      try { db!?.close(); } catch {}
-      removeCacheSidecars(this.databasePath);
-      db = openSqliteDatabaseSync(this.databasePath);
-      this.initSchema(db);
+    } catch (error) {
+      try { db.close(); } catch {}
+      throw error;
     }
     if (this.databasePath !== ":memory:" && process.platform !== "win32" && existsSync(this.databasePath)) {
       try { chmodSync(this.databasePath, 0o600); } catch {}
@@ -214,9 +331,14 @@ export class SqliteLocalStore implements RuntimeLocalStore {
     const versionRow = db.prepare("PRAGMA user_version").get();
     const version = Number(versionRow?.user_version ?? 0);
     if (version !== LOCAL_CACHE_SCHEMA_VERSION) {
+      const tables = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all();
+      for (const table of tables) {
+        if (!KNOWN_ARCHCONTEXT_SQLITE_TABLES.has(String(table.name))) {
+          throw new FailureError("AC_PRECONDITION_FAILED", "local-store-unproven-file");
+        }
+      }
       db.exec("BEGIN IMMEDIATE");
       try {
-        const tables = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all();
         for (const table of tables) db.exec(`DROP TABLE IF EXISTS "${String(table.name).replace(/"/g, '""')}"`);
         db.exec(`
           CREATE TABLE architecture_debt_base_cache (cache_key TEXT PRIMARY KEY, report_json TEXT NOT NULL, updated_at TEXT NOT NULL);

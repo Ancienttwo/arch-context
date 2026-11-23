@@ -97,7 +97,10 @@ function evidencePaths(observation: RefactorObservationV1): string[] {
 
 function findingEvidenceSummary(observation: RefactorObservationV1, summaryText: string): RefactorScanFindingV2["evidence"] {
   const ev = observation.evidence;
-  const result: RefactorScanFindingV2["evidence"] = { summary: summaryText.slice(0, 250) };
+  const result: RefactorScanFindingV2["evidence"] = {
+    summary: summaryText.slice(0, 250),
+    observation: ev
+  };
   if (ev.kind === "cycle") {
     result.thinDirectionEdgeCount = observation.metrics.thinDirectionEdgeCount ?? 0;
   } else if (ev.kind === "residual-cycle") {

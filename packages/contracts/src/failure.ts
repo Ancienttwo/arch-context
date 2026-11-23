@@ -178,6 +178,7 @@ Object.assign(policies, {
   "runtime-writer-locked": {"code": "AC_PRECONDITION_FAILED", "message": "Runtime writer is locked.", "facts": {}},
   "runtime-ledger-mode-invalid": {"code": "AC_SCHEMA_INVALID", "message": "Runtime architecture ledger mode invalid.", "facts": {"field": "ledgerModeField"}},
   "runtime-writer-owned": {"code": "AC_PRECONDITION_FAILED", "message": "local-store-writer-owned: another live process owns this store.", "facts": {}},
+  "local-store-unproven-file": {"code": "AC_PRECONDITION_FAILED", "message": "Local store target is not an ArchContext SQLite cache; refusing to modify or delete it.", "facts": {}},
   "rpc-input-invalid": {"code": "AC_SCHEMA_INVALID", "message": "Runtime RPC input invalid.", "facts": {}},
   "rpc-method-invalid": {"code": "AC_SCHEMA_INVALID", "message": "Unknown runtime RPC method. Upgrade the client.", "facts": {}, "action":"upgrade-client"},
   "changeset-rollback-conflict": {code: "AC_PRECONDITION_FAILED", message: "ChangeSet rollback is incomplete because the projection manifest changed externally. Preserve the pending journal and backup for manual recovery.", facts: {journalId: "optional:id", changeSetId: "id", manualRecoveryRequired: "boolean"}},

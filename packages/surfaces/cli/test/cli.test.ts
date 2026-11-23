@@ -1577,7 +1577,7 @@ describe("archctx CLI", () => {
       const install = await runTestCli("install", ["--host", "codex"], root);
       expect((install.data as any).marker).toContain("archctx prepare");
       expect((install.data as any).marker).toContain("archctx check --changed");
-      mkdirSync(join(root, ".git"), { recursive: true });
+      execFileSync("git", ["init", "-q"], { cwd: root });
       const doctor = await runTestCli("doctor", [], root);
       expect((doctor.data as any).version.schemaSetVersion).toBeTruthy();
       expect((doctor.data as any).runtime).toMatchObject({ mode: "in-process" });

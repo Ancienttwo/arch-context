@@ -58,13 +58,16 @@ function parseExplicitKillList(input: RunDecideV2Input): RefactorDecisionKillTar
   return entries;
 }
 
+let atomicDecisionWriteSeq = 0;
+
 function writeAtomicDecision(root: string, decision: RefactorDecisionV1): { path: string; status: RefactorDecisionStatus } {
   const writePlan = refactorDecisionWrite(root, decision);
   const absPath = join(root, writePlan.path);
   mkdirSync(dirname(absPath), { recursive: true });
-  const tempPath = `${absPath}.archctx-tmp-${process.pid}-${Date.now()}`;
+  const seq = atomicDecisionWriteSeq++;
+  const tempPath = `${absPath}.archctx-tmp-${process.pid}-${Date.now() * 1000 + (seq % 1000)}`;
   try {
-    writeFileSync(tempPath, writePlan.body, { encoding: "utf8", mode: 0o644 });
+    writeFileSync(tempPath, writePlan.body, { encoding: "utf8", mode: 0o644, flag: "wx" });
     renameSync(tempPath, absPath);
   } catch (error) {
     try { unlinkSync(tempPath); } catch { /* ignore cleanup errors */ }

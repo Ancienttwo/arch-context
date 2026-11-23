@@ -1,9 +1,12 @@
 import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import {
   FailureError,
   REFACTOR_VERIFY_V2_SCHEMA_VERSION,
   digestJson,
   isCanonicalRepoRelativePosixPath,
+  parseRefactorKillListSymbolTarget,
   type Json,
   type ModuleStatisticsSnapshotV1,
   type RefactorDecisionV1,
@@ -16,7 +19,7 @@ import { ancestorChain, bindRepository, type NativeNode } from "@archcontext/cor
 import { resolveOwnership } from "@archcontext/core/module-statistics";
 import { deriveObservationOutcomes, readSnapshotMetric, type RefactorResolutionMetric } from "@archcontext/core/refactor-assessment";
 import { verifySymbolKillList } from "@archcontext/local-runtime/codegraph-adapter";
-import { listGitVisibleFiles, readCurrentBranch, readGitBlobTree, readHeadSha, resolveNativeGitSnapshot } from "@archcontext/local-runtime/git-adapter";
+import { listGitVisibleFiles, localGitEnv, readCurrentBranch, readGitBlobTree, readHeadSha, resolveNativeGitSnapshot } from "@archcontext/local-runtime/git-adapter";
 import { runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
 import { readRefactorDecisionSet } from "./refactor-decisions";
 import { measureRefactorSnapshot, refactorWorktreeDigests } from "./refactor-scan";
@@ -29,6 +32,7 @@ function isGitCaseInsensitive(root: string): boolean {
   try {
     return execFileSync("git", ["config", "--bool", "--get", "core.ignorecase"], {
       cwd: root,
+      env: localGitEnv(),
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"]
     }).trim() === "true";
@@ -230,14 +234,52 @@ export function runVerifyV2(root: string, recommendationId: string, options: { i
 
   const caseInsensitive = isGitCaseInsensitive(root);
   const trackedSet = new Set(measured.trackedFiles.map((file) => file.path));
-  const trackedLowerSet = caseInsensitive ? new Set(measured.trackedFiles.map((file) => file.path.toLowerCase())) : undefined;
+  const sourceFilesSet = new Set(gitScope.sourceFiles);
+  const presentLower = new Set<string>([...trackedSet, ...sourceFilesSet].map((filePath) => filePath.toLowerCase()));
+  let baselineTrackedSet: Set<string> | null | undefined;
+  const getBaselineTrackedSet = (): Set<string> | null => {
+    if (baselineTrackedSet !== undefined) return baselineTrackedSet;
+    try {
+      const { treeOid } = resolveNativeGitSnapshot(root, decision.provenance.headSha);
+      baselineTrackedSet = new Set(
+        readGitBlobTree(root, treeOid, { trees: false, sizes: false })
+          .filter((entry) => entry.type === "blob")
+          .map((entry) => entry.path)
+      );
+    } catch {
+      baselineTrackedSet = null;
+    }
+    return baselineTrackedSet;
+  };
   const killList = decision.killList ?? [];
   const symbolTargets = killList.filter((entry) => entry.kind === "symbol").map((entry) => entry.target);
+  const caseAliasedUnknownPaths = new Set<string>();
+  if (!caseInsensitive) {
+    for (const symTarget of symbolTargets) {
+      const parsed = parseRefactorKillListSymbolTarget(symTarget);
+      if (!parsed) continue;
+      if (
+        !trackedSet.has(parsed.path) &&
+        !sourceFilesSet.has(parsed.path) &&
+        presentLower.has(parsed.path.toLowerCase())
+      ) {
+        const baseline = getBaselineTrackedSet();
+        if (baseline === null || !baseline.has(parsed.path)) {
+          caseAliasedUnknownPaths.add(parsed.path);
+        }
+      }
+    }
+  }
   const codeFactsReady =
     snapshot.codeFacts.coverage !== "unknown" &&
     snapshot.codeFacts.indexedWorktreeDigest === snapshot.worktree.worktreeDigest;
   const symbolResults = new Map(
-    verifySymbolKillList(root, symbolTargets, { codeFactsReady, trackedFiles: trackedSet, caseInsensitive })
+    verifySymbolKillList(root, symbolTargets, {
+      codeFactsReady,
+      trackedFiles: trackedSet,
+      caseInsensitive,
+      ...(caseAliasedUnknownPaths.size > 0 ? { caseAliasedUnknownPaths } : {})
+    })
       .map((entry) => [entry.target, entry])
   );
 
@@ -252,12 +294,49 @@ export function runVerifyV2(root: string, recommendationId: string, options: { i
           status: "uncheckable"
         };
       }
-      const present = trackedSet.has(entry.target) || (trackedLowerSet?.has(entry.target.toLowerCase()) ?? false);
+      if (trackedSet.has(entry.target) || sourceFilesSet.has(entry.target)) {
+        return {
+          kind: "path",
+          target: entry.target,
+          required: entry.required,
+          status: "still-present"
+        };
+      }
+      const caseAliased = presentLower.has(entry.target.toLowerCase());
+      if (caseInsensitive && caseAliased) {
+        return {
+          kind: "path",
+          target: entry.target,
+          required: entry.required,
+          status: "still-present"
+        };
+      }
+      const onDisk = existsSync(join(root, entry.target));
+      if (caseAliased) {
+        const baseline = getBaselineTrackedSet();
+        if (onDisk || baseline === null || !baseline.has(entry.target)) {
+          if (entry.required) blockingReasons.add("kill-list-path-unverifiable");
+          return {
+            kind: "path",
+            target: entry.target,
+            required: entry.required,
+            status: "uncheckable"
+          };
+        }
+      } else if (onDisk) {
+        if (entry.required) blockingReasons.add("kill-list-path-unverifiable");
+        return {
+          kind: "path",
+          target: entry.target,
+          required: entry.required,
+          status: "uncheckable"
+        };
+      }
       return {
         kind: "path",
         target: entry.target,
         required: entry.required,
-        status: present ? "still-present" : "removed"
+        status: "removed"
       };
     }
     if (entry.kind === "relation") {
@@ -291,6 +370,7 @@ export function runVerifyV2(root: string, recommendationId: string, options: { i
     blockingReasons.has("git-history-incomplete") ||
     blockingReasons.has("co-change-window-decay-without-structural-closure") ||
     blockingReasons.has("kill-list-path-noncanonical") ||
+    blockingReasons.has("kill-list-path-unverifiable") ||
     blockingReasons.has("kill-list-symbol-unverifiable");
 
   const satisfiedCount =

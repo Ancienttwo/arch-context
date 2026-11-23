@@ -4,6 +4,7 @@ import { closeSync, constants as fsConstants, copyFileSync, fstatSync, linkSync,
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CodeGraphBaseRefreshV1, CodeGraphKeptPathV1 } from "@archcontext/contracts";
+import { localGitEnv, stripGitLineTerminator } from "@archcontext/local-runtime/git-adapter";
 import { codeGraphChildEnv } from "./child-env";
 import { CODEGRAPH_OUTPUT_MAX_BYTES, CODEGRAPH_SYNC_TIMEOUT_MS, DEFAULT_CODEGRAPH_BINARY, disableCodeGraphTelemetryByDefault, packagedCodeGraphCliInvocation } from "./cli-invocation";
 import { REQUIRED_CODEGRAPH_VERSION, codeGraphBundle, codeGraphChangeCounts, codeGraphIndexIdentity, openCodeGraphReadSession, pidLockLive, type CodeGraphBundle, type CodeGraphReadProvider } from "./read-session";
@@ -77,19 +78,22 @@ interface GitDirs {
   commonDir: string;
 }
 
-function stripTrailingLineEnding(value: string): string {
-  return process.platform === "win32" ? value.replace(/\r?\n$/, "") : value.replace(/\n$/, "");
-}
-
 /** The Git directories of `root`, only when `root` is the top level of a worktree. */
 function gitDirs(root: string): GitDirs | undefined {
   let output: string;
   try {
-    output = execFileSync("git", ["rev-parse", "--path-format=absolute", "--show-toplevel", "--git-dir", "--git-common-dir"], { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    output = execFileSync("git", ["rev-parse", "--path-format=absolute", "--show-toplevel", "--git-dir", "--git-common-dir"], {
+      cwd: root,
+      env: localGitEnv(),
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"]
+    });
   } catch {
     return undefined;
   }
-  const [topLevel, gitDir, commonDir] = stripTrailingLineEnding(output).split(process.platform === "win32" ? /\r?\n/ : "\n");
+  const parts = stripGitLineTerminator(output).split(process.platform === "win32" ? /\r?\n/ : "\n");
+  if (parts.length !== 3) return undefined;
+  const [topLevel, gitDir, commonDir] = parts;
   if (!topLevel || !gitDir || !commonDir || realpathSync.native(topLevel) !== realpathSync.native(root)) return undefined;
   return { gitDir, commonDir };
 }
@@ -598,6 +602,10 @@ function refreshCodeGraphBaseUnchecked(root: string, options: CodeGraphBaseRefre
   }
 }
 
+function formatFileIdentity(stat: { dev: bigint; ino: bigint; ctimeNs: bigint; mtimeNs: bigint; size: bigint }): string {
+  return `${stat.dev}:${stat.ino}:${stat.ctimeNs}:${stat.mtimeNs}:${stat.size}`;
+}
+
 /**
  * `VACUUM INTO` on a read-only handle over a private scratch copy (`source` + any regular `-wal`):
  * a consistent single-file snapshot that includes committed WAL frames without creating `-wal`/`-shm`
@@ -610,17 +618,35 @@ export function snapshotCodeGraphIndex(source: string, target: string): void {
   if (journalStat) {
     throw new Error("CodeGraph snapshot source has an active rollback journal");
   }
+  const sourceStat = lstatSync(source, { bigint: true, throwIfNoEntry: false });
+  if (!sourceStat || !sourceStat.isFile()) {
+    throw new Error("CodeGraph snapshot source is not a regular file");
+  }
+  const beforeSourceId = formatFileIdentity(sourceStat);
   const walPath = `${source}-wal`;
-  const walStat = lstatSync(walPath, { throwIfNoEntry: false });
+  const walStat = lstatSync(walPath, { bigint: true, throwIfNoEntry: false });
   if (walStat && !walStat.isFile()) {
     throw new Error("CodeGraph snapshot WAL entry is not a regular file");
   }
+  const beforeWalId = walStat ? formatFileIdentity(walStat) : undefined;
   const scratch = mkdtempSync(join(realpathSync(tmpdir()), "archctx-snapshot-"));
   const scratchDb = join(scratch, "codegraph.db");
   try {
     copyFileSync(source, scratchDb, fsConstants.COPYFILE_FICLONE);
     if (walStat) {
       copyFileSync(walPath, `${scratchDb}-wal`, fsConstants.COPYFILE_FICLONE);
+    }
+    const afterSourceStat = lstatSync(source, { bigint: true, throwIfNoEntry: false });
+    const afterSourceId = afterSourceStat?.isFile() ? formatFileIdentity(afterSourceStat) : undefined;
+    const afterWalStat = lstatSync(walPath, { bigint: true, throwIfNoEntry: false });
+    const afterWalId = afterWalStat?.isFile() ? formatFileIdentity(afterWalStat) : undefined;
+    if (
+      afterSourceId !== beforeSourceId
+      || (afterWalStat && !afterWalStat.isFile())
+      || afterWalId !== beforeWalId
+      || lstatSync(`${source}-journal`, { throwIfNoEntry: false })
+    ) {
+      throw new Error("CodeGraph snapshot source changed during copy");
     }
     const script = 'const { DatabaseSync } = require("node:sqlite"); const db = new DatabaseSync(process.argv[1], { readOnly: true }); try { db.prepare("VACUUM INTO ?").run(process.argv[2]); } finally { db.close(); }';
     execFileSync(node, ["--no-warnings", "-e", script, scratchDb, target], { stdio: "pipe", timeout: 120_000, env: codeGraphChildEnv() });

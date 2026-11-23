@@ -70,6 +70,7 @@ export interface VerifySymbolKillListOptions {
   codeFactsReady: boolean;
   trackedFiles?: ReadonlySet<string>;
   caseInsensitive?: boolean;
+  caseAliasedUnknownPaths?: ReadonlySet<string>;
   provider?: CodeGraphReadProvider;
 }
 
@@ -422,6 +423,9 @@ export function verifySymbolKillList(
         const parsed = parseRefactorKillListSymbolTarget(target);
         if (!parsed) {
           return { target, status: "unknown", reasonCode: "kill-list-symbol-ambiguous" };
+        }
+        if (options.caseAliasedUnknownPaths?.has(parsed.path)) {
+          return { target, status: "unknown", reasonCode: "code-facts-file-unindexed" };
         }
         const matchedTracked = options.trackedFiles === undefined
           ? []
