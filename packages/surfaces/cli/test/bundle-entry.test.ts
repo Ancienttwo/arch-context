@@ -139,6 +139,7 @@ describe("bundled bin/archctx.mjs (#297)", () => {
     const dbDir = mkdtempSync(join(tmpdir(), "archctx-bundle-sqlite-dbs-"));
     const legacyDbPath = join(dbDir, "legacy-v0171.sqlite");
     const foreignDbPath = join(dbDir, "foreign-overlap.sqlite");
+    const coreSpoofDbPath = join(dbDir, "foreign-core-spoof.sqlite");
     try {
       writeFileSync(join(repo, "README.md"), "# sqlite upgrade fixture\n", "utf8");
       execFileSync("git", ["init", "-q"], { cwd: repo });
@@ -315,6 +316,20 @@ describe("bundled bin/archctx.mjs (#297)", () => {
             INSERT INTO snapshots (id, body) VALUES (1, 'preserve-me');
           \`);
           fdb.close();
+          const cdb = new DatabaseSync(${JSON.stringify(coreSpoofDbPath)});
+          cdb.exec(\`
+            CREATE TABLE schema_migrations (id TEXT PRIMARY KEY, applied_at TEXT NOT NULL);
+            CREATE TABLE repository_sessions (repository_id TEXT PRIMARY KEY, root TEXT NOT NULL, head_sha TEXT NOT NULL, worktree_digest TEXT NOT NULL, updated_at TEXT NOT NULL);
+            CREATE TABLE snapshots (id TEXT PRIMARY KEY, repository_id TEXT NOT NULL, head_sha TEXT NOT NULL, worktree_digest TEXT NOT NULL, state TEXT NOT NULL, created_at TEXT NOT NULL, committed_at TEXT);
+            CREATE TABLE task_states (task_session_id TEXT PRIMARY KEY, payload_json TEXT NOT NULL, updated_at TEXT NOT NULL);
+            CREATE TABLE observed_evidence (id TEXT PRIMARY KEY, repository_id TEXT NOT NULL, head_sha TEXT NOT NULL, selector_json TEXT NOT NULL, summary TEXT NOT NULL, confidence TEXT NOT NULL, created_at TEXT NOT NULL);
+            CREATE TABLE review_results (review_id TEXT PRIMARY KEY, task_session_id TEXT NOT NULL, payload_json TEXT NOT NULL, created_at TEXT NOT NULL);
+            CREATE TABLE waivers (id TEXT PRIMARY KEY, owner TEXT NOT NULL);
+            CREATE TRIGGER user_audit_trigger AFTER INSERT ON snapshots BEGIN SELECT 1; END;
+            INSERT INTO schema_migrations VALUES ('0001_runtime_state', '2026-11-20T00:00:00.000Z');
+            INSERT INTO waivers VALUES ('w1', 'keep-me');
+          \`);
+          cdb.close();
         `
       ]);
 
@@ -346,19 +361,21 @@ describe("bundled bin/archctx.mjs (#297)", () => {
         applicationId: 0x41435458
       });
 
-      const foreignBytesBefore = readFileSync(foreignDbPath);
-      const foreignFilesBefore = readdirSync(dbDir).sort();
-      const refused = await runBundle(repo, ["status", "--json"], {
-        env: { ...process.env, ARCHCONTEXT_STATE_DIR: stateDir, ARCHCONTEXT_LOCAL_STORE_PATH: foreignDbPath },
-        allowFailure: true
-      });
-      expect(refused.ok).toBe(false);
-      expect(refused.error).toMatchObject({
-        code: "AC_PRECONDITION_FAILED",
-        reasonCode: "local-store-unproven-file"
-      });
-      expect(readFileSync(foreignDbPath)).toEqual(foreignBytesBefore);
-      expect(readdirSync(dbDir).sort()).toEqual(foreignFilesBefore);
+      for (const blockedDbPath of [foreignDbPath, coreSpoofDbPath]) {
+        const bytesBefore = readFileSync(blockedDbPath);
+        const filesBefore = readdirSync(dbDir).sort();
+        const refused = await runBundle(repo, ["status", "--json"], {
+          env: { ...process.env, ARCHCONTEXT_STATE_DIR: stateDir, ARCHCONTEXT_LOCAL_STORE_PATH: blockedDbPath },
+          allowFailure: true
+        });
+        expect(refused.ok).toBe(false);
+        expect(refused.error).toMatchObject({
+          code: "AC_PRECONDITION_FAILED",
+          reasonCode: "local-store-unproven-file"
+        });
+        expect(readFileSync(blockedDbPath)).toEqual(bytesBefore);
+        expect(readdirSync(dbDir).sort()).toEqual(filesBefore);
+      }
     } finally {
       rmSync(repo, { recursive: true, force: true });
       rmSync(stateDir, { recursive: true, force: true });

@@ -6,6 +6,16 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { ARCHCONTEXT_LOCAL_STORE_PATH_ENV, runtimeStatePaths } from "../../runtime-state-paths/src/index";
+import {
+  KNOWN_LEGACY_V1_MIGRATION_IDS,
+  KNOWN_LEGACY_V1_TABLE_COLUMNS,
+  KNOWN_LEGACY_V1_TRIGGER_SQL,
+  KNOWN_LEGACY_V1_VIEW_SQL,
+  KNOWN_LEGACY_V1_VIRTUAL_TABLE_SQL,
+  LEGACY_V1_CORE_TABLE_COLUMNS,
+  LEGACY_V1_DEBT_CACHE_COLUMNS,
+  LEGACY_V1_FTS_SHADOW_PARENTS
+} from "./legacy-v1-schema";
 export { ARCHCONTEXT_STATE_DIR_ENV, ARCHCONTEXT_LOCAL_STORE_PATH_ENV, defaultArchContextStateRoot, runtimeStatePaths, type RuntimeStatePaths } from "../../runtime-state-paths/src/index";
 
 const runtimeRequire = createRequire(import.meta.url);
@@ -31,103 +41,6 @@ const V2_CACHE_TABLE_COLUMNS: Record<string, readonly string[]> = {
 };
 
 const V2_CACHE_TABLES = new Set(Object.keys(V2_CACHE_TABLE_COLUMNS));
-
-const LEGACY_V1_CORE_TABLE_COLUMNS: Record<string, readonly string[]> = {
-  schema_migrations: ["id|TEXT|0|1", "applied_at|TEXT|1|0"],
-  repository_sessions: ["repository_id|TEXT|0|1", "root|TEXT|1|0", "head_sha|TEXT|1|0", "worktree_digest|TEXT|1|0", "updated_at|TEXT|1|0"],
-  snapshots: ["id|TEXT|0|1", "repository_id|TEXT|1|0", "head_sha|TEXT|1|0", "worktree_digest|TEXT|1|0", "state|TEXT|1|0", "created_at|TEXT|1|0", "committed_at|TEXT|0|0"],
-  task_states: ["task_session_id|TEXT|0|1", "payload_json|TEXT|1|0", "updated_at|TEXT|1|0"],
-  observed_evidence: ["id|TEXT|0|1", "repository_id|TEXT|1|0", "head_sha|TEXT|1|0", "selector_json|TEXT|1|0", "summary|TEXT|1|0", "confidence|TEXT|1|0", "created_at|TEXT|1|0"],
-  review_results: ["review_id|TEXT|0|1", "task_session_id|TEXT|1|0", "payload_json|TEXT|1|0", "created_at|TEXT|1|0"]
-};
-
-const LEGACY_V1_DEBT_CACHE_COLUMNS: readonly string[] = [
-  "repository_id|TEXT|1|1",
-  "base_sha|TEXT|1|2",
-  "archcontext_tree_oid|TEXT|1|3",
-  "codegraph_version|TEXT|1|4",
-  "engine_version|TEXT|1|5",
-  "measurement_profile|TEXT|1|6",
-  "report_json|TEXT|1|0"
-];
-
-const KNOWN_LEGACY_V1_MIGRATION_IDS = new Set([
-  "0001_runtime_state",
-  "0002_indexes",
-  "0003_landscape_state",
-  "0004_changeset_journal",
-  "0005_external_docs_cache",
-  "0006_architecture_ledger",
-  "0007_runtime_job_queue",
-  "0008_runtime_job_queue_hardening",
-  "0009_architecture_ledger_search_fts",
-  "0010_audit_runs",
-  "0011_changeset_cleanup_cursor",
-  "0012_explorer_projection_index",
-  "0013_evidence_lifecycle",
-  "0014_architecture_change_feed",
-  "0015_snapshot_anchor_v2",
-  "0016_manifest_addressed_projection_cache",
-  "0017_explorer_cache_lifecycle",
-  "0018_immutable_evidence_checkpoints",
-  "0019_projection_apply_receipts",
-  "0020_projection_apply_recovery_proof"
-]);
-
-const KNOWN_LEGACY_V1_VIEWS = new Set([
-  "architecture_current_graph_view",
-  "open_recommendations_view",
-  "recent_architecture_changes_view",
-  "unresolved_evidence_view"
-]);
-
-const KNOWN_LEGACY_V1_TABLES = new Set([
-  ...Object.keys(LEGACY_V1_CORE_TABLE_COLUMNS),
-  "architecture_debt_base_cache",
-  "landscapes",
-  "cross_repo_edges",
-  "changeset_journal",
-  "projection_apply_receipts",
-  "external_docs_cache",
-  "architecture_events",
-  "architecture_snapshots",
-  "architecture_entities_current",
-  "architecture_relations_current",
-  "architecture_constraints_current",
-  "evidence_items",
-  "evidence_bindings",
-  "evidence_tombstones",
-  "architecture_event_subjects",
-  "architecture_change_feed",
-  "architecture_change_feed_consumers",
-  "architecture_change_feed_backfill_state",
-  "architecture_evidence_state_checkpoints",
-  "recommendation_runs",
-  "recommendations",
-  "recommendation_feedback",
-  "agent_jobs",
-  "runtime_job_queue",
-  "projection_state",
-  "source_cursors",
-  "waivers",
-  "architecture_ledger_operations",
-  "architecture_ledger_fts",
-  "architecture_ledger_fts_config",
-  "architecture_ledger_fts_content",
-  "architecture_ledger_fts_data",
-  "architecture_ledger_fts_docsize",
-  "architecture_ledger_fts_idx",
-  "architecture_ledger_search_fts",
-  "architecture_ledger_search_fts_config",
-  "architecture_ledger_search_fts_content",
-  "architecture_ledger_search_fts_data",
-  "architecture_ledger_search_fts_docsize",
-  "architecture_ledger_search_fts_idx",
-  "audit_runs",
-  "explorer_projection_cache",
-  "explorer_occurrence_dependencies",
-  "explorer_runtime_metrics"
-]);
 
 export const LOCAL_STORE_WRITER_OWNED_ERROR = "local-store-writer-owned";
 export const SQLITE_PRAGMAS = ["PRAGMA journal_mode = WAL;", "PRAGMA synchronous = NORMAL;", "PRAGMA busy_timeout = 5000;"] as const;
@@ -318,6 +231,21 @@ function orderTablesForForeignKeySafeDrop(db: SqliteDatabase, tableNames: readon
   return ordered;
 }
 
+function ownEntry<T>(record: Readonly<Record<string, T>>, key: string): T | undefined {
+  return Object.prototype.hasOwnProperty.call(record, key) ? record[key] : undefined;
+}
+
+function normalizeSqliteDdl(sql: unknown): string {
+  return String(sql ?? "")
+    .replace(/\s+/g, " ")
+    .replace(/\s*([(),])\s*/g, "$1")
+    .trim();
+}
+
+function isVirtualTableSql(sql: unknown): boolean {
+  return typeof sql === "string" && /^\s*CREATE\s+VIRTUAL\s+TABLE\b/i.test(sql);
+}
+
 function tableMatchesColumns(db: SqliteDatabase, tableName: string, expectedColumns: readonly string[]): boolean {
   const columns = db.prepare(`PRAGMA table_info(${quoteSqlIdentifier(tableName)})`).all();
   if (columns.length !== expectedColumns.length) return false;
@@ -325,6 +253,10 @@ function tableMatchesColumns(db: SqliteDatabase, tableName: string, expectedColu
     const signature = `${String(col.name)}|${String(col.type)}|${Number(col.notnull)}|${Number(col.pk)}`;
     return signature === expectedColumns[index];
   });
+}
+
+function tableMatchesAnyColumns(db: SqliteDatabase, tableName: string, variants: readonly (readonly string[])[]): boolean {
+  return variants.some((expectedColumns) => tableMatchesColumns(db, tableName, expectedColumns));
 }
 
 function classifyLocalStoreDatabase(db: SqliteDatabase): {
@@ -337,12 +269,19 @@ function classifyLocalStoreDatabase(db: SqliteDatabase): {
   const versionRow = db.prepare("PRAGMA user_version").get();
   const userVersion = Number(versionRow?.user_version ?? 0);
   const masterRows = db
-    .prepare("SELECT type, name FROM sqlite_master WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%'")
+    .prepare("SELECT type, name, sql FROM sqlite_master WHERE type IN ('table', 'view', 'trigger') AND name NOT LIKE 'sqlite_%'")
     .all();
-  const tableNames = masterRows.filter((row) => String(row.type) === "table").map((row) => String(row.name));
-  const viewNames = masterRows.filter((row) => String(row.type) === "view").map((row) => String(row.name));
+  const tableRows = masterRows
+    .filter((row) => String(row.type) === "table")
+    .map((row) => ({ name: String(row.name), sql: row.sql }));
+  const viewRows = masterRows
+    .filter((row) => String(row.type) === "view")
+    .map((row) => ({ name: String(row.name), sql: row.sql }));
+  const triggerRows = masterRows
+    .filter((row) => String(row.type) === "trigger")
+    .map((row) => ({ name: String(row.name), sql: row.sql }));
 
-  if (tableNames.length === 0 && viewNames.length === 0) {
+  if (tableRows.length === 0 && viewRows.length === 0 && triggerRows.length === 0) {
     return {
       kind: userVersion === 0 && applicationId === 0 ? "empty" : "unproven",
       applicationId,
@@ -352,11 +291,16 @@ function classifyLocalStoreDatabase(db: SqliteDatabase): {
 
   if (userVersion === LOCAL_CACHE_SCHEMA_VERSION) {
     const validAppId = applicationId === 0 || applicationId === ARCHCONTEXT_SQLITE_APPLICATION_ID;
-    const validViews = viewNames.every((name) => KNOWN_LEGACY_V1_VIEWS.has(name));
-    const exactTables = tableNames.length === V2_CACHE_TABLES.size
-      && tableNames.every((name) => V2_CACHE_TABLES.has(name) && tableMatchesColumns(db, name, V2_CACHE_TABLE_COLUMNS[name]!));
-    return validAppId && validViews && exactTables
-      ? { kind: "proven-v2", applicationId, legacyViewNames: viewNames }
+    const validTriggers = triggerRows.length === 0;
+    const validViews = viewRows.every((view) => ownEntry(KNOWN_LEGACY_V1_VIEW_SQL, view.name) === normalizeSqliteDdl(view.sql));
+    const exactTables = tableRows.length === V2_CACHE_TABLES.size
+      && tableRows.every((table) => {
+        if (isVirtualTableSql(table.sql) || !V2_CACHE_TABLES.has(table.name)) return false;
+        const expectedCols = ownEntry(V2_CACHE_TABLE_COLUMNS, table.name);
+        return expectedCols !== undefined && tableMatchesColumns(db, table.name, expectedCols);
+      });
+    return validAppId && validTriggers && validViews && exactTables
+      ? { kind: "proven-v2", applicationId, legacyViewNames: viewRows.map((view) => view.name) }
       : { kind: "unproven", applicationId, legacyViewNames: [] };
   }
 
@@ -365,38 +309,52 @@ function classifyLocalStoreDatabase(db: SqliteDatabase): {
   }
 
   if (
-    viewNames.length === 0
-    && tableNames.length === 1
-    && tableNames[0] === "architecture_debt_base_cache"
+    viewRows.length === 0
+    && triggerRows.length === 0
+    && tableRows.length === 1
+    && tableRows[0]!.name === "architecture_debt_base_cache"
+    && !isVirtualTableSql(tableRows[0]!.sql)
     && tableMatchesColumns(db, "architecture_debt_base_cache", LEGACY_V1_DEBT_CACHE_COLUMNS)
   ) {
     return { kind: "proven-legacy", applicationId, legacyViewNames: [] };
   }
 
-  if (viewNames.some((name) => !KNOWN_LEGACY_V1_VIEWS.has(name))) {
+  if (triggerRows.some((trigger) => ownEntry(KNOWN_LEGACY_V1_TRIGGER_SQL, trigger.name) !== normalizeSqliteDdl(trigger.sql))) {
     return { kind: "unproven", applicationId, legacyViewNames: [] };
   }
-  if (tableNames.some((name) => !KNOWN_LEGACY_V1_TABLES.has(name))) {
+  if (viewRows.some((view) => ownEntry(KNOWN_LEGACY_V1_VIEW_SQL, view.name) !== normalizeSqliteDdl(view.sql))) {
     return { kind: "unproven", applicationId, legacyViewNames: [] };
   }
-  const tableSet = new Set(tableNames);
-  for (const [tableName, expectedCols] of Object.entries(LEGACY_V1_CORE_TABLE_COLUMNS)) {
-    if (!tableSet.has(tableName) || !tableMatchesColumns(db, tableName, expectedCols)) {
+
+  const tableSet = new Set(tableRows.map((table) => table.name));
+  for (const coreTableName of Object.keys(LEGACY_V1_CORE_TABLE_COLUMNS)) {
+    if (!tableSet.has(coreTableName)) {
       return { kind: "unproven", applicationId, legacyViewNames: [] };
     }
   }
-  if (
-    tableSet.has("architecture_debt_base_cache")
-    && !tableMatchesColumns(db, "architecture_debt_base_cache", LEGACY_V1_DEBT_CACHE_COLUMNS)
-  ) {
-    return { kind: "unproven", applicationId, legacyViewNames: [] };
+
+  for (const table of tableRows) {
+    const variants = ownEntry(KNOWN_LEGACY_V1_TABLE_COLUMNS, table.name);
+    if (!variants) {
+      return { kind: "unproven", applicationId, legacyViewNames: [] };
+    }
+    const expectedVirtualSql = ownEntry(KNOWN_LEGACY_V1_VIRTUAL_TABLE_SQL, table.name);
+    if (expectedVirtualSql !== undefined) {
+      if (normalizeSqliteDdl(table.sql) !== expectedVirtualSql) {
+        return { kind: "unproven", applicationId, legacyViewNames: [] };
+      }
+    } else if (isVirtualTableSql(table.sql)) {
+      return { kind: "unproven", applicationId, legacyViewNames: [] };
+    }
+    const requiredParent = ownEntry(LEGACY_V1_FTS_SHADOW_PARENTS, table.name);
+    if (requiredParent !== undefined && !tableSet.has(requiredParent)) {
+      return { kind: "unproven", applicationId, legacyViewNames: [] };
+    }
+    if (!tableMatchesAnyColumns(db, table.name, variants)) {
+      return { kind: "unproven", applicationId, legacyViewNames: [] };
+    }
   }
-  if (
-    tableSet.has("external_docs_cache")
-    && !tableMatchesColumns(db, "external_docs_cache", V2_CACHE_TABLE_COLUMNS.external_docs_cache!)
-  ) {
-    return { kind: "unproven", applicationId, legacyViewNames: [] };
-  }
+
   const migrations = db.prepare("SELECT id FROM schema_migrations").all().map((row) => String(row.id));
   if (
     migrations.length === 0
@@ -405,7 +363,7 @@ function classifyLocalStoreDatabase(db: SqliteDatabase): {
   ) {
     return { kind: "unproven", applicationId, legacyViewNames: [] };
   }
-  return { kind: "proven-legacy", applicationId, legacyViewNames: viewNames };
+  return { kind: "proven-legacy", applicationId, legacyViewNames: viewRows.map((view) => view.name) };
 }
 
 function assertAbsentSidecars(databasePath: string): void {
