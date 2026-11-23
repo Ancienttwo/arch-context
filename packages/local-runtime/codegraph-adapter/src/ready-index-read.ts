@@ -42,17 +42,19 @@ export function codeFactsReadinessAfterRead(root: string, session: CodeGraphRead
  */
 export function withReadyCodeGraphIndex<T>(root: string, read: (graph: CodeGraphIndexHandle) => T, options: RepositoryCodeFactsInspectionOptions = {}): T {
   try {
-    const provider = options.provider ?? pinnedCodeGraphProvider();
     return withCodeGraphReadSession(root, (opened) => {
       switch (opened.state) {
         case "index-missing":
           throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "index-missing");
         case "index-open-failed":
           throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "index-open-failed");
-        case "build-in-progress":
+        case "build-in-progress": {
+          const provider = options.provider ?? pinnedCodeGraphProvider();
           throw codeFactsReadFailure(movingCodeFacts(provider.version));
+        }
         case "open": {
           // Compatibility gates the read; freshness is proven once, by the step after it.
+          const provider = options.provider ?? pinnedCodeGraphProvider();
           let readiness: { facts: RepositoryCodeFactsV1; retryable: boolean };
           try { readiness = openSessionCodeFacts(opened.session, "compatibility"); }
           catch { throw new FailureError("AC_CODE_FACTS_UNAVAILABLE", "index-open-failed"); }
@@ -63,7 +65,7 @@ export function withReadyCodeGraphIndex<T>(root: string, read: (graph: CodeGraph
           return result;
         }
       }
-    }, { provider });
+    }, options.provider ? { provider: options.provider } : {});
   } catch (error) {
     if (error instanceof FailureError) throw error;
     // No provider or SDK text crosses this boundary.

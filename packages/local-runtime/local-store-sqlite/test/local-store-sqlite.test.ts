@@ -22,7 +22,7 @@ function makeTempDb(name = "runtime.sqlite"): string {
 }
 
 describe("@archcontext/local-runtime/local-store-sqlite discardable cache", () => {
-  test("creates only the 3 cache tables with user_version=200 and busy_timeout=5000", async () => {
+  test("creates only the 3 cache tables with application_id=0x41435458, user_version=200 and busy_timeout=5000", async () => {
     const dbPath = makeTempDb();
     const store = new SqliteLocalStore(dbPath);
     openStores.push(store);
@@ -34,42 +34,229 @@ describe("@archcontext/local-runtime/local-store-sqlite discardable cache", () =
       const tables = raw.query("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all() as Array<{ name: string }>;
       expect(tables.map((t) => t.name)).toEqual(["architecture_debt_base_cache", "external_docs_cache", "kv_cache"]);
       expect((raw.query("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(200);
+      expect((raw.query("PRAGMA application_id").get() as { application_id: number }).application_id).toBe(0x41435458);
     } finally {
       raw.close();
     }
   });
 
-  test("rebuilds proven legacy ArchContext sqlite caches and fails closed on foreign or non-sqlite files without sidecars", async () => {
-    const dbPath = makeTempDb("legacy.sqlite");
-    const legacyDb = new Database(dbPath);
-    legacyDb.exec("CREATE TABLE architecture_events (id TEXT PRIMARY KEY); PRAGMA user_version = 42;");
-    legacyDb.close();
+  test("rebuilds proven legacy ArchContext v1 stores, upgrades v2 caches lacking application_id, and fails closed on foreign overlapping tables", async () => {
+    // 1. Real v0.17.1 full runtime store (6 immutable 0001 tables + 0006 events + FTS5 + legacy view + schema_migrations)
+    const legacyV1Path = makeTempDb("legacy-v1.sqlite");
+    const legacyV1 = new Database(legacyV1Path);
+    legacyV1.exec(`
+      CREATE TABLE schema_migrations (id TEXT PRIMARY KEY, applied_at TEXT NOT NULL);
+      CREATE TABLE repository_sessions (repository_id TEXT PRIMARY KEY, root TEXT NOT NULL, head_sha TEXT NOT NULL, worktree_digest TEXT NOT NULL, updated_at TEXT NOT NULL);
+      CREATE TABLE snapshots (id TEXT PRIMARY KEY, repository_id TEXT NOT NULL, head_sha TEXT NOT NULL, worktree_digest TEXT NOT NULL, state TEXT NOT NULL, created_at TEXT NOT NULL, committed_at TEXT);
+      CREATE TABLE task_states (task_session_id TEXT PRIMARY KEY, payload_json TEXT NOT NULL, updated_at TEXT NOT NULL);
+      CREATE TABLE observed_evidence (id TEXT PRIMARY KEY, repository_id TEXT NOT NULL, head_sha TEXT NOT NULL, selector_json TEXT NOT NULL, summary TEXT NOT NULL, confidence TEXT NOT NULL, created_at TEXT NOT NULL);
+      CREATE TABLE review_results (review_id TEXT PRIMARY KEY, task_session_id TEXT NOT NULL, payload_json TEXT NOT NULL, created_at TEXT NOT NULL);
+      CREATE TABLE architecture_events (
+        event_sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+        event_id TEXT NOT NULL UNIQUE,
+        repository_id TEXT NOT NULL,
+        storage_repository_id TEXT NOT NULL,
+        workspace_id TEXT NOT NULL,
+        storage_workspace_id TEXT NOT NULL,
+        branch TEXT NOT NULL,
+        head_sha TEXT NOT NULL,
+        worktree_digest TEXT NOT NULL,
+        event_type TEXT NOT NULL,
+        payload_version TEXT NOT NULL,
+        source TEXT NOT NULL,
+        actor_kind TEXT NOT NULL,
+        actor_id TEXT NOT NULL,
+        base_digest TEXT NOT NULL,
+        resulting_digest TEXT NOT NULL,
+        previous_event_hash TEXT,
+        event_hash TEXT NOT NULL UNIQUE,
+        idempotency_key TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        provenance_json TEXT NOT NULL,
+        event_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        compacted_by_snapshot_id TEXT
+      );
+      CREATE VIRTUAL TABLE architecture_ledger_fts USING fts5(kind, summary, rationale, title, evidence_summary, content='');
+      CREATE VIEW recent_architecture_changes_view AS
+        SELECT event_sequence, event_id, storage_repository_id, storage_workspace_id, branch, head_sha, event_type,
+          source, actor_kind, actor_id, previous_event_hash, event_hash, created_at
+        FROM architecture_events ORDER BY event_sequence DESC;
+      INSERT INTO schema_migrations (id, applied_at) VALUES
+        ('0001_runtime_state', '2026-11-20T00:00:00.000Z'),
+        ('0006_architecture_ledger', '2026-11-20T00:00:00.000Z');
+    `);
+    legacyV1.close();
 
-    const store = new SqliteLocalStore(dbPath);
+    const store = new SqliteLocalStore(legacyV1Path);
     openStores.push(store);
     await store.writeCacheEntry("ns", "k1", { ok: true });
     expect(await store.readCacheEntry("ns", "k1")).toEqual({ ok: true });
     store.close();
 
-    const foreignPath = makeTempDb("foreign.sqlite");
-    const foreignDb = new Database(foreignPath);
-    foreignDb.exec("CREATE TABLE user_records (id TEXT PRIMARY KEY); PRAGMA user_version = 7;");
-    foreignDb.close();
-    const foreignBytesBefore = readFileSync(foreignPath);
-    const foreignStore = new SqliteLocalStore(foreignPath);
-    openStores.push(foreignStore);
-    await expect(foreignStore.writeCacheEntry("ns", "k2", { blocked: true })).rejects.toMatchObject({
+    const migratedRaw = new Database(legacyV1Path, { readonly: true });
+    try {
+      const objects = migratedRaw.query("SELECT type, name FROM sqlite_master WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%' ORDER BY name").all() as Array<{ type: string; name: string }>;
+      expect(objects).toEqual([
+        { type: "table", name: "architecture_debt_base_cache" },
+        { type: "table", name: "external_docs_cache" },
+        { type: "table", name: "kv_cache" }
+      ]);
+      expect((migratedRaw.query("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(200);
+      expect((migratedRaw.query("PRAGMA application_id").get() as { application_id: number }).application_id).toBe(0x41435458);
+    } finally {
+      migratedRaw.close();
+    }
+
+    // 2. Real v0.17.1 standalone architecture_debt_base_cache DB
+    const legacyDebtPath = makeTempDb("legacy-debt.sqlite");
+    const legacyDebt = new Database(legacyDebtPath);
+    legacyDebt.exec(`
+      CREATE TABLE architecture_debt_base_cache (
+        repository_id TEXT NOT NULL,
+        base_sha TEXT NOT NULL,
+        archcontext_tree_oid TEXT NOT NULL,
+        codegraph_version TEXT NOT NULL,
+        engine_version TEXT NOT NULL,
+        measurement_profile TEXT NOT NULL,
+        report_json TEXT NOT NULL,
+        PRIMARY KEY (repository_id, base_sha, archcontext_tree_oid, codegraph_version, engine_version, measurement_profile)
+      );
+    `);
+    legacyDebt.close();
+    const debtStore = new SqliteLocalStore(legacyDebtPath);
+    openStores.push(debtStore);
+    await debtStore.writeCacheEntry("ns", "k-debt", { rebuilt: true });
+    expect(await debtStore.readCacheEntry("ns", "k-debt")).toEqual({ rebuilt: true });
+    debtStore.close();
+
+    // 3. Existing 0.18.0/0.18.1 v2 cache (user_version=200, application_id=0, optional orphaned v1 views) preserves data, drops orphaned views, and stamps application_id
+    const v2LegacyAppIdPath = makeTempDb("v2-zero-appid.sqlite");
+    const v2Zero = new Database(v2LegacyAppIdPath);
+    v2Zero.exec(`
+      CREATE TABLE architecture_debt_base_cache (cache_key TEXT PRIMARY KEY, report_json TEXT NOT NULL, updated_at TEXT NOT NULL);
+      CREATE TABLE external_docs_cache (
+        provider TEXT NOT NULL, library_id TEXT NOT NULL, version TEXT NOT NULL, query_digest TEXT NOT NULL,
+        content_digest TEXT NOT NULL, resource_json TEXT NOT NULL, retrieved_at TEXT NOT NULL, expires_at TEXT NOT NULL,
+        PRIMARY KEY (provider, library_id, version, query_digest)
+      );
+      CREATE TABLE kv_cache (
+        namespace TEXT NOT NULL, cache_key TEXT NOT NULL, value_json TEXT NOT NULL, updated_at TEXT NOT NULL,
+        PRIMARY KEY (namespace, cache_key)
+      );
+      CREATE VIEW recent_architecture_changes_view AS SELECT 1;
+      INSERT INTO kv_cache (namespace, cache_key, value_json, updated_at) VALUES ('ns', 'keep', '{"preserved":1}', '2026-11-23T00:00:00.000Z');
+      PRAGMA user_version = 200;
+    `);
+    v2Zero.close();
+    const v2Store = new SqliteLocalStore(v2LegacyAppIdPath);
+    openStores.push(v2Store);
+    expect(await v2Store.readCacheEntry("ns", "keep")).toEqual({ preserved: 1 });
+    v2Store.close();
+    const v2Check = new Database(v2LegacyAppIdPath, { readonly: true });
+    try {
+      expect((v2Check.query("PRAGMA application_id").get() as { application_id: number }).application_id).toBe(0x41435458);
+      expect(v2Check.query("SELECT type, name FROM sqlite_master WHERE type = 'view'").all()).toEqual([]);
+    } finally {
+      v2Check.close();
+    }
+
+    // 4. Negative: overlapping table names (schema_migrations, snapshots, waivers, kv_cache) with non-ArchContext schema & active WAL sidecars
+    const overlappingPath = makeTempDb("overlapping.sqlite");
+    const overlappingDb = new Database(overlappingPath);
+    try {
+      overlappingDb.exec(`
+        PRAGMA journal_mode = WAL;
+        CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL);
+        CREATE TABLE snapshots (id INTEGER PRIMARY KEY, payload BLOB NOT NULL);
+        CREATE TABLE waivers (id INTEGER PRIMARY KEY, ticket TEXT NOT NULL);
+        CREATE TABLE kv_cache (k TEXT PRIMARY KEY, v TEXT NOT NULL);
+        INSERT INTO schema_migrations VALUES (1, 'foreign_v1');
+        INSERT INTO waivers VALUES (42, 'SEC-42');
+      `);
+      const walPath = `${overlappingPath}-wal`;
+      const shmPath = `${overlappingPath}-shm`;
+      const dbBytesBefore = readFileSync(overlappingPath);
+      const walBytesBefore = readFileSync(walPath);
+      const shmBytesBefore = readFileSync(shmPath);
+      expect(walBytesBefore.length).toBeGreaterThan(0);
+      expect(shmBytesBefore.length).toBeGreaterThan(0);
+
+      const overlappingStore = new SqliteLocalStore(overlappingPath);
+      openStores.push(overlappingStore);
+      await expect(overlappingStore.writeCacheEntry("ns", "clobber", { blocked: true })).rejects.toMatchObject({
+        code: "AC_PRECONDITION_FAILED",
+        reasonCode: "local-store-unproven-file"
+      });
+      expect(readFileSync(overlappingPath)).toEqual(dbBytesBefore);
+      expect(readFileSync(walPath)).toEqual(walBytesBefore);
+      expect(readFileSync(shmPath)).toEqual(shmBytesBefore);
+      expect(readdirSync(dirname(overlappingPath)).sort()).toEqual(["overlapping.sqlite", "overlapping.sqlite-shm", "overlapping.sqlite-wal"]);
+    } finally {
+      overlappingDb.close();
+    }
+
+    // 5. Negative: unknown views, spoofed user_version=200 with wrong columns, foreign application_id, and non-SQLite file
+    const unknownViewPath = makeTempDb("unknown-view-v200.sqlite");
+    const unknownViewDb = new Database(unknownViewPath);
+    unknownViewDb.exec(`
+      CREATE TABLE architecture_debt_base_cache (cache_key TEXT PRIMARY KEY, report_json TEXT NOT NULL, updated_at TEXT NOT NULL);
+      CREATE TABLE external_docs_cache (
+        provider TEXT NOT NULL, library_id TEXT NOT NULL, version TEXT NOT NULL, query_digest TEXT NOT NULL,
+        content_digest TEXT NOT NULL, resource_json TEXT NOT NULL, retrieved_at TEXT NOT NULL, expires_at TEXT NOT NULL,
+        PRIMARY KEY (provider, library_id, version, query_digest)
+      );
+      CREATE TABLE kv_cache (
+        namespace TEXT NOT NULL, cache_key TEXT NOT NULL, value_json TEXT NOT NULL, updated_at TEXT NOT NULL,
+        PRIMARY KEY (namespace, cache_key)
+      );
+      CREATE VIEW custom_app_view AS SELECT 1;
+      PRAGMA user_version = 200;
+    `);
+    unknownViewDb.close();
+    const unknownViewBefore = readFileSync(unknownViewPath);
+    const unknownViewStore = new SqliteLocalStore(unknownViewPath);
+    openStores.push(unknownViewStore);
+    await expect(unknownViewStore.writeCacheEntry("ns", "k1b", { blocked: true })).rejects.toMatchObject({
       code: "AC_PRECONDITION_FAILED",
       reasonCode: "local-store-unproven-file"
     });
-    expect(readFileSync(foreignPath)).toEqual(foreignBytesBefore);
-    expect(readdirSync(dirname(foreignPath)).sort()).toEqual(["foreign.sqlite"]);
+    expect(readFileSync(unknownViewPath)).toEqual(unknownViewBefore);
+    expect(readdirSync(dirname(unknownViewPath)).sort()).toEqual(["unknown-view-v200.sqlite"]);
+
+    const spoofedPath = makeTempDb("spoofed-v200.sqlite");
+    const spoofedDb = new Database(spoofedPath);
+    spoofedDb.exec("CREATE TABLE architecture_debt_base_cache (cache_key TEXT PRIMARY KEY, report_json TEXT NOT NULL, updated_at TEXT NOT NULL); CREATE TABLE external_docs_cache (id TEXT PRIMARY KEY); CREATE TABLE kv_cache (k TEXT PRIMARY KEY, v TEXT NOT NULL); PRAGMA user_version = 200;");
+    spoofedDb.close();
+    const spoofedBytes = readFileSync(spoofedPath);
+    const spoofedStore = new SqliteLocalStore(spoofedPath);
+    openStores.push(spoofedStore);
+    await expect(spoofedStore.writeCacheEntry("ns", "k2", { blocked: true })).rejects.toMatchObject({
+      code: "AC_PRECONDITION_FAILED",
+      reasonCode: "local-store-unproven-file"
+    });
+    expect(readFileSync(spoofedPath)).toEqual(spoofedBytes);
+    expect(readdirSync(dirname(spoofedPath)).sort()).toEqual(["spoofed-v200.sqlite"]);
+
+    const foreignAppIdPath = makeTempDb("foreign-appid.sqlite");
+    const foreignAppDb = new Database(foreignAppIdPath);
+    foreignAppDb.exec("CREATE TABLE kv_cache (namespace TEXT NOT NULL, cache_key TEXT NOT NULL, value_json TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (namespace, cache_key)); PRAGMA application_id = 123456;");
+    foreignAppDb.close();
+    const foreignAppBytes = readFileSync(foreignAppIdPath);
+    const foreignAppStore = new SqliteLocalStore(foreignAppIdPath);
+    openStores.push(foreignAppStore);
+    await expect(foreignAppStore.writeCacheEntry("ns", "k3", { blocked: true })).rejects.toMatchObject({
+      code: "AC_PRECONDITION_FAILED",
+      reasonCode: "local-store-unproven-file"
+    });
+    expect(readFileSync(foreignAppIdPath)).toEqual(foreignAppBytes);
+    expect(readdirSync(dirname(foreignAppIdPath)).sort()).toEqual(["foreign-appid.sqlite"]);
 
     const corruptPath = makeTempDb("corrupt.sqlite");
     writeFileSync(corruptPath, "not-a-sqlite-database\n", "utf8");
     const corruptStore = new SqliteLocalStore(corruptPath);
     openStores.push(corruptStore);
-    await expect(corruptStore.writeCacheEntry("ns", "k3", { blocked: true })).rejects.toMatchObject({
+    await expect(corruptStore.writeCacheEntry("ns", "k4", { blocked: true })).rejects.toMatchObject({
       code: "AC_PRECONDITION_FAILED",
       reasonCode: "local-store-unproven-file"
     });

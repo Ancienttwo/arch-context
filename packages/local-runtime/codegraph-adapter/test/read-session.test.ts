@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import { createHash } from "node:crypto";
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
@@ -522,3 +522,66 @@ test("a ready read sees includeIgnored, include and extension sources; a new sou
     }));
   });
 }, 120_000);
+
+test("read-only CodeGraph open defers pinnedCodeGraphProvider SDK/WASM load until .codegraph/codegraph.db is present and unlocked", () => {
+  withRoot((missingRoot) => {
+    withRoot((buildingRoot) => {
+      mkdirSync(join(buildingRoot, ".codegraph"), { recursive: true });
+      writeFileSync(join(buildingRoot, ".codegraph", "codegraph.db"), "");
+      writeFileSync(join(buildingRoot, ".codegraph", "codegraph.lock"), String(process.pid));
+
+      const indexModule = join(import.meta.dir, "../src/index.ts");
+      const readSessionModule = join(import.meta.dir, "../src/read-session.ts");
+      const readyReadModule = join(import.meta.dir, "../src/ready-index-read.ts");
+      const script = `
+        import { createRequire } from "node:module";
+        const { openCodeGraphReadSession, openCodeGraphSymbolReader } = await import(${JSON.stringify(indexModule)});
+        const { openScratchReadOnlyCodeGraph } = await import(${JSON.stringify(readSessionModule)});
+        const { withReadyCodeGraphIndex } = await import(${JSON.stringify(readyReadModule)});
+        const missingRoot = ${JSON.stringify(missingRoot)};
+        const buildingRoot = ${JSON.stringify(buildingRoot)};
+        const missingSession = openCodeGraphReadSession(missingRoot);
+        const missingScratch = openScratchReadOnlyCodeGraph(missingRoot);
+        const missingSymbol = openCodeGraphSymbolReader(missingRoot);
+        let readyMissingReason = null;
+        try {
+          withReadyCodeGraphIndex(missingRoot, () => true);
+        } catch (error) {
+          readyMissingReason = error?.reasonCode ?? null;
+        }
+        const buildingSession = openCodeGraphReadSession(buildingRoot);
+        const buildingScratch = openScratchReadOnlyCodeGraph(buildingRoot);
+        const buildingSymbol = openCodeGraphSymbolReader(buildingRoot);
+        const req = createRequire(import.meta.url);
+        const loadedModules = Object.keys(req.cache);
+        const loadedCodeGraph = loadedModules.filter((entry) => entry.includes("@colbymchenry/codegraph") || entry.includes("web-tree-sitter"));
+        console.log(JSON.stringify({
+          missingSession,
+          missingScratch,
+          missingSymbol,
+          readyMissingReason,
+          buildingSession,
+          buildingScratch,
+          buildingSymbol,
+          loadedCodeGraph
+        }));
+      `;
+      const result = spawnSync(process.execPath, ["-e", script], {
+        cwd: join(import.meta.dir, "../../../.."),
+        encoding: "utf8"
+      });
+      expect(result.status, result.stderr).toBe(0);
+      const parsed = JSON.parse(result.stdout.trim());
+      expect(parsed).toEqual({
+        missingSession: { state: "index-missing" },
+        missingScratch: { state: "index-missing" },
+        missingSymbol: { availability: "unavailable", reasonCode: "index-missing" },
+        readyMissingReason: "index-missing",
+        buildingSession: { state: "build-in-progress" },
+        buildingScratch: { state: "build-in-progress" },
+        buildingSymbol: { availability: "unavailable", reasonCode: "index-open-failed" },
+        loadedCodeGraph: []
+      });
+    });
+  });
+});
