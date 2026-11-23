@@ -226,10 +226,10 @@ export type CodeGraphReadSessionOpenV1 =
  * keep direct `openReadOnly(root)` semantics.
  */
 export function openCodeGraphReadSession(root: string, options: { provider?: CodeGraphReadProvider } = {}): CodeGraphReadSessionOpenV1 {
-  const provider = options.provider ?? pinnedCodeGraphProvider();
   if (options.provider === undefined || options.provider === pinnedProvider) {
-    return openScratchReadOnlyCodeGraph(root, provider);
+    return openScratchReadOnlyCodeGraph(root, options.provider);
   }
+  const provider = options.provider;
   const indexDir = join(root, ".codegraph");
   let linked: boolean;
   try { linked = lstatSync(indexDir).isSymbolicLink(); }
@@ -257,7 +257,6 @@ export function openCodeGraphReadSession(root: string, options: { provider?: Cod
  * runs idempotently inside `session.close()`.
  */
 export function openScratchReadOnlyCodeGraph(root: string, readProvider?: CodeGraphReadProvider): CodeGraphReadSessionOpenV1 {
-  const provider = readProvider ?? pinnedCodeGraphProvider();
   const indexDir = join(root, ".codegraph");
   const database = join(indexDir, "codegraph.db");
   const wal = `${database}-wal`;
@@ -286,8 +285,10 @@ export function openScratchReadOnlyCodeGraph(root: string, readProvider?: CodeGr
     if (codeGraphIndexBuildInProgress(root)) return moving;
 
     const beforeWal = fileIdentity(wal);
-    if (!codeGraphIndexIdentity(root) || statIfPresent(journal)) return unreadable;
+    if (statIfPresent(journal)) return unreadable;
 
+    if (!codeGraphIndexIdentity(root)) return unreadable;
+    const provider = readProvider ?? pinnedCodeGraphProvider();
     const { sdk } = codeGraphBundle();
     const parent = realpathSync(tmpdir());
     const fromRoot = relative(realpathSync(root), parent);
