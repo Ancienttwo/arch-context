@@ -10,12 +10,10 @@ import {
 } from "@archcontext/contracts";
 import type { ArchitectureProjectionProfile } from "@archcontext/core/projection-engine";
 import { findRepositoryRoot } from "@archcontext/local-runtime/git-adapter";
-import { defaultLocalStorePath } from "@archcontext/local-runtime/local-store-sqlite";
 import {
   createCommandProjectionPublisher,
   createGhProjectionPublisher,
   createNoneProjectionPublisher,
-  createStartedDaemon,
   runDocsAnchorsCommand,
   runProjectionCheckInvocation,
   runProjectionFreshnessCommand,
@@ -45,6 +43,7 @@ import {
   PROJECTION_PUBLISH_STATUS_VALUE_FLAGS,
   PROJECTION_PUBLISH_VALUE_FLAGS,
   PROJECTION_VERIFY_PR_VALUE_FLAGS,
+  createCliRuntime,
   type CliRuntimeDeps
 } from "../cli-types";
 
@@ -274,12 +273,11 @@ function runProjectionPublishOnce(input: ProjectionPublishCliInput, cwd: string,
     publisher: input.publisher,
     acceptObservedMajorChange: input.acceptObservedMajorChange,
     apply: async (worktree, request) => {
-      if (deps.runtimeClient) return deps.runtimeClient.projection(worktree, { action: "run", request });
-      const daemon = await createStartedDaemon({ localStorePath: defaultLocalStorePath(worktree) });
+      const runtime = await createCliRuntime(worktree, deps);
       try {
-        return await daemon.projection(worktree, { action: "run", request });
+        return await runtime.client.projection(worktree, { action: "run", request });
       } finally {
-        await daemon.stop();
+        await runtime.close();
       }
     }
   });
