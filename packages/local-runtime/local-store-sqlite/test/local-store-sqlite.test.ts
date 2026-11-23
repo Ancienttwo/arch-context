@@ -151,6 +151,61 @@ describe("@archcontext/local-runtime/local-store-sqlite discardable cache", () =
         updated_at TEXT NOT NULL,
         FOREIGN KEY(event_id) REFERENCES architecture_events(event_id)
       );
+      CREATE TABLE recommendation_runs (
+        run_id TEXT PRIMARY KEY,
+        repository_id TEXT NOT NULL,
+        storage_repository_id TEXT NOT NULL,
+        workspace_id TEXT NOT NULL,
+        storage_workspace_id TEXT NOT NULL,
+        event_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        catalog_digest TEXT NOT NULL,
+        input_digest TEXT NOT NULL,
+        output_digest TEXT NOT NULL,
+        metrics_json TEXT NOT NULL,
+        run_json TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        completed_at TEXT,
+        FOREIGN KEY(event_id) REFERENCES architecture_events(event_id) ON DELETE RESTRICT
+      );
+      CREATE TABLE recommendations (
+        recommendation_id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        repository_id TEXT NOT NULL,
+        storage_repository_id TEXT NOT NULL,
+        workspace_id TEXT NOT NULL,
+        storage_workspace_id TEXT NOT NULL,
+        event_id TEXT NOT NULL,
+        fingerprint TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        practice_id TEXT,
+        status TEXT NOT NULL,
+        confidence TEXT NOT NULL,
+        enforcement TEXT NOT NULL,
+        risk TEXT NOT NULL,
+        uncertainty TEXT NOT NULL,
+        evidence_binding_ids_json TEXT NOT NULL,
+        explanation_json TEXT NOT NULL,
+        recommendation_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY(event_id) REFERENCES architecture_events(event_id) ON DELETE RESTRICT,
+        FOREIGN KEY(run_id) REFERENCES recommendation_runs(run_id) ON DELETE RESTRICT
+      );
+      CREATE TABLE waivers (
+        waiver_id TEXT PRIMARY KEY,
+        repository_id TEXT NOT NULL,
+        storage_repository_id TEXT NOT NULL,
+        workspace_id TEXT NOT NULL,
+        storage_workspace_id TEXT NOT NULL,
+        event_id TEXT NOT NULL,
+        target_kind TEXT NOT NULL,
+        target_id TEXT NOT NULL,
+        waiver_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        expires_at TEXT,
+        FOREIGN KEY(event_id) REFERENCES architecture_events(event_id) ON DELETE RESTRICT
+      );
       CREATE TRIGGER architecture_events_immutable_delete
         BEFORE DELETE ON architecture_events
         BEGIN
@@ -166,6 +221,10 @@ describe("@archcontext/local-runtime/local-store-sqlite discardable cache", () =
         SELECT event_sequence, event_id, storage_repository_id, storage_workspace_id, branch, head_sha, event_type,
           source, actor_kind, actor_id, previous_event_hash, event_hash, created_at
         FROM architecture_events ORDER BY event_sequence DESC;
+      CREATE VIEW open_recommendations_view AS
+        SELECT recommendation_id, run_id, storage_repository_id, storage_workspace_id, subject, practice_id, status,
+          confidence, enforcement, risk, uncertainty, updated_at
+        FROM recommendations WHERE status IN ('open', 'acknowledged', 'accepted', 'deferred');
       INSERT INTO schema_migrations (id, applied_at) VALUES
         ('0001_runtime_state', '2026-11-20T00:00:00.000Z'),
         ('0004_changeset_journal', '2026-11-20T00:00:00.000Z'),
@@ -190,6 +249,9 @@ describe("@archcontext/local-runtime/local-store-sqlite discardable cache", () =
         'eb1', 'ei1', 'r1', 'sr1', 'w1', 'sw1', 'ev1', 'module', 'm1', 'reason', 'supporting', '{}', '{}', '2026-11-20T00:00:00.000Z'
       );
       INSERT INTO architecture_evidence_state_checkpoints VALUES ('sr1', 'sw1', 'ev1', 1, 1, 'eh1', 'ed1', '2026-11-20T00:00:00.000Z');
+      INSERT INTO recommendation_runs VALUES ('rr1', 'r1', 'sr1', 'w1', 'sw1', 'ev1', 'completed', 'cd1', 'id1', 'od1', '{}', '{}', '2026-11-20T00:00:00.000Z', '2026-11-20T00:00:00.000Z');
+      INSERT INTO recommendations VALUES ('rec1', 'rr1', 'r1', 'sr1', 'w1', 'sw1', 'ev1', 'fp1', 'subj', NULL, 'open', 'high', 'advisory', 'low', 'low', '[]', '{}', '{}', '2026-11-20T00:00:00.000Z', '2026-11-20T00:00:00.000Z');
+      INSERT INTO waivers VALUES ('wv1', 'r1', 'sr1', 'w1', 'sw1', 'ev1', 'module', 'm1', '{}', '2026-11-20T00:00:00.000Z', NULL);
     `);
     legacyV1.close();
 
@@ -249,7 +311,7 @@ describe("@archcontext/local-runtime/local-store-sqlite discardable cache", () =
         namespace TEXT NOT NULL, cache_key TEXT NOT NULL, value_json TEXT NOT NULL, updated_at TEXT NOT NULL,
         PRIMARY KEY (namespace, cache_key)
       );
-      CREATE VIEW recent_architecture_changes_view AS SELECT 1;
+      CREATE VIEW recent_architecture_changes_view AS SELECT event_sequence, event_id, storage_repository_id, storage_workspace_id, branch, head_sha, event_type, source, actor_kind, actor_id, previous_event_hash, event_hash, created_at FROM architecture_events ORDER BY event_sequence DESC;
       INSERT INTO kv_cache (namespace, cache_key, value_json, updated_at) VALUES ('ns', 'keep', '{"preserved":1}', '2026-11-23T00:00:00.000Z');
       PRAGMA user_version = 200;
     `);
@@ -367,6 +429,96 @@ describe("@archcontext/local-runtime/local-store-sqlite discardable cache", () =
     });
     expect(readFileSync(corruptPath, "utf8")).toBe("not-a-sqlite-database\n");
     expect(readdirSync(dirname(corruptPath)).sort()).toEqual(["corrupt.sqlite"]);
+
+    // 6. Negative: matching 6 core v1 tables + 0001_runtime_state or v2 user_version=200 paired with unverified columns, spoofed views/triggers, or orphan FTS shadow tables
+    const coreTablesSql = `
+      CREATE TABLE schema_migrations (id TEXT PRIMARY KEY, applied_at TEXT NOT NULL);
+      CREATE TABLE repository_sessions (repository_id TEXT PRIMARY KEY, root TEXT NOT NULL, head_sha TEXT NOT NULL, worktree_digest TEXT NOT NULL, updated_at TEXT NOT NULL);
+      CREATE TABLE snapshots (id TEXT PRIMARY KEY, repository_id TEXT NOT NULL, head_sha TEXT NOT NULL, worktree_digest TEXT NOT NULL, state TEXT NOT NULL, created_at TEXT NOT NULL, committed_at TEXT);
+      CREATE TABLE task_states (task_session_id TEXT PRIMARY KEY, payload_json TEXT NOT NULL, updated_at TEXT NOT NULL);
+      CREATE TABLE observed_evidence (id TEXT PRIMARY KEY, repository_id TEXT NOT NULL, head_sha TEXT NOT NULL, selector_json TEXT NOT NULL, summary TEXT NOT NULL, confidence TEXT NOT NULL, created_at TEXT NOT NULL);
+      CREATE TABLE review_results (review_id TEXT PRIMARY KEY, task_session_id TEXT NOT NULL, payload_json TEXT NOT NULL, created_at TEXT NOT NULL);
+      INSERT INTO schema_migrations (id, applied_at) VALUES ('0001_runtime_state', '2026-11-20T00:00:00.000Z');
+    `;
+    const v2TablesSql = `
+      CREATE TABLE architecture_debt_base_cache (cache_key TEXT PRIMARY KEY, report_json TEXT NOT NULL, updated_at TEXT NOT NULL);
+      CREATE TABLE external_docs_cache (
+        provider TEXT NOT NULL, library_id TEXT NOT NULL, version TEXT NOT NULL, query_digest TEXT NOT NULL,
+        content_digest TEXT NOT NULL, resource_json TEXT NOT NULL, retrieved_at TEXT NOT NULL, expires_at TEXT NOT NULL,
+        PRIMARY KEY (provider, library_id, version, query_digest)
+      );
+      CREATE TABLE kv_cache (
+        namespace TEXT NOT NULL, cache_key TEXT NOT NULL, value_json TEXT NOT NULL, updated_at TEXT NOT NULL,
+        PRIMARY KEY (namespace, cache_key)
+      );
+      PRAGMA user_version = 200;
+    `;
+    const spoofedVariants: Array<{ name: string; sql: string }> = [
+      {
+        name: "core-plus-custom-waivers.sqlite",
+        sql: `${coreTablesSql} CREATE TABLE waivers (id TEXT PRIMARY KEY, owner TEXT NOT NULL); INSERT INTO waivers VALUES ('w1', 'keep-me');`
+      },
+      {
+        name: "core-plus-custom-recommendations.sqlite",
+        sql: `${coreTablesSql}
+          CREATE TABLE recommendations (
+            recommendation_id TEXT PRIMARY KEY, run_id TEXT NOT NULL, repository_id TEXT NOT NULL, storage_repository_id TEXT NOT NULL,
+            workspace_id TEXT NOT NULL, storage_workspace_id TEXT NOT NULL, event_id TEXT NOT NULL, fingerprint TEXT NOT NULL,
+            subject TEXT NOT NULL, practice_id TEXT, status TEXT NOT NULL, confidence TEXT NOT NULL, enforcement TEXT NOT NULL,
+            risk TEXT NOT NULL, uncertainty TEXT NOT NULL, evidence_binding_ids_json TEXT NOT NULL, explanation_json TEXT NOT NULL,
+            recommendation_json TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, user_custom_note TEXT
+          );`
+      },
+      {
+        name: "core-plus-spoofed-view-sql.sqlite",
+        sql: `${coreTablesSql} CREATE VIEW recent_architecture_changes_view AS SELECT 1 AS user_value;`
+      },
+      {
+        name: "core-plus-custom-trigger.sqlite",
+        sql: `${coreTablesSql} CREATE TRIGGER user_audit_trigger AFTER INSERT ON snapshots BEGIN SELECT 1; END;`
+      },
+      {
+        name: "core-plus-spoofed-trigger-sql.sqlite",
+        sql: `${coreTablesSql}
+          CREATE TABLE architecture_events (
+            event_sequence INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT NOT NULL UNIQUE, repository_id TEXT NOT NULL,
+            storage_repository_id TEXT NOT NULL, workspace_id TEXT NOT NULL, storage_workspace_id TEXT NOT NULL,
+            branch TEXT NOT NULL, head_sha TEXT NOT NULL, worktree_digest TEXT NOT NULL, event_type TEXT NOT NULL,
+            payload_version TEXT NOT NULL, source TEXT NOT NULL, actor_kind TEXT NOT NULL, actor_id TEXT NOT NULL,
+            base_digest TEXT NOT NULL, resulting_digest TEXT NOT NULL, previous_event_hash TEXT, event_hash TEXT NOT NULL UNIQUE,
+            idempotency_key TEXT NOT NULL, payload_json TEXT NOT NULL, provenance_json TEXT NOT NULL, event_json TEXT NOT NULL,
+            created_at TEXT NOT NULL, compacted_by_snapshot_id TEXT
+          );
+          CREATE TRIGGER architecture_events_immutable_delete BEFORE DELETE ON architecture_events BEGIN SELECT 1; END;`
+      },
+      {
+        name: "core-plus-orphan-fts-shadow.sqlite",
+        sql: `${coreTablesSql} CREATE TABLE architecture_ledger_fts_data (id INTEGER PRIMARY KEY, block BLOB);`
+      },
+      {
+        name: "v2-plus-spoofed-view-sql.sqlite",
+        sql: `${v2TablesSql} CREATE VIEW recent_architecture_changes_view AS SELECT 1 AS user_value;`
+      },
+      {
+        name: "v2-plus-custom-trigger.sqlite",
+        sql: `${v2TablesSql} CREATE TRIGGER v2_custom_trigger AFTER INSERT ON kv_cache BEGIN SELECT 1; END;`
+      }
+    ];
+    for (const variant of spoofedVariants) {
+      const targetPath = makeTempDb(variant.name);
+      const rawDb = new Database(targetPath);
+      rawDb.exec(variant.sql);
+      rawDb.close();
+      const bytesBefore = readFileSync(targetPath);
+      const storeAttempt = new SqliteLocalStore(targetPath);
+      openStores.push(storeAttempt);
+      await expect(storeAttempt.writeCacheEntry("ns", "blocked", { blocked: true })).rejects.toMatchObject({
+        code: "AC_PRECONDITION_FAILED",
+        reasonCode: "local-store-unproven-file"
+      });
+      expect(readFileSync(targetPath)).toEqual(bytesBefore);
+      expect(readdirSync(dirname(targetPath)).sort()).toEqual([variant.name]);
+    }
   });
 
   test("persists debt base, external docs, landscape sessions, and kv entries", async () => {
