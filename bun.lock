@@ -19,14 +19,14 @@
     },
     "packages/contracts": {
       "name": "@archcontext/contracts",
-      "version": "0.18.3",
+      "version": "0.18.4",
       "dependencies": {
         "@sinclair/typebox": "^0.34.52",
       },
     },
     "packages/core": {
       "name": "@archcontext/core",
-      "version": "0.18.3",
+      "version": "0.18.4",
       "dependencies": {
         "@archcontext/contracts": "workspace:*",
         "yaml": "2.9.1",
@@ -34,7 +34,7 @@
     },
     "packages/local-runtime": {
       "name": "@archcontext/local-runtime",
-      "version": "0.18.3",
+      "version": "0.18.4",
       "dependencies": {
         "@archcontext/contracts": "workspace:*",
         "@archcontext/core": "workspace:*",
@@ -45,7 +45,7 @@
     },
     "packages/surfaces": {
       "name": "@archcontext/surfaces",
-      "version": "0.18.3",
+      "version": "0.18.4",
       "bin": {
         "archctx": "./cli/bin/archctx",
       },

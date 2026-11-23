@@ -70,7 +70,7 @@ export function runtimeStatePaths(root = process.cwd(), env: Record<string, stri
     repositoryStateDir,
     workspaceStateDir,
     sharedCacheDir: join(repositoryStateDir, "shared", "cache"),
-    localStorePath: env[ARCHCONTEXT_LOCAL_STORE_PATH_ENV] ?? join(workspaceStateDir, "runtime.sqlite"),
+    localStorePath: env[ARCHCONTEXT_LOCAL_STORE_PATH_ENV] ?? join(workspaceStateDir, "local-cache-v2.sqlite"),
     ...daemonControlPaths(workspaceStateDir),
     legacyControlDir,
     legacyLocalStorePath: join(legacyControlDir, "runtime.sqlite")
