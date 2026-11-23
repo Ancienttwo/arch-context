@@ -41,16 +41,39 @@ describe("@archcontext/local-runtime/local-store-sqlite discardable cache", () =
   });
 
   test("rebuilds proven legacy ArchContext v1 stores, upgrades v2 caches lacking application_id, and fails closed on foreign overlapping tables", async () => {
-    // 1. Real v0.17.1 full runtime store (6 immutable 0001 tables + 0006 events + FTS5 + legacy view + schema_migrations)
+    // 1. Real v0.17.1 full runtime store (6 immutable 0001 tables + FK-linked events/evidence/receipts + triggers + FTS5 + legacy view + schema_migrations)
     const legacyV1Path = makeTempDb("legacy-v1.sqlite");
     const legacyV1 = new Database(legacyV1Path);
     legacyV1.exec(`
+      PRAGMA foreign_keys = ON;
       CREATE TABLE schema_migrations (id TEXT PRIMARY KEY, applied_at TEXT NOT NULL);
       CREATE TABLE repository_sessions (repository_id TEXT PRIMARY KEY, root TEXT NOT NULL, head_sha TEXT NOT NULL, worktree_digest TEXT NOT NULL, updated_at TEXT NOT NULL);
       CREATE TABLE snapshots (id TEXT PRIMARY KEY, repository_id TEXT NOT NULL, head_sha TEXT NOT NULL, worktree_digest TEXT NOT NULL, state TEXT NOT NULL, created_at TEXT NOT NULL, committed_at TEXT);
       CREATE TABLE task_states (task_session_id TEXT PRIMARY KEY, payload_json TEXT NOT NULL, updated_at TEXT NOT NULL);
       CREATE TABLE observed_evidence (id TEXT PRIMARY KEY, repository_id TEXT NOT NULL, head_sha TEXT NOT NULL, selector_json TEXT NOT NULL, summary TEXT NOT NULL, confidence TEXT NOT NULL, created_at TEXT NOT NULL);
       CREATE TABLE review_results (review_id TEXT PRIMARY KEY, task_session_id TEXT NOT NULL, payload_json TEXT NOT NULL, created_at TEXT NOT NULL);
+      CREATE TABLE changeset_journal (
+        journal_id TEXT PRIMARY KEY,
+        changeset_id TEXT NOT NULL,
+        root TEXT NOT NULL,
+        status TEXT NOT NULL,
+        metadata_json TEXT NOT NULL,
+        files_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        completed_at TEXT
+      );
+      CREATE TABLE projection_apply_receipts (
+        lookup_key TEXT PRIMARY KEY,
+        apply_id TEXT NOT NULL UNIQUE,
+        journal_id TEXT NOT NULL UNIQUE,
+        receipt_json TEXT NOT NULL,
+        refresh_consumed_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        recovery_proof_json TEXT,
+        FOREIGN KEY(journal_id) REFERENCES changeset_journal(journal_id)
+      );
       CREATE TABLE architecture_events (
         event_sequence INTEGER PRIMARY KEY AUTOINCREMENT,
         event_id TEXT NOT NULL UNIQUE,
@@ -77,6 +100,67 @@ describe("@archcontext/local-runtime/local-store-sqlite discardable cache", () =
         created_at TEXT NOT NULL,
         compacted_by_snapshot_id TEXT
       );
+      CREATE TABLE evidence_items (
+        evidence_id TEXT PRIMARY KEY,
+        repository_id TEXT NOT NULL,
+        storage_repository_id TEXT NOT NULL,
+        workspace_id TEXT NOT NULL,
+        storage_workspace_id TEXT NOT NULL,
+        event_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        strength TEXT NOT NULL,
+        polarity TEXT NOT NULL,
+        origin TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        selector_json TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        coverage_json TEXT NOT NULL,
+        supports_json TEXT NOT NULL,
+        provenance_json TEXT NOT NULL,
+        evidence_json TEXT NOT NULL,
+        digest TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY(event_id) REFERENCES architecture_events(event_id) ON DELETE RESTRICT
+      );
+      CREATE TABLE evidence_bindings (
+        binding_id TEXT PRIMARY KEY,
+        evidence_id TEXT NOT NULL,
+        repository_id TEXT NOT NULL,
+        storage_repository_id TEXT NOT NULL,
+        workspace_id TEXT NOT NULL,
+        storage_workspace_id TEXT NOT NULL,
+        event_id TEXT NOT NULL,
+        target_kind TEXT NOT NULL,
+        target_id TEXT NOT NULL,
+        binding_reason TEXT NOT NULL,
+        authority_effect TEXT NOT NULL,
+        provenance_json TEXT NOT NULL,
+        binding_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY(event_id) REFERENCES architecture_events(event_id) ON DELETE RESTRICT,
+        FOREIGN KEY(evidence_id) REFERENCES evidence_items(evidence_id) ON DELETE RESTRICT
+      );
+      CREATE TABLE architecture_evidence_state_checkpoints (
+        storage_repository_id TEXT NOT NULL,
+        storage_workspace_id TEXT NOT NULL,
+        event_id TEXT PRIMARY KEY,
+        event_sequence INTEGER NOT NULL,
+        scope_event_count INTEGER NOT NULL,
+        event_hash TEXT NOT NULL,
+        evidence_state_digest TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY(event_id) REFERENCES architecture_events(event_id)
+      );
+      CREATE TRIGGER architecture_events_immutable_delete
+        BEFORE DELETE ON architecture_events
+        BEGIN
+          SELECT RAISE(ABORT, 'architecture-events-immutable');
+        END;
+      CREATE TRIGGER architecture_evidence_state_checkpoints_immutable_delete
+        BEFORE DELETE ON architecture_evidence_state_checkpoints
+        BEGIN
+          SELECT RAISE(ABORT, 'architecture-evidence-state-checkpoints-immutable');
+        END;
       CREATE VIRTUAL TABLE architecture_ledger_fts USING fts5(kind, summary, rationale, title, evidence_summary, content='');
       CREATE VIEW recent_architecture_changes_view AS
         SELECT event_sequence, event_id, storage_repository_id, storage_workspace_id, branch, head_sha, event_type,
@@ -84,7 +168,28 @@ describe("@archcontext/local-runtime/local-store-sqlite discardable cache", () =
         FROM architecture_events ORDER BY event_sequence DESC;
       INSERT INTO schema_migrations (id, applied_at) VALUES
         ('0001_runtime_state', '2026-11-20T00:00:00.000Z'),
-        ('0006_architecture_ledger', '2026-11-20T00:00:00.000Z');
+        ('0004_changeset_journal', '2026-11-20T00:00:00.000Z'),
+        ('0006_architecture_ledger', '2026-11-20T00:00:00.000Z'),
+        ('0018_immutable_evidence_checkpoints', '2026-11-20T00:00:00.000Z'),
+        ('0019_projection_apply_receipts', '2026-11-20T00:00:00.000Z');
+      INSERT INTO changeset_journal VALUES ('j1', 'cs1', '/repo', 'applied', '{}', '[]', '2026-11-20T00:00:00.000Z', '2026-11-20T00:00:00.000Z', '2026-11-20T00:00:00.000Z');
+      INSERT INTO projection_apply_receipts VALUES ('lk1', 'ap1', 'j1', '{}', NULL, '2026-11-20T00:00:00.000Z', '2026-11-20T00:00:00.000Z', NULL);
+      INSERT INTO architecture_events (
+        event_id, repository_id, storage_repository_id, workspace_id, storage_workspace_id,
+        branch, head_sha, worktree_digest, event_type, payload_version, source, actor_kind, actor_id,
+        base_digest, resulting_digest, previous_event_hash, event_hash, idempotency_key,
+        payload_json, provenance_json, event_json, created_at, compacted_by_snapshot_id
+      ) VALUES (
+        'ev1', 'r1', 'sr1', 'w1', 'sw1', 'main', 'abc', 'wt1', 'changeset.applied', 'v1', 'cli', 'user', 'u1',
+        'b1', 'r2', NULL, 'eh1', 'ik1', '{}', '{}', '{}', '2026-11-20T00:00:00.000Z', NULL
+      );
+      INSERT INTO evidence_items VALUES (
+        'ei1', 'r1', 'sr1', 'w1', 'sw1', 'ev1', 'test', 'strong', 'positive', 'cli', 'subj', '{}', 'ok', '{}', '[]', '{}', '{}', 'd1', '2026-11-20T00:00:00.000Z'
+      );
+      INSERT INTO evidence_bindings VALUES (
+        'eb1', 'ei1', 'r1', 'sr1', 'w1', 'sw1', 'ev1', 'module', 'm1', 'reason', 'supporting', '{}', '{}', '2026-11-20T00:00:00.000Z'
+      );
+      INSERT INTO architecture_evidence_state_checkpoints VALUES ('sr1', 'sw1', 'ev1', 1, 1, 'eh1', 'ed1', '2026-11-20T00:00:00.000Z');
     `);
     legacyV1.close();
 
@@ -96,7 +201,7 @@ describe("@archcontext/local-runtime/local-store-sqlite discardable cache", () =
 
     const migratedRaw = new Database(legacyV1Path, { readonly: true });
     try {
-      const objects = migratedRaw.query("SELECT type, name FROM sqlite_master WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%' ORDER BY name").all() as Array<{ type: string; name: string }>;
+      const objects = migratedRaw.query("SELECT type, name FROM sqlite_master WHERE type IN ('table', 'view', 'trigger') AND name NOT LIKE 'sqlite_%' ORDER BY name").all() as Array<{ type: string; name: string }>;
       expect(objects).toEqual([
         { type: "table", name: "architecture_debt_base_cache" },
         { type: "table", name: "external_docs_cache" },

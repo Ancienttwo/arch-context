@@ -277,6 +277,47 @@ function quoteSqlIdentifier(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
 }
 
+function orderTablesForForeignKeySafeDrop(db: SqliteDatabase, tableNames: readonly string[]): string[] {
+  const canonicalByLower = new Map<string, string>();
+  const parentsOfChild = new Map<string, Set<string>>();
+  const childrenOfParent = new Map<string, Set<string>>();
+  for (const name of tableNames) {
+    canonicalByLower.set(name.toLowerCase(), name);
+    parentsOfChild.set(name, new Set());
+    childrenOfParent.set(name, new Set());
+  }
+  for (const child of tableNames) {
+    const fkRows = db.prepare(`PRAGMA foreign_key_list(${quoteSqlIdentifier(child)})`).all();
+    for (const row of fkRows) {
+      const parent = canonicalByLower.get(String(row.table ?? "").toLowerCase());
+      if (!parent || parent === child) continue;
+      parentsOfChild.get(child)!.add(parent);
+      childrenOfParent.get(parent)!.add(child);
+    }
+  }
+  const queue: string[] = [];
+  for (const name of tableNames) {
+    if (childrenOfParent.get(name)!.size === 0) queue.push(name);
+  }
+  const ordered: string[] = [];
+  const emitted = new Set<string>();
+  while (queue.length > 0) {
+    const child = queue.shift()!;
+    if (emitted.has(child)) continue;
+    emitted.add(child);
+    ordered.push(child);
+    for (const parent of parentsOfChild.get(child)!) {
+      const remainingChildren = childrenOfParent.get(parent)!;
+      remainingChildren.delete(child);
+      if (remainingChildren.size === 0) queue.push(parent);
+    }
+  }
+  for (const name of tableNames) {
+    if (!emitted.has(name)) ordered.push(name);
+  }
+  return ordered;
+}
+
 function tableMatchesColumns(db: SqliteDatabase, tableName: string, expectedColumns: readonly string[]): boolean {
   const columns = db.prepare(`PRAGMA table_info(${quoteSqlIdentifier(tableName)})`).all();
   if (columns.length !== expectedColumns.length) return false;
@@ -543,6 +584,10 @@ export class SqliteLocalStore implements RuntimeLocalStore {
         return;
       }
       if (current.kind === "proven-legacy") {
+        const triggers = db.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name NOT LIKE 'sqlite_%'").all();
+        for (const trigger of triggers) {
+          db.exec(`DROP TRIGGER IF EXISTS ${quoteSqlIdentifier(String(trigger.name))}`);
+        }
         for (const viewName of current.legacyViewNames) {
           db.exec(`DROP VIEW IF EXISTS ${quoteSqlIdentifier(viewName)}`);
         }
@@ -552,8 +597,12 @@ export class SqliteLocalStore implements RuntimeLocalStore {
             db.exec(`DROP TABLE IF EXISTS ${quoteSqlIdentifier(String(table.name))}`);
           }
         }
-        for (const table of tables) {
-          db.exec(`DROP TABLE IF EXISTS ${quoteSqlIdentifier(String(table.name))}`);
+        const regularTables = db
+          .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
+          .all()
+          .map((row) => String(row.name));
+        for (const tableName of orderTablesForForeignKeySafeDrop(db, regularTables)) {
+          db.exec(`DROP TABLE IF EXISTS ${quoteSqlIdentifier(tableName)}`);
         }
       }
       db.exec(`
