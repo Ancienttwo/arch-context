@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
 import { createHash } from "node:crypto";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -18,6 +18,7 @@ import {
   type CodeGraphReadProvider
 } from "../src/index";
 import { codeGraphBundle } from "../src/read-session";
+import { snapshotCodeGraphIndex } from "../src/index-base";
 import { withReadyCodeGraphIndex } from "../src/ready-index-read";
 import { fakeReadProvider } from "./read-provider-fixture";
 import { gitSpy } from "./git-spy";
@@ -351,6 +352,40 @@ describe("read session over a real index", () => {
       const [code] = await exited;
       expect(code, stderr).toBe(0);
     }
+  }, 90_000);
+
+  test("pinned-provider reads and snapshotCodeGraphIndex create zero workspace -wal or -shm sidecars", () => {
+    withRoot((isolated) => {
+      expect(openCodeGraphReadSession(isolated)).toEqual({ state: "index-missing" });
+      execFileSync("git", ["init", "-q"], { cwd: isolated });
+      writeFileSync(join(isolated, ".gitignore"), ".codegraph/\n");
+      mkdirSync(join(isolated, "src"));
+      writeFileSync(join(isolated, "src/index.ts"), "export const sidecarFree = 1;\n");
+      execFileSync("git", ["add", "-A"], { cwd: isolated });
+      execFileSync("git", ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "-c", `core.hooksPath=${join(isolated, ".git/no-hooks")}`, "commit", "-qm", "fixture"], { cwd: isolated });
+      indexCodeGraphFixture(isolated);
+
+      const indexDir = join(isolated, ".codegraph");
+      const database = join(indexDir, "codegraph.db");
+      const dbBefore = digest(database);
+      expect(readdirSync(indexDir).sort()).toEqual([".gitignore", "codegraph.db"]);
+
+      const opened = openCodeGraphReadSession(isolated);
+      expect(opened.state).toBe("open");
+      if (opened.state === "open") {
+        expect(opened.session.graph.getFiles().length).toBeGreaterThan(0);
+        opened.session.close();
+      }
+      expect(inspectRepositoryCodeFacts(isolated).state).toBe("ready");
+      expect(withReadyCodeGraphIndex(isolated, (graph) => graph.getFiles().length)).toBeGreaterThan(0);
+      const snapshotOut = join(isolated, "snapshot.db");
+      snapshotCodeGraphIndex(database, snapshotOut);
+      expect(statSync(snapshotOut).size).toBeGreaterThan(100);
+      rmSync(snapshotOut, { force: true });
+
+      expect(readdirSync(indexDir).sort()).toEqual([".gitignore", "codegraph.db"]);
+      expect(digest(database)).toBe(dbBefore);
+    });
   }, 90_000);
 
 });

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createCommittedGitRepo, git } from "../../local-store-sqlite/test/git-fixtures";
@@ -67,6 +67,26 @@ test("runtime state paths collapse monorepo subdirectories and isolate sibling r
       expect(subdirPaths.storageWorkspaceId).toBe(rootPaths.storageWorkspaceId);
       expect(siblingPaths.storageRepositoryId).not.toBe(rootPaths.storageRepositoryId);
       expect(siblingPaths.workspaceStateDir).not.toBe(rootPaths.workspaceStateDir);
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
+  test.skipIf(process.platform === "win32")("keeps adjacent checkouts separated when a directory name ends with whitespace", () => {
+    const workspace = realpathSync.native(mkdtempSync(join(tmpdir(), "archctx-state-trailing-ws-")));
+    const plain = join(workspace, "project");
+    const trailing = join(workspace, "project ");
+    const stateRoot = join(workspace, "state");
+    try {
+      createCommittedGitRepo(plain);
+      createCommittedGitRepo(trailing);
+
+      const plainPaths = runtimeStatePaths(plain, { ARCHCONTEXT_STATE_DIR: stateRoot });
+      const trailingPaths = runtimeStatePaths(trailing, { ARCHCONTEXT_STATE_DIR: stateRoot });
+      expect(plainPaths.repositoryRoot).toBe(plain);
+      expect(trailingPaths.repositoryRoot).toBe(trailing);
+      expect(trailingPaths.storageRepositoryId).not.toBe(plainPaths.storageRepositoryId);
+      expect(trailingPaths.workspaceStateDir).not.toBe(plainPaths.workspaceStateDir);
     } finally {
       rmSync(workspace, { recursive: true, force: true });
     }

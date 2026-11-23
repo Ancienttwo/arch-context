@@ -112,13 +112,17 @@ function listDirectoryNames(path: string): string[] {
   }
 }
 
+function stripTrailingLineEnding(value: string): string {
+  return process.platform === "win32" ? value.replace(/\r?\n$/, "") : value.replace(/\n$/, "");
+}
+
 function readGitPath(root: string, args: string[]): string | undefined {
   try {
-    const value = execFileSync("git", args, {
+    const value = stripTrailingLineEnding(execFileSync("git", args, {
       cwd: root,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"]
-    }).trim();
+    }));
     return value.length > 0 ? value : undefined;
   } catch {
     return undefined;

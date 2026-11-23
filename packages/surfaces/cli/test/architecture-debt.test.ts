@@ -1,6 +1,6 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, rmdirSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { architectureDebtReportIssues, digestJson, stableYaml, type ArchitectureDebtDeltaReportV1, type ArchitectureDebtReportV1 } from "@archcontext/contracts";
@@ -10,6 +10,7 @@ import { readArchitectureDebt } from "@archcontext/local-runtime/architecture-de
 import type { RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-daemon";
 import { publishedSchemaIssues } from "../../../contracts/test/published-schemas";
 import * as codegraphAdapter from "@archcontext/local-runtime/codegraph-adapter";
+import * as gitAdapter from "@archcontext/local-runtime/git-adapter";
 import { CodeGraphSdkProvider, codeGraphBaseDirectory } from "@archcontext/local-runtime/codegraph-adapter";
 import { indexCodeGraphFixture } from "../../../local-runtime/codegraph-adapter/test/real-index";
 import { runArchitectureDebtDeltaCommand } from "../src/architecture-debt-delta";
@@ -205,12 +206,18 @@ for (const profiles of [["edit-time", "complete"], ["complete", "edit-time"]] as
       expect(deltas.get("complete")?.base.debtDigest).not.toBe(deltas.get("edit-time")?.base.debtDigest);
       expect(readFileSync(join(sharedBase, "current.json"), "utf8")).toBe(pointer);
       expect(readdirSync(scratch)).toEqual([]);
-      // A cache miss would fail before Git can create the worktree under this missing temp root.
-      rmdirSync(scratch);
-      for (const profile of profiles) {
-        const repeat = await readDelta(root, baseSha, ...(profile === "complete" ? ["--complete"] : []));
-        const first = deltas.get(profile)!;
-        expect(repeat).toEqual({ ...first, base: { ...first.base, ref: baseSha } });
+      // Cache hit: repeat reads create zero detached base worktrees while keeping TMPDIR available for read-only CodeGraph copies.
+      const detachedSpy = spyOn(gitAdapter, "withDetachedGitWorktree");
+      try {
+        for (const profile of profiles) {
+          const repeat = await readDelta(root, baseSha, ...(profile === "complete" ? ["--complete"] : []));
+          const first = deltas.get(profile)!;
+          expect(repeat).toEqual({ ...first, base: { ...first.base, ref: baseSha } });
+        }
+        expect(detachedSpy).toHaveBeenCalledTimes(0);
+        expect(readdirSync(scratch)).toEqual([]);
+      } finally {
+        detachedSpy.mockRestore();
       }
       expect(git(root, "worktree", "list", "--porcelain")).toBe(worktrees);
     });
@@ -287,9 +294,15 @@ test("debt --base --complete cold-indexes detached base from a linked worktree w
     expect(git(root, "worktree", "list", "--porcelain")).toBe(worktrees);
     expect(readdirSync(scratch)).toEqual([]);
     expect(existsSync(hooksDir) ? readdirSync(hooksDir).sort() : []).toEqual(hooksBefore);
-    // Cache hit: removing scratch proves the complete base measurement was stored in SQLite.
-    rmdirSync(scratch);
-    expect(await readDelta(linked, baseSha, "--complete")).toEqual(delta);
+    // Cache hit: repeat reads create zero detached base worktrees while keeping TMPDIR available for read-only CodeGraph copies.
+    const detachedSpy = spyOn(gitAdapter, "withDetachedGitWorktree");
+    try {
+      expect(await readDelta(linked, baseSha, "--complete")).toEqual(delta);
+      expect(detachedSpy).toHaveBeenCalledTimes(0);
+      expect(readdirSync(scratch)).toEqual([]);
+    } finally {
+      detachedSpy.mockRestore();
+    }
   });
 }, 120_000);
 
@@ -317,8 +330,14 @@ test("debt --base --complete cold-indexes detached base when seeding is declined
       })]);
       expect(git(root, "worktree", "list", "--porcelain")).toBe(worktrees);
       expect(readdirSync(scratch)).toEqual([]);
-      rmdirSync(scratch);
-      expect(await readDelta(root, baseSha, "--complete")).toEqual(delta);
+      const detachedSpy = spyOn(gitAdapter, "withDetachedGitWorktree");
+      try {
+        expect(await readDelta(root, baseSha, "--complete")).toEqual(delta);
+        expect(detachedSpy).toHaveBeenCalledTimes(0);
+        expect(readdirSync(scratch)).toEqual([]);
+      } finally {
+        detachedSpy.mockRestore();
+      }
     });
   } finally {
     seedSpy.mockRestore();

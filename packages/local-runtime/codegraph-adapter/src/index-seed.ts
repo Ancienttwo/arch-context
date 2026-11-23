@@ -16,13 +16,17 @@ export interface CodeGraphIndexSeedOptions {
   initFn?: (root: string) => Promise<void> | void;
 }
 
+function stripTrailingLineEnding(value: string): string {
+  return process.platform === "win32" ? value.replace(/\r?\n$/, "") : value.replace(/\n$/, "");
+}
+
 /**
  * Determines whether a Git worktree is the primary checkout or a linked worktree (#641).
  */
 export function readGitWorktreeRole(root: string): "primary" | "linked" {
   const repositoryRoot = findRepositoryRoot(root);
-  const rawGitDir = decodeUtf8(readOnlyGit(repositoryRoot, "rev-parse", ["--git-dir"])).trim();
-  const rawCommonDir = decodeUtf8(readOnlyGit(repositoryRoot, "rev-parse", ["--git-common-dir"])).trim();
+  const rawGitDir = stripTrailingLineEnding(decodeUtf8(readOnlyGit(repositoryRoot, "rev-parse", ["--git-dir"])));
+  const rawCommonDir = stripTrailingLineEnding(decodeUtf8(readOnlyGit(repositoryRoot, "rev-parse", ["--git-common-dir"])));
   const resolvedGitDir = realpathSync.native(isAbsolute(rawGitDir) ? rawGitDir : resolve(repositoryRoot, rawGitDir));
   const resolvedCommonDir = realpathSync.native(isAbsolute(rawCommonDir) ? rawCommonDir : resolve(repositoryRoot, rawCommonDir));
   return resolvedGitDir === resolvedCommonDir ? "primary" : "linked";

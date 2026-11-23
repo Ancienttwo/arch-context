@@ -1,14 +1,17 @@
 import { productVersionManifest } from "@archcontext/contracts";
-import { existsSync, lstatSync, readFileSync, statSync } from "node:fs";
+import { constants, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
-import { basename, dirname, join } from "node:path";
+import { tmpdir } from "node:os";
+import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import type { CodeGraph } from "@colbymchenry/codegraph";
+import { disableCodeGraphTelemetryByDefault } from "./child-env";
 
 /**
  * ADR-0058: every CodeGraph read goes through one in-process, read-only handle. A read starts no
  * CodeGraph command, runs no `git status` or `git diff`, and never opens the index writable.
- * SQLite may create the `-wal` and `-shm` sidecars beside the opened database. Building the index
- * stays with the CodeGraph CLI (`init`, `sync`).
+ * Production reads copy `.codegraph/codegraph.db` (and any committed `-wal`) to a private scratch
+ * directory so SQLite creates zero `-wal`, `-shm`, or `.gitignore` sidecars inside the workspace.
+ * Building the index stays with the CodeGraph CLI (`init`, `sync`).
  */
 
 export const REQUIRED_CODEGRAPH_PACKAGE = "@colbymchenry/codegraph";
@@ -217,16 +220,23 @@ export type CodeGraphReadSessionOpenV1 =
  * Opens the index of `root` read-only for one operation. The caller closes the session; prefer
  * `withCodeGraphReadSession`, which closes it in `finally`. Throws only
  * `CodeGraphProviderUnavailableError`, when the pinned provider cannot load.
+ *
+ * Production reads (using the pinned provider) open a private scratch copy under `tmpdir()` so
+ * SQLite leaves zero `-wal`/`-shm` sidecars in `<root>/.codegraph/`. Explicit test-double providers
+ * keep direct `openReadOnly(root)` semantics.
  */
 export function openCodeGraphReadSession(root: string, options: { provider?: CodeGraphReadProvider } = {}): CodeGraphReadSessionOpenV1 {
   const provider = options.provider ?? pinnedCodeGraphProvider();
+  if (options.provider === undefined || options.provider === pinnedProvider) {
+    return openScratchReadOnlyCodeGraph(root, provider);
+  }
   const indexDir = join(root, ".codegraph");
   let linked: boolean;
   try { linked = lstatSync(indexDir).isSymbolicLink(); }
   catch (error) { return { state: absenceOrUnreadable(error) }; }
   // A linked `.codegraph`, dangling or not, could carry another worktree's index; it is not this root's.
   if (linked) return { state: "index-open-failed" };
-  try { statSync(join(indexDir, "codegraph.db")); }
+  try { lstatSync(join(indexDir, "codegraph.db")); }
   catch (error) { return { state: absenceOrUnreadable(error) }; }
   if (codeGraphIndexBuildInProgress(root)) return { state: "build-in-progress" };
   const handle: { graph?: CodeGraphIndexHandle } = {};
@@ -239,6 +249,98 @@ export function openCodeGraphReadSession(root: string, options: { provider?: Cod
     return { state: "index-open-failed" };
   }
   return { state: "open", session: readSession(root, handle, provider, atOpen) };
+}
+
+/**
+ * Opens an isolated scratch copy of `<root>/.codegraph/codegraph.db` (and any regular `-wal`) in
+ * `tmpdir()` so SQLite WAL/SHM creation never touches the workspace. Removing the scratch folder
+ * runs idempotently inside `session.close()`.
+ */
+export function openScratchReadOnlyCodeGraph(root: string, readProvider?: CodeGraphReadProvider): CodeGraphReadSessionOpenV1 {
+  const provider = readProvider ?? pinnedCodeGraphProvider();
+  const indexDir = join(root, ".codegraph");
+  const database = join(indexDir, "codegraph.db");
+  const wal = `${database}-wal`;
+  const journal = `${database}-journal`;
+  const missing: CodeGraphReadSessionOpenV1 = { state: "index-missing" };
+  const unreadable: CodeGraphReadSessionOpenV1 = { state: "index-open-failed" };
+  const moving: CodeGraphReadSessionOpenV1 = { state: "build-in-progress" };
+  let scratch: string | undefined;
+  let graph: CodeGraphIndexHandle | undefined;
+  const clean = () => {
+    const dir = scratch;
+    scratch = undefined;
+    try { graph?.close(); }
+    finally {
+      graph = undefined;
+      if (dir !== undefined) rmSync(dir, { force: true, recursive: true, maxRetries: 3 });
+    }
+  };
+  try {
+    const index = directoryIdentity(indexDir);
+    if (index === undefined) return missing;
+
+    const before = fileIdentity(database);
+    if (before === undefined) return missing;
+
+    if (codeGraphIndexBuildInProgress(root)) return moving;
+
+    const beforeWal = fileIdentity(wal);
+    if (!codeGraphIndexIdentity(root) || statIfPresent(journal)) return unreadable;
+
+    const { sdk } = codeGraphBundle();
+    const parent = realpathSync(tmpdir());
+    const fromRoot = relative(realpathSync(root), parent);
+    if (fromRoot === "" || (fromRoot !== ".." && !fromRoot.startsWith(`..${sep}`) && !isAbsolute(fromRoot))) return unreadable;
+
+    scratch = mkdtempSync(join(parent, "archctx-verify-"));
+    const copy = sdk.getDatabasePath(scratch);
+    if (copy !== join(scratch, ".codegraph", "codegraph.db")) throw new Error("CodeGraph resolved an unexpected snapshot path");
+    mkdirSync(dirname(copy));
+    // Preserve a committed WAL as part of the snapshot. SQLite rebuilds SHM on the private copy.
+    copyFileSync(database, copy, constants.COPYFILE_FICLONE);
+    if (beforeWal !== undefined) copyFileSync(wal, `${copy}-wal`, constants.COPYFILE_FICLONE);
+
+    const indexIsCurrent = () => {
+      try {
+        return !codeGraphIndexBuildInProgress(root) && directoryIdentity(indexDir) === index
+          && fileIdentity(database) === before && fileIdentity(wal) === beforeWal && !statIfPresent(journal);
+      } catch { return false; }
+    };
+    if (!indexIsCurrent()) { clean(); return moving; }
+
+    disableCodeGraphTelemetryByDefault();
+    graph = provider.openReadOnly(scratch);
+    const session = isolatedCodeGraphReadSession(root, graph, provider, indexIsCurrent, clean);
+    graph = undefined;
+    return { state: "open", session };
+  } catch {
+    clean();
+    return unreadable;
+  }
+}
+
+function statIfPresent(path: string) {
+  try { return lstatSync(path, { bigint: true }); }
+  catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR") return undefined;
+    throw error;
+  }
+}
+
+function directoryIdentity(path: string): string | undefined {
+  const stat = statIfPresent(path);
+  if (stat === undefined) return undefined;
+  if (!stat.isDirectory()) throw new Error("CodeGraph directory is not local");
+  return `${stat.dev}:${stat.ino}`;
+}
+
+function fileIdentity(path: string): string | undefined {
+  const stat = statIfPresent(path);
+  if (stat === undefined) return undefined;
+  if (!stat.isFile()) throw new Error("CodeGraph snapshot entry is not a regular file");
+  return `${stat.dev}:${stat.ino}:${stat.ctimeNs}:${stat.mtimeNs}:${stat.size}`;
 }
 
 /** Only absence proves there is no index; any other failure (permission, I/O) is an unreadable one. */
@@ -260,11 +362,24 @@ export function withCodeGraphReadSession<T>(root: string, read: (opened: CodeGra
 }
 
 /** The staged graph still attests to the original worktree and its original index identity. */
-export function isolatedCodeGraphReadSession(root: string, graph: CodeGraphIndexHandle, provider: CodeGraphReadProvider, indexIsCurrent: () => boolean): CodeGraphReadSession {
-  return readSession(root, { graph }, provider, revisionOf(graph), indexIsCurrent);
+export function isolatedCodeGraphReadSession(
+  root: string,
+  graph: CodeGraphIndexHandle,
+  provider: CodeGraphReadProvider,
+  indexIsCurrent: () => boolean,
+  onClose?: () => void
+): CodeGraphReadSession {
+  return readSession(root, { graph }, provider, revisionOf(graph), indexIsCurrent, onClose);
 }
 
-function readSession(root: string, handle: { graph?: CodeGraphIndexHandle }, provider: CodeGraphReadProvider, atOpen: CodeGraphIndexRevisionV1, indexIsCurrent?: () => boolean): CodeGraphReadSession {
+function readSession(
+  root: string,
+  handle: { graph?: CodeGraphIndexHandle },
+  provider: CodeGraphReadProvider,
+  atOpen: CodeGraphIndexRevisionV1,
+  indexIsCurrent?: () => boolean,
+  onClose?: () => void
+): CodeGraphReadSession {
   let freshness: CodeGraphIndexFreshnessV1 | undefined;
   const open = (): CodeGraphIndexHandle => {
     if (handle.graph === undefined) throw new Error("CodeGraph read session is closed");
@@ -302,8 +417,10 @@ function readSession(root: string, handle: { graph?: CodeGraphIndexHandle }, pro
     },
     close: () => {
       if (handle.graph === undefined) return;
-      handle.graph.close();
+      const graph = handle.graph;
       handle.graph = undefined;
+      try { graph.close(); }
+      finally { onClose?.(); }
     }
   };
 }

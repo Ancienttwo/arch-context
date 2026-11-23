@@ -3,7 +3,7 @@ import type {
   ArchitectureSubjectSelectorKind,
   RecommendationStatus
 } from "./ledger-records";
-import { isRepoRelativePosixPath } from "./schema";
+import { isCanonicalRepoRelativePosixPath } from "./schema";
 
 /**
  * The bounded grammar an execution evidence `locator` must fit: 1..256 characters drawn from the
@@ -181,7 +181,7 @@ export const REFACTOR_RECOMMENDATION_ID_PATTERN = /^recommendation\.[a-f0-9]{16}
  * #636 / #643: Symbolic kill-list targets use `path#symbol`, where `path` is a safe repo-relative
  * POSIX path and `symbol` is a non-empty identifier without whitespace or control characters.
  */
-export const REFACTOR_KILL_LIST_SYMBOL_TARGET_REGEX = "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^#\\s\\\\\\u0000-\\u001f\\u007f]+#[^\\s\\u0000-\\u001f\\u007f]+$";
+export const REFACTOR_KILL_LIST_SYMBOL_TARGET_REGEX = "^(?![A-Za-z]:)(?!\\.\\.?(?:/|#))[^/#\\s\\\\\\u0000-\\u001f\\u007f]+(?:/(?!\\.\\.?(?:/|#))[^/#\\s\\\\\\u0000-\\u001f\\u007f]+)*#[^#\\s\\u0000-\\u001f\\u007f]+$";
 
 export function formatRefactorKillListSymbolTarget(path: string, symbol: string): string {
   return `${path}#${symbol}`;
@@ -193,7 +193,7 @@ export function parseRefactorKillListSymbolTarget(target: string): { path: strin
   if (target.indexOf("#", hashIndex + 1) !== -1) return undefined;
   const path = target.slice(0, hashIndex);
   const symbol = target.slice(hashIndex + 1);
-  if (!isRepoRelativePosixPath(path) || /[\s\u0000-\u001f\u007f]/.test(path)) return undefined;
+  if (!isCanonicalRepoRelativePosixPath(path) || /[\s\u0000-\u001f\u007f]/.test(path)) return undefined;
   if (/[\s\u0000-\u001f\u007f]/.test(symbol) || symbol.length === 0) return undefined;
   return { path, symbol };
 }

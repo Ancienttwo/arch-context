@@ -1,7 +1,9 @@
+import { execFileSync } from "node:child_process";
 import {
   FailureError,
   REFACTOR_VERIFY_V2_SCHEMA_VERSION,
   digestJson,
+  isCanonicalRepoRelativePosixPath,
   type Json,
   type ModuleStatisticsSnapshotV1,
   type RefactorDecisionV1,
@@ -21,6 +23,18 @@ import { measureRefactorSnapshot, refactorWorktreeDigests } from "./refactor-sca
 
 export function compareText(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function isGitCaseInsensitive(root: string): boolean {
+  try {
+    return execFileSync("git", ["config", "--bool", "--get", "core.ignorecase"], {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"]
+    }).trim() === "true";
+  } catch {
+    return false;
+  }
 }
 
 export function pureGitScope(root: string, scope: RefactorScopeV1 = { kind: "repository" }) {
@@ -214,24 +228,36 @@ export function runVerifyV2(root: string, recommendationId: string, options: { i
     }
   }
 
+  const caseInsensitive = isGitCaseInsensitive(root);
   const trackedSet = new Set(measured.trackedFiles.map((file) => file.path));
+  const trackedLowerSet = caseInsensitive ? new Set(measured.trackedFiles.map((file) => file.path.toLowerCase())) : undefined;
   const killList = decision.killList ?? [];
   const symbolTargets = killList.filter((entry) => entry.kind === "symbol").map((entry) => entry.target);
   const codeFactsReady =
     snapshot.codeFacts.coverage !== "unknown" &&
     snapshot.codeFacts.indexedWorktreeDigest === snapshot.worktree.worktreeDigest;
   const symbolResults = new Map(
-    verifySymbolKillList(root, symbolTargets, { codeFactsReady, trackedFiles: trackedSet })
+    verifySymbolKillList(root, symbolTargets, { codeFactsReady, trackedFiles: trackedSet, caseInsensitive })
       .map((entry) => [entry.target, entry])
   );
 
   const killListChecks: RefactorVerifyV2["killListChecks"] = killList.map((entry) => {
     if (entry.kind === "path") {
+      if (!isCanonicalRepoRelativePosixPath(entry.target)) {
+        if (entry.required) blockingReasons.add("kill-list-path-noncanonical");
+        return {
+          kind: "path",
+          target: entry.target,
+          required: entry.required,
+          status: "uncheckable"
+        };
+      }
+      const present = trackedSet.has(entry.target) || (trackedLowerSet?.has(entry.target.toLowerCase()) ?? false);
       return {
         kind: "path",
         target: entry.target,
         required: entry.required,
-        status: trackedSet.has(entry.target) ? "still-present" : "removed"
+        status: present ? "still-present" : "removed"
       };
     }
     if (entry.kind === "relation") {
@@ -264,6 +290,7 @@ export function runVerifyV2(root: string, recommendationId: string, options: { i
     blockingReasons.has("after-index-stale") ||
     blockingReasons.has("git-history-incomplete") ||
     blockingReasons.has("co-change-window-decay-without-structural-closure") ||
+    blockingReasons.has("kill-list-path-noncanonical") ||
     blockingReasons.has("kill-list-symbol-unverifiable");
 
   const satisfiedCount =

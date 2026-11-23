@@ -1,7 +1,15 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { CONTRACT_SCHEMA_REGISTRY, serializeSchemaDocument, validateJsonSchema, type Json } from "../src";
+import {
+  CONTRACT_SCHEMA_REGISTRY,
+  RepoPathSchema,
+  isCanonicalRepoRelativePosixPath,
+  isValidRefactorKillListSymbolTarget,
+  serializeSchemaDocument,
+  validateJsonSchema,
+  type Json
+} from "../src";
 import { publishedSchemaResolver } from "./published-schemas";
 
 const REPO_ROOT = join(import.meta.dir, "../../..");
@@ -240,5 +248,35 @@ describe("single-source TypeBox schema registry", () => {
         { resolveSchema }
       ).valid
     ).toBe(false);
+  });
+
+  test("canonical repo-relative POSIX path validators and schemas reject aliases and drive prefixes", () => {
+    const valid = [".gitignore", ".archcontext/manifest.yaml", "src/index.ts", "packages/a/.hidden/file.ts"];
+    for (const path of valid) {
+      expect(isCanonicalRepoRelativePosixPath(path), path).toBe(true);
+      expect(validateJsonSchema(RepoPathSchema, path).issues, path).toEqual([]);
+      expect(isValidRefactorKillListSymbolTarget(`${path}#sym`), path).toBe(true);
+    }
+
+    const rejected = [
+      "",
+      "./src/a.ts",
+      "src/./a.ts",
+      "src/.",
+      "src//a.ts",
+      "src/a.ts/",
+      "/src/a.ts",
+      "../a.ts",
+      "src/../a.ts",
+      "src\\a.ts",
+      "C:/src/a.ts",
+      "c:src/a.ts",
+      "src/\u0000a.ts"
+    ];
+    for (const bad of rejected) {
+      expect(isCanonicalRepoRelativePosixPath(bad), bad).toBe(false);
+      expect(validateJsonSchema(RepoPathSchema, bad).valid, bad).toBe(false);
+      expect(isValidRefactorKillListSymbolTarget(`${bad}#sym`), bad).toBe(false);
+    }
   });
 });

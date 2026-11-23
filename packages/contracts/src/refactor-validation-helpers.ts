@@ -14,7 +14,7 @@ import {
   type RefactorProposalAuthorSource
 } from "./refactor-constants";
 import type { ArchitectureTargetDeltaV1, RefactorTargetOutcomeV1 } from "./refactor-types";
-import { isRepoRelativePosixPath, type Json } from "./schema";
+import { isCanonicalRepoRelativePosixPath, isRepoRelativePosixPath, type Json } from "./schema";
 
 export const DIGEST_PREFIX_LENGTH = "sha256:".length;
 export const SHA256_DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/;
@@ -164,6 +164,10 @@ export function compareLine(left: number | null, right: number | null): number {
 
 export function repoPathIssues(label: string, path: string): string[] {
   return typeof path === "string" && isRepoRelativePosixPath(path) ? [] : [`${label} must be a repo-relative POSIX path`];
+}
+
+export function canonicalRepoPathIssues(label: string, path: string): string[] {
+  return typeof path === "string" && isCanonicalRepoRelativePosixPath(path) ? [] : [`${label} must be a canonical repo-relative POSIX path`];
 }
 
 export function lineIssues(label: string, line: number | null): string[] {

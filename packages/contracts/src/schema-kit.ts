@@ -152,8 +152,12 @@ export const RepoPathSchema: TUnsafe<string> = TypedUnsafe<string>({
   not: {
     anyOf: [
       { pattern: "^/" },
+      { pattern: "/$" },
+      { pattern: "//" },
       { pattern: "\\\\" },
-      { pattern: "(^|/)\\.\\.(/|$)" }
+      { pattern: "^[A-Za-z]:" },
+      { pattern: "[\\u0000-\\u001f\\u007f]" },
+      { pattern: "(^|/)\\.\\.?(/|$)" }
     ]
   }
 });

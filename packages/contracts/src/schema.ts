@@ -128,8 +128,23 @@ export function stableId(...parts: string[]): string {
     .join(".");
 }
 
+const WINDOWS_DRIVE_PREFIX = /^[A-Za-z]:/;
+const PATH_CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
+
 export function isRepoRelativePosixPath(path: string): boolean {
   return path.length > 0 && !path.startsWith("/") && !path.includes("\\") && !path.split("/").includes("..");
+}
+
+export function isCanonicalRepoRelativePosixPath(path: string): boolean {
+  if (
+    !isRepoRelativePosixPath(path)
+    || path.endsWith("/")
+    || WINDOWS_DRIVE_PREFIX.test(path)
+    || PATH_CONTROL_CHARS.test(path)
+  ) {
+    return false;
+  }
+  return path.split("/").every((segment) => segment.length > 0 && segment !== ".");
 }
 
 export function stableYaml(value: Json, indent = 0): string {

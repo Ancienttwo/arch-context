@@ -92,7 +92,8 @@ export function readNativeGitRoot(start: string): string {
   try {
     const body = decodeUtf8(readOnlyGit(start, "rev-parse", ["--show-toplevel"]));
     if (!body.endsWith("\n")) throw new Error("root-output-invalid");
-    return resolve(body.slice(0, -1));
+    const stripped = process.platform === "win32" ? body.replace(/\r?\n$/, "") : body.slice(0, -1);
+    return resolve(stripped);
   } catch { throw new NativeContextError("git-worktree-required"); }
 }
 
