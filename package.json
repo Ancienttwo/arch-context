@@ -50,8 +50,7 @@
     "verify:platform": "bun test --timeout 60000 ./packages/core/changeset-engine ./packages/local-runtime/codegraph-adapter ./packages/local-runtime/descriptor-write ./packages/local-runtime/git-adapter ./packages/local-runtime/local-store-sqlite ./packages/local-runtime/runtime-state-paths ./packages/local-runtime/model-store-yaml/test/native-context.test.ts ./packages/local-runtime/runtime-daemon/test/egress-admission.test.ts ./packages/local-runtime/runtime-daemon/test/projection-writer.test.ts",
     "verify:node-compat": "bun run test:codegraph-selector-node && node scripts/packaged-cli-smoke.mjs && bun test --timeout 60000 packages/surfaces/cli/test/bundle-entry.test.ts packages/contracts/test/publishability.test.ts",
     "verify:ci": "node scripts/verify-ci.mjs",
-    "check:brain": "rh brain check",
-    "sync:brain": "rh brain sync"
+    "check:deploy-sql": "rh run check-deploy-sql-order"
   },
   "devDependencies": {
     "@mermaid-js/mermaid-cli": "11.16.0",

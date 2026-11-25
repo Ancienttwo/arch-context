@@ -23,13 +23,7 @@
   },
   "external_tooling": {},
   "internal_pr_authors": [],
-  "information_lifecycle": {
-    "external_knowledge": {
-      "project_path": "brain/<project>/*",
-      "manifest_file": ".ai/harness/brain-manifest.json",
-      "sync_script": "rh brain sync"
-    }
-  },
+  "information_lifecycle": {},
   "planning": {
     "pending_orchestration_file": ".ai/harness/planning/pending.json"
   },

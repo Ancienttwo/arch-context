@@ -76,6 +76,7 @@
     ".ai/**",
     ".archcontext/**",
     ".claude/**",
+    "deploy/**",
     "docs/**",
     "plans/**",
     "schemas/**",
