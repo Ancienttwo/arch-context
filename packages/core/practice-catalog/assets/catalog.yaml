@@ -1,7 +1,7 @@
 {
   "schemaVersion": "archcontext.practice-catalog-manifest/v1",
   "catalogVersion": "2026.06.0",
-  "productVersion": "0.18.4",
+  "productVersion": "0.18.5",
   "generatedAt": "1970-01-01T00:00:00.000Z",
   "entries": [
     {
@@ -390,5 +390,5 @@
     "twelve-factor"
   ],
   "catalogDigest":
-    "sha256:75db766ea62d63cee8c4593ade9b499276ed46321c069b45b7b96cc894339aa8"
+    "sha256:83d3017545075e4134e3e9c1bf572fdd5e5ad01eb3c9b62856730a33f2d8e559"
 }
