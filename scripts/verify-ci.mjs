@@ -6,7 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const OS_TARGETS = ["ubuntu-latest", "macos-15", "windows-latest"];
-export const NODE_TARGETS = ["22.22.x", "24.x", "25.x"];
+export const NODE_TARGETS = ["22.22.x", "24.x", "25.x", "26.x"];
 export const targetName = (os, node) => `${os} / Node ${node}`;
 export const workerName = (os, node, part) => `Verify execution: ${targetName(os, node)} / ${part}`;
 export const GOVERNANCE_TARGET = { os: "ubuntu-latest", "node-version": "22.22.x" };
