@@ -308,8 +308,8 @@ describe("Node engine range at the bundled entry (#322)", () => {
       execFileSync("git", ["init", "-q"], { cwd });
       // Node keeps `process.versions.node` configurable, so a preload can pose as an unsupported
       // Node.js without installing one; the bundle reads the same property the release bin does.
-      const stub = join(stubDir, "node-26.mjs");
-      writeFileSync(stub, 'Object.defineProperty(process.versions, "node", { value: "26.10.0" });\n', "utf8");
+      const stub = join(stubDir, "node-27.mjs");
+      writeFileSync(stub, 'Object.defineProperty(process.versions, "node", { value: "27.10.0" });\n', "utf8");
       const nodeArgs = ["--import", pathToFileURL(stub).href];
       for (const args of [["validate"], ["capabilities", "--json"], ["daemon", "start"], ["daemon", "start", "--foreground", "--port", "0"], ["docs", "--help"]]) {
         const result = await runBundle(cwd, args, { env, nodeArgs, allowFailure: true, expectExitCode: 1 });
@@ -320,7 +320,7 @@ describe("Node engine range at the bundled entry (#322)", () => {
             code: "AC_NODE_VERSION_UNSUPPORTED",
             retryable: false,
             action: "use-supported-node-version",
-            details: { nodeVersion: "26.10.0", supportedRange: ARCHCONTEXT_NODE_RANGE }
+            details: { nodeVersion: "27.10.0", supportedRange: ARCHCONTEXT_NODE_RANGE }
           }
         });
       }

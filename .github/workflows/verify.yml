@@ -88,7 +88,8 @@ jobs:
           bun test packages/local-runtime/descriptor-write/test/descriptor-write.test.ts
 
   verify:
-    # Full verify runs once per OS at Node 22.22.x; Node 24.x and 25.x run only Node-runtime checks because Bun 1.4.4 executes the test suite.
+    # Full verify runs once per OS at Node 22.22.x; Node 24.x, 25.x, and 26.x
+    # run only Node-runtime checks because Bun 1.4.4 executes the test suite.
     if: contains(fromJSON(needs.verify-plan.outputs.families), 'node-compat')
     needs: verify-plan
     name: "Verify execution: ${{ matrix.os }} / Node ${{ matrix.node-version }} / node compat"

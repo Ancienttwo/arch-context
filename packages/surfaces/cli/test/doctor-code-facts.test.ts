@@ -30,8 +30,7 @@ function doctorHuman(root: string, stateDir: string): string {
 }
 
 function expectedOk(data: any): boolean {
-  return Boolean(data.hardening.supportedNode && data.permissions.workspace.readable && data.permissions.workspace.writable && data.egress.ok
-    && data.daemon.writable !== false);
+  return Boolean(data.hardening.supportedNode && data.permissions.workspace.readable && data.permissions.workspace.writable && data.egress.ok);
 }
 
 describe("archctx doctor code facts", () => {

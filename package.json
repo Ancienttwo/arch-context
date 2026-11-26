@@ -11,7 +11,7 @@
     "packages/surfaces"
   ],
   "engines": {
-    "node": ">=22.22 <26"
+    "node": ">=22.22 <27"
   },
   "dependencies": {
     "@archcontext/surfaces": "workspace:*",

@@ -555,7 +555,7 @@ test("the impact and gate commands plan each event from its base and gate the sa
     const config = readConfig();
     expect(release.split.include).toEqual(config.splitTargets.filter((row: any) => row.os !== "ubuntu-latest"));
     expect(release.shards.include).toHaveLength(6);
-    expect(release.compat.include).toEqual(OS_TARGETS.flatMap(os => ["24.x", "25.x"].map(node => ({ os, "node-version": node }))));
+    expect(release.compat.include).toEqual(OS_TARGETS.flatMap(os => ["24.x", "25.x", "26.x"].map(node => ({ os, "node-version": node }))));
     const workflow: any = Bun.YAML.parse(readFileSync(".github/workflows/verify.yml", "utf8"));
     const linuxShards = config.splitTargets.find((row: any) => row.os === "ubuntu-latest").shards;
     const width: Record<string, number> = { "verify-linux-shards": linuxShards, verify: release.compat.include.length, "verify-platform": 2,
@@ -565,7 +565,7 @@ test("the impact and gate commands plan each event from its base and gate the sa
       return !family || families.includes(family.id);
     }).reduce((sum, id) => sum + (width[id] ?? 1), 0);
     expect(count(docsPlan.families)).toBe(9);
-    expect(count(release.families)).toBe(28);
+    expect(count(release.families)).toBe(31);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

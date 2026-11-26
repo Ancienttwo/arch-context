@@ -8,7 +8,7 @@ const READBACK_SCRIPT = readFileSync("scripts/platform-ipc-permission-readback.m
 describe("platform IPC permission workflow", () => {
   test("runs verify and uploads IPC permission readback for all supported OS targets", () => {
     expect(OS_TARGETS).toEqual(["ubuntu-latest", "macos-15", "windows-latest"]);
-    expect(NODE_TARGETS).toEqual(["22.22.x", "24.x", "25.x"]);
+    expect(NODE_TARGETS).toEqual(["22.22.x", "24.x", "25.x", "26.x"]);
 
     expect(WORKFLOW).toContain("bun run verify");
     expect(WORKFLOW).toContain("node scripts/platform-ipc-permission-readback.mjs > platform-ipc-permission-readback.json");

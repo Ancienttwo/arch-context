@@ -12,7 +12,7 @@ import {
 export const ARCHCONTEXT_PRODUCT_NAME = "archctx" as const;
 export const ARCHCONTEXT_PRODUCT_VERSION = "0.18.4" as const;
 export const ARCHCONTEXT_PACKAGE_MANAGER = "bun@1.4.4" as const;
-export const ARCHCONTEXT_NODE_RANGE = ">=22.22 <26" as const;
+export const ARCHCONTEXT_NODE_RANGE = ">=22.22 <27" as const;
 export const LOCAL_RUNTIME_RPC_SCHEMA_VERSION = "archcontext.runtime-rpc/v2" as const;
 export const ARCHCONTEXT_SCHEMA_SET_VERSION = "2026-07-11.explorer-view-v2" as const;
 
@@ -122,8 +122,8 @@ export function productVersionManifest(): ProductVersionManifest {
  * Whether a Node.js version (`process.versions.node`) satisfies `range`, a space-separated list of
  * `>=`, `>`, `<=`, `<` or `=` comparators over `major[.minor[.patch]]` (missing parts are 0), the
  * only form `ARCHCONTEXT_NODE_RANGE` uses. A version that does not start with `major.minor.patch`
- * does not satisfy any range; a prerelease suffix is ignored, so `26.0.0-pre` counts as `26.0.0`
- * and fails `<26`. A comparator outside that form throws: the range is product metadata, not input.
+ * does not satisfy any range; a prerelease suffix is ignored, so `27.0.0-pre` counts as `27.0.0`
+ * and fails `<27`. A comparator outside that form throws: the range is product metadata, not input.
  */
 export function nodeVersionSatisfiesRange(nodeVersion: string, range: string = ARCHCONTEXT_NODE_RANGE): boolean {
   const comparators = range.trim().split(/\s+/).map((token) => {
