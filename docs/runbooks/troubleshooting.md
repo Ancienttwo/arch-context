@@ -6,7 +6,7 @@ Runtime commands and runtime-dependent MCP tool calls normally start `archctxd` 
 
 ## Unsupported Node.js version
 
-`AC_NODE_VERSION_UNSUPPORTED` means the process runs a Node.js outside `>=22.22 <26`. `error.details.nodeVersion` and `error.details.supportedRange` name both. The error is not retryable: switch to a supported Node.js and rerun the command. No daemon was started.
+`AC_NODE_VERSION_UNSUPPORTED` means the process runs a Node.js outside `>=22.22 <27`. `error.details.nodeVersion` and `error.details.supportedRange` name both. The error is not retryable: switch to a supported Node.js and rerun the command. No daemon was started.
 
 ## Daemon left behind by a deleted worktree
 

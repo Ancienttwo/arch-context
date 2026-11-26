@@ -6,7 +6,7 @@ No Cloud account, subscription, or LLM provider is required for Local Core.
 
 ## Prerequisites
 
-- Node.js 24.x or 25.x.
+- Node.js 24.x, 25.x or 26.x.
 - Bun matching the repository `packageManager`.
 - A Git repository on the local machine.
 
